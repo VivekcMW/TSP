@@ -1,57 +1,90 @@
-import { ArrowRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Zap } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { Link } from "wouter";
 
 export function Hero() {
+  const { user } = useAuth();
+
   return (
-    <section className="relative min-h-[85vh] flex items-center justify-center overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/10" />
-      <div className="absolute top-20 left-10 w-72 h-72 bg-primary/10 rounded-full blur-3xl" />
-      <div className="absolute bottom-20 right-10 w-96 h-96 bg-accent/10 rounded-full blur-3xl" />
-      
-      <div className="relative max-w-7xl mx-auto px-6 py-20 text-center">
-        <Badge variant="secondary" className="mb-6 px-4 py-2">
-          <Sparkles className="w-3 h-3 mr-2" />
-          AI-Powered Thought Leadership
-        </Badge>
-        
-        <h1 className="text-4xl md:text-5xl lg:text-6xl font-semibold tracking-tight mb-6 max-w-4xl mx-auto leading-tight" data-testid="text-hero-headline">
-          Build Your Authority on{" "}
-          <span className="text-primary">LinkedIn & Twitter</span>
-        </h1>
-        
-        <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed" data-testid="text-hero-subtext">
-          TheSocialPundit curates relevant industry content and transforms it into 
-          opinionated posts written in your unique voice. Build your personal brand 
-          in under 5 minutes a day.
-        </p>
-        
-        <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-          <a href="/api/login">
-            <Button size="lg" className="px-8" data-testid="button-cta-primary">
-              Get Started Free
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </a>
-          <a href="#features">
-            <Button variant="outline" size="lg" className="px-8" data-testid="button-cta-secondary">
-              See How It Works
-            </Button>
-          </a>
-        </div>
-        
-        <div className="mt-16 flex flex-wrap justify-center gap-8 text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-status-online rounded-full" />
-            <span>No credit card required</span>
+    <section className="py-20 lg:py-28" data-testid="section-hero">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+          <div className="space-y-8">
+            <Badge variant="secondary" className="text-xs font-semibold tracking-wider uppercase px-3 py-1.5">
+              AI-Driven Authority Engine
+            </Badge>
+            
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight" data-testid="text-hero-headline">
+              Turn News into{" "}
+              <span className="text-primary">Thought Leadership</span>.
+            </h1>
+            
+            <p className="text-lg text-muted-foreground max-w-lg" data-testid="text-hero-subtext">
+              TheSocialPundit scans your industry's news and drafts high-signal social posts in your unique voice. Build your professional narrative in minutes, not hours.
+            </p>
+            
+            <div className="flex flex-wrap items-center gap-4">
+              {user ? (
+                <Link href="/dashboard">
+                  <Button size="lg" data-testid="button-dashboard">
+                    Go to Dashboard
+                  </Button>
+                </Link>
+              ) : (
+                <>
+                  <a href="/api/login">
+                    <Button size="lg" data-testid="button-cta-primary">
+                      Get Started Free
+                    </Button>
+                  </a>
+                  <a href="#how-it-works">
+                    <Button variant="outline" size="lg" data-testid="button-cta-secondary">
+                      See How It Works
+                    </Button>
+                  </a>
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-status-online rounded-full" />
-            <span>Setup in 60 seconds</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-status-online rounded-full" />
-            <span>Cancel anytime</span>
+          
+          <div className="relative">
+            <Card className="p-6 space-y-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
+                  <Zap className="w-4 h-4 text-primary-foreground" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Social Inbox</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Matched to your profile</p>
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                <div className="p-4 bg-muted/50 rounded-md">
+                  <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                    <span className="text-xs font-medium text-primary uppercase tracking-wide">TechCrunch</span>
+                    <span className="text-xs text-muted-foreground">Just Now</span>
+                  </div>
+                  <p className="text-sm font-medium">Stripe unbundles its payment stack...</p>
+                </div>
+                
+                <div className="flex justify-center py-2">
+                  <div className="w-6 h-6 rounded-full border-2 border-muted flex items-center justify-center">
+                    <div className="w-2 h-2 rounded-full bg-muted-foreground"></div>
+                  </div>
+                </div>
+                
+                <div className="p-4 bg-primary/10 rounded-md border border-primary/20">
+                  <p className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">AI Drafted POV</p>
+                  <p className="text-sm italic text-foreground/80">
+                    "Stripe isn't just unbundling; they're commoditizing the competition. The next phase of Fintech won't be about infrastructure, it will be about the distribution layer..."
+                  </p>
+                </div>
+              </div>
+            </Card>
           </div>
         </div>
       </div>

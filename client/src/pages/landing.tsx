@@ -1,9 +1,9 @@
 import { Navbar } from "@/components/landing/navbar";
 import { Hero } from "@/components/landing/hero";
-import { Stats } from "@/components/landing/stats";
-import { Features } from "@/components/landing/features";
-import { Pricing } from "@/components/landing/pricing";
-import { CTA } from "@/components/landing/cta";
+import { Comparison } from "@/components/landing/comparison";
+import { AIPov } from "@/components/landing/ai-pov";
+import { UseCases } from "@/components/landing/use-cases";
+import { HowItWorks } from "@/components/landing/how-it-works";
 import { Footer } from "@/components/landing/footer";
 
 export default function LandingPage() {
@@ -12,10 +12,10 @@ export default function LandingPage() {
       <Navbar />
       <main>
         <Hero />
-        <Stats />
-        <Features />
-        <Pricing />
-        <CTA />
+        <Comparison />
+        <AIPov />
+        <UseCases />
+        <HowItWorks />
       </main>
       <Footer />
     </div>
