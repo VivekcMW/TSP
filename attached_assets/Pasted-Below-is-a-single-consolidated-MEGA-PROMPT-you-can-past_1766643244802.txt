@@ -1,0 +1,328 @@
+Below is a **single, consolidated MEGA PROMPT** you can paste directly into **Replit AI / Replit Agent**.
+It unifies **design + auth + LinkedIn onboarding + core Pundit logic + inbox + AI drafting + posting**, written so Replit thinks like a **full product team**, not just a coder.
+
+You do **not** need to be an engineer to use this. This prompt is intentionally explicit.
+
+---
+
+# 🚀 MEGA PROMPT — BUILD THE SOCIALPUNDIT (END-TO-END SAAS)
+
+## ROLE & OBJECTIVE
+
+You are a **Principal SaaS Product Architect, UX Designer, Full-Stack Engineer, and AI Systems Designer**.
+
+Your task is to build a **production-ready B2B SaaS application** called **TheSocialPundit**.
+
+TheSocialPundit helps professionals build authority on **LinkedIn and Twitter/X** by:
+
+* Understanding who they are
+* Curating relevant industry content
+* Turning news into opinionated social posts written in the **user’s POV**
+
+This is **not just a website**.
+It is a **logged-in product with real workflows**.
+
+---
+
+## 🧠 PRODUCT PHILOSOPHY (IMPORTANT)
+
+* Minimal user input
+* AI suggests first, user confirms
+* Inbox feels curated, not noisy
+* Posts feel human, not AI-generated
+* Trust, transparency, and control at every step
+
+---
+
+## 🏗️ TECH CONSTRAINTS (NON-NEGOTIABLE)
+
+* Frontend + Backend in Replit
+* Firebase used for:
+
+  * Authentication
+  * Firestore database
+* Gemini (Google AI) used for:
+
+  * Profile inference
+  * Content curation logic
+  * Draft generation
+* Mobile-first, modern SaaS UI
+* Dark-mode ready
+
+---
+
+## 🔐 STEP 1: AUTHENTICATION FLOW
+
+Build authentication using **Firebase Auth** with:
+
+* Google login
+* Email + password
+* LinkedIn OAuth (used mainly for onboarding)
+
+After login:
+
+* Create a `users` document using Firebase UID
+* Set:
+
+  * role = free
+  * onboardingStatus = pending
+
+If onboarding is not completed → force onboarding flow.
+
+---
+
+## 🔗 STEP 2: LINKEDIN-BASED ONBOARDING (CORE DIFFERENTIATOR)
+
+### UX
+
+Show a screen:
+
+> “Set up your profile in under 60 seconds using LinkedIn.”
+
+Explain clearly:
+
+* What data is accessed
+* Why it’s used
+* That user can edit everything
+
+### System Logic
+
+Once LinkedIn access is granted:
+
+* Fetch profile data
+* Store raw data (read-only)
+* Parse role, industry, skills, experience
+* Infer professional identity
+
+---
+
+## ✍️ STEP 3: SINGLE USER INPUT (MINIMAL FORM)
+
+Ask the user **ONE question only**:
+
+> “In one line, describe who you are and what you want to share opinions about.”
+
+Use this input + LinkedIn data as the **core signal**.
+
+---
+
+## 🧠 STEP 4: AI-GENERATED PROFILE (THE PUNDIT BRAIN)
+
+Using LinkedIn + user sentence, generate:
+
+### 1️⃣ 20 Publications / Websites
+
+* Global + niche
+* Credible sources only
+* Include URL + reason
+
+### 2️⃣ 20 Buzzing Keywords / Topics
+
+* Trending, opinion-worthy
+* Not generic
+* Explain why each matters
+
+### 3️⃣ 20 Key Influencers / People
+
+* Founders, leaders, practitioners
+* Who sparks discussion
+
+### 4️⃣ 20 Key Companies
+
+* Market leaders + challengers
+* Explain what kind of news to watch
+
+Store all of this in Firestore as **AI-suggested data**.
+
+---
+
+## ✅ STEP 5: USER REVIEW & ACCEPTANCE
+
+Show the generated profile in a **clean review UI**.
+
+User can:
+
+* Accept all
+* Edit items
+* Remove items
+* Add their own
+
+Only after confirmation:
+
+* Mark onboardingStatus = completed
+* Lock profile as source of truth
+
+---
+
+## 📥 STEP 6: SOCIAL INBOX (CORE PRODUCT)
+
+### Inbox Logic
+
+Every day:
+
+* Combine:
+
+  * 20 keywords
+  * 20 influencers
+  * 20 companies
+* Create a pool of **60 tracking terms**
+
+Scan:
+
+* The 20 selected publications
+* Latest articles only
+
+Select articles where:
+
+* Any tracking term matches
+* Source is credible
+* Content is recent
+
+⚠️ HARD LIMIT:
+**Maximum 20 inbox items per user per day**
+
+---
+
+### Inbox Item UI
+
+Each item must show:
+
+* Headline
+* Source
+* Article URL
+* Matched keyword(s)
+* Short “Why this matters” summary
+
+Actions:
+
+* Generate post
+* Save
+* Dismiss
+
+---
+
+## ✍️ STEP 7: AI POST GENERATION
+
+When user clicks **Generate Post**:
+
+Ask:
+
+1. Platform:
+
+   * LinkedIn
+   * Twitter/X
+2. Tone:
+
+   * Professional
+   * Authoritative
+   * Contrarian
+   * AI-recommended
+
+Generate:
+
+* First-person POV post
+* Opinion-led (not summary)
+* Platform-native formatting
+* No AI clichés
+* Editable by user
+
+---
+
+## 📤 STEP 8: PUBLISHING
+
+Allow:
+
+* Post now
+* Save as draft
+* (Optional later) Schedule
+
+Respect:
+
+* Platform limits
+* Confirmation states
+* Error handling
+
+---
+
+## 🔄 STEP 9: LEARNING LOOP (BACKGROUND)
+
+System learns from:
+
+* Articles dismissed
+* Drafts edited
+* Posts published
+
+Use learning to:
+
+* Improve relevance
+* Adjust topic weighting
+* Suggest better content over time
+
+---
+
+## 🎨 DESIGN REQUIREMENTS
+
+* Clean SaaS aesthetic
+* Card-based inbox
+* Clear typography
+* Visual hierarchy
+* Subtle animations
+* Professional, premium feel
+
+---
+
+## 🔐 DATA STRUCTURE (HIGH LEVEL)
+
+Use Firestore collections:
+
+* users
+* linkedin_profiles_raw
+* linkedin_profiles_parsed
+* user_profiles
+* users/{uid}/interests
+* users/{uid}/companies
+* users/{uid}/people
+* ai_inferences
+* audit_logs
+* users/{uid}/inbox_items
+
+---
+
+## 🚫 HARD RULES
+
+* No long forms
+* No generic AI output
+* No noisy inbox
+* No content without user confirmation
+* Inbox must feel *curated*
+
+---
+
+## 🧭 SUCCESS CRITERIA
+
+The product is successful if:
+
+> “A busy professional logs in, finds relevant content, forms an opinion, and posts — in under 5 minutes.”
+
+---
+
+## FINAL INSTRUCTION
+
+Think like:
+
+* A premium SaaS founder
+* A product-led growth company
+* A trusted industry analyst
+
+Build **TheSocialPundit** as a **complete, working SaaS**, not a demo.
+
+---
+
+If you want next (after Replit):
+
+* Investor pitch narrative
+* MVP vs V1 feature cut
+* Monetization & pricing logic
+* Growth loops
+
+Just say the word.
