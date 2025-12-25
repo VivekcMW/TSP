@@ -40,8 +40,8 @@ export function Hero() {
                       Get Started Free
                     </Button>
                   </a>
-                  <a href="#how-it-works">
-                    <Button variant="outline" size="lg" data-testid="button-cta-secondary">
+                  <a href="/how-it-works" data-testid="link-cta-how-it-works">
+                    <Button variant="outline" size="lg">
                       See How It Works
                     </Button>
                   </a>

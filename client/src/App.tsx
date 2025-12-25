@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import LandingPage from "@/pages/landing";
 import PricingPage from "@/pages/pricing";
+import HowItWorksPage from "@/pages/how-it-works";
 import OnboardingPage from "@/pages/onboarding";
 import DashboardPage from "@/pages/dashboard";
 import DraftsPage from "@/pages/drafts";
@@ -80,6 +81,9 @@ function AppRoutes() {
     );
   }
 
+  const publicRoutes = ["/", "/pricing", "/how-it-works"];
+  const isPublicRoute = publicRoutes.includes(location);
+
   if (!isAuthenticated) {
     if (location.startsWith("/dashboard") || location === "/onboarding") {
       return <LandingPage />;
@@ -88,16 +92,18 @@ function AppRoutes() {
       <Switch>
         <Route path="/" component={LandingPage} />
         <Route path="/pricing" component={PricingPage} />
+        <Route path="/how-it-works" component={HowItWorksPage} />
         <Route component={LandingPage} />
       </Switch>
     );
   }
 
-  if (location === "/" || location === "/pricing") {
+  if (isPublicRoute) {
     return (
       <Switch>
         <Route path="/" component={LandingPage} />
         <Route path="/pricing" component={PricingPage} />
+        <Route path="/how-it-works" component={HowItWorksPage} />
       </Switch>
     );
   }

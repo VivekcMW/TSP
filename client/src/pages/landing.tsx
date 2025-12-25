@@ -4,7 +4,6 @@ import { Hero } from "@/components/landing/hero";
 import { Comparison } from "@/components/landing/comparison";
 import { AIPov } from "@/components/landing/ai-pov";
 import { UseCases } from "@/components/landing/use-cases";
-import { HowItWorks } from "@/components/landing/how-it-works";
 
 export default function LandingPage() {
   return (
@@ -15,7 +14,6 @@ export default function LandingPage() {
         <Comparison />
         <AIPov />
         <UseCases />
-        <HowItWorks />
       </main>
       <SiteFooter />
     </div>

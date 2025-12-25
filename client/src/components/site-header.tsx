@@ -11,8 +11,9 @@ export function SiteHeader() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
-    { href: "/", label: "Home" },
-    { href: "/pricing", label: "Pricing" },
+    { href: "/", label: "Home", slug: "home" },
+    { href: "/how-it-works", label: "How it Works", slug: "how-it-works" },
+    { href: "/pricing", label: "Pricing", slug: "pricing" },
   ];
 
   return (
@@ -32,7 +33,7 @@ export function SiteHeader() {
                   className={`text-sm font-medium transition-colors hover:text-primary ${
                     location === item.href ? "text-foreground" : "text-muted-foreground"
                   }`}
-                  data-testid={`link-nav-${item.label.toLowerCase()}`}
+                  data-testid={`link-nav-${item.slug}`}
                 >
                   {item.label}
                 </Link>
@@ -45,11 +46,11 @@ export function SiteHeader() {
             <div className="hidden md:block">
               {user ? (
                 <Link href="/dashboard" data-testid="link-header-dashboard">
-                  <Button>Dashboard</Button>
+                  <Button data-testid="button-header-dashboard">Dashboard</Button>
                 </Link>
               ) : (
                 <a href="/api/login" data-testid="link-header-login">
-                  <Button>Get Started</Button>
+                  <Button data-testid="button-header-login">Get Started</Button>
                 </a>
               )}
             </div>
@@ -76,7 +77,7 @@ export function SiteHeader() {
                   className={`text-sm font-medium py-2 transition-colors hover:text-primary ${
                     location === item.href ? "text-foreground" : "text-muted-foreground"
                   }`}
-                  data-testid={`link-mobile-nav-${item.label.toLowerCase()}`}
+                  data-testid={`link-mobile-nav-${item.slug}`}
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   {item.label}
@@ -86,11 +87,11 @@ export function SiteHeader() {
             <div className="pt-2 border-t">
               {user ? (
                 <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-dashboard">
-                  <Button className="w-full">Dashboard</Button>
+                  <Button className="w-full" data-testid="button-mobile-dashboard">Dashboard</Button>
                 </Link>
               ) : (
                 <a href="/api/login" data-testid="link-mobile-login">
-                  <Button className="w-full">Get Started</Button>
+                  <Button className="w-full" data-testid="button-mobile-login">Get Started</Button>
                 </a>
               )}
             </div>
