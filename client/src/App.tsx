@@ -12,6 +12,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import LandingPage from "@/pages/landing";
+import PricingPage from "@/pages/pricing";
 import OnboardingPage from "@/pages/onboarding";
 import DashboardPage from "@/pages/dashboard";
 import DraftsPage from "@/pages/drafts";
@@ -86,17 +87,24 @@ function AppRoutes() {
     return (
       <Switch>
         <Route path="/" component={LandingPage} />
+        <Route path="/pricing" component={PricingPage} />
         <Route component={LandingPage} />
       </Switch>
     );
   }
 
-  const onboardingComplete = profile?.onboardingStatus === "completed";
+  if (location === "/" || location === "/pricing") {
+    return (
+      <Switch>
+        <Route path="/" component={LandingPage} />
+        <Route path="/pricing" component={PricingPage} />
+      </Switch>
+    );
+  }
 
-  if (location === "/onboarding" || (!onboardingComplete && !profileLoading)) {
-    if (location !== "/onboarding") {
-      return <OnboardingPage />;
-    }
+  const onboardingComplete = (profile as { onboardingStatus?: string })?.onboardingStatus === "completed";
+
+  if (location === "/onboarding" || (!onboardingComplete && !profileLoading && location.startsWith("/dashboard"))) {
     return (
       <Switch>
         <Route path="/onboarding" component={OnboardingPage} />
@@ -105,15 +113,10 @@ function AppRoutes() {
     );
   }
 
-  if (location === "/") {
-    return <DashboardRouter />;
-  }
-
   return (
     <Switch>
       <Route path="/dashboard/:rest*" component={DashboardRouter} />
       <Route path="/dashboard" component={DashboardRouter} />
-      <Route path="/" component={DashboardRouter} />
       <Route component={NotFound} />
     </Switch>
   );
