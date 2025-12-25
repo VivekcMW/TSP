@@ -1,16 +1,119 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
+import { useEffect } from "react";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/app-sidebar";
+import { useAuth } from "@/hooks/use-auth";
+import { Skeleton } from "@/components/ui/skeleton";
+
+import LandingPage from "@/pages/landing";
+import OnboardingPage from "@/pages/onboarding";
+import DashboardPage from "@/pages/dashboard";
+import DraftsPage from "@/pages/drafts";
+import PublishedPage from "@/pages/published";
+import AnalyticsPage from "@/pages/analytics";
+import SettingsPage from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
-function Router() {
+function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
+  const style = {
+    "--sidebar-width": "16rem",
+    "--sidebar-width-icon": "3rem",
+  };
+
+  return (
+    <SidebarProvider style={style as React.CSSProperties}>
+      <div className="flex h-screen w-full">
+        <AppSidebar />
+        <div className="flex flex-col flex-1 min-w-0">
+          <header className="flex items-center justify-between gap-4 p-3 border-b bg-background sticky top-0 z-10">
+            <SidebarTrigger data-testid="button-sidebar-toggle" />
+            <ThemeToggle />
+          </header>
+          <div className="flex-1 overflow-hidden">
+            {children}
+          </div>
+        </div>
+      </div>
+    </SidebarProvider>
+  );
+}
+
+function DashboardRouter() {
+  return (
+    <AuthenticatedLayout>
+      <Switch>
+        <Route path="/dashboard" component={DashboardPage} />
+        <Route path="/dashboard/drafts" component={DraftsPage} />
+        <Route path="/dashboard/published" component={PublishedPage} />
+        <Route path="/dashboard/analytics" component={AnalyticsPage} />
+        <Route path="/dashboard/settings" component={SettingsPage} />
+        <Route component={DashboardPage} />
+      </Switch>
+    </AuthenticatedLayout>
+  );
+}
+
+function AppRoutes() {
+  const { user, isLoading, isAuthenticated } = useAuth();
+  const [location, setLocation] = useLocation();
+
+  const { data: profile, isLoading: profileLoading } = useQuery({
+    queryKey: ["/api/profile"],
+    enabled: isAuthenticated,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="space-y-4 text-center">
+          <Skeleton className="h-12 w-12 rounded-full mx-auto" />
+          <Skeleton className="h-4 w-32 mx-auto" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    if (location.startsWith("/dashboard") || location === "/onboarding") {
+      return <LandingPage />;
+    }
+    return (
+      <Switch>
+        <Route path="/" component={LandingPage} />
+        <Route component={LandingPage} />
+      </Switch>
+    );
+  }
+
+  const onboardingComplete = profile?.onboardingStatus === "completed";
+
+  if (location === "/onboarding" || (!onboardingComplete && !profileLoading)) {
+    if (location !== "/onboarding") {
+      return <OnboardingPage />;
+    }
+    return (
+      <Switch>
+        <Route path="/onboarding" component={OnboardingPage} />
+        <Route component={OnboardingPage} />
+      </Switch>
+    );
+  }
+
+  if (location === "/") {
+    return <DashboardRouter />;
+  }
+
   return (
     <Switch>
-      {/* Add pages below */}
-      {/* <Route path="/" component={Home}/> */}
-      {/* Fallback to 404 */}
+      <Route path="/dashboard/:rest*" component={DashboardRouter} />
+      <Route path="/dashboard" component={DashboardRouter} />
+      <Route path="/" component={DashboardRouter} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -19,10 +122,12 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
+      <ThemeProvider defaultTheme="light" storageKey="socialpundit-theme">
+        <TooltipProvider>
+          <Toaster />
+          <AppRoutes />
+        </TooltipProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
