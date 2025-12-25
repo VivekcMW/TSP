@@ -3,6 +3,9 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { isAuthenticated, registerAuthRoutes, setupAuth } from "./replit_integrations/auth";
 import { z } from "zod";
+import { db } from "./db";
+import { users } from "@shared/models/auth";
+import { eq } from "drizzle-orm";
 
 const completeOnboardingSchema = z.object({
   focusDescription: z.string().min(10).max(150).optional(),
@@ -28,12 +31,50 @@ const updateInboxItemSchema = z.object({
   status: z.enum(["active", "saved", "dismissed"]),
 });
 
+const completeRegistrationSchema = z.object({
+  firstName: z.string().min(1).max(50),
+  lastName: z.string().min(1).max(50),
+  city: z.string().min(1).max(100),
+  country: z.string().min(1).max(100),
+});
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   await setupAuth(app);
   registerAuthRoutes(app);
+
+  app.post("/api/complete-registration", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      const validation = completeRegistrationSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ message: "Invalid request data", errors: validation.error.errors });
+      }
+      
+      const { firstName, lastName, city, country } = validation.data;
+      
+      const [updatedUser] = await db
+        .update(users)
+        .set({
+          firstName,
+          lastName,
+          city,
+          country,
+          registrationCompleted: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, userId))
+        .returning();
+      
+      res.json(updatedUser);
+    } catch (error) {
+      console.error("Error completing registration:", error);
+      res.status(500).json({ message: "Failed to complete registration" });
+    }
+  });
 
   app.get("/api/profile", isAuthenticated, async (req: any, res) => {
     try {

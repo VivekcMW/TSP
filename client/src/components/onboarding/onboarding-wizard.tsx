@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Diamond, Target, Brain, Puzzle, Check, Sparkles } from "lucide-react";
+import { MessageCircle, Newspaper, Brain, Users, Check, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -56,6 +56,57 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
   const [customKeyword, setCustomKeyword] = useState("");
   const [customInfluencer, setCustomInfluencer] = useState("");
   const [customCompany, setCustomCompany] = useState("");
+  const [isGeneratingRecommendations, setIsGeneratingRecommendations] = useState(false);
+  const [hasGeneratedRecommendations, setHasGeneratedRecommendations] = useState(false);
+
+  const generateRecommendations = () => {
+    if (focusDescription.length < 20) return;
+    
+    setIsGeneratingRecommendations(true);
+    
+    setTimeout(() => {
+      const desc = focusDescription.toLowerCase();
+      
+      let recPublications: string[] = [];
+      let recKeywords: string[] = [];
+      let recInfluencers: string[] = [];
+      let recCompanies: string[] = [];
+      
+      if (desc.includes("fintech") || desc.includes("payment") || desc.includes("finance")) {
+        recPublications = ["TechCrunch", "Bloomberg", "The Information", "Protocol", "Forbes"];
+        recKeywords = ["Fintech", "B2B SaaS", "Product-Led Growth", "Fundraising", "Cloud Computing"];
+        recInfluencers = ["David Sacks", "Naval Ravikant", "Reid Hoffman", "Marc Andreessen", "Elad Gil"];
+        recCompanies = ["Stripe", "Plaid", "Shopify", "Salesforce", "HubSpot"];
+      } else if (desc.includes("ai") || desc.includes("machine learning") || desc.includes("artificial intelligence")) {
+        recPublications = ["MIT Technology Review", "Wired", "TechCrunch", "VentureBeat", "The Verge"];
+        recKeywords = ["AI", "Machine Learning", "Data Science", "Developer Tools", "Cloud Computing"];
+        recInfluencers = ["Sam Altman", "Jensen Huang", "Satya Nadella", "Andrew Chen", "Lenny Rachitsky"];
+        recCompanies = ["OpenAI", "Anthropic", "Datadog", "Snowflake", "MongoDB"];
+      } else if (desc.includes("product") || desc.includes("startup") || desc.includes("saas")) {
+        recPublications = ["Harvard Business Review", "First Round Review", "Stratechery", "A16Z Blog", "Product Hunt"];
+        recKeywords = ["Product Management", "Startup Growth", "B2B SaaS", "GTM Strategy", "Product-Led Growth"];
+        recInfluencers = ["Lenny Rachitsky", "Shreyas Doshi", "Julie Zhuo", "Jason Fried", "DHH"];
+        recCompanies = ["Notion", "Figma", "Linear", "Vercel", "Airtable"];
+      } else if (desc.includes("marketing") || desc.includes("growth")) {
+        recPublications = ["Morning Brew", "The Hustle", "Fast Company", "Axios", "Forbes"];
+        recKeywords = ["GTM Strategy", "Customer Success", "Product-Led Growth", "Leadership", "Remote Work"];
+        recInfluencers = ["Andrew Chen", "Casey Winters", "Hiten Shah", "Brian Chesky", "Tobi Lutke"];
+        recCompanies = ["HubSpot", "Shopify", "Supabase", "Retool", "Airtable"];
+      } else {
+        recPublications = samplePublications.slice(0, 8);
+        recKeywords = sampleKeywords.slice(0, 8);
+        recInfluencers = sampleInfluencers.slice(0, 8);
+        recCompanies = sampleCompanies.slice(0, 8);
+      }
+      
+      setSelectedPublications(recPublications);
+      setSelectedKeywords(recKeywords);
+      setSelectedInfluencers(recInfluencers);
+      setSelectedCompanies(recCompanies);
+      setIsGeneratingRecommendations(false);
+      setHasGeneratedRecommendations(true);
+    }, 1500);
+  };
 
   const toggleItem = (item: string, list: string[], setList: (items: string[]) => void) => {
     if (list.includes(item)) {
@@ -100,8 +151,8 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
 
         <Card data-testid="section-identity">
           <CardHeader className="flex flex-row items-start gap-4 space-y-0">
-            <div className="w-10 h-10 rounded-md bg-blue-500/10 flex items-center justify-center flex-shrink-0">
-              <Diamond className="w-5 h-5 text-blue-500" />
+            <div className="w-10 h-10 rounded-md bg-yellow-500/10 flex items-center justify-center flex-shrink-0">
+              <MessageCircle className="w-5 h-5 text-yellow-500" />
             </div>
             <div className="flex-1">
               <CardTitle className="text-lg">Who are you?</CardTitle>
@@ -110,7 +161,7 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
               </CardDescription>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <Textarea
               value={focusDescription}
               onChange={(e) => setFocusDescription(e.target.value)}
@@ -119,8 +170,34 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
               maxLength={200}
               data-testid="textarea-focus-description"
             />
-            <div className="text-xs text-muted-foreground text-right mt-2">
-              {focusDescription.length} / 200
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <span className="text-xs text-muted-foreground">
+                {focusDescription.length} / 200
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={generateRecommendations}
+                disabled={focusDescription.length < 20 || isGeneratingRecommendations}
+                data-testid="button-generate-recommendations"
+              >
+                {isGeneratingRecommendations ? (
+                  <>
+                    <Sparkles className="w-4 h-4 mr-2 animate-pulse" />
+                    Generating...
+                  </>
+                ) : hasGeneratedRecommendations ? (
+                  <>
+                    <Check className="w-4 h-4 mr-2" />
+                    Regenerate Recommendations
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    Generate Recommendations
+                  </>
+                )}
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -128,7 +205,7 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
         <Card data-testid="section-sources">
           <CardHeader className="flex flex-row items-start gap-4 space-y-0">
             <div className="w-10 h-10 rounded-md bg-red-500/10 flex items-center justify-center flex-shrink-0">
-              <Target className="w-5 h-5 text-red-500" />
+              <Newspaper className="w-5 h-5 text-red-500" />
             </div>
             <div className="flex-1">
               <CardTitle className="text-lg">Where do you get your news?</CardTitle>
@@ -206,7 +283,7 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
         <Card data-testid="section-connections">
           <CardHeader className="flex flex-row items-start gap-4 space-y-0">
             <div className="w-10 h-10 rounded-md bg-green-500/10 flex items-center justify-center flex-shrink-0">
-              <Puzzle className="w-5 h-5 text-green-500" />
+              <Users className="w-5 h-5 text-green-500" />
             </div>
             <div className="flex-1">
               <CardTitle className="text-lg">Who inspires you?</CardTitle>

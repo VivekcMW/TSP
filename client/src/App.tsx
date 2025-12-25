@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import LandingPage from "@/pages/landing";
 import PricingPage from "@/pages/pricing";
 import HowItWorksPage from "@/pages/how-it-works";
+import CompleteRegistrationPage from "@/pages/complete-registration";
 import OnboardingPage from "@/pages/onboarding";
 import DashboardPage from "@/pages/dashboard";
 import DraftsPage from "@/pages/drafts";
@@ -108,9 +109,31 @@ function AppRoutes() {
     );
   }
 
+  const typedUser = user as { registrationCompleted?: string | null; firstName?: string | null; lastName?: string | null } | null;
+  const registrationComplete = !!typedUser?.registrationCompleted;
   const onboardingComplete = (profile as { onboardingStatus?: string })?.onboardingStatus === "completed";
 
-  if (location === "/onboarding" || (!onboardingComplete && !profileLoading && location.startsWith("/dashboard"))) {
+  if (!registrationComplete && !profileLoading) {
+    return (
+      <CompleteRegistrationPage 
+        existingFirstName={typedUser?.firstName} 
+        existingLastName={typedUser?.lastName} 
+      />
+    );
+  }
+
+  if (profileLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="space-y-4 text-center">
+          <Skeleton className="h-12 w-12 rounded-full mx-auto" />
+          <Skeleton className="h-4 w-32 mx-auto" />
+        </div>
+      </div>
+    );
+  }
+
+  if (location === "/onboarding" || (!onboardingComplete && location.startsWith("/dashboard"))) {
     return (
       <Switch>
         <Route path="/onboarding" component={OnboardingPage} />
