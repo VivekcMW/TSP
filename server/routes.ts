@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq } from "drizzle-orm";
+import { analyzeProfessionalIdentity, generateArticleMatches, generatePostContent } from "./services/punditBrain";
 
 const completeOnboardingSchema = z.object({
   focusDescription: z.string().min(10).max(150).optional(),
@@ -140,6 +141,53 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/ai/analyze-identity", isAuthenticated, async (req: any, res) => {
+    try {
+      const { focusDescription } = req.body;
+      
+      if (!focusDescription || focusDescription.length < 10) {
+        return res.status(400).json({ message: "Please provide a description of at least 10 characters" });
+      }
+      
+      const analysis = await analyzeProfessionalIdentity(focusDescription);
+      
+      res.json({
+        primaryIndustry: analysis.primaryIndustry,
+        confidence: analysis.confidence,
+        subDomains: analysis.subDomains,
+        keywords: analysis.keywords.slice(0, 20),
+        publications: analysis.publications.slice(0, 20).map(p => p.name),
+        topics: analysis.topics.slice(0, 20).map(t => t.phrase),
+        personalities: analysis.personalities.slice(0, 20).map(p => p.name),
+        companies: analysis.companies.slice(0, 20).map(c => c.name),
+      });
+    } catch (error) {
+      console.error("Error analyzing identity:", error);
+      res.status(500).json({ message: "Failed to analyze professional identity" });
+    }
+  });
+
+  app.post("/api/ai/generate-post", isAuthenticated, async (req: any, res) => {
+    try {
+      const { headline, summary, source, platform, tone } = req.body;
+      
+      if (!headline || !platform || !tone) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+      
+      const content = await generatePostContent(
+        { headline, summary: summary || "", source: source || "" },
+        platform as "linkedin" | "twitter",
+        tone
+      );
+      
+      res.json({ content });
+    } catch (error) {
+      console.error("Error generating post:", error);
+      res.status(500).json({ message: "Failed to generate post content" });
+    }
+  });
+
   app.get("/api/inbox", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -178,45 +226,19 @@ export async function registerRoutes(
         });
       }
       
-      const timestamp = Date.now();
-      const randomKeyword = keywords[Math.floor(Math.random() * keywords.length)];
-      const randomPub = publications[Math.floor(Math.random() * Math.max(publications.length, 1))];
-      
-      const articleTemplates = [
-        {
-          headline: `Latest Trends in ${randomKeyword}: What Industry Leaders Are Saying`,
-          source: randomPub || "TechCrunch",
-          summary: `A deep dive into the evolving landscape of ${randomKeyword} and how top companies are adapting their strategies.`,
-        },
-        {
-          headline: `Why ${keywords[1] || randomKeyword} Will Define the Next Decade`,
-          source: publications[1] || "Harvard Business Review",
-          summary: `Industry experts weigh in on the transformative power of ${keywords[1] || randomKeyword} in modern business.`,
-        },
-        {
-          headline: `Breaking: Major Developments in ${keywords[2] || randomKeyword}`,
-          source: publications[2] || "The Verge",
-          summary: `New research reveals surprising insights about ${keywords[2] || randomKeyword} adoption rates.`,
-        },
-        {
-          headline: `Expert Analysis: The Future of ${randomKeyword}`,
-          source: publications[3] || "Forbes",
-          summary: `Leading analysts predict how ${randomKeyword} will reshape industries in the coming years.`,
-        },
-      ];
-      
       const numToCreate = Math.min(4, 10 - activeCount);
-      const createdItems = [];
       
-      for (let i = 0; i < numToCreate; i++) {
-        const template = articleTemplates[i % articleTemplates.length];
+      const articles = await generateArticleMatches(keywords, publications, numToCreate);
+      
+      const createdItems = [];
+      for (const article of articles) {
         const item = await storage.createInboxItem({
           userId,
-          headline: template.headline,
-          source: template.source,
-          articleUrl: `https://example.com/article-${timestamp}-${i}`,
-          summary: template.summary,
-          matchedKeywords: keywords.slice(0, Math.min(3, keywords.length)),
+          headline: article.headline,
+          source: article.source,
+          articleUrl: article.articleUrl,
+          summary: article.summary,
+          matchedKeywords: article.matchedKeywords,
           status: "active",
         });
         createdItems.push(item);

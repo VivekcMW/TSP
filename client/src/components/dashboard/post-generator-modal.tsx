@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Linkedin, RefreshCw, Send, Save } from "lucide-react";
 import { SiX } from "react-icons/si";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { apiRequest } from "@/lib/queryClient";
 import type { InboxItem } from "@shared/schema";
 
 interface PostGeneratorModalProps {
@@ -62,19 +63,44 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
   const [content, setContent] = useState<string>(samplePosts.professional);
   const [isGenerating, setIsGenerating] = useState(false);
 
+  const generateAIContent = async (selectedPlatform: string, selectedTone: string) => {
+    if (!item) return;
+    
+    setIsGenerating(true);
+    try {
+      const response = await apiRequest("POST", "/api/ai/generate-post", {
+        headline: item.headline,
+        summary: item.summary || "",
+        source: item.source,
+        platform: selectedPlatform,
+        tone: selectedTone,
+      });
+      
+      const data = await response.json();
+      setContent(data.content || samplePosts[selectedTone] || samplePosts.professional);
+    } catch (error) {
+      console.error("Error generating AI content:", error);
+      setContent(samplePosts[selectedTone] || samplePosts.professional);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && item) {
+      generateAIContent(platform, tone);
+    }
+  }, [isOpen, item?.id]);
+
   const handleToneChange = (newTone: string) => {
     if (newTone) {
       setTone(newTone);
-      setContent(samplePosts[newTone] || samplePosts.professional);
+      generateAIContent(platform, newTone);
     }
   };
 
   const handleRegenerate = () => {
-    setIsGenerating(true);
-    setTimeout(() => {
-      setContent(samplePosts[tone] || samplePosts.professional);
-      setIsGenerating(false);
-    }, 1000);
+    generateAIContent(platform, tone);
   };
 
   const characterLimit = platform === "twitter" ? 280 : 3000;

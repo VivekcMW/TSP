@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface OnboardingWizardProps {
   onComplete: (data: OnboardingData) => void;
@@ -58,54 +60,47 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
   const [customCompany, setCustomCompany] = useState("");
   const [isGeneratingRecommendations, setIsGeneratingRecommendations] = useState(false);
   const [hasGeneratedRecommendations, setHasGeneratedRecommendations] = useState(false);
+  const { toast } = useToast();
 
-  const generateRecommendations = () => {
+  const generateRecommendations = async () => {
     if (focusDescription.length < 20) return;
     
     setIsGeneratingRecommendations(true);
     
-    setTimeout(() => {
-      const desc = focusDescription.toLowerCase();
+    try {
+      const response = await apiRequest("POST", "/api/ai/analyze-identity", {
+        focusDescription,
+      });
       
-      let recPublications: string[] = [];
-      let recKeywords: string[] = [];
-      let recInfluencers: string[] = [];
-      let recCompanies: string[] = [];
+      const data = await response.json();
       
-      if (desc.includes("fintech") || desc.includes("payment") || desc.includes("finance")) {
-        recPublications = ["TechCrunch", "Bloomberg", "The Information", "Protocol", "Forbes"];
-        recKeywords = ["Fintech", "B2B SaaS", "Product-Led Growth", "Fundraising", "Cloud Computing"];
-        recInfluencers = ["David Sacks", "Naval Ravikant", "Reid Hoffman", "Marc Andreessen", "Elad Gil"];
-        recCompanies = ["Stripe", "Plaid", "Shopify", "Salesforce", "HubSpot"];
-      } else if (desc.includes("ai") || desc.includes("machine learning") || desc.includes("artificial intelligence")) {
-        recPublications = ["MIT Technology Review", "Wired", "TechCrunch", "VentureBeat", "The Verge"];
-        recKeywords = ["AI", "Machine Learning", "Data Science", "Developer Tools", "Cloud Computing"];
-        recInfluencers = ["Sam Altman", "Jensen Huang", "Satya Nadella", "Andrew Chen", "Lenny Rachitsky"];
-        recCompanies = ["OpenAI", "Anthropic", "Datadog", "Snowflake", "MongoDB"];
-      } else if (desc.includes("product") || desc.includes("startup") || desc.includes("saas")) {
-        recPublications = ["Harvard Business Review", "First Round Review", "Stratechery", "A16Z Blog", "Product Hunt"];
-        recKeywords = ["Product Management", "Startup Growth", "B2B SaaS", "GTM Strategy", "Product-Led Growth"];
-        recInfluencers = ["Lenny Rachitsky", "Shreyas Doshi", "Julie Zhuo", "Jason Fried", "DHH"];
-        recCompanies = ["Notion", "Figma", "Linear", "Vercel", "Airtable"];
-      } else if (desc.includes("marketing") || desc.includes("growth")) {
-        recPublications = ["Morning Brew", "The Hustle", "Fast Company", "Axios", "Forbes"];
-        recKeywords = ["GTM Strategy", "Customer Success", "Product-Led Growth", "Leadership", "Remote Work"];
-        recInfluencers = ["Andrew Chen", "Casey Winters", "Hiten Shah", "Brian Chesky", "Tobi Lutke"];
-        recCompanies = ["HubSpot", "Shopify", "Supabase", "Retool", "Airtable"];
-      } else {
-        recPublications = samplePublications.slice(0, 8);
-        recKeywords = sampleKeywords.slice(0, 8);
-        recInfluencers = sampleInfluencers.slice(0, 8);
-        recCompanies = sampleCompanies.slice(0, 8);
-      }
-      
-      setSelectedPublications(recPublications);
-      setSelectedKeywords(recKeywords);
-      setSelectedInfluencers(recInfluencers);
-      setSelectedCompanies(recCompanies);
-      setIsGeneratingRecommendations(false);
+      setSelectedPublications(data.publications || samplePublications.slice(0, 8));
+      setSelectedKeywords(data.keywords || sampleKeywords.slice(0, 8));
+      setSelectedInfluencers(data.personalities || sampleInfluencers.slice(0, 8));
+      setSelectedCompanies(data.companies || sampleCompanies.slice(0, 8));
       setHasGeneratedRecommendations(true);
-    }, 1500);
+      
+      toast({
+        title: "Recommendations generated",
+        description: `Identified industry: ${data.primaryIndustry || "General"}`,
+      });
+    } catch (error) {
+      console.error("Error generating recommendations:", error);
+      
+      setSelectedPublications(samplePublications.slice(0, 8));
+      setSelectedKeywords(sampleKeywords.slice(0, 8));
+      setSelectedInfluencers(sampleInfluencers.slice(0, 8));
+      setSelectedCompanies(sampleCompanies.slice(0, 8));
+      setHasGeneratedRecommendations(true);
+      
+      toast({
+        title: "Using default recommendations",
+        description: "We couldn't analyze your profile, but here are some suggestions to get started.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGeneratingRecommendations(false);
+    }
   };
 
   const toggleItem = (item: string, list: string[], setList: (items: string[]) => void) => {
