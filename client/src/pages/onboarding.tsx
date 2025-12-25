@@ -41,5 +41,5 @@ export default function OnboardingPage() {
     completeOnboardingMutation.mutate(data);
   };
 
-  return <OnboardingWizard onComplete={handleComplete} />;
+  return <OnboardingWizard onComplete={handleComplete} isPending={completeOnboardingMutation.isPending} />;
 }

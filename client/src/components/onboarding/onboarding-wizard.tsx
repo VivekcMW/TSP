@@ -1,14 +1,14 @@
 import { useState } from "react";
-import { Linkedin, Check, ArrowRight, ArrowLeft, Sparkles } from "lucide-react";
+import { Diamond, Target, Brain, Puzzle, Check, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
 
 interface OnboardingWizardProps {
   onComplete: (data: OnboardingData) => void;
+  isPending?: boolean;
 }
 
 interface OnboardingData {
@@ -47,43 +47,29 @@ const sampleCompanies = [
   "Confluent", "MongoDB", "Cloudflare", "Twilio", "Plaid"
 ];
 
-export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
-  const [step, setStep] = useState(1);
+export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWizardProps) {
   const [focusDescription, setFocusDescription] = useState("");
   const [selectedPublications, setSelectedPublications] = useState<string[]>([]);
   const [selectedKeywords, setSelectedKeywords] = useState<string[]>([]);
   const [selectedInfluencers, setSelectedInfluencers] = useState<string[]>([]);
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-
-  const totalSteps = 3;
-  const progress = (step / totalSteps) * 100;
-
-  const handleLinkedInConnect = () => {
-    setIsAnalyzing(true);
-    setTimeout(() => {
-      setIsAnalyzing(false);
-      setStep(2);
-    }, 1500);
-  };
-
-  const handleGenerateProfile = () => {
-    setIsAnalyzing(true);
-    setTimeout(() => {
-      setSelectedPublications(samplePublications.slice(0, 10));
-      setSelectedKeywords(sampleKeywords.slice(0, 10));
-      setSelectedInfluencers(sampleInfluencers.slice(0, 10));
-      setSelectedCompanies(sampleCompanies.slice(0, 10));
-      setIsAnalyzing(false);
-      setStep(3);
-    }, 2000);
-  };
+  const [customKeyword, setCustomKeyword] = useState("");
+  const [customInfluencer, setCustomInfluencer] = useState("");
+  const [customCompany, setCustomCompany] = useState("");
 
   const toggleItem = (item: string, list: string[], setList: (items: string[]) => void) => {
     if (list.includes(item)) {
       setList(list.filter(i => i !== item));
     } else {
       setList([...list, item]);
+    }
+  };
+
+  const addCustomItem = (value: string, list: string[], setList: (items: string[]) => void, setValue: (v: string) => void) => {
+    const trimmed = value.trim();
+    if (trimmed && !list.includes(trimmed)) {
+      setList([...list, trimmed]);
+      setValue("");
     }
   };
 
@@ -97,243 +83,237 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     });
   };
 
+  const isValid = focusDescription.length >= 10 && 
+    (selectedPublications.length > 0 || selectedKeywords.length > 0);
+
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <div className="sticky top-0 z-10 bg-background border-b">
-        <div className="max-w-3xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-muted-foreground">Step {step} of {totalSteps}</span>
-            <span className="text-sm font-medium">{Math.round(progress)}% complete</span>
-          </div>
-          <Progress value={progress} className="h-2" />
+    <div className="min-h-screen bg-background">
+      <div className="max-w-3xl mx-auto px-4 py-8 sm:py-12 space-y-6">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl sm:text-4xl font-bold mb-3" data-testid="text-onboarding-title">
+            Set up your profile
+          </h1>
+          <p className="text-muted-foreground">
+            Tell us about yourself so we can curate the perfect content for you.
+          </p>
         </div>
-      </div>
-      
-      <div className="flex-1 flex items-center justify-center py-12 px-6">
-        {step === 1 && (
-          <Card className="max-w-lg w-full">
-            <CardHeader className="text-center">
-              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                <Linkedin className="w-8 h-8 text-primary" />
-              </div>
-              <CardTitle className="text-2xl" data-testid="text-onboarding-title">Set Up Your Profile in 60 Seconds</CardTitle>
-              <CardDescription className="mt-2">
-                Connect your LinkedIn to automatically understand your professional identity, expertise, and interests.
+
+        <Card data-testid="section-identity">
+          <CardHeader className="flex flex-row items-start gap-4 space-y-0">
+            <div className="w-10 h-10 rounded-md bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+              <Diamond className="w-5 h-5 text-blue-500" />
+            </div>
+            <div className="flex-1">
+              <CardTitle className="text-lg">Who are you?</CardTitle>
+              <CardDescription className="mt-1">
+                Describe your role, expertise, and what topics you want to be known for.
               </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-3 text-sm">
-                <div className="flex items-start gap-3">
-                  <Check className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                  <span>We read your profile, skills, and experience</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <Check className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                  <span>AI suggests relevant topics and publications</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <Check className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                  <span>You can edit everything before confirming</span>
-                </div>
-              </div>
-              
-              <Button 
-                className="w-full" 
-                size="lg"
-                onClick={handleLinkedInConnect}
-                disabled={isAnalyzing}
-                data-testid="button-connect-linkedin"
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Textarea
+              value={focusDescription}
+              onChange={(e) => setFocusDescription(e.target.value)}
+              placeholder="e.g., I'm a VP of Product at a fintech startup. I care about cross-border payments, regulatory shifts, and product-led growth."
+              className="min-h-[100px] resize-none"
+              maxLength={200}
+              data-testid="textarea-focus-description"
+            />
+            <div className="text-xs text-muted-foreground text-right mt-2">
+              {focusDescription.length} / 200
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="section-sources">
+          <CardHeader className="flex flex-row items-start gap-4 space-y-0">
+            <div className="w-10 h-10 rounded-md bg-red-500/10 flex items-center justify-center flex-shrink-0">
+              <Target className="w-5 h-5 text-red-500" />
+            </div>
+            <div className="flex-1">
+              <CardTitle className="text-lg">Where do you get your news?</CardTitle>
+              <CardDescription className="mt-1">
+                Select publications and sources you trust and want us to monitor.
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {samplePublications.map((pub) => (
+                <Badge
+                  key={pub}
+                  variant={selectedPublications.includes(pub) ? "default" : "outline"}
+                  className="cursor-pointer"
+                  onClick={() => toggleItem(pub, selectedPublications, setSelectedPublications)}
+                  data-testid={`badge-pub-${pub.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  {selectedPublications.includes(pub) && <Check className="w-3 h-3 mr-1" />}
+                  {pub}
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="section-topics">
+          <CardHeader className="flex flex-row items-start gap-4 space-y-0">
+            <div className="w-10 h-10 rounded-md bg-pink-500/10 flex items-center justify-center flex-shrink-0">
+              <Brain className="w-5 h-5 text-pink-500" />
+            </div>
+            <div className="flex-1">
+              <CardTitle className="text-lg">What topics interest you?</CardTitle>
+              <CardDescription className="mt-1">
+                Pick keywords that match your expertise and the themes you want to post about.
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {sampleKeywords.map((keyword) => (
+                <Badge
+                  key={keyword}
+                  variant={selectedKeywords.includes(keyword) ? "default" : "outline"}
+                  className="cursor-pointer"
+                  onClick={() => toggleItem(keyword, selectedKeywords, setSelectedKeywords)}
+                  data-testid={`badge-keyword-${keyword.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  {selectedKeywords.includes(keyword) && <Check className="w-3 h-3 mr-1" />}
+                  {keyword}
+                </Badge>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Input
+                value={customKeyword}
+                onChange={(e) => setCustomKeyword(e.target.value)}
+                placeholder="Add custom topic..."
+                className="flex-1"
+                onKeyDown={(e) => e.key === "Enter" && addCustomItem(customKeyword, selectedKeywords, setSelectedKeywords, setCustomKeyword)}
+                data-testid="input-custom-keyword"
+              />
+              <Button
+                variant="outline"
+                onClick={() => addCustomItem(customKeyword, selectedKeywords, setSelectedKeywords, setCustomKeyword)}
+                disabled={!customKeyword.trim()}
+                data-testid="button-add-keyword"
               >
-                {isAnalyzing ? (
-                  <>
-                    <Sparkles className="w-4 h-4 mr-2 animate-pulse" />
-                    Analyzing your profile...
-                  </>
-                ) : (
-                  <>
-                    <Linkedin className="w-4 h-4 mr-2" />
-                    Connect with LinkedIn
-                  </>
-                )}
+                Add
               </Button>
-              
-              <button 
-                className="w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => setStep(2)}
-                data-testid="button-skip-linkedin"
-              >
-                Skip for now
-              </button>
-            </CardContent>
-          </Card>
-        )}
-        
-        {step === 2 && (
-          <Card className="max-w-lg w-full">
-            <CardHeader className="text-center">
-              <CardTitle className="text-2xl" data-testid="text-focus-title">Define Your Focus</CardTitle>
-              <CardDescription className="mt-2">
-                In one line, describe who you are and what you want to share opinions about.
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="section-connections">
+          <CardHeader className="flex flex-row items-start gap-4 space-y-0">
+            <div className="w-10 h-10 rounded-md bg-green-500/10 flex items-center justify-center flex-shrink-0">
+              <Puzzle className="w-5 h-5 text-green-500" />
+            </div>
+            <div className="flex-1">
+              <CardTitle className="text-lg">Who inspires you?</CardTitle>
+              <CardDescription className="mt-1">
+                Select influencers and companies whose content and perspectives you admire.
               </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-3">
-                <Textarea 
-                  value={focusDescription}
-                  onChange={(e) => setFocusDescription(e.target.value)}
-                  placeholder="e.g., I'm a product manager in fintech who wants to share insights on AI and product strategy"
-                  className="min-h-[120px] resize-none"
-                  maxLength={150}
-                  data-testid="textarea-focus-description"
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div>
+              <p className="text-sm font-medium mb-3">Thought Leaders</p>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {sampleInfluencers.map((influencer) => (
+                  <Badge
+                    key={influencer}
+                    variant={selectedInfluencers.includes(influencer) ? "default" : "outline"}
+                    className="cursor-pointer"
+                    onClick={() => toggleItem(influencer, selectedInfluencers, setSelectedInfluencers)}
+                    data-testid={`badge-influencer-${influencer.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    {selectedInfluencers.includes(influencer) && <Check className="w-3 h-3 mr-1" />}
+                    {influencer}
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  value={customInfluencer}
+                  onChange={(e) => setCustomInfluencer(e.target.value)}
+                  placeholder="Add someone else..."
+                  className="flex-1"
+                  onKeyDown={(e) => e.key === "Enter" && addCustomItem(customInfluencer, selectedInfluencers, setSelectedInfluencers, setCustomInfluencer)}
+                  data-testid="input-custom-influencer"
                 />
-                <div className="text-xs text-muted-foreground text-right">
-                  {focusDescription.length} / 150 characters
-                </div>
-              </div>
-              
-              <div className="flex gap-3">
-                <Button 
-                  variant="outline" 
-                  onClick={() => setStep(1)}
-                  data-testid="button-back"
+                <Button
+                  variant="outline"
+                  onClick={() => addCustomItem(customInfluencer, selectedInfluencers, setSelectedInfluencers, setCustomInfluencer)}
+                  disabled={!customInfluencer.trim()}
+                  data-testid="button-add-influencer"
                 >
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Back
-                </Button>
-                <Button 
-                  className="flex-1" 
-                  onClick={handleGenerateProfile}
-                  disabled={focusDescription.length < 10 || isAnalyzing}
-                  data-testid="button-generate-profile"
-                >
-                  {isAnalyzing ? (
-                    <>
-                      <Sparkles className="w-4 h-4 mr-2 animate-pulse" />
-                      Generating your profile...
-                    </>
-                  ) : (
-                    <>
-                      Generate My Profile
-                      <ArrowRight className="w-4 h-4 ml-2" />
-                    </>
-                  )}
+                  Add
                 </Button>
               </div>
-            </CardContent>
-          </Card>
-        )}
-        
-        {step === 3 && (
-          <Card className="max-w-4xl w-full">
-            <CardHeader>
-              <CardTitle className="text-2xl" data-testid="text-review-title">Review Your AI-Generated Profile</CardTitle>
-              <CardDescription>
-                Click items to add or remove them. These will be used to curate your daily content inbox.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <Tabs defaultValue="publications" className="w-full">
-                <TabsList className="grid w-full grid-cols-4">
-                  <TabsTrigger value="publications" data-testid="tab-publications">
-                    Publications ({selectedPublications.length})
-                  </TabsTrigger>
-                  <TabsTrigger value="keywords" data-testid="tab-keywords">
-                    Keywords ({selectedKeywords.length})
-                  </TabsTrigger>
-                  <TabsTrigger value="influencers" data-testid="tab-influencers">
-                    Influencers ({selectedInfluencers.length})
-                  </TabsTrigger>
-                  <TabsTrigger value="companies" data-testid="tab-companies">
-                    Companies ({selectedCompanies.length})
-                  </TabsTrigger>
-                </TabsList>
-                
-                <TabsContent value="publications" className="mt-4">
-                  <div className="flex flex-wrap gap-2">
-                    {samplePublications.map((pub) => (
-                      <Badge 
-                        key={pub}
-                        variant={selectedPublications.includes(pub) ? "default" : "outline"}
-                        className="cursor-pointer"
-                        onClick={() => toggleItem(pub, selectedPublications, setSelectedPublications)}
-                        data-testid={`badge-pub-${pub.toLowerCase().replace(/\s+/g, '-')}`}
-                      >
-                        {pub}
-                      </Badge>
-                    ))}
-                  </div>
-                </TabsContent>
-                
-                <TabsContent value="keywords" className="mt-4">
-                  <div className="flex flex-wrap gap-2">
-                    {sampleKeywords.map((keyword) => (
-                      <Badge 
-                        key={keyword}
-                        variant={selectedKeywords.includes(keyword) ? "default" : "outline"}
-                        className="cursor-pointer"
-                        onClick={() => toggleItem(keyword, selectedKeywords, setSelectedKeywords)}
-                        data-testid={`badge-keyword-${keyword.toLowerCase().replace(/\s+/g, '-')}`}
-                      >
-                        {keyword}
-                      </Badge>
-                    ))}
-                  </div>
-                </TabsContent>
-                
-                <TabsContent value="influencers" className="mt-4">
-                  <div className="flex flex-wrap gap-2">
-                    {sampleInfluencers.map((influencer) => (
-                      <Badge 
-                        key={influencer}
-                        variant={selectedInfluencers.includes(influencer) ? "default" : "outline"}
-                        className="cursor-pointer"
-                        onClick={() => toggleItem(influencer, selectedInfluencers, setSelectedInfluencers)}
-                        data-testid={`badge-influencer-${influencer.toLowerCase().replace(/\s+/g, '-')}`}
-                      >
-                        {influencer}
-                      </Badge>
-                    ))}
-                  </div>
-                </TabsContent>
-                
-                <TabsContent value="companies" className="mt-4">
-                  <div className="flex flex-wrap gap-2">
-                    {sampleCompanies.map((company) => (
-                      <Badge 
-                        key={company}
-                        variant={selectedCompanies.includes(company) ? "default" : "outline"}
-                        className="cursor-pointer"
-                        onClick={() => toggleItem(company, selectedCompanies, setSelectedCompanies)}
-                        data-testid={`badge-company-${company.toLowerCase().replace(/\s+/g, '-')}`}
-                      >
-                        {company}
-                      </Badge>
-                    ))}
-                  </div>
-                </TabsContent>
-              </Tabs>
-              
-              <div className="flex gap-3 pt-4 border-t">
-                <Button 
-                  variant="outline" 
-                  onClick={() => setStep(2)}
-                  data-testid="button-back-to-focus"
+            </div>
+
+            <div>
+              <p className="text-sm font-medium mb-3">Companies to Watch</p>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {sampleCompanies.map((company) => (
+                  <Badge
+                    key={company}
+                    variant={selectedCompanies.includes(company) ? "default" : "outline"}
+                    className="cursor-pointer"
+                    onClick={() => toggleItem(company, selectedCompanies, setSelectedCompanies)}
+                    data-testid={`badge-company-${company.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    {selectedCompanies.includes(company) && <Check className="w-3 h-3 mr-1" />}
+                    {company}
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  value={customCompany}
+                  onChange={(e) => setCustomCompany(e.target.value)}
+                  placeholder="Add a company..."
+                  className="flex-1"
+                  onKeyDown={(e) => e.key === "Enter" && addCustomItem(customCompany, selectedCompanies, setSelectedCompanies, setCustomCompany)}
+                  data-testid="input-custom-company"
+                />
+                <Button
+                  variant="outline"
+                  onClick={() => addCustomItem(customCompany, selectedCompanies, setSelectedCompanies, setCustomCompany)}
+                  disabled={!customCompany.trim()}
+                  data-testid="button-add-company"
                 >
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Back
-                </Button>
-                <Button 
-                  className="flex-1" 
-                  onClick={handleComplete}
-                  data-testid="button-confirm-profile"
-                >
-                  <Check className="w-4 h-4 mr-2" />
-                  Confirm & Start
+                  Add
                 </Button>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="sticky bottom-0 bg-background/95 backdrop-blur py-4 border-t -mx-4 px-4">
+          <Button
+            size="lg"
+            className="w-full"
+            onClick={handleComplete}
+            disabled={!isValid || isPending}
+            data-testid="button-complete-onboarding"
+          >
+            {isPending ? (
+              <>
+                <Sparkles className="w-4 h-4 mr-2 animate-pulse" />
+                Creating your inbox...
+              </>
+            ) : (
+              <>
+                <Check className="w-4 h-4 mr-2" />
+                Complete Setup
+              </>
+            )}
+          </Button>
+          <p className="text-xs text-muted-foreground text-center mt-2">
+            You can update these preferences anytime in settings.
+          </p>
+        </div>
       </div>
     </div>
   );
