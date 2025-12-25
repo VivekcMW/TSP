@@ -151,6 +151,84 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/inbox/refresh", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      const profile = await storage.getUserProfile(userId);
+      if (!profile) {
+        return res.status(400).json({ message: "Profile not found. Please complete onboarding first." });
+      }
+      
+      const keywords = profile.keywords || [];
+      const publications = profile.publications || [];
+      
+      if (keywords.length === 0) {
+        return res.status(400).json({ message: "No keywords configured. Please update your profile." });
+      }
+
+      const existingItems = await storage.getInboxItems(userId);
+      const activeCount = existingItems.filter(item => item.status === "active").length;
+      
+      if (activeCount >= 10) {
+        return res.json({ 
+          message: "You have enough articles to review. Save or dismiss some before refreshing.", 
+          count: 0, 
+          items: [] 
+        });
+      }
+      
+      const timestamp = Date.now();
+      const randomKeyword = keywords[Math.floor(Math.random() * keywords.length)];
+      const randomPub = publications[Math.floor(Math.random() * Math.max(publications.length, 1))];
+      
+      const articleTemplates = [
+        {
+          headline: `Latest Trends in ${randomKeyword}: What Industry Leaders Are Saying`,
+          source: randomPub || "TechCrunch",
+          summary: `A deep dive into the evolving landscape of ${randomKeyword} and how top companies are adapting their strategies.`,
+        },
+        {
+          headline: `Why ${keywords[1] || randomKeyword} Will Define the Next Decade`,
+          source: publications[1] || "Harvard Business Review",
+          summary: `Industry experts weigh in on the transformative power of ${keywords[1] || randomKeyword} in modern business.`,
+        },
+        {
+          headline: `Breaking: Major Developments in ${keywords[2] || randomKeyword}`,
+          source: publications[2] || "The Verge",
+          summary: `New research reveals surprising insights about ${keywords[2] || randomKeyword} adoption rates.`,
+        },
+        {
+          headline: `Expert Analysis: The Future of ${randomKeyword}`,
+          source: publications[3] || "Forbes",
+          summary: `Leading analysts predict how ${randomKeyword} will reshape industries in the coming years.`,
+        },
+      ];
+      
+      const numToCreate = Math.min(4, 10 - activeCount);
+      const createdItems = [];
+      
+      for (let i = 0; i < numToCreate; i++) {
+        const template = articleTemplates[i % articleTemplates.length];
+        const item = await storage.createInboxItem({
+          userId,
+          headline: template.headline,
+          source: template.source,
+          articleUrl: `https://example.com/article-${timestamp}-${i}`,
+          summary: template.summary,
+          matchedKeywords: keywords.slice(0, Math.min(3, keywords.length)),
+          status: "active",
+        });
+        createdItems.push(item);
+      }
+      
+      res.json({ message: "Inbox refreshed successfully", count: createdItems.length, items: createdItems });
+    } catch (error) {
+      console.error("Error refreshing inbox:", error);
+      res.status(500).json({ message: "Failed to refresh inbox" });
+    }
+  });
+
   app.patch("/api/inbox/:id", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

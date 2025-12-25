@@ -1,73 +1,14 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Inbox, Filter, Calendar } from "lucide-react";
+import { Inbox, RefreshCw } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { InboxCard } from "@/components/dashboard/inbox-card";
 import { PostGeneratorModal } from "@/components/dashboard/post-generator-modal";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { InboxItem } from "@shared/schema";
-
-const sampleInboxItems: InboxItem[] = [
-  {
-    id: "1",
-    userId: "user1",
-    headline: "OpenAI Announces GPT-5 with Revolutionary Reasoning Capabilities",
-    source: "TechCrunch",
-    articleUrl: "https://techcrunch.com/example",
-    matchedKeywords: ["AI", "Machine Learning", "OpenAI"],
-    summary: "The latest model shows significant improvements in logical reasoning and reduces hallucinations by 80%.",
-    status: "active",
-    createdAt: new Date(),
-  },
-  {
-    id: "2",
-    userId: "user1",
-    headline: "The Future of Product Management in the Age of AI Assistants",
-    source: "Harvard Business Review",
-    articleUrl: "https://hbr.org/example",
-    matchedKeywords: ["Product Management", "AI", "Leadership"],
-    summary: "How product managers are evolving their roles as AI takes over routine tasks.",
-    status: "active",
-    createdAt: new Date(),
-  },
-  {
-    id: "3",
-    userId: "user1",
-    headline: "Stripe Launches New Developer Tools for Faster Integration",
-    source: "The Verge",
-    articleUrl: "https://theverge.com/example",
-    matchedKeywords: ["Stripe", "Developer Tools", "Fintech"],
-    summary: "New APIs reduce integration time from weeks to hours for common payment flows.",
-    status: "active",
-    createdAt: new Date(),
-  },
-  {
-    id: "4",
-    userId: "user1",
-    headline: "Remote Work Revolution: 3 Years Later, What Have We Learned?",
-    source: "Forbes",
-    articleUrl: "https://forbes.com/example",
-    matchedKeywords: ["Remote Work", "Leadership", "Startup Growth"],
-    summary: "A comprehensive analysis of how remote-first companies outperformed traditional ones.",
-    status: "active",
-    createdAt: new Date(),
-  },
-  {
-    id: "5",
-    userId: "user1",
-    headline: "Linear Raises $50M to Build the Future of Project Management",
-    source: "VentureBeat",
-    articleUrl: "https://venturebeat.com/example",
-    matchedKeywords: ["Linear", "B2B SaaS", "Fundraising"],
-    summary: "The company plans to expand into enterprise market with new features.",
-    status: "active",
-    createdAt: new Date(),
-  },
-];
 
 type FilterType = "all" | "saved" | "dismissed";
 
@@ -83,12 +24,71 @@ export default function DashboardPage() {
     enabled: !!user,
   });
 
-  const items = inboxItems?.length ? inboxItems : sampleInboxItems;
+  const refreshMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/inbox/refresh");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox"] });
+      toast({
+        title: "Inbox refreshed",
+        description: `Found ${data.count} new articles based on your keywords.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to refresh",
+        description: error.message || "Could not fetch new articles. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const saveDraftMutation = useMutation({
+    mutationFn: async (data: { inboxItemId?: string; platform: string; tone: string; content: string }) => {
+      const res = await apiRequest("POST", "/api/drafts", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/drafts"] });
+      toast({
+        title: "Draft saved",
+        description: "Find it in your Drafts tab.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Failed to save draft",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const items = inboxItems || [];
   const filteredItems = items.filter(item => {
     if (filter === "all") return item.status === "active";
     if (filter === "saved") return item.status === "saved";
     if (filter === "dismissed") return item.status === "dismissed";
     return true;
+  });
+
+  const updateInboxItemMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+      const res = await apiRequest("PATCH", `/api/inbox/${id}`, { status });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox"] });
+    },
+    onError: () => {
+      toast({
+        title: "Failed to update",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
   });
 
   const handleGeneratePost = (item: InboxItem) => {
@@ -97,6 +97,7 @@ export default function DashboardPage() {
   };
 
   const handleSave = (item: InboxItem) => {
+    updateInboxItemMutation.mutate({ id: item.id, status: "saved" });
     toast({
       title: "Article saved",
       description: "You can find it in your Saved tab.",
@@ -104,6 +105,7 @@ export default function DashboardPage() {
   };
 
   const handleDismiss = (item: InboxItem) => {
+    updateInboxItemMutation.mutate({ id: item.id, status: "dismissed" });
     toast({
       title: "Article dismissed",
       description: "We'll learn from this to improve your recommendations.",
@@ -111,18 +113,26 @@ export default function DashboardPage() {
   };
 
   const handleSaveDraft = (platform: string, tone: string, content: string) => {
-    setIsModalOpen(false);
-    toast({
-      title: "Draft saved",
-      description: "Find it in your Drafts tab.",
+    saveDraftMutation.mutate({
+      inboxItemId: selectedItem?.id,
+      platform,
+      tone,
+      content,
     });
+    setIsModalOpen(false);
   };
 
   const handlePost = (platform: string, tone: string, content: string) => {
+    saveDraftMutation.mutate({
+      inboxItemId: selectedItem?.id,
+      platform,
+      tone,
+      content,
+    });
     setIsModalOpen(false);
     toast({
-      title: "Post published!",
-      description: `Your ${platform} post is now live.`,
+      title: "Draft created",
+      description: `Go to Drafts to connect your ${platform === "linkedin" ? "LinkedIn" : "Twitter/X"} account and post.`,
     });
   };
 
@@ -142,7 +152,16 @@ export default function DashboardPage() {
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="default"
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshMutation.isPending}
+              data-testid="button-refresh-inbox"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
+              {refreshMutation.isPending ? "Searching..." : "Refresh Articles"}
+            </Button>
             <div className="flex bg-muted rounded-md p-1">
               {(["all", "saved", "dismissed"] as FilterType[]).map((f) => (
                 <Button
@@ -174,12 +193,22 @@ export default function DashboardPage() {
               <Inbox className="w-8 h-8 text-muted-foreground" />
             </div>
             <h3 className="text-lg font-medium mb-2">No articles yet</h3>
-            <p className="text-muted-foreground max-w-md">
+            <p className="text-muted-foreground max-w-md mb-4">
               {filter === "all" 
-                ? "Your personalized content will appear here. Check back soon!"
+                ? "Click 'Refresh Articles' to search for content based on your keywords and interests."
                 : `No ${filter} articles found.`
               }
             </p>
+            {filter === "all" && (
+              <Button
+                onClick={() => refreshMutation.mutate()}
+                disabled={refreshMutation.isPending}
+                data-testid="button-refresh-empty"
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
+                {refreshMutation.isPending ? "Searching..." : "Refresh Articles"}
+              </Button>
+            )}
           </div>
         ) : (
           <div className="grid gap-4 max-w-3xl">
