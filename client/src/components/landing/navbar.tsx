@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sparkles, Menu, X } from "lucide-react";
+import { Zap, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -15,11 +15,9 @@ export function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <nav className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between gap-4">
-        <a href="/" className="flex items-center gap-2" data-testid="link-logo">
-          <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
-            <Sparkles className="w-4 h-4 text-primary-foreground" />
-          </div>
-          <span className="font-semibold text-lg hidden sm:block">TheSocialPundit</span>
+        <a href="/" className="flex items-center gap-1" data-testid="link-logo">
+          <Zap className="w-6 h-6 text-primary fill-primary" />
+          <span className="font-bold text-xl text-primary hidden sm:block">TheSocialPundit</span>
         </a>
         
         <div className="hidden md:flex items-center gap-8">

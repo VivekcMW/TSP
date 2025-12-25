@@ -1,4 +1,4 @@
-import { Sparkles } from "lucide-react";
+import { Zap } from "lucide-react";
 import { SiLinkedin, SiX } from "react-icons/si";
 
 const footerLinks = {
@@ -14,11 +14,9 @@ export function Footer() {
       <div className="max-w-7xl mx-auto px-6 py-16">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
           <div className="col-span-2 md:col-span-1">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
-                <Sparkles className="w-4 h-4 text-primary-foreground" />
-              </div>
-              <span className="font-semibold">TheSocialPundit</span>
+            <div className="flex items-center gap-1 mb-4">
+              <Zap className="w-6 h-6 text-primary fill-primary" />
+              <span className="font-bold text-lg text-primary">TheSocialPundit</span>
             </div>
             <p className="text-sm text-muted-foreground mb-4">
               Build your professional authority with AI-powered content curation.

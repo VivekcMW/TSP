@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { Inbox, FileText, Send, Settings, Sparkles, LogOut, BarChart3 } from "lucide-react";
+import { Inbox, FileText, Send, Settings, Zap, LogOut, BarChart3 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -37,11 +37,9 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader className="p-4">
-        <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
-            <Sparkles className="w-4 h-4 text-primary-foreground" />
-          </div>
-          <span className="font-semibold">TheSocialPundit</span>
+        <Link href="/dashboard" className="flex items-center gap-1">
+          <Zap className="w-6 h-6 text-primary fill-primary" />
+          <span className="font-bold text-lg text-primary">TheSocialPundit</span>
         </Link>
       </SidebarHeader>
       

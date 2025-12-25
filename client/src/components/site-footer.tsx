@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { Zap } from "lucide-react";
 
 export function SiteFooter() {
   return (
@@ -6,8 +7,9 @@ export function SiteFooter() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
           <div className="col-span-2 md:col-span-1">
-            <Link href="/" className="text-lg font-bold" data-testid="link-footer-logo">
-              TheSocialPundit
+            <Link href="/" className="flex items-center gap-1" data-testid="link-footer-logo">
+              <Zap className="w-6 h-6 text-primary fill-primary" />
+              <span className="text-lg font-bold text-primary">TheSocialPundit</span>
             </Link>
             <p className="mt-4 text-sm text-muted-foreground">
               Turn industry news into thought leadership. Build your professional authority in minutes.

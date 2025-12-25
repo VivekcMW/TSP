@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Zap } from "lucide-react";
 
 export function SiteHeader() {
   const { user } = useAuth();
@@ -21,8 +21,9 @@ export function SiteHeader() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between gap-4">
           <div className="flex items-center gap-8">
-            <Link href="/" className="flex items-center gap-2" data-testid="link-logo">
-              <span className="text-xl font-bold">TheSocialPundit</span>
+            <Link href="/" className="flex items-center gap-1" data-testid="link-logo">
+              <Zap className="w-6 h-6 text-primary fill-primary" />
+              <span className="text-xl font-bold text-primary">TheSocialPundit</span>
             </Link>
             
             <nav className="hidden md:flex items-center gap-6">
