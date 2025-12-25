@@ -84,10 +84,11 @@ Analyze this professional identity and provide comprehensive recommendations. Re
 
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
-    contents: prompt,
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
 
-  const text = response.text || "";
+  const candidate = response.candidates?.[0];
+  const text = candidate?.content?.parts?.[0]?.text || "";
   
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
@@ -142,10 +143,11 @@ Return valid JSON only:
 
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
-    contents: prompt,
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
 
-  const text = response.text || "";
+  const candidate = response.candidates?.[0];
+  const text = candidate?.content?.parts?.[0]?.text || "";
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   
   if (!jsonMatch) {
@@ -204,8 +206,11 @@ Return only the post content, no quotes or explanation.`;
 
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
-    contents: prompt,
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
 
-  return response.text || "Check out this interesting article on industry trends!";
+  const candidate = response.candidates?.[0];
+  const text = candidate?.content?.parts?.[0]?.text || "";
+  
+  return text || "Check out this interesting article on industry trends!";
 }
