@@ -35,16 +35,16 @@ export function Hero() {
                 </Link>
               ) : (
                 <>
-                  <a href="/api/login">
+                  <Link href="/register">
                     <Button size="lg" data-testid="button-cta-primary">
                       Get Started Free
                     </Button>
-                  </a>
-                  <a href="/how-it-works" data-testid="link-cta-how-it-works">
+                  </Link>
+                  <Link href="/how-it-works" data-testid="link-cta-how-it-works">
                     <Button variant="outline" size="lg">
                       See How It Works
                     </Button>
-                  </a>
+                  </Link>
                 </>
               )}
             </div>

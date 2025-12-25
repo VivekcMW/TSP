@@ -14,6 +14,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import LandingPage from "@/pages/landing";
 import PricingPage from "@/pages/pricing";
 import HowItWorksPage from "@/pages/how-it-works";
+import LoginPage from "@/pages/login";
+import RegisterPage from "@/pages/register";
 import CompleteRegistrationPage from "@/pages/complete-registration";
 import OnboardingPage from "@/pages/onboarding";
 import DashboardPage from "@/pages/dashboard";
@@ -71,6 +73,15 @@ function AppRoutes() {
     enabled: isAuthenticated,
   });
 
+  useEffect(() => {
+    if (isAuthenticated && (location === "/login" || location === "/register")) {
+      setLocation("/dashboard");
+    }
+  }, [isAuthenticated, location, setLocation]);
+
+  const publicRoutes = ["/", "/pricing", "/how-it-works", "/login", "/register"];
+  const isPublicRoute = publicRoutes.includes(location);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -82,9 +93,6 @@ function AppRoutes() {
     );
   }
 
-  const publicRoutes = ["/", "/pricing", "/how-it-works"];
-  const isPublicRoute = publicRoutes.includes(location);
-
   if (!isAuthenticated) {
     if (location.startsWith("/dashboard") || location === "/onboarding") {
       return <LandingPage />;
@@ -94,12 +102,17 @@ function AppRoutes() {
         <Route path="/" component={LandingPage} />
         <Route path="/pricing" component={PricingPage} />
         <Route path="/how-it-works" component={HowItWorksPage} />
+        <Route path="/login" component={LoginPage} />
+        <Route path="/register" component={RegisterPage} />
         <Route component={LandingPage} />
       </Switch>
     );
   }
 
   if (isPublicRoute) {
+    if (location === "/login" || location === "/register") {
+      return null;
+    }
     return (
       <Switch>
         <Route path="/" component={LandingPage} />

@@ -50,9 +50,14 @@ export function SiteHeader() {
                   <Button data-testid="button-header-dashboard">Dashboard</Button>
                 </Link>
               ) : (
-                <a href="/api/login" data-testid="link-header-login">
-                  <Button data-testid="button-header-login">Get Started</Button>
-                </a>
+                <div className="flex items-center gap-2">
+                  <Link href="/login" data-testid="link-header-login">
+                    <Button variant="ghost" data-testid="button-header-login">Sign In</Button>
+                  </Link>
+                  <Link href="/register" data-testid="link-header-register">
+                    <Button data-testid="button-header-register">Get Started</Button>
+                  </Link>
+                </div>
               )}
             </div>
             <Button
@@ -91,9 +96,14 @@ export function SiteHeader() {
                   <Button className="w-full" data-testid="button-mobile-dashboard">Dashboard</Button>
                 </Link>
               ) : (
-                <a href="/api/login" data-testid="link-mobile-login">
-                  <Button className="w-full" data-testid="button-mobile-login">Get Started</Button>
-                </a>
+                <div className="flex flex-col gap-2">
+                  <Link href="/login" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-login">
+                    <Button variant="outline" className="w-full" data-testid="button-mobile-login">Sign In</Button>
+                  </Link>
+                  <Link href="/register" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-register">
+                    <Button className="w-full" data-testid="button-mobile-register">Get Started</Button>
+                  </Link>
+                </div>
               )}
             </div>
           </div>
