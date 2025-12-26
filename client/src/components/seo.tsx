@@ -9,7 +9,7 @@ interface SEOProps {
 
 const defaultTitle = "TheSocialPundit - Build Your Professional Authority on Social Media";
 const defaultDescription = "TheSocialPundit helps professionals build authority on LinkedIn and Twitter/X by curating relevant industry content and turning news into opinionated social posts written in your voice.";
-const siteUrl = "https://thesocialpundit.replit.app";
+const siteUrl = "https://www.thesocialpundit.com";
 
 export function SEO({ 
   title, 

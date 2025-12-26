@@ -8,7 +8,7 @@ Disallow: /onboarding
 Disallow: /api/
 
 # Sitemap location
-Sitemap: https://thesocialpundit.replit.app/sitemap.xml
+Sitemap: https://www.thesocialpundit.com/sitemap.xml
 
 # Crawl delay (optional - be polite to servers)
 Crawl-delay: 1
