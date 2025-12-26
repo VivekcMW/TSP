@@ -72,6 +72,7 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
         headline: item.headline,
         summary: item.summary || "",
         source: item.source,
+        articleUrl: item.articleUrl,
         platform: selectedPlatform,
         tone: selectedTone,
       });

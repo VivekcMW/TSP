@@ -195,14 +195,14 @@ export async function registerRoutes(
 
   app.post("/api/ai/generate-post", isAuthenticated, async (req: any, res) => {
     try {
-      const { headline, summary, source, platform, tone } = req.body;
+      const { headline, summary, source, articleUrl, platform, tone } = req.body;
       
       if (!headline || !platform || !tone) {
         return res.status(400).json({ message: "Missing required fields" });
       }
       
       const content = await generatePostContent(
-        { headline, summary: summary || "", source: source || "" },
+        { headline, summary: summary || "", source: source || "", articleUrl: articleUrl || "" },
         platform as "linkedin" | "twitter",
         tone
       );

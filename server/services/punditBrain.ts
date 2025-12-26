@@ -231,7 +231,7 @@ function generateFallbackArticles(
 }
 
 export async function generatePostContent(
-  article: { headline: string; summary: string; source: string },
+  article: { headline: string; summary: string; source: string; articleUrl?: string },
   platform: "linkedin" | "twitter",
   tone: string,
   userContext?: string
@@ -244,6 +244,7 @@ ARTICLE TO REFERENCE:
 Headline: ${article.headline}
 Summary: ${article.summary}
 Source: ${article.source}
+${article.articleUrl ? `Article URL: ${article.articleUrl}` : ""}
 
 TONE: ${tone}
 ${userContext ? `USER CONTEXT: ${userContext}` : ""}
@@ -254,6 +255,7 @@ Write a ${platform === "twitter" ? "tweet" : "LinkedIn post"} that:
 3. Sounds like an experienced advertising/media professional
 4. Uses the specified tone
 5. Is under ${charLimit} characters
+${article.articleUrl ? `6. Include the article URL at the end of the post for reference` : ""}
 
 Return only the post content, no quotes or explanation.`;
 
@@ -263,7 +265,15 @@ Return only the post content, no quotes or explanation.`;
   });
 
   const candidate = response.candidates?.[0];
-  const text = candidate?.content?.parts?.[0]?.text || "";
+  let text = candidate?.content?.parts?.[0]?.text || "";
   
-  return text || "Fascinating developments in our industry. What's your take on how this will reshape advertising?";
+  if (!text) {
+    text = "Fascinating developments in our industry. What's your take on how this will reshape advertising?";
+  }
+  
+  if (article.articleUrl && !text.includes(article.articleUrl)) {
+    text = text.trim() + `\n\n${article.articleUrl}`;
+  }
+  
+  return text;
 }
