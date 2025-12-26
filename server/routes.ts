@@ -100,6 +100,32 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/profile", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { focusDescription, publications, keywords, influencers, companies } = req.body;
+      
+      const existingProfile = await storage.getUserProfile(userId);
+      if (!existingProfile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+      
+      const updateData: any = {};
+      if (focusDescription !== undefined) updateData.focusDescription = focusDescription;
+      if (publications !== undefined) updateData.publications = publications;
+      if (keywords !== undefined) updateData.keywords = keywords;
+      if (influencers !== undefined) updateData.influencers = influencers;
+      if (companies !== undefined) updateData.companies = companies;
+      
+      const profile = await storage.updateUserProfile(userId, updateData);
+      
+      res.json(profile);
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      res.status(500).json({ message: "Failed to update profile" });
+    }
+  });
+
   app.post("/api/profile/complete-onboarding", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

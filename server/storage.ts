@@ -37,15 +37,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUserProfile(userId: string, data: Partial<InsertUserProfile>): Promise<UserProfile | undefined> {
-    const safeData = {
-      focusDescription: data.focusDescription,
-      onboardingStatus: data.onboardingStatus,
-      publications: data.publications,
-      keywords: data.keywords,
-      influencers: data.influencers,
-      companies: data.companies,
-      updatedAt: new Date(),
-    };
+    const safeData: Record<string, any> = { updatedAt: new Date() };
+    
+    if (data.focusDescription !== undefined) safeData.focusDescription = data.focusDescription;
+    if (data.onboardingStatus !== undefined) safeData.onboardingStatus = data.onboardingStatus;
+    if (data.publications !== undefined) safeData.publications = data.publications;
+    if (data.keywords !== undefined) safeData.keywords = data.keywords;
+    if (data.influencers !== undefined) safeData.influencers = data.influencers;
+    if (data.companies !== undefined) safeData.companies = data.companies;
     
     const [updated] = await db
       .update(userProfiles)

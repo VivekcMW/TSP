@@ -27,6 +27,7 @@ import DraftsPage from "@/pages/drafts";
 import PublishedPage from "@/pages/published";
 import AnalyticsPage from "@/pages/analytics";
 import SettingsPage from "@/pages/settings";
+import ProfileSettingsPage from "@/pages/profile-settings";
 import NotFound from "@/pages/not-found";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
@@ -61,6 +62,7 @@ function DashboardRouter() {
         <Route path="/dashboard/drafts" component={DraftsPage} />
         <Route path="/dashboard/published" component={PublishedPage} />
         <Route path="/dashboard/analytics" component={AnalyticsPage} />
+        <Route path="/dashboard/profile" component={ProfileSettingsPage} />
         <Route path="/dashboard/settings" component={SettingsPage} />
         <Route component={DashboardPage} />
       </Switch>

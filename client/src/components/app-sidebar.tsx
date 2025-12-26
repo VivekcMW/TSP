@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { Inbox, FileText, Send, Settings, Zap, LogOut, BarChart3 } from "lucide-react";
+import { Inbox, FileText, Send, Settings, Zap, LogOut, BarChart3, UserCog } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -23,6 +23,7 @@ const mainNav = [
 ];
 
 const settingsNav = [
+  { title: "Profile Settings", url: "/dashboard/profile", icon: UserCog },
   { title: "Settings", url: "/dashboard/settings", icon: Settings },
 ];
 
