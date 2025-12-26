@@ -62,6 +62,10 @@ class AuthStorage implements IAuthStorage {
     const hashedToken = createHash("sha256").update(rawToken).digest("hex");
     const expiry = new Date(Date.now() + 60 * 60 * 1000);
 
+    console.log("Password reset token generated for:", email);
+    console.log("Raw token (first 8 chars):", rawToken.substring(0, 8) + "...");
+    console.log("Token expires at:", expiry.toISOString());
+
     const [updatedUser] = await db
       .update(users)
       .set({
@@ -77,6 +81,9 @@ class AuthStorage implements IAuthStorage {
 
   async getUserByResetToken(token: string): Promise<User | undefined> {
     const hashedToken = createHash("sha256").update(token).digest("hex");
+    console.log("Verifying reset token - received token (first 8 chars):", token.substring(0, 8) + "...");
+    console.log("Hashed for lookup (first 16 chars):", hashedToken.substring(0, 16) + "...");
+    
     const [user] = await db
       .select()
       .from(users)
@@ -86,6 +93,8 @@ class AuthStorage implements IAuthStorage {
           gt(users.resetTokenExpiry, new Date())
         )
       );
+    
+    console.log("Token verification result:", user ? "User found - " + user.email : "No user found or token expired");
     return user;
   }
 
