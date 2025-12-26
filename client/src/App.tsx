@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import LandingPage from "@/pages/landing";
 import PricingPage from "@/pages/pricing";
 import HowItWorksPage from "@/pages/how-it-works";
+import IndustriesPage from "@/pages/industries";
 import LoginPage from "@/pages/login";
 import RegisterPage from "@/pages/register";
 import ForgotPasswordPage from "@/pages/forgot-password";
@@ -81,7 +82,7 @@ function AppRoutes() {
     }
   }, [isAuthenticated, location, setLocation]);
 
-  const publicRoutes = ["/", "/pricing", "/how-it-works", "/login", "/register", "/forgot-password"];
+  const publicRoutes = ["/", "/pricing", "/how-it-works", "/industries", "/login", "/register", "/forgot-password"];
   const isPublicRoute = publicRoutes.includes(location);
 
   if (isLoading) {
@@ -104,6 +105,7 @@ function AppRoutes() {
         <Route path="/" component={LandingPage} />
         <Route path="/pricing" component={PricingPage} />
         <Route path="/how-it-works" component={HowItWorksPage} />
+        <Route path="/industries" component={IndustriesPage} />
         <Route path="/login" component={LoginPage} />
         <Route path="/register" component={RegisterPage} />
         <Route path="/forgot-password" component={ForgotPasswordPage} />
@@ -122,6 +124,7 @@ function AppRoutes() {
         <Route path="/" component={LandingPage} />
         <Route path="/pricing" component={PricingPage} />
         <Route path="/how-it-works" component={HowItWorksPage} />
+        <Route path="/industries" component={IndustriesPage} />
       </Switch>
     );
   }
