@@ -4,10 +4,8 @@ import { Resend } from 'resend';
 const APP_URL = process.env.APP_URL || "https://www.thesocialpundit.com";
 const FROM_NAME = "TheSocialPundit";
 
-// Use Resend's test sender for development until domain is verified
-// Change this to your verified domain email once thesocialpundit.com is verified in Resend
-const TEST_FROM_EMAIL = "onboarding@resend.dev";
-const USE_TEST_SENDER = true; // Set to false once domain is verified
+// Once thesocialpundit.com is verified in Resend, emails will work automatically
+// The fromEmail comes from the Resend connector settings
 
 // Resend integration - get credentials from Replit connector
 let connectionSettings: any;
@@ -48,8 +46,7 @@ async function getResendClient() {
   const { apiKey, fromEmail } = await getCredentials();
   return {
     client: new Resend(apiKey),
-    // Use test sender during development, switch to verified domain sender for production
-    fromEmail: USE_TEST_SENDER ? TEST_FROM_EMAIL : fromEmail
+    fromEmail
   };
 }
 
