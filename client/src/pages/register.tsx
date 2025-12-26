@@ -11,6 +11,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ArrowLeft, UserPlus, Loader2 } from "lucide-react";
+import { SEO } from "@/components/seo";
 
 const registerSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -65,6 +66,11 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      <SEO 
+        title="Create Account"
+        canonical="/register"
+        description="Create your TheSocialPundit account and start building your professional authority on LinkedIn and Twitter with AI-powered content."
+      />
       <header className="flex items-center justify-between gap-4 p-4 border-b">
         <Link href="/">
           <Button variant="ghost" size="sm" data-testid="link-back-home">

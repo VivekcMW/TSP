@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Check, ArrowRight } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { SEO } from "@/components/seo";
 
 const starterFeatures = [
   { text: "5 Insight Items per day", included: true },
@@ -30,6 +31,11 @@ const teamFeatures = [
 export default function Pricing() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      <SEO 
+        title="Pricing"
+        canonical="/pricing"
+        description="Simple, value-based pricing for TheSocialPundit. Start free and scale your professional authority with plans starting at $0/month."
+      />
       <SiteHeader />
       
       <main className="flex-1">

@@ -1,0 +1,14 @@
+# Robots.txt for TheSocialPundit
+# https://www.robotstxt.org/
+
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /onboarding
+Disallow: /api/
+
+# Sitemap location
+Sitemap: https://thesocialpundit.replit.app/sitemap.xml
+
+# Crawl delay (optional - be polite to servers)
+Crawl-delay: 1

@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -5,10 +6,16 @@ import { Check } from "lucide-react";
 import { SiLinkedin, SiX } from "react-icons/si";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { SEO } from "@/components/seo";
 
 export default function HowItWorks() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      <SEO 
+        title="How It Works"
+        canonical="/how-it-works"
+        description="Learn how TheSocialPundit automates your professional narrative. From AI-powered content curation to one-click publishing on LinkedIn and Twitter."
+      />
       <SiteHeader />
       
       <main className="flex-1">
@@ -21,9 +28,9 @@ export default function HowItWorks() {
               <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
                 TheSocialPundit is an intelligence layer that sits between global industry news and your professional social presence.
               </p>
-              <a href="/api/login" data-testid="link-get-started-how-it-works">
+              <Link href="/register" data-testid="link-get-started-how-it-works">
                 <Button size="lg" data-testid="button-get-started-how-it-works">Get Started Free</Button>
-              </a>
+              </Link>
             </div>
             
             <div className="space-y-24">
