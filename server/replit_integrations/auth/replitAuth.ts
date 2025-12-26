@@ -7,6 +7,7 @@ import { authStorage } from "./storage";
 import connectPg from "connect-pg-simple";
 import { pool } from "../../db";
 import { z } from "zod";
+import { sendWelcomeEmail, sendPasswordResetEmail } from "../../services/emailService";
 
 const PostgresSessionStore = connectPg(session);
 
@@ -20,6 +21,15 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
   password: z.string().min(1, "Password is required"),
+});
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email("Invalid email address"),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(1, "Reset token is required"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
 export function getSession() {
@@ -117,6 +127,10 @@ export async function setupAuth(app: Express) {
         lastName: lastName || null,
       });
 
+      sendWelcomeEmail(email, firstName || "there").catch((err) => {
+        console.error("Failed to send welcome email:", err);
+      });
+
       req.login(user, (err) => {
         if (err) {
           return res.status(500).json({ message: "Failed to login after registration" });
@@ -186,6 +200,83 @@ export async function setupAuth(app: Express) {
         res.redirect("/");
       });
     });
+  });
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const validation = forgotPasswordSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          message: validation.error.errors[0]?.message || "Invalid email address",
+        });
+      }
+
+      const { email } = validation.data;
+      const result = await authStorage.setResetToken(email);
+
+      if (result) {
+        const firstName = result.user.firstName || "there";
+        sendPasswordResetEmail(email, firstName, result.token).catch((err) => {
+          console.error("Failed to send password reset email:", err);
+        });
+      }
+
+      res.json({
+        message: "If an account exists with this email, you will receive a password reset link.",
+      });
+    } catch (error) {
+      console.error("Forgot password error:", error);
+      res.status(500).json({ message: "Failed to process request" });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const validation = resetPasswordSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          message: validation.error.errors[0]?.message || "Invalid request",
+        });
+      }
+
+      const { token, password } = validation.data;
+
+      const user = await authStorage.getUserByResetToken(token);
+      if (!user) {
+        return res.status(400).json({
+          message: "Invalid or expired reset token. Please request a new password reset.",
+        });
+      }
+
+      const passwordHash = await bcrypt.hash(password, 10);
+      const updatedUser = await authStorage.resetPassword(token, passwordHash);
+
+      if (!updatedUser) {
+        return res.status(400).json({
+          message: "Failed to reset password. Please request a new reset link.",
+        });
+      }
+
+      res.json({ message: "Password reset successfully. You can now log in." });
+    } catch (error) {
+      console.error("Reset password error:", error);
+      res.status(500).json({ message: "Failed to reset password" });
+    }
+  });
+
+  app.get("/api/auth/verify-reset-token", async (req, res) => {
+    try {
+      const { token } = req.query;
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ valid: false, message: "Token is required" });
+      }
+
+      const user = await authStorage.getUserByResetToken(token);
+      res.json({ valid: !!user });
+    } catch (error) {
+      console.error("Verify reset token error:", error);
+      res.status(500).json({ valid: false, message: "Failed to verify token" });
+    }
   });
 }
 

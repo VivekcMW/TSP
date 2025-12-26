@@ -19,6 +19,7 @@ import IndustriesPage from "@/pages/industries";
 import LoginPage from "@/pages/login";
 import RegisterPage from "@/pages/register";
 import ForgotPasswordPage from "@/pages/forgot-password";
+import ResetPasswordPage from "@/pages/reset-password";
 import CompleteRegistrationPage from "@/pages/complete-registration";
 import OnboardingPage from "@/pages/onboarding";
 import DashboardPage from "@/pages/dashboard";
@@ -82,7 +83,7 @@ function AppRoutes() {
     }
   }, [isAuthenticated, location, setLocation]);
 
-  const publicRoutes = ["/", "/pricing", "/how-it-works", "/industries", "/login", "/register", "/forgot-password"];
+  const publicRoutes = ["/", "/pricing", "/how-it-works", "/industries", "/login", "/register", "/forgot-password", "/reset-password"];
   const isPublicRoute = publicRoutes.includes(location);
 
   if (isLoading) {
@@ -109,6 +110,7 @@ function AppRoutes() {
         <Route path="/login" component={LoginPage} />
         <Route path="/register" component={RegisterPage} />
         <Route path="/forgot-password" component={ForgotPasswordPage} />
+        <Route path="/reset-password" component={ResetPasswordPage} />
         <Route component={LandingPage} />
       </Switch>
     );

@@ -33,7 +33,17 @@ export default function ForgotPasswordPage() {
   async function onSubmit(data: ForgotPasswordFormValues) {
     setIsSubmitting(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: data.email }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to send reset email");
+      }
+      
       setIsSubmitted(true);
       toast({
         title: "Check your email",
@@ -43,7 +53,7 @@ export default function ForgotPasswordPage() {
       toast({
         variant: "destructive",
         title: "Something went wrong",
-        description: "Please try again later.",
+        description: err.message || "Please try again later.",
       });
     } finally {
       setIsSubmitting(false);
