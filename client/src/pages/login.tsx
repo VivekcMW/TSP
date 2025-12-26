@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { ArrowLeft, LogIn, Loader2 } from "lucide-react";
+import { ArrowLeft, LogIn, Loader2, Zap } from "lucide-react";
 import { SEO } from "@/components/seo";
 
 const loginSchema = z.object({
@@ -69,11 +69,19 @@ export default function LoginPage() {
 
       <main className="flex-1 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
-            <CardDescription>
-              Sign in to your account to continue
-            </CardDescription>
+          <CardHeader className="space-y-4">
+            <Link href="/">
+              <div className="flex items-center justify-center gap-2 cursor-pointer" data-testid="link-logo-header">
+                <Zap className="w-8 h-8 text-primary fill-primary" />
+                <span className="font-bold text-2xl text-primary">TheSocialPundit</span>
+              </div>
+            </Link>
+            <div className="space-y-1 text-center">
+              <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
+              <CardDescription>
+                Sign in to your account to continue
+              </CardDescription>
+            </div>
           </CardHeader>
           <CardContent>
             <Form {...form}>
@@ -106,7 +114,14 @@ export default function LoginPage() {
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Password</FormLabel>
+                      <div className="flex items-center justify-between gap-2">
+                        <FormLabel>Password</FormLabel>
+                        <Link href="/forgot-password">
+                          <span className="text-sm text-primary hover:underline underline-offset-4 cursor-pointer" data-testid="link-forgot-password">
+                            Forgot password?
+                          </span>
+                        </Link>
+                      </div>
                       <FormControl>
                         <Input
                           type="password"

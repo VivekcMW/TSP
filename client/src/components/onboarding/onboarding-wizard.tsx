@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MessageCircle, Newspaper, Brain, Users, Check, Sparkles, X } from "lucide-react";
+import { MessageCircle, Newspaper, Brain, Users, Check, Sparkles, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { Link } from "wouter";
 
 interface OnboardingWizardProps {
   onComplete: (data: OnboardingData) => void;
@@ -135,13 +136,21 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-3xl mx-auto px-4 py-8 sm:py-12 space-y-6">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl sm:text-4xl font-bold mb-3" data-testid="text-onboarding-title">
-            Set up your profile
-          </h1>
-          <p className="text-muted-foreground">
-            Tell us about yourself so we can curate the perfect content for you.
-          </p>
+        <div className="text-center mb-8 space-y-6">
+          <Link href="/">
+            <div className="flex items-center justify-center gap-2 cursor-pointer" data-testid="link-logo-onboarding">
+              <Zap className="w-10 h-10 text-primary fill-primary" />
+              <span className="font-bold text-3xl text-primary">TheSocialPundit</span>
+            </div>
+          </Link>
+          <div>
+            <h1 className="text-3xl sm:text-4xl font-bold mb-3" data-testid="text-onboarding-title">
+              Set up your profile
+            </h1>
+            <p className="text-muted-foreground">
+              Tell us about yourself so we can curate the perfect content for you.
+            </p>
+          </div>
         </div>
 
         <Card data-testid="section-identity">

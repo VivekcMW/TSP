@@ -17,6 +17,7 @@ import PricingPage from "@/pages/pricing";
 import HowItWorksPage from "@/pages/how-it-works";
 import LoginPage from "@/pages/login";
 import RegisterPage from "@/pages/register";
+import ForgotPasswordPage from "@/pages/forgot-password";
 import CompleteRegistrationPage from "@/pages/complete-registration";
 import OnboardingPage from "@/pages/onboarding";
 import DashboardPage from "@/pages/dashboard";
@@ -80,7 +81,7 @@ function AppRoutes() {
     }
   }, [isAuthenticated, location, setLocation]);
 
-  const publicRoutes = ["/", "/pricing", "/how-it-works", "/login", "/register"];
+  const publicRoutes = ["/", "/pricing", "/how-it-works", "/login", "/register", "/forgot-password"];
   const isPublicRoute = publicRoutes.includes(location);
 
   if (isLoading) {
@@ -105,13 +106,15 @@ function AppRoutes() {
         <Route path="/how-it-works" component={HowItWorksPage} />
         <Route path="/login" component={LoginPage} />
         <Route path="/register" component={RegisterPage} />
+        <Route path="/forgot-password" component={ForgotPasswordPage} />
         <Route component={LandingPage} />
       </Switch>
     );
   }
 
   if (isPublicRoute) {
-    if (location === "/login" || location === "/register") {
+    if (location === "/login" || location === "/register" || location === "/forgot-password") {
+      setLocation("/dashboard");
       return null;
     }
     return (
