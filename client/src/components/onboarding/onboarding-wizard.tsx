@@ -24,31 +24,33 @@ interface OnboardingData {
 }
 
 const samplePublications = [
-  "TechCrunch", "The Verge", "Harvard Business Review", "Forbes", "Wired",
-  "MIT Technology Review", "Fast Company", "Bloomberg", "The Information", "Axios",
-  "VentureBeat", "Protocol", "The Hustle", "Morning Brew", "Stratechery",
-  "A16Z Blog", "First Round Review", "Hacker News", "Product Hunt", "Indie Hackers"
+  "Ad Age", "Adweek", "Digiday", "Campaign", "The Drum",
+  "MediaPost", "Marketing Week", "Ad Exchanger", "MarTech",
+  "ExchangeWire", "Mumbrella", "Little Black Book", "Contagious",
+  "WARC", "Campaign Asia", "Brand Equity", "afaqs!", "exchange4media",
+  "BestMediaInfo", "Social Samosa"
 ];
 
 const sampleKeywords = [
-  "AI", "Machine Learning", "Product Management", "Startup Growth", "B2B SaaS",
-  "Leadership", "Remote Work", "Developer Tools", "Fundraising", "GTM Strategy",
-  "Customer Success", "Data Science", "Cloud Computing", "Fintech", "Web3",
-  "Product-Led Growth", "Design Thinking", "Agile", "DevOps", "Cybersecurity"
+  "Programmatic Advertising", "CTV Advertising", "Retail Media", "Brand Safety",
+  "Ad Tech", "MarTech", "Media Planning", "Creative Strategy", "Performance Marketing",
+  "Social Media Advertising", "Influencer Marketing", "OOH Advertising", "Audio Ads",
+  "Privacy-First Advertising", "First-Party Data", "Attribution", "Attention Metrics",
+  "Agency Pitch", "Media Buying", "DOOH"
 ];
 
 const sampleInfluencers = [
-  "Satya Nadella", "Jensen Huang", "Sam Altman", "Tobi Lutke", "Brian Chesky",
-  "David Sacks", "Jason Calacanis", "Naval Ravikant", "Paul Graham", "Marc Andreessen",
-  "Reid Hoffman", "Elad Gil", "Lenny Rachitsky", "Shreyas Doshi", "Julie Zhuo",
-  "Andrew Chen", "Casey Winters", "Hiten Shah", "Jason Fried", "DHH"
+  "Martin Sorrell", "Piyush Pandey", "Josy Paul", "Prasoon Joshi", "Sajan Raj Kurup",
+  "Ashish Bhasin", "CVL Srinivas", "Kartik Iyer", "Sam Balsara", "Vikram Sakhuja",
+  "Rana Barua", "Tarun Katial", "Shashi Sinha", "Prashant Kumar", "Anupriya Acharya",
+  "Ajay Kakar", "Sandeep Goyal", "Jaideep Gandhi", "Nandini Dias", "Tushar Vyas"
 ];
 
 const sampleCompanies = [
-  "OpenAI", "Anthropic", "Stripe", "Notion", "Figma",
-  "Linear", "Vercel", "Supabase", "Retool", "Airtable",
-  "Shopify", "Salesforce", "HubSpot", "Datadog", "Snowflake",
-  "Confluent", "MongoDB", "Cloudflare", "Twilio", "Plaid"
+  "WPP", "Publicis Groupe", "Omnicom", "Dentsu", "IPG",
+  "GroupM", "Mindshare", "Wavemaker", "Madison World", "DDB Mudra",
+  "Ogilvy", "Leo Burnett", "BBDO", "McCann", "Havas",
+  "The Trade Desk", "Meta", "Google Ads", "Amazon Advertising", "Disney Advertising"
 ];
 
 type Step = "identity" | "publications" | "topics" | "connections";
@@ -184,7 +186,7 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
               Set up your profile
             </h1>
             <p className="text-muted-foreground">
-              Tell us about yourself so we can curate the perfect content for you.
+              Tell us about your role in Media & Advertising so we can curate the perfect content for you.
             </p>
           </div>
         </div>
@@ -204,9 +206,9 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
                 <MessageCircle className="w-5 h-5 text-yellow-500" />
               </div>
               <div className="flex-1">
-                <CardTitle className="text-lg">Who are you?</CardTitle>
+                <CardTitle className="text-lg">What's your role in Media & Advertising?</CardTitle>
                 <CardDescription className="mt-1">
-                  Describe your role, expertise, and what topics you want to be known for.
+                  Describe your role, expertise, and what advertising topics you want to be known for.
                 </CardDescription>
               </div>
             </CardHeader>
@@ -214,7 +216,7 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
               <Textarea
                 value={focusDescription}
                 onChange={(e) => setFocusDescription(e.target.value)}
-                placeholder="e.g., I'm a VP of Product at a fintech startup. I care about cross-border payments, regulatory shifts, and product-led growth."
+                placeholder="e.g., I'm a Media Director at a digital agency. I focus on programmatic advertising, CTV campaigns, and retail media strategies."
                 className="min-h-[120px] resize-none"
                 maxLength={200}
                 data-testid="textarea-focus-description"
@@ -235,9 +237,9 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
                 <Newspaper className="w-5 h-5 text-red-500" />
               </div>
               <div className="flex-1">
-                <CardTitle className="text-lg">Where do you get your news?</CardTitle>
+                <CardTitle className="text-lg">Which ad industry publications do you follow?</CardTitle>
                 <CardDescription className="mt-1">
-                  Select publications and sources you trust and want us to monitor.
+                  Select advertising and media trade publications you trust.
                 </CardDescription>
               </div>
             </CardHeader>
@@ -270,9 +272,9 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
                 <Brain className="w-5 h-5 text-pink-500" />
               </div>
               <div className="flex-1">
-                <CardTitle className="text-lg">What topics interest you?</CardTitle>
+                <CardTitle className="text-lg">What advertising topics interest you?</CardTitle>
                 <CardDescription className="mt-1">
-                  Pick keywords that match your expertise and the themes you want to post about.
+                  Pick the media and advertising themes you want to post about.
                 </CardDescription>
               </div>
             </CardHeader>
@@ -323,15 +325,15 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
                 <Users className="w-5 h-5 text-green-500" />
               </div>
               <div className="flex-1">
-                <CardTitle className="text-lg">Who inspires you?</CardTitle>
+                <CardTitle className="text-lg">Who do you follow in the ad industry?</CardTitle>
                 <CardDescription className="mt-1">
-                  Select influencers and companies whose content and perspectives you admire.
+                  Select advertising leaders and companies whose perspectives you admire.
                 </CardDescription>
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <p className="text-sm font-medium mb-3">Thought Leaders</p>
+                <p className="text-sm font-medium mb-3">Ad Industry Leaders</p>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {sampleInfluencers.map((influencer) => (
                     <Badge
@@ -367,7 +369,7 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
               </div>
 
               <div>
-                <p className="text-sm font-medium mb-3">Companies to Watch</p>
+                <p className="text-sm font-medium mb-3">Agencies & Ad Platforms</p>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {sampleCompanies.map((company) => (
                     <Badge
