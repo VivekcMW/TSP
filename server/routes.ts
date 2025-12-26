@@ -7,6 +7,7 @@ import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq } from "drizzle-orm";
 import { analyzeProfessionalIdentity, generateArticleMatches, generatePostContent } from "./services/punditBrain";
+import { sendWelcomeEmail } from "./services/emailService";
 
 const completeOnboardingSchema = z.object({
   focusDescription: z.string().min(10).max(150).optional(),
@@ -370,6 +371,21 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting draft:", error);
       res.status(500).json({ message: "Failed to delete draft" });
+    }
+  });
+
+  // Test endpoint for sending welcome email (remove in production)
+  app.post("/api/test/welcome-email", async (req, res) => {
+    try {
+      const { email, firstName } = req.body;
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+      const result = await sendWelcomeEmail(email, firstName || "Test User");
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error sending test email:", error);
+      res.status(500).json({ message: error.message || "Failed to send email" });
     }
   });
 
