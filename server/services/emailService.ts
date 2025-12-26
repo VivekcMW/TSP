@@ -168,11 +168,20 @@ export async function sendPasswordResetEmail(
 
   try {
     const response = await client.messages.send({ message });
-    console.log("Password reset email sent to:", email);
-    return { 
-      success: true, 
-      messageId: Array.isArray(response) ? response[0]?._id : undefined 
-    };
+    console.log("Password reset email response:", JSON.stringify(response));
+    
+    // Check if the email was actually accepted
+    if (Array.isArray(response) && response.length > 0) {
+      const result = response[0];
+      if (result.status === 'rejected' || result.reject_reason) {
+        console.error("Password reset email rejected:", result.reject_reason || result.status);
+        return { success: false, error: result.reject_reason || 'Email rejected' };
+      }
+      console.log("Password reset email sent to:", email);
+      return { success: true, messageId: result._id };
+    }
+    
+    return { success: true };
   } catch (error: any) {
     console.error("Error sending password reset email:", error);
     return { success: false, error: error.message };
