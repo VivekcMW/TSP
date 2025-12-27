@@ -230,50 +230,254 @@ function generateFallbackArticles(
   }));
 }
 
+// Validation interface for post content
+interface PostValidation {
+  isValid: boolean;
+  errors: string[];
+}
+
+// Validate generated post content
+function validatePostContent(
+  content: string,
+  article: { headline: string; summary: string; source: string; articleUrl?: string },
+  platform: "linkedin" | "twitter"
+): PostValidation {
+  const errors: string[] = [];
+  
+  // Check URL is present (if article has URL)
+  if (article.articleUrl && !content.includes(article.articleUrl)) {
+    errors.push("Article URL missing");
+  }
+  
+  // Check publication is mentioned
+  const sourceLower = article.source.toLowerCase();
+  if (!content.toLowerCase().includes(sourceLower)) {
+    errors.push(`Publication "${article.source}" not mentioned`);
+  }
+  
+  // Check character limits for Twitter
+  if (platform === "twitter" && content.length > 280) {
+    errors.push(`Tweet exceeds 280 characters (${content.length} chars)`);
+  }
+  
+  // Check hashtag count for Twitter (max 2)
+  if (platform === "twitter") {
+    const hashtagCount = (content.match(/#\w+/g) || []).length;
+    if (hashtagCount > 2) {
+      errors.push(`Too many hashtags (${hashtagCount}, max 2)`);
+    }
+  }
+  
+  // Check for URL shorteners (not allowed)
+  const shortenerPatterns = /bit\.ly|tinyurl|t\.co|goo\.gl|ow\.ly|is\.gd|buff\.ly/i;
+  if (shortenerPatterns.test(content)) {
+    errors.push("Shortened URLs not allowed - use original source URL");
+  }
+  
+  // Check for multiple URLs (only one primary link allowed)
+  const urlMatches = content.match(/https?:\/\/[^\s)]+/g) || [];
+  if (urlMatches.length > 1) {
+    errors.push("Multiple URLs detected - only one primary link allowed");
+  }
+  
+  // Check for tracking parameters
+  if (article.articleUrl && content.includes("utm_")) {
+    errors.push("Tracking parameters (UTM) detected - use clean URL");
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+}
+
+// Generate LinkedIn-specific prompt
+function getLinkedInPrompt(
+  article: { headline: string; summary: string; source: string; articleUrl?: string },
+  tone: string,
+  userContext?: string
+): string {
+  return `You are a professional industry commentator writing in the user's own voice for LinkedIn.
+
+CRITICAL PHILOSOPHY:
+- You are REACTING to an article, NOT summarizing it
+- The user's POINT OF VIEW is the hero, not the article
+- Write as a human who just read something interesting and has thoughts about it
+- Treat the publication as a partner - drive traffic back to them
+
+ARTICLE REFERENCE:
+Headline: ${article.headline}
+Source: ${article.source}
+${article.articleUrl ? `URL: ${article.articleUrl}` : ""}
+Summary (for context only, DO NOT summarize): ${article.summary}
+
+TONE: ${tone}
+${userContext ? `USER CONTEXT: ${userContext}` : ""}
+
+LINKEDIN FORMAT REQUIREMENTS:
+1. START with a strong POV hook - your opinion, not the article headline
+2. Reference the article naturally in the middle (mention "${article.source}" by name)
+3. Insert the URL ONCE, cleanly: ${article.articleUrl || "[URL]"}
+4. END with an insight or thought-provoking question
+5. Maximum 3000 characters
+
+STRICT RULES:
+- NEVER copy article language verbatim
+- NEVER start with "I just read..." or "This article says..."
+- NEVER sound like an AI summary
+- ALWAYS mention the publication name "${article.source}"
+- ALWAYS include the exact URL: ${article.articleUrl || "[URL]"}
+- Write in first person with genuine opinion
+- One link only, no tracking parameters, no shortening
+
+Return ONLY the post content. No quotes, no explanation, no markdown formatting.`;
+}
+
+// Generate Twitter-specific prompt
+function getTwitterPrompt(
+  article: { headline: string; summary: string; source: string; articleUrl?: string },
+  tone: string,
+  userContext?: string
+): string {
+  return `You are a professional industry commentator writing a tweet in the user's own voice.
+
+CRITICAL PHILOSOPHY:
+- You are REACTING to an article, NOT summarizing it
+- Express YOUR point of view first
+- Write as a human, not an AI
+- Credit the publication
+
+ARTICLE REFERENCE:
+Headline: ${article.headline}
+Source: ${article.source}
+${article.articleUrl ? `URL: ${article.articleUrl}` : ""}
+
+TONE: ${tone}
+${userContext ? `USER CONTEXT: ${userContext}` : ""}
+
+TWITTER FORMAT REQUIREMENTS:
+1. Lead with your POV or hot take
+2. Mention "${article.source}" somewhere in the tweet
+3. Include the URL: ${article.articleUrl || "[URL]"}
+4. Maximum 1-2 hashtags
+5. MUST be under 280 characters total (including URL and hashtags)
+
+STRICT RULES:
+- NEVER exceed 280 characters
+- NEVER copy article language
+- NEVER sound like a summary
+- ALWAYS mention "${article.source}"
+- ALWAYS include the exact URL
+- One link only, no tracking params, no shortening
+- 1-2 hashtags maximum
+
+Return ONLY the tweet. No quotes, no explanation.`;
+}
+
+// Generate compliant fallback post
+function generateFallbackPost(
+  article: { headline: string; summary: string; source: string; articleUrl?: string },
+  platform: "linkedin" | "twitter",
+  tone: string
+): string {
+  const url = article.articleUrl || "";
+  const source = article.source;
+  
+  if (platform === "twitter") {
+    // Ensure under 280 chars
+    const baseText = `My take: This deserves attention. Great piece from ${source}.`;
+    const hashtag = "#AdTech";
+    const tweet = `${baseText}\n\n${url} ${hashtag}`;
+    return tweet.substring(0, 280);
+  }
+  
+  // LinkedIn fallback - starts with strong POV hook
+  return `We're underestimating how fast this is reshaping our industry.
+
+${source} just published something that validates what I've been thinking. The advertising landscape is shifting faster than most of us are adapting, and this piece crystallizes the stakes.
+
+My take: The professionals who lean into these changes now will be the ones defining best practices a year from now. The rest will be playing catch-up.
+
+Who else is seeing this in their work? I'm curious how others are responding.
+
+${url}`;
+}
+
 export async function generatePostContent(
   article: { headline: string; summary: string; source: string; articleUrl?: string },
   platform: "linkedin" | "twitter",
   tone: string,
   userContext?: string
 ): Promise<string> {
-  const charLimit = platform === "twitter" ? 280 : 3000;
+  const maxRetries = 2;
+  let lastContent = "";
+  let lastErrors: string[] = [];
   
-  const prompt = `You are a professional content writer helping a Media & Advertising professional build thought leadership on ${platform}.
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      // Build platform-specific prompt
+      let prompt = platform === "linkedin" 
+        ? getLinkedInPrompt(article, tone, userContext)
+        : getTwitterPrompt(article, tone, userContext);
+      
+      // Add retry feedback if this is a retry
+      if (attempt > 0 && lastErrors.length > 0) {
+        prompt += `\n\nPREVIOUS ATTEMPT FAILED. FIX THESE ISSUES:\n${lastErrors.map(e => `- ${e}`).join("\n")}\n\nGenerate a corrected version.`;
+      }
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      });
 
-ARTICLE TO REFERENCE:
-Headline: ${article.headline}
-Summary: ${article.summary}
-Source: ${article.source}
-${article.articleUrl ? `Article URL: ${article.articleUrl}` : ""}
-
-TONE: ${tone}
-${userContext ? `USER CONTEXT: ${userContext}` : ""}
-
-Write a ${platform === "twitter" ? "tweet" : "LinkedIn post"} that:
-1. Shares an insightful opinion about this advertising/media topic
-2. Adds value beyond just sharing the article
-3. Sounds like an experienced advertising/media professional
-4. Uses the specified tone
-5. Is under ${charLimit} characters
-${article.articleUrl ? `6. Include the article URL at the end of the post for reference` : ""}
-
-Return only the post content, no quotes or explanation.`;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
-
-  const candidate = response.candidates?.[0];
-  let text = candidate?.content?.parts?.[0]?.text || "";
-  
-  if (!text) {
-    text = "Fascinating developments in our industry. What's your take on how this will reshape advertising?";
+      const candidate = response.candidates?.[0];
+      let text = candidate?.content?.parts?.[0]?.text || "";
+      
+      // Clean up the response
+      text = text.trim();
+      
+      // Remove any markdown formatting the AI might have added
+      text = text.replace(/^["']|["']$/g, "");
+      text = text.replace(/^\*\*|\*\*$/g, "");
+      
+      if (!text) {
+        continue;
+      }
+      
+      // Ensure URL is present if available
+      if (article.articleUrl && !text.includes(article.articleUrl)) {
+        if (platform === "twitter") {
+          // For Twitter, insert URL more carefully to stay under limit
+          const urlLength = article.articleUrl.length;
+          const availableChars = 280 - urlLength - 2;
+          if (text.length > availableChars) {
+            text = text.substring(0, availableChars - 3) + "...";
+          }
+          text = text + "\n" + article.articleUrl;
+        } else {
+          text = text + "\n\n" + article.articleUrl;
+        }
+      }
+      
+      // Validate the content
+      const validation = validatePostContent(text, article, platform);
+      
+      if (validation.isValid) {
+        console.log(`Post generated successfully on attempt ${attempt + 1}`);
+        return text;
+      }
+      
+      // Store for retry feedback
+      lastContent = text;
+      lastErrors = validation.errors;
+      console.log(`Post validation failed (attempt ${attempt + 1}):`, validation.errors);
+      
+    } catch (error) {
+      console.error(`Error generating post (attempt ${attempt + 1}):`, error);
+    }
   }
   
-  if (article.articleUrl && !text.includes(article.articleUrl)) {
-    text = text.trim() + `\n\n${article.articleUrl}`;
-  }
-  
-  return text;
+  // All retries failed - use compliant fallback
+  console.log("Using fallback post after all retries failed");
+  return generateFallbackPost(article, platform, tone);
 }
