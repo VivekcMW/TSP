@@ -1,4 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
+import { fetchAllFeeds, matchArticlesToKeywords, MEDIA_ADVERTISING_FEEDS, RSSArticle } from "./rssService";
+
+export { MEDIA_ADVERTISING_FEEDS } from "./rssService";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.AI_INTEGRATIONS_GEMINI_API_KEY,
@@ -144,7 +147,50 @@ export interface ArticleMatch {
 export async function generateArticleMatches(
   keywords: string[],
   publications: string[],
-  count: number = 4
+  count: number = 8
+): Promise<ArticleMatch[]> {
+  console.log(`Fetching real articles from RSS feeds for keywords: ${keywords.slice(0, 5).join(", ")}`);
+  
+  try {
+    const allArticles = await fetchAllFeeds();
+    console.log(`Fetched ${allArticles.length} articles from RSS feeds`);
+    
+    if (allArticles.length === 0) {
+      console.log("No RSS articles found, using AI-generated summaries");
+      return generateAIArticles(keywords, publications, count);
+    }
+    
+    const matchedArticles = matchArticlesToKeywords(allArticles, keywords, count);
+    console.log(`Matched ${matchedArticles.length} articles to user keywords`);
+    
+    if (matchedArticles.length === 0) {
+      const topArticles = allArticles.slice(0, count);
+      return topArticles.map((article) => ({
+        headline: article.title,
+        source: article.source,
+        articleUrl: article.link,
+        summary: article.content.slice(0, 300) + (article.content.length > 300 ? "..." : ""),
+        matchedKeywords: article.categories || [],
+      }));
+    }
+    
+    return matchedArticles.map((article) => ({
+      headline: article.title,
+      source: article.source,
+      articleUrl: article.link,
+      summary: article.content.slice(0, 300) + (article.content.length > 300 ? "..." : ""),
+      matchedKeywords: article.categories || [],
+    }));
+  } catch (error) {
+    console.error("RSS fetch failed, using AI-generated articles:", error);
+    return generateAIArticles(keywords, publications, count);
+  }
+}
+
+async function generateAIArticles(
+  keywords: string[],
+  publications: string[],
+  count: number
 ): Promise<ArticleMatch[]> {
   const prompt = `You are a news curator for Media & Advertising professionals. Generate ${count} realistic article summaries about advertising, marketing, and media industry news.
 
