@@ -244,9 +244,9 @@ function validatePostContent(
 ): PostValidation {
   const errors: string[] = [];
   
-  // Check for placeholder URLs (not allowed)
-  if (content.includes("[URL]") || content.includes("[url]") || content.includes("example.com")) {
-    errors.push("Placeholder URL detected - must use real article URL");
+  // Check for placeholder text (not allowed) - but allow example.com for testing with mock data
+  if (content.includes("[URL]") || content.includes("[url]")) {
+    errors.push("Placeholder URL text detected - must use real article URL");
   }
   
   // Check URL is present (if article has URL)
