@@ -244,6 +244,11 @@ function validatePostContent(
 ): PostValidation {
   const errors: string[] = [];
   
+  // Check for placeholder URLs (not allowed)
+  if (content.includes("[URL]") || content.includes("[url]") || content.includes("example.com")) {
+    errors.push("Placeholder URL detected - must use real article URL");
+  }
+  
   // Check URL is present (if article has URL)
   if (article.articleUrl && !content.includes(article.articleUrl)) {
     errors.push("Article URL missing");
@@ -317,7 +322,7 @@ ${userContext ? `USER CONTEXT: ${userContext}` : ""}
 LINKEDIN FORMAT REQUIREMENTS:
 1. START with a strong POV hook - your opinion, not the article headline
 2. Reference the article naturally in the middle (mention "${article.source}" by name)
-3. Insert the URL ONCE, cleanly: ${article.articleUrl || "[URL]"}
+${article.articleUrl ? `3. Insert the URL ONCE, cleanly at the end: ${article.articleUrl}` : "3. No URL available - focus on the opinion and insight"}
 4. END with an insight or thought-provoking question
 5. Maximum 3000 characters
 
@@ -326,7 +331,7 @@ STRICT RULES:
 - NEVER start with "I just read..." or "This article says..."
 - NEVER sound like an AI summary
 - ALWAYS mention the publication name "${article.source}"
-- ALWAYS include the exact URL: ${article.articleUrl || "[URL]"}
+${article.articleUrl ? `- ALWAYS include the exact URL: ${article.articleUrl}` : "- Do NOT include any placeholder URLs like [URL] - only use real URLs"}
 - Write in first person with genuine opinion
 - One link only, no tracking parameters, no shortening
 
@@ -358,7 +363,7 @@ ${userContext ? `USER CONTEXT: ${userContext}` : ""}
 TWITTER FORMAT REQUIREMENTS:
 1. Lead with your POV or hot take
 2. Mention "${article.source}" somewhere in the tweet
-3. Include the URL: ${article.articleUrl || "[URL]"}
+${article.articleUrl ? `3. Include this exact URL: ${article.articleUrl}` : "3. No URL available - focus on your opinion"}
 4. Maximum 1-2 hashtags
 5. MUST be under 280 characters total (including URL and hashtags)
 
@@ -367,7 +372,7 @@ STRICT RULES:
 - NEVER copy article language
 - NEVER sound like a summary
 - ALWAYS mention "${article.source}"
-- ALWAYS include the exact URL
+${article.articleUrl ? `- ALWAYS include the exact URL: ${article.articleUrl}` : "- Do NOT include any placeholder text like [URL] - only use real URLs"}
 - One link only, no tracking params, no shortening
 - 1-2 hashtags maximum
 
