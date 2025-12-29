@@ -33,6 +33,7 @@ export const MEDIA_ADVERTISING_FEEDS: RSSFeed[] = [
   { name: "ExchangeWire", url: "https://www.exchangewire.com/feed/", category: "Ad Tech" },
   { name: "Martech", url: "https://martech.org/feed/", category: "MarTech" },
   { name: "Search Engine Land", url: "https://searchengineland.com/feed", category: "Search Marketing" },
+  { name: "PPC Land", url: "https://ppc.land/rss/", category: "Ad Tech" },
 ];
 
 async function fetchFeed(feed: RSSFeed): Promise<RSSArticle[]> {
