@@ -4,7 +4,7 @@ import {
   type InsertUserProfile, type InsertInboxItem, type InsertDraft
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -55,7 +55,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getInboxItems(userId: string): Promise<InboxItem[]> {
-    return await db.select().from(inboxItems).where(eq(inboxItems.userId, userId));
+    return await db.select().from(inboxItems).where(eq(inboxItems.userId, userId)).orderBy(desc(inboxItems.createdAt));
   }
 
   async createInboxItem(item: InsertInboxItem): Promise<InboxItem> {
