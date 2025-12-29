@@ -1,7 +1,10 @@
 import { useLocation, Link } from "wouter";
-import { Inbox, FileText, Send, Settings, Zap, LogOut, BarChart3, UserCog } from "lucide-react";
+import { Inbox, FileText, Send, Settings, Zap, LogOut, BarChart3, UserCog, TrendingUp, Flame } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Sidebar,
   SidebarContent,
@@ -27,9 +30,21 @@ const settingsNav = [
   { title: "Settings", url: "/dashboard/settings", icon: Settings },
 ];
 
+interface HotTrend {
+  topic: string;
+  count: number;
+  articles: { title: string; source: string; link: string }[];
+}
+
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, logout } = useAuth();
+
+  const { data: trends, isLoading: trendsLoading } = useQuery<HotTrend[]>({
+    queryKey: ["/api/trends"],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const initials = user?.firstName && user?.lastName 
     ? `${user.firstName[0]}${user.lastName[0]}` 
@@ -86,6 +101,54 @@ export function AppSidebar() {
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel className="flex items-center gap-2">
+            <Flame className="w-3 h-3 text-orange-500" />
+            Hot Trends
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <div className="px-2 space-y-2">
+              {trendsLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-8 w-full" />
+                  ))}
+                </div>
+              ) : trends && trends.length > 0 ? (
+                trends.map((trend, index) => (
+                  <div 
+                    key={trend.topic}
+                    className="p-2 rounded-md bg-sidebar-accent/50 hover-elevate cursor-pointer"
+                    data-testid={`trend-${index}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium truncate">{trend.topic}</span>
+                      <Badge variant="secondary" className="text-xs shrink-0">
+                        {trend.count}
+                      </Badge>
+                    </div>
+                    {trend.articles[0] && (
+                      <a 
+                        href={trend.articles[0].link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-muted-foreground truncate block mt-1 hover:text-foreground"
+                        data-testid={`trend-article-${index}`}
+                      >
+                        {trend.articles[0].source}
+                      </a>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-muted-foreground px-2">
+                  No trends available
+                </p>
+              )}
+            </div>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>

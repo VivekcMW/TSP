@@ -8,6 +8,7 @@ import { users } from "@shared/models/auth";
 import { eq } from "drizzle-orm";
 import { analyzeProfessionalIdentity, generateArticleMatches, generatePostContent } from "./services/punditBrain";
 import { sendWelcomeEmail } from "./services/emailService";
+import { getHotTrends } from "./services/rssService";
 
 const completeOnboardingSchema = z.object({
   focusDescription: z.string().min(10).max(150).optional(),
@@ -223,6 +224,16 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching inbox:", error);
       res.status(500).json({ message: "Failed to fetch inbox" });
+    }
+  });
+
+  app.get("/api/trends", isAuthenticated, async (req: any, res) => {
+    try {
+      const trends = await getHotTrends(5);
+      res.json(trends);
+    } catch (error) {
+      console.error("Error fetching trends:", error);
+      res.status(500).json({ message: "Failed to fetch trends" });
     }
   });
 

@@ -96,6 +96,73 @@ export async function fetchFeedsForPublications(publicationNames: string[]): Pro
   return articles;
 }
 
+export interface HotTrend {
+  topic: string;
+  count: number;
+  articles: { title: string; source: string; link: string }[];
+}
+
+export async function getHotTrends(maxTrends: number = 5): Promise<HotTrend[]> {
+  const articles = await fetchAllFeeds();
+  
+  const trendKeywords = [
+    { keyword: "artificial intelligence", display: "AI" },
+    { keyword: "machine learning", display: "Machine Learning" },
+    { keyword: "generative ai", display: "Generative AI" },
+    { keyword: "chatgpt", display: "ChatGPT" },
+    { keyword: "gemini", display: "Gemini" },
+    { keyword: "google ads", display: "Google Ads" },
+    { keyword: "meta ads", display: "Meta Ads" },
+    { keyword: "tiktok", display: "TikTok" },
+    { keyword: "youtube", display: "YouTube" },
+    { keyword: "twitter", display: "Twitter/X" },
+    { keyword: "programmatic", display: "Programmatic" },
+    { keyword: "connected tv", display: "CTV" },
+    { keyword: "streaming", display: "Streaming" },
+    { keyword: "retail media", display: "Retail Media" },
+    { keyword: "privacy", display: "Privacy" },
+    { keyword: "cookieless", display: "Cookieless" },
+    { keyword: "first-party data", display: "First-Party Data" },
+    { keyword: "influencer", display: "Influencer Marketing" },
+    { keyword: "creator economy", display: "Creator Economy" },
+    { keyword: "measurement", display: "Measurement" },
+    { keyword: "attribution", display: "Attribution" },
+    { keyword: "brand safety", display: "Brand Safety" },
+    { keyword: "ad fraud", display: "Ad Fraud" },
+    { keyword: "layoffs", display: "Industry Layoffs" },
+    { keyword: "acquisition", display: "M&A" },
+  ];
+  
+  const trendMap = new Map<string, { count: number; articles: { title: string; source: string; link: string }[] }>();
+  
+  articles.forEach((article) => {
+    const text = `${article.title} ${article.content}`.toLowerCase();
+    trendKeywords.forEach(({ keyword, display }) => {
+      const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      if (regex.test(text)) {
+        const existing = trendMap.get(display) || { count: 0, articles: [] };
+        existing.count++;
+        if (existing.articles.length < 3) {
+          existing.articles.push({
+            title: article.title,
+            source: article.source,
+            link: article.link,
+          });
+        }
+        trendMap.set(display, existing);
+      }
+    });
+  });
+  
+  const trends: HotTrend[] = Array.from(trendMap.entries())
+    .map(([topic, data]) => ({ topic, count: data.count, articles: data.articles }))
+    .filter((t) => t.count >= 2)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, maxTrends);
+  
+  return trends;
+}
+
 export function matchArticlesToKeywords(
   articles: RSSArticle[],
   keywords: string[],
