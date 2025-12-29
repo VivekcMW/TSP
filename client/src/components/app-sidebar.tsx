@@ -127,7 +127,7 @@ export function AppSidebar() {
                     className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-sm hover-elevate cursor-pointer"
                     data-testid={`trend-${index}`}
                   >
-                    <span className="truncate text-muted-foreground hover:text-foreground">{trend.topic}</span>
+                    <span className="truncate text-foreground/80 hover:text-foreground">{trend.topic}</span>
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
                       {trend.count}
                     </Badge>
