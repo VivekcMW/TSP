@@ -110,38 +110,28 @@ export function AppSidebar() {
             Hot Trends
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <div className="px-2 space-y-2">
+            <div className="px-2 space-y-1">
               {trendsLoading ? (
-                <div className="space-y-2">
+                <div className="space-y-1">
                   {[1, 2, 3].map((i) => (
-                    <Skeleton key={i} className="h-8 w-full" />
+                    <Skeleton key={i} className="h-6 w-full" />
                   ))}
                 </div>
               ) : trends && trends.length > 0 ? (
                 trends.map((trend, index) => (
-                  <div 
+                  <a 
                     key={trend.topic}
-                    className="p-2 rounded-md bg-sidebar-accent/50 hover-elevate cursor-pointer"
+                    href={trend.articles[0]?.link || "#"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-sm hover-elevate cursor-pointer"
                     data-testid={`trend-${index}`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium truncate">{trend.topic}</span>
-                      <Badge variant="secondary" className="text-xs shrink-0">
-                        {trend.count}
-                      </Badge>
-                    </div>
-                    {trend.articles[0] && (
-                      <a 
-                        href={trend.articles[0].link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-muted-foreground truncate block mt-1 hover:text-foreground"
-                        data-testid={`trend-article-${index}`}
-                      >
-                        {trend.articles[0].source}
-                      </a>
-                    )}
-                  </div>
+                    <span className="truncate text-muted-foreground hover:text-foreground">{trend.topic}</span>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
+                      {trend.count}
+                    </Badge>
+                  </a>
                 ))
               ) : (
                 <p className="text-xs text-muted-foreground px-2">
