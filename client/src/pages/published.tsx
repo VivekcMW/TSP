@@ -26,8 +26,8 @@ const samplePublished = [
 
 export default function PublishedPage() {
   return (
-    <div className="flex-1 overflow-hidden">
-      <header className="sticky top-0 z-10 bg-background border-b px-6 py-4">
+    <div className="flex flex-col h-full overflow-hidden">
+      <header className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
             <Send className="w-5 h-5 text-primary" />
@@ -41,7 +41,7 @@ export default function PublishedPage() {
         </div>
       </header>
       
-      <main className="p-6 overflow-y-auto h-[calc(100vh-80px)]">
+      <main className="flex-1 p-6 overflow-y-auto">
         {samplePublished.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">

@@ -10,8 +10,8 @@ const stats = [
 
 export default function AnalyticsPage() {
   return (
-    <div className="flex-1 overflow-hidden">
-      <header className="sticky top-0 z-10 bg-background border-b px-6 py-4">
+    <div className="flex flex-col h-full overflow-hidden">
+      <header className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
             <BarChart3 className="w-5 h-5 text-primary" />
@@ -25,7 +25,7 @@ export default function AnalyticsPage() {
         </div>
       </header>
       
-      <main className="p-6 overflow-y-auto h-[calc(100vh-80px)]">
+      <main className="flex-1 p-6 overflow-y-auto">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
           {stats.map((stat, index) => (
             <Card key={index} data-testid={`card-stat-${index}`}>
