@@ -4,22 +4,22 @@ import { Rocket, TrendingUp, Users, Briefcase } from "lucide-react";
 const roles = [
   {
     icon: Rocket,
-    title: "Agency Owners",
-    description: "Too busy running your agency to post? We curate what matters, you just add your take.",
+    title: "Founders & Executives",
+    description: "Too busy running your company to post? We curate what matters, you just add your take.",
   },
   {
     icon: TrendingUp,
-    title: "Media Directors",
-    description: "Stay ahead of industry shifts. Be the voice clients turn to for what's next.",
+    title: "Industry Leaders",
+    description: "Stay ahead of industry shifts. Be the voice people turn to for what's next.",
   },
   {
     icon: Users,
-    title: "Consultants",
+    title: "Consultants & Coaches",
     description: "Bill hours and build your brand. No more choosing one or the other.",
   },
   {
     icon: Briefcase,
-    title: "Brand Strategists",
+    title: "Subject Matter Experts",
     description: "Showcase your thinking daily. Let your expertise work for you 24/7.",
   },
 ];
@@ -29,10 +29,10 @@ export function UseCases() {
     <section className="py-20 lg:py-28" data-testid="section-use-cases">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-center mb-4">
-          Built for Media & Advertising pros.
+          Built for busy professionals.
         </h2>
         <p className="text-lg text-muted-foreground text-center mb-16 max-w-2xl mx-auto">
-          You're an expert. Let's make sure everyone knows it.
+          You're the expert in your field. Let's make sure everyone knows it.
         </p>
         
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

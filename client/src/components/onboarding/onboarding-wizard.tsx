@@ -186,7 +186,7 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
               Set up your profile
             </h1>
             <p className="text-muted-foreground">
-              Tell us about your role in Media & Advertising so we can curate the perfect content for you.
+              Tell us about your professional focus so we can curate the perfect content for you.
             </p>
           </div>
         </div>
@@ -206,9 +206,9 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
                 <MessageCircle className="w-5 h-5 text-yellow-500" />
               </div>
               <div className="flex-1">
-                <CardTitle className="text-lg">What's your role in Media & Advertising?</CardTitle>
+                <CardTitle className="text-lg">What's your professional focus?</CardTitle>
                 <CardDescription className="mt-1">
-                  Describe your role, expertise, and what advertising topics you want to be known for.
+                  Describe your role, expertise, and what topics you want to be known for.
                 </CardDescription>
               </div>
             </CardHeader>
@@ -216,7 +216,7 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
               <Textarea
                 value={focusDescription}
                 onChange={(e) => setFocusDescription(e.target.value)}
-                placeholder="e.g., I'm a Media Director at a digital agency. I focus on programmatic advertising, CTV campaigns, and retail media strategies."
+                placeholder="e.g., I'm a product leader at a fintech startup. I focus on product strategy, growth metrics, and building user-centric teams."
                 className="min-h-[120px] resize-none"
                 maxLength={200}
                 data-testid="textarea-focus-description"
@@ -237,9 +237,9 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
                 <Newspaper className="w-5 h-5 text-red-500" />
               </div>
               <div className="flex-1">
-                <CardTitle className="text-lg">Which ad industry publications do you follow?</CardTitle>
+                <CardTitle className="text-lg">Which industry publications do you follow?</CardTitle>
                 <CardDescription className="mt-1">
-                  Select advertising and media trade publications you trust.
+                  Select trade publications and news sources you trust.
                 </CardDescription>
               </div>
             </CardHeader>
@@ -272,9 +272,9 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
                 <Brain className="w-5 h-5 text-pink-500" />
               </div>
               <div className="flex-1">
-                <CardTitle className="text-lg">What advertising topics interest you?</CardTitle>
+                <CardTitle className="text-lg">What topics interest you?</CardTitle>
                 <CardDescription className="mt-1">
-                  Pick the media and advertising themes you want to post about.
+                  Pick the themes and subjects you want to post about.
                 </CardDescription>
               </div>
             </CardHeader>
