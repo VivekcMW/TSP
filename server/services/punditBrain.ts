@@ -252,28 +252,7 @@ function generateFallbackArticles(
   publications: string[],
   count: number
 ): ArticleMatch[] {
-  const adTopics = [
-    "Programmatic Advertising",
-    "CTV Ad Spending",
-    "Retail Media Networks",
-    "Brand Safety",
-    "Privacy-First Advertising",
-    "Creative Automation",
-    "Attention Metrics",
-    "Agency Consolidation"
-  ];
-  const adSources = [
-    "Ad Age", "Adweek", "Digiday", "Campaign", "The Drum", "MediaPost", "Marketing Week"
-  ];
-  
-  const timestamp = Date.now();
-  return Array.from({ length: count }, (_, i) => ({
-    headline: `Latest Developments in ${adTopics[i % adTopics.length]}`,
-    source: publications[i % Math.max(publications.length, 1)] || adSources[i % adSources.length],
-    articleUrl: `https://example.com/article-${timestamp}-${i}`,
-    summary: `An in-depth analysis of recent developments in ${adTopics[i % adTopics.length]} and what it means for advertising professionals.`,
-    matchedKeywords: keywords.slice(0, 3),
-  }));
+  return [];
 }
 
 // Validation interface for post content

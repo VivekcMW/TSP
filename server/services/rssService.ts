@@ -1,4 +1,5 @@
 import Parser from "rss-parser";
+import { validateUrlSync } from "./urlValidator.js";
 
 const parser = new Parser({
   timeout: 10000,
@@ -39,7 +40,7 @@ export const MEDIA_ADVERTISING_FEEDS: RSSFeed[] = [
 async function fetchFeed(feed: RSSFeed): Promise<RSSArticle[]> {
   try {
     const result = await parser.parseURL(feed.url);
-    return (result.items || []).slice(0, 10).map((item) => ({
+    const items = (result.items || []).slice(0, 15).map((item) => ({
       title: item.title || "Untitled",
       link: item.link || "",
       pubDate: item.pubDate || new Date().toISOString(),
@@ -47,6 +48,13 @@ async function fetchFeed(feed: RSSFeed): Promise<RSSArticle[]> {
       content: item.contentSnippet || item.content || item.summary || "",
       categories: item.categories || [feed.category],
     }));
+    
+    const validItems = items.filter((item) => {
+      if (!item.link) return false;
+      return validateUrlSync(item.link);
+    });
+    
+    return validItems.slice(0, 10);
   } catch (error) {
     console.error(`Failed to fetch RSS feed from ${feed.name}:`, error instanceof Error ? error.message : error);
     return [];

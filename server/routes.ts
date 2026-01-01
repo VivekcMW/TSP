@@ -10,6 +10,7 @@ import { analyzeProfessionalIdentity, generateArticleMatches, generatePostConten
 import { sendWelcomeEmail } from "./services/emailService";
 import { getHotTrends } from "./services/rssService";
 import { fetchArticleFromUrl } from "./services/urlFetcher";
+import { validateUrl, validateUrlSync } from "./services/urlValidator";
 
 const completeOnboardingSchema = z.object({
   focusDescription: z.string().min(10).max(150).optional(),
@@ -265,12 +266,31 @@ export async function registerRoutes(
         });
       }
       
-      const numToCreate = Math.min(4, 10 - activeCount);
+      const numToCreate = Math.min(10, 10 - activeCount);
       
-      const articles = await generateArticleMatches(keywords, publications, numToCreate);
+      const articles = await generateArticleMatches(keywords, publications, numToCreate + 5);
+      
+      const validatedArticles: typeof articles = [];
+      for (const article of articles) {
+        if (!article.articleUrl) continue;
+        
+        if (!validateUrlSync(article.articleUrl)) {
+          console.log(`Skipping article with invalid URL: ${article.articleUrl}`);
+          continue;
+        }
+        
+        const urlResult = await validateUrl(article.articleUrl, true);
+        if (!urlResult.isValid) {
+          console.log(`Skipping article - ${urlResult.reason}: ${article.articleUrl}`);
+          continue;
+        }
+        
+        validatedArticles.push(article);
+        if (validatedArticles.length >= numToCreate) break;
+      }
       
       const createdItems = [];
-      for (const article of articles) {
+      for (const article of validatedArticles) {
         const item = await storage.createInboxItem({
           userId,
           headline: article.headline,
