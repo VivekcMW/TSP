@@ -26,9 +26,15 @@ export function ThemeProvider({
   storageKey = "socialpundit-theme",
   ...props
 }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
-  );
+  const [theme, setTheme] = useState<Theme>(() => {
+    const storedTheme = localStorage.getItem(storageKey) as Theme;
+    if (storedTheme) {
+      return storedTheme;
+    }
+    const randomTheme: Theme = Math.random() < 0.5 ? "dark" : "light";
+    localStorage.setItem(storageKey, randomTheme);
+    return randomTheme;
+  });
 
   useEffect(() => {
     const root = window.document.documentElement;
