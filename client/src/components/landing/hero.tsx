@@ -15,7 +15,7 @@ export function Hero() {
           <div className="space-y-8">
             <div className="flex flex-wrap items-center gap-3">
               <Badge className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 text-xs font-bold tracking-wider uppercase px-3 py-1.5">
-                Free for Early Adopters
+                Your AI Driven Intelligence Partner
               </Badge>
             </div>
             
