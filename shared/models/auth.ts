@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, jsonb, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { index, jsonb, pgTable, timestamp, varchar, unique } from "drizzle-orm/pg-core";
 
 // Session storage table.
 // (IMPORTANT) This table is mandatory for session management, don't drop it.
@@ -43,6 +43,7 @@ export const authAccounts = pgTable("auth_accounts", {
 }, (table) => [
   index("idx_auth_accounts_user").on(table.userId),
   index("idx_auth_accounts_provider").on(table.provider, table.providerUserId),
+  unique("unique_provider_account").on(table.provider, table.providerUserId),
 ]);
 
 export type UpsertUser = typeof users.$inferInsert;
