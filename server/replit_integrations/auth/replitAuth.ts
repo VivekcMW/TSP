@@ -1,39 +1,47 @@
 import type { Express, RequestHandler } from "express";
 import session from "express-session";
-import passport from "passport";
-import { Strategy as LocalStrategy } from "passport-local";
-import bcrypt from "bcryptjs";
+import * as client from "openid-client";
 import { authStorage } from "./storage";
 import connectPg from "connect-pg-simple";
 import { pool } from "../../db";
-import { z } from "zod";
-import { sendWelcomeEmail, sendPasswordResetEmail } from "../../services/emailService";
 
 const PostgresSessionStore = connectPg(session);
 
-const registerSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  firstName: z.string().max(50).optional(),
-  lastName: z.string().max(50).optional(),
-});
+let oidcConfig: client.Configuration | null = null;
 
-const loginSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(1, "Password is required"),
-});
+async function getOidcConfig(): Promise<client.Configuration | null> {
+  if (oidcConfig) return oidcConfig;
+  
+  const issuerUrl = process.env.ISSUER_URL || process.env.REPLIT_DEPLOYMENT_URL;
+  if (!issuerUrl) {
+    console.warn("No ISSUER_URL configured - OIDC authentication disabled");
+    return null;
+  }
 
-const forgotPasswordSchema = z.object({
-  email: z.string().email("Invalid email address"),
-});
+  try {
+    oidcConfig = await client.discovery(
+      new URL(issuerUrl),
+      process.env.REPLIT_DEPLOYMENT_ID || "local-dev",
+      undefined,
+      undefined,
+      { execute: [client.allowInsecureRequests] }
+    );
+    return oidcConfig;
+  } catch (error) {
+    console.error("Failed to discover OIDC configuration:", error);
+    return null;
+  }
+}
 
-const resetPasswordSchema = z.object({
-  token: z.string().min(1, "Reset token is required"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-});
+function getCallbackUrl(req: any): string {
+  const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
+  const host = req.headers["x-forwarded-host"] || req.headers.host;
+  return `${protocol}://${host}/api/callback`;
+}
 
 export function getSession() {
-  if (!process.env.SESSION_SECRET) {
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!sessionSecret) {
     throw new Error("SESSION_SECRET must be set for secure session management");
   }
 
@@ -45,7 +53,7 @@ export function getSession() {
 
   return session({
     store: sessionStore,
-    secret: process.env.SESSION_SECRET,
+    secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -60,234 +68,106 @@ export function getSession() {
 export async function setupAuth(app: Express) {
   app.set("trust proxy", 1);
   app.use(getSession());
-  app.use(passport.initialize());
-  app.use(passport.session());
 
-  passport.use(
-    new LocalStrategy(
-      {
-        usernameField: "email",
-        passwordField: "password",
-      },
-      async (email, password, done) => {
-        try {
-          const user = await authStorage.getUserByEmail(email);
-          if (!user) {
-            return done(null, false, { message: "Invalid email or password" });
-          }
-
-          if (!user.passwordHash) {
-            return done(null, false, { message: "Invalid email or password" });
-          }
-
-          const isValid = await bcrypt.compare(password, user.passwordHash);
-          if (!isValid) {
-            return done(null, false, { message: "Invalid email or password" });
-          }
-
-          return done(null, user);
-        } catch (error) {
-          return done(error);
-        }
-      }
-    )
-  );
-
-  passport.serializeUser((user: any, cb) => cb(null, user.id));
-  passport.deserializeUser(async (id: string, cb) => {
-    try {
-      const user = await authStorage.getUser(id);
-      cb(null, user || null);
-    } catch (error) {
-      cb(error);
+  app.get("/api/login", async (req: any, res) => {
+    const config = await getOidcConfig();
+    if (!config) {
+      return res.redirect("/login?error=auth_not_configured");
     }
+
+    const callbackUrl = getCallbackUrl(req);
+    const codeVerifier = client.randomPKCECodeVerifier();
+    const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
+    const state = client.randomState();
+
+    req.session.codeVerifier = codeVerifier;
+    req.session.state = state;
+
+    const authUrl = client.buildAuthorizationUrl(config, {
+      redirect_uri: callbackUrl,
+      scope: "openid email profile",
+      code_challenge: codeChallenge,
+      code_challenge_method: "S256",
+      state,
+    });
+
+    res.redirect(authUrl.href);
   });
 
-  app.post("/api/auth/register", async (req, res) => {
+  app.get("/api/callback", async (req: any, res) => {
+    const config = await getOidcConfig();
+    if (!config) {
+      return res.redirect("/?error=auth_not_configured");
+    }
+
     try {
-      const validation = registerSchema.safeParse(req.body);
-      if (!validation.success) {
-        return res.status(400).json({ 
-          message: validation.error.errors[0]?.message || "Invalid request data" 
-        });
+      const callbackUrl = getCallbackUrl(req);
+      const codeVerifier = req.session.codeVerifier;
+      const expectedState = req.session.state;
+
+      if (!codeVerifier || !expectedState) {
+        return res.redirect("/login?error=session_expired");
       }
 
-      const { email, password, firstName, lastName } = validation.data;
+      const currentUrl = new URL(req.url, `${req.protocol}://${req.headers.host}`);
+      
+      const tokens = await client.authorizationCodeGrant(config, currentUrl, {
+        pkceCodeVerifier: codeVerifier,
+        expectedState,
+      });
 
-      const existingUser = await authStorage.getUserByEmail(email);
-      if (existingUser) {
-        return res.status(400).json({ message: "Email already registered" });
+      const claims = tokens.claims();
+      if (!claims) {
+        return res.redirect("/login?error=no_claims");
       }
 
-      const passwordHash = await bcrypt.hash(password, 10);
-      const user = await authStorage.createUser({
+      const userId = claims.sub;
+      const email = (claims.email as string) || `${userId}@user.replit.app`;
+      const firstName = (claims.first_name as string) || (claims.given_name as string) || null;
+      const lastName = (claims.last_name as string) || (claims.family_name as string) || null;
+      const profileImageUrl = (claims.profile_image_url as string) || (claims.picture as string) || null;
+
+      await authStorage.upsertUser({
+        id: userId,
         email,
-        passwordHash,
-        firstName: firstName || null,
-        lastName: lastName || null,
+        firstName,
+        lastName,
+        profileImageUrl,
       });
 
-      sendWelcomeEmail(email, firstName || "there").catch((err) => {
-        console.error("Failed to send welcome email:", err);
-      });
+      req.session.userId = userId;
+      delete req.session.codeVerifier;
+      delete req.session.state;
 
-      req.login(user, (err) => {
-        if (err) {
-          return res.status(500).json({ message: "Failed to login after registration" });
-        }
-        return res.json({
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-        });
-      });
+      res.redirect("/dashboard");
     } catch (error) {
-      console.error("Registration error:", error);
-      res.status(500).json({ message: "Registration failed" });
+      console.error("OIDC callback error:", error);
+      res.redirect("/login?error=auth_failed");
     }
   });
 
-  app.post("/api/auth/login", (req, res, next) => {
-    const validation = loginSchema.safeParse(req.body);
-    if (!validation.success) {
-      return res.status(400).json({ 
-        message: validation.error.errors[0]?.message || "Invalid credentials" 
-      });
-    }
-
-    passport.authenticate("local", (err: any, user: any, info: any) => {
-      if (err) {
-        return res.status(500).json({ message: "Login failed" });
-      }
-      if (!user) {
-        return res.status(401).json({ message: info?.message || "Invalid credentials" });
-      }
-      req.login(user, (loginErr) => {
-        if (loginErr) {
-          return res.status(500).json({ message: "Login failed" });
-        }
-        return res.json({
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-        });
-      });
-    })(req, res, next);
-  });
-
-  app.post("/api/auth/logout", (req, res) => {
-    req.logout((err) => {
-      if (err) {
-        return res.status(500).json({ message: "Logout failed" });
-      }
-      req.session.destroy((destroyErr) => {
-        res.clearCookie("connect.sid");
-        res.json({ message: "Logged out successfully" });
-      });
+  app.get("/api/logout", (req: any, res) => {
+    req.session.destroy((err: any) => {
+      res.clearCookie("connect.sid");
+      res.redirect("/");
     });
-  });
-
-  app.get("/api/login", (req, res) => {
-    res.redirect("/login");
-  });
-
-  app.get("/api/logout", (req, res) => {
-    req.logout((err) => {
-      req.session.destroy((destroyErr) => {
-        res.clearCookie("connect.sid");
-        res.redirect("/");
-      });
-    });
-  });
-
-  app.post("/api/auth/forgot-password", async (req, res) => {
-    try {
-      const validation = forgotPasswordSchema.safeParse(req.body);
-      if (!validation.success) {
-        return res.status(400).json({
-          message: validation.error.errors[0]?.message || "Invalid email address",
-        });
-      }
-
-      const { email } = validation.data;
-      const result = await authStorage.setResetToken(email);
-
-      if (result) {
-        const firstName = result.user.firstName || "there";
-        sendPasswordResetEmail(email, firstName, result.token).catch((err) => {
-          console.error("Failed to send password reset email:", err);
-        });
-      }
-
-      res.json({
-        message: "If an account exists with this email, you will receive a password reset link.",
-      });
-    } catch (error) {
-      console.error("Forgot password error:", error);
-      res.status(500).json({ message: "Failed to process request" });
-    }
-  });
-
-  app.post("/api/auth/reset-password", async (req, res) => {
-    try {
-      const validation = resetPasswordSchema.safeParse(req.body);
-      if (!validation.success) {
-        return res.status(400).json({
-          message: validation.error.errors[0]?.message || "Invalid request",
-        });
-      }
-
-      const { token, password } = validation.data;
-
-      const user = await authStorage.getUserByResetToken(token);
-      if (!user) {
-        return res.status(400).json({
-          message: "Invalid or expired reset token. Please request a new password reset.",
-        });
-      }
-
-      const passwordHash = await bcrypt.hash(password, 10);
-      const updatedUser = await authStorage.resetPassword(token, passwordHash);
-
-      if (!updatedUser) {
-        return res.status(400).json({
-          message: "Failed to reset password. Please request a new reset link.",
-        });
-      }
-
-      res.json({ message: "Password reset successfully. You can now log in." });
-    } catch (error) {
-      console.error("Reset password error:", error);
-      res.status(500).json({ message: "Failed to reset password" });
-    }
-  });
-
-  app.get("/api/auth/verify-reset-token", async (req, res) => {
-    try {
-      const { token } = req.query;
-      if (!token || typeof token !== "string") {
-        return res.status(400).json({ valid: false, message: "Token is required" });
-      }
-
-      const user = await authStorage.getUserByResetToken(token);
-      res.json({ valid: !!user });
-    } catch (error) {
-      console.error("Verify reset token error:", error);
-      res.status(500).json({ valid: false, message: "Failed to verify token" });
-    }
   });
 }
 
-export const isAuthenticated: RequestHandler = async (req, res, next) => {
-  if (req.isAuthenticated() && req.user) {
-    const user = req.user as any;
-    (req as any).user = {
-      ...user,
-      claims: { sub: user.id },
-    };
-    return next();
+export const isAuthenticated: RequestHandler = async (req: any, res, next) => {
+  const userId = req.session?.userId;
+  if (!userId) {
+    return res.status(401).json({ message: "Unauthorized" });
   }
-  return res.status(401).json({ message: "Unauthorized" });
+
+  const user = await authStorage.getUser(userId);
+  if (!user) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  req.user = {
+    ...user,
+    claims: { sub: userId },
+  };
+  return next();
 };
