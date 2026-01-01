@@ -1,53 +1,32 @@
-import { useState } from "react";
-import { useLocation, Link } from "wouter";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { useEffect } from "react";
+import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { useToast } from "@/hooks/use-toast";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { ArrowLeft, LogIn, Loader2, Zap } from "lucide-react";
+import { ArrowLeft, Zap, Loader2 } from "lucide-react";
+import { SiGoogle, SiGithub, SiX, SiApple } from "react-icons/si";
 import { SEO } from "@/components/seo";
 
-const loginSchema = z.object({
-  email: z.string().email("Please enter a valid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-});
-
-type LoginFormValues = z.infer<typeof loginSchema>;
-
 export default function LoginPage() {
-  const { login, isLoggingIn } = useAuth();
-  const [, setLocation] = useLocation();
-  const { toast } = useToast();
-  const [error, setError] = useState<string | null>(null);
+  const { user, isLoading } = useAuth();
 
-  const form = useForm<LoginFormValues>({
-    resolver: zodResolver(loginSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-    },
-  });
-
-  async function onSubmit(data: LoginFormValues) {
-    setError(null);
-    try {
-      await login(data);
-      setLocation("/dashboard");
-    } catch (err: any) {
-      const message = err?.message || "Login failed. Please try again.";
-      setError(message);
-      toast({
-        variant: "destructive",
-        title: "Login failed",
-        description: message,
-      });
+  useEffect(() => {
+    if (!isLoading && user) {
+      window.location.href = "/dashboard";
     }
+  }, [user, isLoading]);
+
+  const handleLogin = () => {
+    window.location.href = "/api/login";
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return (
@@ -79,92 +58,50 @@ export default function LoginPage() {
             <div className="space-y-1 text-center">
               <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
               <CardDescription>
-                Sign in to your account to continue
+                Sign in with your preferred account
               </CardDescription>
             </div>
           </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                {error && (
-                  <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md" data-testid="text-login-error">
-                    {error}
-                  </div>
-                )}
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="email"
-                          placeholder="you@example.com"
-                          data-testid="input-email"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <div className="flex items-center justify-between gap-2">
-                        <FormLabel>Password</FormLabel>
-                        <Link href="/forgot-password">
-                          <span className="text-sm text-primary hover:underline underline-offset-4 cursor-pointer" data-testid="link-forgot-password">
-                            Forgot password?
-                          </span>
-                        </Link>
-                      </div>
-                      <FormControl>
-                        <Input
-                          type="password"
-                          placeholder="Enter your password"
-                          data-testid="input-password"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={isLoggingIn}
-                  data-testid="button-login"
-                >
-                  {isLoggingIn ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Signing in...
-                    </>
-                  ) : (
-                    <>
-                      <LogIn className="h-4 w-4 mr-2" />
-                      Sign in
-                    </>
-                  )}
-                </Button>
-              </form>
-            </Form>
-          </CardContent>
-          <CardFooter className="flex flex-col gap-4">
-            <p className="text-sm text-muted-foreground text-center">
-              Don't have an account?{" "}
-              <Link href="/register">
-                <span className="text-primary underline-offset-4 hover:underline cursor-pointer" data-testid="link-register">
-                  Sign up
+          <CardContent className="space-y-4">
+            <Button
+              onClick={handleLogin}
+              className="w-full"
+              size="lg"
+              data-testid="button-continue-login"
+            >
+              Continue to Sign In
+            </Button>
+            
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">
+                  Available sign-in options
                 </span>
-              </Link>
+              </div>
+            </div>
+            
+            <div className="flex justify-center gap-4">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <SiGoogle className="w-5 h-5" />
+              </div>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <SiGithub className="w-5 h-5" />
+              </div>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <SiX className="w-5 h-5" />
+              </div>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <SiApple className="w-5 h-5" />
+              </div>
+            </div>
+            
+            <p className="text-xs text-muted-foreground text-center">
+              Sign in with Google, GitHub, X, Apple, or email
             </p>
-          </CardFooter>
+          </CardContent>
         </Card>
       </main>
     </div>
