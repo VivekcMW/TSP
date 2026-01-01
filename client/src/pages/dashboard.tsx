@@ -139,8 +139,8 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="flex-1 overflow-hidden">
-      <header className="sticky top-0 z-10 bg-background border-b px-6 py-4">
+    <div className="flex flex-col h-full overflow-hidden">
+      <header className="flex-shrink-0 bg-background border-b px-6 py-4">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
@@ -190,7 +190,7 @@ export default function DashboardPage() {
         </div>
       </header>
       
-      <main className="p-6 overflow-y-auto h-[calc(100vh-80px)]">
+      <main className="flex-1 p-6 overflow-y-auto">
         {isLoading ? (
           <div className="grid gap-4">
             {[1, 2, 3, 4].map((i) => (
