@@ -98,10 +98,12 @@ export async function setupAuth(app: Express) {
 
   // Google OAuth Strategy
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0];
     const googleCallbackURL = process.env.GOOGLE_CALLBACK_URL || 
-      (process.env.NODE_ENV === "production" 
-        ? `https://${process.env.REPL_SLUG}.replit.app/auth/google/callback`
+      (replitDomain 
+        ? `https://${replitDomain}/auth/google/callback`
         : "http://localhost:5000/auth/google/callback");
+    console.log("Google OAuth callback URL:", googleCallbackURL);
     
     passport.use(
       new GoogleStrategy(
@@ -158,10 +160,12 @@ export async function setupAuth(app: Express) {
 
   // LinkedIn OAuth Strategy
   if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
+    const replitDomainLI = process.env.REPLIT_DOMAINS?.split(",")[0];
     const linkedinCallbackURL = process.env.LINKEDIN_CALLBACK_URL || 
-      (process.env.NODE_ENV === "production" 
-        ? `https://${process.env.REPL_SLUG}.replit.app/auth/linkedin/callback`
+      (replitDomainLI 
+        ? `https://${replitDomainLI}/auth/linkedin/callback`
         : "http://localhost:5000/auth/linkedin/callback");
+    console.log("LinkedIn OAuth callback URL:", linkedinCallbackURL);
     
     passport.use(
       new LinkedInStrategy(
