@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Zap } from "lucide-react";
+import { Zap, Clock, Sparkles } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Link } from "wouter";
 
@@ -13,18 +13,31 @@ export function Hero() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
           <div className="space-y-8">
-            <Badge variant="secondary" className="text-xs font-semibold tracking-wider uppercase px-3 py-1.5">
-              AI-Driven Authority Engine
-            </Badge>
+            <div className="flex flex-wrap items-center gap-3">
+              <Badge className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 text-xs font-bold tracking-wider uppercase px-3 py-1.5">
+                Free for Early Adopters
+              </Badge>
+            </div>
             
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight" data-testid="text-hero-headline">
-              Turn News into{" "}
-              <span className="text-primary">Thought Leadership</span>.
+              Too busy to post on{" "}
+              <span className="text-primary">LinkedIn</span>?
             </h1>
             
             <p className="text-lg text-muted-foreground max-w-lg" data-testid="text-hero-subtext">
-              TheSocialPundit scans your industry's news and drafts high-signal social posts in your unique voice. Build your professional narrative in minutes, not hours.
+              Your expertise is invisible if you're not posting consistently. TheSocialPundit turns industry news into your unique POV in under 5 minutes. No more blank screens. No more wasted hours.
             </p>
+
+            <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-primary" />
+                <span>5 min/day</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <span>Your voice, not AI slop</span>
+              </div>
+            </div>
             
             <div className="flex flex-wrap items-center gap-4">
               {user ? (
@@ -37,7 +50,7 @@ export function Hero() {
                 <>
                   <Link href="/register">
                     <Button size="lg" data-testid="button-cta-primary">
-                      Get Started Free
+                      Start Free Today
                     </Button>
                   </Link>
                   <Link href="/how-it-works" data-testid="link-cta-how-it-works">

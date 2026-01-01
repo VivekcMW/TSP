@@ -56,7 +56,7 @@ export function SiteHeader() {
                     <Button variant="ghost" data-testid="button-header-login">Sign In</Button>
                   </Link>
                   <Link href="/register" data-testid="link-header-register">
-                    <Button data-testid="button-header-register">Get Started</Button>
+                    <Button data-testid="button-header-register">Start Free</Button>
                   </Link>
                 </div>
               )}
@@ -102,7 +102,7 @@ export function SiteHeader() {
                     <Button variant="outline" className="w-full" data-testid="button-mobile-login">Sign In</Button>
                   </Link>
                   <Link href="/register" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-register">
-                    <Button className="w-full" data-testid="button-mobile-register">Get Started</Button>
+                    <Button className="w-full" data-testid="button-mobile-register">Start Free</Button>
                   </Link>
                 </div>
               )}

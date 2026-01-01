@@ -5,27 +5,22 @@ import { Check, ArrowRight } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { SEO } from "@/components/seo";
+import { Link } from "wouter";
 
-const starterFeatures = [
-  { text: "5 Insight Items per day", included: true },
-  { text: "10 AI generations / mo", included: true },
-  { text: "Basic Tones (Professional)", included: true },
-  { text: "Advanced Scheduling", included: false },
+const earlyAdopterFeatures = [
+  { text: "10 Curated articles per day", included: true },
+  { text: "Unlimited AI post generations", included: true },
+  { text: "All 4 tonality styles", included: true },
+  { text: "LinkedIn + Twitter/X support", included: true },
+  { text: "Hot Trends analysis", included: true },
+  { text: "Instant Review (any URL)", included: true },
 ];
 
-const professionalFeatures = [
-  { text: "Full Social Inbox Access", included: true },
-  { text: "Unlimited Post Generations", included: true },
-  { text: "Advanced Tones (Contrarian)", included: true },
-  { text: "One-Click Scheduling", included: true },
-  { text: "Analytics Dashboard", included: true },
-];
-
-const teamFeatures = [
-  { text: "Up to 5 Authority Profiles", included: true },
-  { text: "Shared Insight Feed", included: true },
-  { text: "Dedicated Support Manager", included: true },
-  { text: "Custom API Integrations", included: true },
+const comingSoonFeatures = [
+  { text: "One-click scheduling", included: true },
+  { text: "Analytics dashboard", included: true },
+  { text: "Team collaboration", included: true },
+  { text: "Custom RSS feeds", included: true },
 ];
 
 export default function Pricing() {
@@ -42,112 +37,81 @@ export default function Pricing() {
         <section className="py-20 lg:py-28" data-testid="section-pricing">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-16">
+              <Badge className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 text-sm font-bold tracking-wider uppercase px-4 py-2 mb-6">
+                Free for the First 1,000 Subscribers
+              </Badge>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-6" data-testid="text-pricing-headline">
-                Simple, Value-Based Pricing.
+                Start building authority today.
               </h1>
               <p className="text-lg text-muted-foreground max-w-xl mx-auto">
-                Scale your professional authority without the complexity. Choose the plan that fits your growth goals.
+                We're opening TheSocialPundit to early adopters for free. Get full access while we grow together.
               </p>
             </div>
             
-            <div className="grid md:grid-cols-3 gap-8 items-start">
-              <Card className="p-8 relative" data-testid="card-pricing-starter">
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="text-lg font-semibold">Starter</h3>
-                    <div className="mt-4 flex items-baseline gap-1">
-                      <span className="text-4xl font-bold">$0</span>
-                      <span className="text-muted-foreground">/mo</span>
-                    </div>
-                    <p className="mt-4 text-sm text-muted-foreground">
-                      Ideal for professionals testing the waters of consistent posting.
-                    </p>
-                  </div>
-                  
-                  <ul className="space-y-3">
-                    {starterFeatures.map((feature, index) => (
-                      <li key={index} className="flex items-center gap-3 text-sm">
-                        <div className={`w-4 h-4 rounded-full flex items-center justify-center ${feature.included ? 'bg-muted' : 'bg-muted'}`}>
-                          {feature.included ? (
-                            <Check className="w-3 h-3 text-muted-foreground" />
-                          ) : (
-                            <span className="w-2 h-0.5 bg-muted-foreground/50" />
-                          )}
-                        </div>
-                        <span className={feature.included ? '' : 'line-through text-muted-foreground'}>
-                          {feature.text}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  
-                  <Button variant="outline" className="w-full" data-testid="button-start-free">
-                    Start for Free
-                  </Button>
-                </div>
-              </Card>
-              
-              <Card className="p-8 relative bg-slate-900 dark:bg-slate-950 text-white border-slate-800" data-testid="card-pricing-professional">
-                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground">
-                  MOST POPULAR
+            <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+              <Card className="p-8 relative bg-slate-900 dark:bg-slate-950 text-white border-slate-800" data-testid="card-pricing-early-adopter">
+                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-green-500 text-white">
+                  EARLY ADOPTER
                 </Badge>
                 
                 <div className="space-y-6">
                   <div>
-                    <h3 className="text-lg font-semibold">Professional</h3>
-                    <div className="mt-4 flex items-baseline gap-1">
-                      <span className="text-4xl font-bold">$49</span>
-                      <span className="text-slate-400">/mo</span>
+                    <h3 className="text-lg font-semibold">Full Access</h3>
+                    <div className="mt-4 flex items-baseline gap-2">
+                      <span className="text-4xl font-bold">$0</span>
+                      <span className="text-slate-400 line-through">$49/mo</span>
                     </div>
                     <p className="mt-4 text-sm text-slate-400">
-                      For founders, leaders, and consultants building a serious personal brand.
+                      Everything you need to build your professional authority. Free while we grow.
                     </p>
                   </div>
                   
                   <ul className="space-y-3">
-                    {professionalFeatures.map((feature, index) => (
+                    {earlyAdopterFeatures.map((feature, index) => (
                       <li key={index} className="flex items-center gap-3 text-sm">
-                        <div className="w-4 h-4 rounded-full bg-primary flex items-center justify-center">
-                          <Check className="w-3 h-3 text-primary-foreground" />
+                        <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center">
+                          <Check className="w-3 h-3 text-white" />
                         </div>
                         <span>{feature.text}</span>
                       </li>
                     ))}
                   </ul>
                   
-                  <Button className="w-full" data-testid="button-unlock-full-access">
-                    Unlock Full Access
-                  </Button>
+                  <Link href="/register">
+                    <Button className="w-full bg-green-500 hover:bg-green-600" data-testid="button-start-free">
+                      Start Free Today
+                    </Button>
+                  </Link>
                 </div>
               </Card>
               
-              <Card className="p-8 relative" data-testid="card-pricing-team">
+              <Card className="p-8 relative" data-testid="card-pricing-coming-soon">
+                <Badge variant="outline" className="absolute -top-3 left-1/2 -translate-x-1/2">
+                  COMING SOON
+                </Badge>
+                
                 <div className="space-y-6">
                   <div>
-                    <h3 className="text-lg font-semibold">Team / Creator</h3>
-                    <div className="mt-4 flex items-baseline gap-1">
-                      <span className="text-4xl font-bold">$199</span>
-                      <span className="text-muted-foreground">/mo</span>
-                    </div>
+                    <h3 className="text-lg font-semibold">On the Roadmap</h3>
                     <p className="mt-4 text-sm text-muted-foreground">
-                      For agencies or corporate teams managing multiple authority profiles.
+                      We're building more features based on early adopter feedback. Here's what's next:
                     </p>
                   </div>
                   
                   <ul className="space-y-3">
-                    {teamFeatures.map((feature, index) => (
-                      <li key={index} className="flex items-center gap-3 text-sm">
-                        <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center">
-                          <Check className="w-3 h-3 text-primary" />
+                    {comingSoonFeatures.map((feature, index) => (
+                      <li key={index} className="flex items-center gap-3 text-sm text-muted-foreground">
+                        <div className="w-4 h-4 rounded-full bg-muted flex items-center justify-center">
+                          <Check className="w-3 h-3 text-muted-foreground" />
                         </div>
                         <span>{feature.text}</span>
                       </li>
                     ))}
                   </ul>
                   
-                  <Button variant="outline" className="w-full" data-testid="button-contact-sales">
-                    Contact Sales
-                  </Button>
+                  <p className="text-xs text-muted-foreground pt-4 border-t">
+                    Early adopters will be grandfathered into premium features as they launch.
+                  </p>
                 </div>
               </Card>
             </div>

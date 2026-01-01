@@ -7,10 +7,10 @@ export function AIPov() {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
           <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">
-            AI with an actual point of view.
+            Your voice. Your POV. Not generic AI slop.
           </h2>
           <p className="text-lg text-muted-foreground">
-            Most AI summarizes. We strategize.
+            Most AI summarizes. We help you take a stand.
           </p>
         </div>
         
