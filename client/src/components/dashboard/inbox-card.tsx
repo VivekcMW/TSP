@@ -30,9 +30,10 @@ export function InboxCard({ item, onGeneratePost, onSave, onDismiss }: InboxCard
             href={item.articleUrl} 
             target="_blank" 
             rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
             data-testid={`link-article-${item.id}`}
           >
+            <span>Link to Original Article</span>
             <ExternalLink className="w-4 h-4" />
           </a>
         </div>
