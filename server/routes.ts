@@ -310,6 +310,47 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/inbox/add-trend", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { title, source, link, topic } = req.body;
+      
+      if (!link || !title) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+      
+      if (!validateUrlSync(link)) {
+        return res.status(400).json({ message: "Invalid URL format or blocked domain" });
+      }
+      
+      const urlResult = await validateUrl(link, true);
+      if (!urlResult.isValid) {
+        return res.status(400).json({ message: urlResult.reason || "URL validation failed" });
+      }
+      
+      const existingItems = await storage.getInboxItems(userId);
+      const alreadyExists = existingItems.some(item => item.articleUrl === link);
+      if (alreadyExists) {
+        return res.json({ message: "Article already in inbox", alreadyExists: true });
+      }
+      
+      const item = await storage.createInboxItem({
+        userId,
+        headline: title,
+        source: source || "Hot Trends",
+        articleUrl: link,
+        summary: `Trending topic: ${topic || "Industry News"}`,
+        matchedKeywords: topic ? [topic] : [],
+        status: "active",
+      });
+      
+      res.json({ message: "Article added to inbox", item });
+    } catch (error) {
+      console.error("Error adding trend to inbox:", error);
+      res.status(500).json({ message: "Failed to add article to inbox" });
+    }
+  });
+
   app.patch("/api/inbox/:id", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

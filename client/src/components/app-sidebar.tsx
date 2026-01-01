@@ -1,10 +1,12 @@
 import { useLocation, Link } from "wouter";
 import { Inbox, FileText, Send, Settings, Zap, LogOut, BarChart3, UserCog, TrendingUp, Flame } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Sidebar,
   SidebarContent,
@@ -39,12 +41,48 @@ interface HotTrend {
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, logout } = useAuth();
+  const { toast } = useToast();
 
   const { data: trends, isLoading: trendsLoading } = useQuery<HotTrend[]>({
     queryKey: ["/api/trends"],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
   });
+
+  const addTrendMutation = useMutation({
+    mutationFn: async (data: { title: string; source: string; link: string; topic: string }) => {
+      const res = await apiRequest("POST", "/api/inbox/add-trend", data);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox"] });
+      if (!data.alreadyExists) {
+        toast({
+          title: "Article added to inbox",
+          description: "You can now generate posts from this article.",
+        });
+      }
+    },
+    onError: () => {
+      toast({
+        title: "Could not add article",
+        description: "The article URL may be invalid or unreachable.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleTrendClick = (trend: HotTrend, e: React.MouseEvent) => {
+    const article = trend.articles[0];
+    if (!article?.link) return;
+    
+    addTrendMutation.mutate({
+      title: article.title,
+      source: article.source,
+      link: article.link,
+      topic: trend.topic,
+    });
+  };
 
   const initials = user?.firstName && user?.lastName 
     ? `${user.firstName[0]}${user.lastName[0]}` 
@@ -126,6 +164,7 @@ export function AppSidebar() {
                     rel="noopener noreferrer"
                     className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-sm hover-elevate cursor-pointer"
                     data-testid={`trend-${index}`}
+                    onClick={(e) => handleTrendClick(trend, e)}
                   >
                     <span className="truncate text-sidebar-foreground/90 hover:text-sidebar-foreground">{trend.topic}</span>
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
