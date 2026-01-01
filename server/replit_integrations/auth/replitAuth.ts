@@ -23,10 +23,7 @@ async function getOidcConfig(): Promise<client.Configuration | null> {
   try {
     oidcConfig = await client.discovery(
       new URL(issuerUrl),
-      clientId,
-      undefined,
-      undefined,
-      { execute: [client.allowInsecureRequests] }
+      clientId
     );
     return oidcConfig;
   } catch (error) {
