@@ -11,7 +11,9 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ArrowLeft, UserPlus, Loader2, Zap } from "lucide-react";
+import { SiGoogle, SiLinkedin } from "react-icons/si";
 import { SEO } from "@/components/seo";
+import { Separator } from "@/components/ui/separator";
 
 const registerSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -97,7 +99,41 @@ export default function RegisterPage() {
               </CardDescription>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col gap-3">
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => window.location.href = "/auth/google"}
+                type="button"
+                data-testid="button-google-register"
+              >
+                <SiGoogle className="h-4 w-4 mr-2" />
+                Continue with Google
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => window.location.href = "/auth/linkedin"}
+                type="button"
+                data-testid="button-linkedin-register"
+              >
+                <SiLinkedin className="h-4 w-4 mr-2" />
+                Continue with LinkedIn
+              </Button>
+            </div>
+            
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <Separator className="w-full" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">
+                  Or continue with email
+                </span>
+              </div>
+            </div>
+
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                 {error && (
