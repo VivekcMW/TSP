@@ -6,9 +6,10 @@ import { z } from "zod";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq } from "drizzle-orm";
-import { analyzeProfessionalIdentity, generateArticleMatches, generatePostContent } from "./services/punditBrain";
+import { analyzeProfessionalIdentity, generateArticleMatches, generatePostContent, generateInstantReview } from "./services/punditBrain";
 import { sendWelcomeEmail } from "./services/emailService";
 import { getHotTrends } from "./services/rssService";
+import { fetchArticleFromUrl } from "./services/urlFetcher";
 
 const completeOnboardingSchema = z.object({
   focusDescription: z.string().min(10).max(150).optional(),
@@ -382,6 +383,53 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting draft:", error);
       res.status(500).json({ message: "Failed to delete draft" });
+    }
+  });
+
+  app.post("/api/instant-review", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { url } = req.body;
+      
+      if (!url || typeof url !== "string") {
+        return res.status(400).json({ message: "URL is required" });
+      }
+      
+      try {
+        new URL(url);
+      } catch {
+        return res.status(400).json({ message: "Invalid URL format" });
+      }
+      
+      console.log(`Fetching article from URL: ${url}`);
+      const article = await fetchArticleFromUrl(url);
+      
+      console.log(`Generating instant review for: ${article.title}`);
+      const posts = await generateInstantReview(article);
+      
+      const profile = await storage.getUserProfile(userId);
+      if (profile) {
+        const publications = profile.publications || [];
+        if (!publications.includes(article.source) && !publications.includes(article.domain)) {
+          const updatedPublications = [...publications, article.source].slice(0, 20);
+          await storage.updateUserProfile(userId, { publications: updatedPublications });
+          console.log(`Added ${article.source} to user publications`);
+        }
+      }
+      
+      res.json({
+        article: {
+          title: article.title,
+          source: article.source,
+          url: article.url,
+          domain: article.domain,
+          content: article.content.slice(0, 500),
+        },
+        posts,
+      });
+    } catch (error) {
+      console.error("Error in instant review:", error);
+      res.status(500).json({ message: "Failed to generate instant review" });
     }
   });
 

@@ -454,6 +454,65 @@ Who else is seeing this in their work? I'm curious how others are responding.
 ${url}`;
 }
 
+export interface InstantReviewResult {
+  linkedin: {
+    thoughtLeader: string;
+    industryInsider: string;
+    provocateur: string;
+    dataDriven: string;
+  };
+  twitter: {
+    thoughtLeader: string;
+    industryInsider: string;
+    provocateur: string;
+    dataDriven: string;
+  };
+}
+
+const TONALITIES = [
+  { key: "thoughtLeader", label: "Thought Leader", description: "Visionary, forward-thinking, positions you as an industry leader with unique insights" },
+  { key: "industryInsider", label: "Industry Insider", description: "Well-connected, shares behind-the-scenes perspective, speaks from experience" },
+  { key: "provocateur", label: "Provocateur", description: "Challenges conventional thinking, sparks debate, takes bold contrarian stances" },
+  { key: "dataDriven", label: "Data-Driven", description: "Analytical, evidence-based, focuses on metrics and measurable outcomes" },
+] as const;
+
+export async function generateInstantReview(
+  article: { title: string; content: string; source: string; url: string }
+): Promise<InstantReviewResult> {
+  const result: InstantReviewResult = {
+    linkedin: { thoughtLeader: "", industryInsider: "", provocateur: "", dataDriven: "" },
+    twitter: { thoughtLeader: "", industryInsider: "", provocateur: "", dataDriven: "" },
+  };
+
+  const generatePromises: Promise<void>[] = [];
+
+  for (const tonality of TONALITIES) {
+    for (const platform of ["linkedin", "twitter"] as const) {
+      const promise = generatePostContent(
+        { 
+          headline: article.title, 
+          summary: article.content, 
+          source: article.source, 
+          articleUrl: article.url 
+        },
+        platform,
+        tonality.description
+      ).then(content => {
+        result[platform][tonality.key] = content;
+      }).catch(error => {
+        console.error(`Error generating ${platform} ${tonality.key}:`, error);
+        result[platform][tonality.key] = `Unable to generate ${tonality.label} post. Please try again.`;
+      });
+      
+      generatePromises.push(promise);
+    }
+  }
+
+  await Promise.all(generatePromises);
+  
+  return result;
+}
+
 export async function generatePostContent(
   article: { headline: string; summary: string; source: string; articleUrl?: string },
   platform: "linkedin" | "twitter",

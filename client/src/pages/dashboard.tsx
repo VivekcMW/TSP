@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Inbox, RefreshCw } from "lucide-react";
+import { Inbox, RefreshCw, Link2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { InboxCard } from "@/components/dashboard/inbox-card";
 import { PostGeneratorModal } from "@/components/dashboard/post-generator-modal";
+import { InstantReviewModal } from "@/components/dashboard/instant-review-modal";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { InboxItem } from "@shared/schema";
@@ -18,6 +19,7 @@ export default function DashboardPage() {
   const [filter, setFilter] = useState<FilterType>("all");
   const [selectedItem, setSelectedItem] = useState<InboxItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isInstantReviewOpen, setIsInstantReviewOpen] = useState(false);
 
   const { data: inboxItems, isLoading } = useQuery<InboxItem[]>({
     queryKey: ["/api/inbox"],
@@ -154,6 +156,14 @@ export default function DashboardPage() {
           
           <div className="flex items-center gap-3">
             <Button
+              variant="outline"
+              onClick={() => setIsInstantReviewOpen(true)}
+              data-testid="button-instant-review"
+            >
+              <Link2 className="w-4 h-4 mr-2" />
+              Instant Review
+            </Button>
+            <Button
               variant="default"
               onClick={() => refreshMutation.mutate()}
               disabled={refreshMutation.isPending}
@@ -231,6 +241,11 @@ export default function DashboardPage() {
         onClose={() => setIsModalOpen(false)}
         onSaveDraft={handleSaveDraft}
         onPost={handlePost}
+      />
+      
+      <InstantReviewModal
+        isOpen={isInstantReviewOpen}
+        onClose={() => setIsInstantReviewOpen(false)}
       />
     </div>
   );
