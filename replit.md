@@ -46,7 +46,14 @@ Preferred communication style: Simple, everyday language.
 3. Onboarding wizard to capture user preferences
 4. Dashboard with curated inbox of relevant articles
 5. Post generation modal for creating LinkedIn/Twitter content
-6. Drafts management and publishing workflow
+6. **Instant Review** - Paste any article URL to generate 8 posts (4 tonalities × 2 platforms)
+7. Drafts management and publishing workflow
+
+### Key Features
+- **Hot Trends**: Analyzes RSS feeds to show top 5 trending topics with article counts
+- **Instant Review**: Generate posts from any URL with 4 tonalities (Thought Leader, Industry Insider, Provocateur, Data-Driven)
+- **Tonality Mapping**: UI tonalities map to schema values (professional, authoritative, contrarian, ai-recommended)
+- **Auto Publication Tracking**: When generating posts, the source publication is automatically added to user's preferences
 
 ## External Dependencies
 
