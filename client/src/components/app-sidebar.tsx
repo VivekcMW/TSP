@@ -195,11 +195,18 @@ export function AppSidebar() {
             <p className="text-xs text-muted-foreground truncate" data-testid="text-user-email">
               {user?.email}
             </p>
+            <button 
+              onClick={() => logout()}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors mt-1"
+              data-testid="button-logout"
+            >
+              Log Out
+            </button>
           </div>
           <button 
             onClick={() => logout()}
             className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors"
-            data-testid="button-logout"
+            data-testid="button-logout-icon"
             aria-label="Log out"
           >
             <LogOut className="w-4 h-4" />
