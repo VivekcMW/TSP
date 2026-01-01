@@ -100,29 +100,41 @@ export default function RegisterPage() {
               </div>
               <div className="relative flex justify-center text-xs uppercase">
                 <span className="bg-background px-2 text-muted-foreground">
-                  Sign up with
+                  Or continue with
                 </span>
               </div>
             </div>
             
-            <div className="flex justify-center gap-4">
-              <div className="flex items-center gap-2 text-muted-foreground">
+            <div className="grid grid-cols-4 gap-3">
+              <Button
+                variant="outline"
+                onClick={handleSignUp}
+                data-testid="button-signup-google"
+              >
                 <SiGoogle className="w-5 h-5" />
-              </div>
-              <div className="flex items-center gap-2 text-muted-foreground">
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleSignUp}
+                data-testid="button-signup-github"
+              >
                 <SiGithub className="w-5 h-5" />
-              </div>
-              <div className="flex items-center gap-2 text-muted-foreground">
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleSignUp}
+                data-testid="button-signup-x"
+              >
                 <SiX className="w-5 h-5" />
-              </div>
-              <div className="flex items-center gap-2 text-muted-foreground">
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleSignUp}
+                data-testid="button-signup-apple"
+              >
                 <SiApple className="w-5 h-5" />
-              </div>
+              </Button>
             </div>
-            
-            <p className="text-xs text-muted-foreground text-center">
-              Continue with Google, GitHub, X, Apple, or email
-            </p>
             
             <p className="text-sm text-muted-foreground text-center">
               Already have an account?{" "}

@@ -78,29 +78,41 @@ export default function LoginPage() {
               </div>
               <div className="relative flex justify-center text-xs uppercase">
                 <span className="bg-background px-2 text-muted-foreground">
-                  Available sign-in options
+                  Or continue with
                 </span>
               </div>
             </div>
             
-            <div className="flex justify-center gap-4">
-              <div className="flex items-center gap-2 text-muted-foreground">
+            <div className="grid grid-cols-4 gap-3">
+              <Button
+                variant="outline"
+                onClick={handleLogin}
+                data-testid="button-login-google"
+              >
                 <SiGoogle className="w-5 h-5" />
-              </div>
-              <div className="flex items-center gap-2 text-muted-foreground">
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleLogin}
+                data-testid="button-login-github"
+              >
                 <SiGithub className="w-5 h-5" />
-              </div>
-              <div className="flex items-center gap-2 text-muted-foreground">
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleLogin}
+                data-testid="button-login-x"
+              >
                 <SiX className="w-5 h-5" />
-              </div>
-              <div className="flex items-center gap-2 text-muted-foreground">
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleLogin}
+                data-testid="button-login-apple"
+              >
                 <SiApple className="w-5 h-5" />
-              </div>
+              </Button>
             </div>
-            
-            <p className="text-xs text-muted-foreground text-center">
-              Sign in with Google, GitHub, X, Apple, or email
-            </p>
           </CardContent>
         </Card>
       </main>
