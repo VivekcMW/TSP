@@ -12,16 +12,18 @@ let oidcConfig: client.Configuration | null = null;
 async function getOidcConfig(): Promise<client.Configuration | null> {
   if (oidcConfig) return oidcConfig;
   
-  const issuerUrl = process.env.ISSUER_URL || process.env.REPLIT_DEPLOYMENT_URL;
-  if (!issuerUrl) {
-    console.warn("No ISSUER_URL configured - OIDC authentication disabled");
+  const issuerUrl = process.env.ISSUER_URL || process.env.REPLIT_DEPLOYMENT_URL || "https://replit.com";
+  const clientId = process.env.REPL_ID;
+  
+  if (!clientId) {
+    console.warn("No REPL_ID configured - OIDC authentication disabled");
     return null;
   }
 
   try {
     oidcConfig = await client.discovery(
       new URL(issuerUrl),
-      process.env.REPLIT_DEPLOYMENT_ID || "local-dev",
+      clientId,
       undefined,
       undefined,
       { execute: [client.allowInsecureRequests] }
