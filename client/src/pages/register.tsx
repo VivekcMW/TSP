@@ -1,40 +1,67 @@
-import { useEffect } from "react";
-import { Link } from "wouter";
+import { useState } from "react";
+import { useLocation, Link } from "wouter";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { ArrowLeft, Zap, Loader2, Check } from "lucide-react";
-import { SiGoogle, SiGithub, SiX, SiApple } from "react-icons/si";
+import { ArrowLeft, UserPlus, Loader2, Zap } from "lucide-react";
 import { SEO } from "@/components/seo";
 
-const benefits = [
-  "10 curated articles per day",
-  "Unlimited AI post generations",
-  "All 4 tonality styles",
-  "LinkedIn + Twitter/X support",
-];
+const registerSchema = z.object({
+  email: z.string().email("Please enter a valid email address"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  confirmPassword: z.string().min(6, "Password must be at least 6 characters"),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
+});
+
+type RegisterFormValues = z.infer<typeof registerSchema>;
 
 export default function RegisterPage() {
-  const { user, isLoading } = useAuth();
+  const { register, isRegistering } = useAuth();
+  const [, setLocation] = useLocation();
+  const { toast } = useToast();
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!isLoading && user) {
-      window.location.href = "/dashboard";
+  const form = useForm<RegisterFormValues>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+      confirmPassword: "",
+      firstName: "",
+      lastName: "",
+    },
+  });
+
+  async function onSubmit(data: RegisterFormValues) {
+    setError(null);
+    try {
+      await register({
+        email: data.email,
+        password: data.password,
+        firstName: data.firstName || undefined,
+        lastName: data.lastName || undefined,
+      });
+      setLocation("/dashboard");
+    } catch (err: any) {
+      const message = err?.message || "Registration failed. Please try again.";
+      setError(message);
+      toast({
+        variant: "destructive",
+        title: "Registration failed",
+        description: message,
+      });
     }
-  }, [user, isLoading]);
-
-  const handleSignUp = () => {
-    window.location.href = "/api/login";
-  };
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
   }
 
   return (
@@ -63,79 +90,133 @@ export default function RegisterPage() {
                 <span className="font-bold text-2xl text-primary">TheSocialPundit</span>
               </div>
             </Link>
-            <div className="space-y-2 text-center">
-              <Badge className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20">
-                FREE for Early Adopters
-              </Badge>
-              <CardTitle className="text-2xl font-bold">Start building authority</CardTitle>
+            <div className="space-y-1 text-center">
+              <CardTitle className="text-2xl font-bold">Create an account</CardTitle>
               <CardDescription>
-                Create your account in seconds
+                Join TheSocialPundit to build your authority on social media
               </CardDescription>
             </div>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <ul className="space-y-2">
-              {benefits.map((benefit, index) => (
-                <li key={index} className="flex items-center gap-2 text-sm">
-                  <div className="w-4 h-4 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
-                    <Check className="w-2.5 h-2.5 text-green-600 dark:text-green-400" />
+          <CardContent>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                {error && (
+                  <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md" data-testid="text-register-error">
+                    {error}
                   </div>
-                  <span className="text-muted-foreground">{benefit}</span>
-                </li>
-              ))}
-            </ul>
-            
-            <Button
-              onClick={handleSignUp}
-              className="w-full bg-green-500 hover:bg-green-600"
-              size="lg"
-              data-testid="button-start-free"
-            >
-              Start Free with One Click
-            </Button>
-            
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-background px-2 text-muted-foreground">
-                  Or continue with
-                </span>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-4 gap-3">
-              <Button
-                variant="outline"
-                onClick={handleSignUp}
-                data-testid="button-signup-google"
-              >
-                <SiGoogle className="w-5 h-5" />
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleSignUp}
-                data-testid="button-signup-github"
-              >
-                <SiGithub className="w-5 h-5" />
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleSignUp}
-                data-testid="button-signup-x"
-              >
-                <SiX className="w-5 h-5" />
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleSignUp}
-                data-testid="button-signup-apple"
-              >
-                <SiApple className="w-5 h-5" />
-              </Button>
-            </div>
-            
+                )}
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="firstName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>First name</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="John"
+                            data-testid="input-first-name"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="lastName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Last name</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="Doe"
+                            data-testid="input-last-name"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="email"
+                          placeholder="you@example.com"
+                          data-testid="input-email"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="password"
+                          placeholder="Create a password"
+                          data-testid="input-password"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="confirmPassword"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Confirm password</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="password"
+                          placeholder="Confirm your password"
+                          data-testid="input-confirm-password"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={isRegistering}
+                  data-testid="button-register"
+                >
+                  {isRegistering ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Creating account...
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      Create account
+                    </>
+                  )}
+                </Button>
+              </form>
+            </Form>
+          </CardContent>
+          <CardFooter className="flex flex-col gap-4">
             <p className="text-sm text-muted-foreground text-center">
               Already have an account?{" "}
               <Link href="/login">
@@ -144,7 +225,7 @@ export default function RegisterPage() {
                 </span>
               </Link>
             </p>
-          </CardContent>
+          </CardFooter>
         </Card>
       </main>
     </div>
