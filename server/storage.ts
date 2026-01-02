@@ -1,7 +1,9 @@
 import { 
-  users, userProfiles, inboxItems, drafts,
+  users, userProfiles, inboxItems, drafts, industrySources, engineRunLogs,
   type User, type UserProfile, type InboxItem, type Draft,
-  type InsertUserProfile, type InsertInboxItem, type InsertDraft
+  type InsertUserProfile, type InsertInboxItem, type InsertDraft,
+  type IndustrySource, type InsertIndustrySource,
+  type EngineRunLog, type InsertEngineRunLog
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc } from "drizzle-orm";
@@ -12,6 +14,7 @@ export interface IStorage {
   createUserProfile(profile: InsertUserProfile): Promise<UserProfile>;
   updateUserProfile(userId: string, data: Partial<InsertUserProfile>): Promise<UserProfile | undefined>;
   getInboxItems(userId: string): Promise<InboxItem[]>;
+  getInboxItemByUrl(userId: string, articleUrl: string): Promise<InboxItem | undefined>;
   createInboxItem(item: InsertInboxItem): Promise<InboxItem>;
   updateInboxItem(id: string, userId: string, data: { status: string }): Promise<InboxItem | undefined>;
   clearUserInboxItems(userId: string): Promise<void>;
@@ -20,6 +23,10 @@ export interface IStorage {
   updateDraft(id: string, userId: string, data: { content?: string; status?: string }): Promise<Draft | undefined>;
   deleteDraft(id: string, userId: string): Promise<void>;
   clearUserDrafts(userId: string): Promise<void>;
+  getIndustrySources(industry: string): Promise<IndustrySource[]>;
+  createIndustrySource(source: InsertIndustrySource): Promise<IndustrySource>;
+  createEngineRunLog(log: InsertEngineRunLog): Promise<EngineRunLog>;
+  updateEngineRunLog(id: string, data: Partial<InsertEngineRunLog>): Promise<EngineRunLog | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -106,6 +113,41 @@ export class DatabaseStorage implements IStorage {
 
   async clearUserDrafts(userId: string): Promise<void> {
     await db.delete(drafts).where(eq(drafts.userId, userId));
+  }
+
+  async getInboxItemByUrl(userId: string, articleUrl: string): Promise<InboxItem | undefined> {
+    const [item] = await db
+      .select()
+      .from(inboxItems)
+      .where(and(eq(inboxItems.userId, userId), eq(inboxItems.articleUrl, articleUrl)));
+    return item || undefined;
+  }
+
+  async getIndustrySources(industry: string): Promise<IndustrySource[]> {
+    return await db
+      .select()
+      .from(industrySources)
+      .where(and(eq(industrySources.industry, industry), eq(industrySources.isActive, true)))
+      .orderBy(desc(industrySources.priority));
+  }
+
+  async createIndustrySource(source: InsertIndustrySource): Promise<IndustrySource> {
+    const [newSource] = await db.insert(industrySources).values(source).returning();
+    return newSource;
+  }
+
+  async createEngineRunLog(log: InsertEngineRunLog): Promise<EngineRunLog> {
+    const [newLog] = await db.insert(engineRunLogs).values(log).returning();
+    return newLog;
+  }
+
+  async updateEngineRunLog(id: string, data: Partial<InsertEngineRunLog>): Promise<EngineRunLog | undefined> {
+    const [updated] = await db
+      .update(engineRunLogs)
+      .set(data)
+      .where(eq(engineRunLogs.id, id))
+      .returning();
+    return updated || undefined;
   }
 }
 

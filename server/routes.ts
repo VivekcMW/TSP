@@ -11,6 +11,8 @@ import { sendWelcomeEmail } from "./services/emailService";
 import { getHotTrends } from "./services/rssService";
 import { fetchArticleFromUrl } from "./services/urlFetcher";
 import { validateUrl, validateUrlSync } from "./services/urlValidator";
+import { engineRegistry } from "./services/engines/index.js";
+import type { IndustrySlug } from "@shared/schema";
 
 const completeOnboardingSchema = z.object({
   focusDescription: z.string().min(10).max(150).optional(),
@@ -229,9 +231,44 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/engines", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      const industry = user?.industry as IndustrySlug | undefined;
+      
+      const currentEngine = engineRegistry.getEngine(industry);
+      const allEngines = Array.from(engineRegistry.getAllEngines().entries()).map(([slug, engine]) => ({
+        industry: slug,
+        displayName: engine.config.displayName,
+        description: engine.config.description,
+        isSpecialized: engineRegistry.hasSpecializedEngine(slug),
+        feedCount: engine.config.defaultFeeds.length,
+      }));
+      
+      res.json({
+        currentEngine: {
+          industry: industry || "other",
+          displayName: currentEngine.config.displayName,
+          description: currentEngine.config.description,
+        },
+        availableEngines: allEngines.filter(e => e.isSpecialized),
+        totalIndustries: allEngines.length,
+      });
+    } catch (error) {
+      console.error("Error fetching engines:", error);
+      res.status(500).json({ message: "Failed to fetch engines info" });
+    }
+  });
+
   app.get("/api/trends", isAuthenticated, async (req: any, res) => {
     try {
-      const trends = await getHotTrends(5);
+      const userId = req.user.claims.sub;
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      const industry = user?.industry as IndustrySlug | undefined;
+      
+      const engine = engineRegistry.getEngine(industry);
+      const trends = await engine.getHotTrends(5);
       res.json(trends);
     } catch (error) {
       console.error("Error fetching trends:", error);
@@ -248,13 +285,12 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Profile not found. Please complete onboarding first." });
       }
       
-      const keywords = profile.keywords || [];
-      const publications = profile.publications || [];
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      const industry = user?.industry as IndustrySlug | undefined;
       
-      if (keywords.length === 0) {
-        return res.status(400).json({ message: "No keywords configured. Please update your profile." });
-      }
-
+      const engine = engineRegistry.getEngine(industry);
+      console.log(`[Inbox Refresh] Using ${engine.config.displayName} engine for user ${userId}`);
+      
       const existingItems = await storage.getInboxItems(userId);
       const activeCount = existingItems.filter(item => item.status === "active").length;
       
@@ -262,48 +298,81 @@ export async function registerRoutes(
         return res.json({ 
           message: "You have enough articles to review. Save or dismiss some before refreshing.", 
           count: 0, 
-          items: [] 
+          items: [],
+          engine: engine.config.displayName,
         });
       }
       
-      const numToCreate = Math.min(10, 10 - activeCount);
+      const result = await engine.processForUser(userId, profile);
       
-      const articles = await generateArticleMatches(keywords, publications, numToCreate + 5);
-      
-      const validatedArticles: typeof articles = [];
-      for (const article of articles) {
-        if (!article.articleUrl) continue;
+      if (!result.success) {
+        console.error(`Engine processing failed for user ${userId}:`, result.errors);
         
-        if (!validateUrlSync(article.articleUrl)) {
-          console.log(`Skipping article with invalid URL: ${article.articleUrl}`);
-          continue;
+        const keywords = profile.keywords || [];
+        const publications = profile.publications || [];
+        
+        if (keywords.length === 0) {
+          return res.status(400).json({ message: "No keywords configured. Please update your profile." });
         }
         
-        const urlResult = await validateUrl(article.articleUrl, true);
-        if (!urlResult.isValid) {
-          console.log(`Skipping article - ${urlResult.reason}: ${article.articleUrl}`);
-          continue;
+        const numToCreate = Math.min(10, 10 - activeCount);
+        const articles = await generateArticleMatches(keywords, publications, numToCreate + 5);
+        
+        const validatedArticles: typeof articles = [];
+        for (const article of articles) {
+          if (!article.articleUrl) continue;
+          
+          if (!validateUrlSync(article.articleUrl)) {
+            console.log(`Skipping article with invalid URL: ${article.articleUrl}`);
+            continue;
+          }
+          
+          const urlResult = await validateUrl(article.articleUrl, true);
+          if (!urlResult.isValid) {
+            console.log(`Skipping article - ${urlResult.reason}: ${article.articleUrl}`);
+            continue;
+          }
+          
+          validatedArticles.push(article);
+          if (validatedArticles.length >= numToCreate) break;
         }
         
-        validatedArticles.push(article);
-        if (validatedArticles.length >= numToCreate) break;
-      }
-      
-      const createdItems = [];
-      for (const article of validatedArticles) {
-        const item = await storage.createInboxItem({
-          userId,
-          headline: article.headline,
-          source: article.source,
-          articleUrl: article.articleUrl,
-          summary: article.summary,
-          matchedKeywords: article.matchedKeywords,
-          status: "active",
+        const createdItems = [];
+        for (const article of validatedArticles) {
+          const item = await storage.createInboxItem({
+            userId,
+            headline: article.headline,
+            source: article.source,
+            articleUrl: article.articleUrl,
+            summary: article.summary,
+            matchedKeywords: article.matchedKeywords,
+            status: "active",
+          });
+          createdItems.push(item);
+        }
+        
+        return res.json({ 
+          message: "Inbox refreshed using fallback", 
+          count: createdItems.length, 
+          items: createdItems,
+          engine: "Fallback",
         });
-        createdItems.push(item);
       }
       
-      res.json({ message: "Inbox refreshed successfully", count: createdItems.length, items: createdItems });
+      const updatedItems = await storage.getInboxItems(userId);
+      const newItems = updatedItems.filter(item => 
+        !existingItems.some(existing => existing.id === item.id)
+      );
+      
+      res.json({ 
+        message: "Inbox refreshed successfully", 
+        count: result.newInboxItems,
+        articlesProcessed: result.articlesProcessed,
+        articlesMatched: result.articlesMatched,
+        items: newItems,
+        engine: engine.config.displayName,
+        durationMs: result.durationMs,
+      });
     } catch (error) {
       console.error("Error refreshing inbox:", error);
       res.status(500).json({ message: "Failed to refresh inbox" });
