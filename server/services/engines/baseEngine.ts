@@ -1,6 +1,7 @@
 import Parser from "rss-parser";
 import { GoogleGenAI } from "@google/genai";
 import { validateUrlSync } from "../urlValidator.js";
+import { resolvePublications } from "../publicationResolver.js";
 import type { 
   IIndustryEngine, 
   EngineConfig, 
@@ -129,16 +130,68 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       .sort((a, b) => b.relevanceScore - a.relevanceScore);
   }
 
+  async fetchFromUserPublications(publications: string[]): Promise<FetchedArticle[]> {
+    if (!publications || publications.length === 0) {
+      return [];
+    }
+    
+    const { resolved, unresolved } = resolvePublications(publications);
+    
+    if (unresolved.length > 0) {
+      console.log(`[${this.config.industry}] Could not resolve RSS feeds for: ${unresolved.join(", ")}`);
+    }
+    
+    if (resolved.length === 0) {
+      console.log(`[${this.config.industry}] No user publications could be resolved to RSS feeds`);
+      return [];
+    }
+    
+    console.log(`[${this.config.industry}] Fetching from ${resolved.length} user publications: ${resolved.map(f => f.name).join(", ")}`);
+    
+    const feedPromises = resolved.map((feed) => this.fetchFeed(feed));
+    const results = await Promise.allSettled(feedPromises);
+    
+    const articles: FetchedArticle[] = [];
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        articles.push(...result.value);
+        console.log(`[${this.config.industry}] Fetched ${result.value.length} articles from ${resolved[index].name}`);
+      } else {
+        console.log(`[${this.config.industry}] Failed to fetch from ${resolved[index].name}: ${result.reason}`);
+      }
+    });
+    
+    return articles;
+  }
+
   async processForUser(
     userId: string,
     userProfile: UserProfile
   ): Promise<EngineRunResult> {
     const startTime = Date.now();
     const errors: string[] = [];
+    const MIN_ARTICLES_THRESHOLD = 5;
     
     try {
-      const sources = await storage.getIndustrySources(this.config.industry);
-      const articles = await this.fetchArticles(sources);
+      const userPublications = userProfile.publications || [];
+      let articles: FetchedArticle[] = [];
+      
+      if (userPublications.length > 0) {
+        console.log(`[${this.config.industry}] Prioritizing ${userPublications.length} user publications`);
+        articles = await this.fetchFromUserPublications(userPublications);
+        console.log(`[${this.config.industry}] Got ${articles.length} articles from user publications`);
+      }
+      
+      if (articles.length < MIN_ARTICLES_THRESHOLD) {
+        console.log(`[${this.config.industry}] Supplementing with industry feeds (have ${articles.length}, need ${MIN_ARTICLES_THRESHOLD})`);
+        const sources = await storage.getIndustrySources(this.config.industry);
+        const industryArticles = await this.fetchArticles(sources);
+        
+        const existingUrls = new Set(articles.map(a => a.link));
+        const newArticles = industryArticles.filter(a => !existingUrls.has(a.link));
+        articles = [...articles, ...newArticles];
+        console.log(`[${this.config.industry}] Total articles after industry supplement: ${articles.length}`);
+      }
       
       if (articles.length === 0) {
         return {
