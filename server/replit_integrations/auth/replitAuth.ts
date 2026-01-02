@@ -9,7 +9,7 @@ import { authStorage } from "./storage";
 import connectPg from "connect-pg-simple";
 import { pool } from "../../db";
 import { z } from "zod";
-import { sendWelcomeEmail, sendPasswordResetEmail } from "../../services/emailService";
+import { sendPasswordResetEmail } from "../../services/emailService";
 
 const PostgresSessionStore = connectPg(session);
 
@@ -139,10 +139,7 @@ export async function setupAuth(app: Express) {
                   profileImageUrl: profile.photos?.[0]?.value || null,
                 });
                 await authStorage.linkOAuthAccount(user.id, "google", profile.id, accessToken, refreshToken);
-                
-                sendWelcomeEmail(email, profile.name?.givenName || "there").catch((err) => {
-                  console.error("Failed to send welcome email:", err);
-                });
+                // Welcome email is sent after registration is completed with industry selection
               }
             }
 
@@ -201,10 +198,7 @@ export async function setupAuth(app: Express) {
                   profileImageUrl: profile.photos?.[0]?.value || null,
                 });
                 await authStorage.linkOAuthAccount(user.id, "linkedin", profile.id, accessToken, refreshToken);
-                
-                sendWelcomeEmail(email, profile.name?.givenName || "there").catch((err) => {
-                  console.error("Failed to send welcome email:", err);
-                });
+                // Welcome email is sent after registration is completed with industry selection
               }
             }
 
@@ -382,10 +376,7 @@ export async function setupAuth(app: Express) {
         firstName: firstName || null,
         lastName: lastName || null,
       });
-
-      sendWelcomeEmail(email, firstName || "there").catch((err) => {
-        console.error("Failed to send welcome email:", err);
-      });
+      // Welcome email is sent after registration is completed with industry selection
 
       req.login(user, (err) => {
         if (err) {

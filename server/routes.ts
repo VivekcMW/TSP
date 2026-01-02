@@ -78,6 +78,13 @@ export async function registerRoutes(
         .where(eq(users.id, userId))
         .returning();
       
+      // Send industry-customized welcome email
+      if (updatedUser?.email) {
+        sendWelcomeEmail(updatedUser.email, firstName, industry).catch((err) => {
+          console.error("Failed to send welcome email:", err);
+        });
+      }
+      
       res.json(updatedUser);
     } catch (error) {
       console.error("Error completing registration:", error);

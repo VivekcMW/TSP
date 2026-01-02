@@ -4,6 +4,138 @@ import { Resend } from 'resend';
 const APP_URL = process.env.APP_URL || "https://thesocialpundit.com";
 const FROM_NAME = "TheSocialPundit";
 
+// Industry-specific content for welcome emails
+interface IndustryContent {
+  label: string;
+  tagline: string;
+  sources: string;
+  communityDesc: string;
+}
+
+const industryContentMap: Record<string, IndustryContent> = {
+  media_advertising: {
+    label: "Media & Advertising",
+    tagline: "Your Voice in Media & Advertising",
+    sources: "AdAge, Digiday, AdWeek, The Drum, and 50+ premium sources",
+    communityDesc: "Media & Advertising professionals",
+  },
+  product_marketing: {
+    label: "Product Marketing",
+    tagline: "Your Voice in Product Marketing",
+    sources: "Product-Led Growth, HubSpot, MarketingProfs, First Round Review, and 40+ top sources",
+    communityDesc: "Product Marketing leaders",
+  },
+  technology_saas: {
+    label: "Technology & SaaS",
+    tagline: "Your Voice in Tech & SaaS",
+    sources: "TechCrunch, The Verge, Wired, Ars Technica, and 50+ tech publications",
+    communityDesc: "Technology & SaaS innovators",
+  },
+  finance_banking: {
+    label: "Finance & Banking",
+    tagline: "Your Voice in Finance",
+    sources: "Financial Times, Bloomberg, WSJ, The Economist, and 40+ financial publications",
+    communityDesc: "Finance & Banking professionals",
+  },
+  healthcare_pharma: {
+    label: "Healthcare & Pharma",
+    tagline: "Your Voice in Healthcare",
+    sources: "STAT News, Fierce Pharma, Healthcare Dive, MedPage Today, and 40+ health sources",
+    communityDesc: "Healthcare & Pharma leaders",
+  },
+  consulting_services: {
+    label: "Consulting & Professional Services",
+    tagline: "Your Voice in Consulting",
+    sources: "McKinsey Insights, HBR, BCG, Consulting Magazine, and 30+ industry sources",
+    communityDesc: "Consulting & Services professionals",
+  },
+  ecommerce_retail: {
+    label: "E-commerce & Retail",
+    tagline: "Your Voice in Retail",
+    sources: "Retail Dive, Modern Retail, eMarketer, RetailWire, and 40+ retail sources",
+    communityDesc: "E-commerce & Retail leaders",
+  },
+  real_estate: {
+    label: "Real Estate",
+    tagline: "Your Voice in Real Estate",
+    sources: "Inman, The Real Deal, Commercial Observer, GlobeSt, and 30+ property sources",
+    communityDesc: "Real Estate professionals",
+  },
+  education_edtech: {
+    label: "Education & EdTech",
+    tagline: "Your Voice in Education",
+    sources: "EdSurge, Inside Higher Ed, Education Week, EdTech Magazine, and 30+ sources",
+    communityDesc: "Education & EdTech innovators",
+  },
+  manufacturing: {
+    label: "Manufacturing & Industrial",
+    tagline: "Your Voice in Manufacturing",
+    sources: "Industry Week, Manufacturing.net, The Manufacturer, and 30+ industrial sources",
+    communityDesc: "Manufacturing & Industrial leaders",
+  },
+  energy_sustainability: {
+    label: "Energy & Sustainability",
+    tagline: "Your Voice in Energy",
+    sources: "GreenBiz, CleanTechnica, Utility Dive, Energy Monitor, and 30+ energy sources",
+    communityDesc: "Energy & Sustainability professionals",
+  },
+  legal_services: {
+    label: "Legal Services",
+    tagline: "Your Voice in Legal",
+    sources: "Law.com, Above the Law, Legal Dive, The American Lawyer, and 30+ legal sources",
+    communityDesc: "Legal professionals",
+  },
+  nonprofit_ngo: {
+    label: "Non-profit & NGO",
+    tagline: "Your Voice in Non-profit",
+    sources: "NonProfit PRO, Chronicle of Philanthropy, Stanford Social Innovation Review, and 25+ sources",
+    communityDesc: "Non-profit & NGO leaders",
+  },
+  government_public: {
+    label: "Government & Public Sector",
+    tagline: "Your Voice in Public Sector",
+    sources: "GovTech, Government Executive, Route Fifty, FCW, and 25+ public sector sources",
+    communityDesc: "Government & Public Sector professionals",
+  },
+  hospitality_travel: {
+    label: "Hospitality & Travel",
+    tagline: "Your Voice in Hospitality",
+    sources: "Skift, Hotel News Now, Travel Weekly, Hospitality Net, and 30+ travel sources",
+    communityDesc: "Hospitality & Travel professionals",
+  },
+  entertainment_media: {
+    label: "Entertainment & Media",
+    tagline: "Your Voice in Entertainment",
+    sources: "Variety, Deadline, The Hollywood Reporter, Billboard, and 40+ entertainment sources",
+    communityDesc: "Entertainment & Media professionals",
+  },
+  telecommunications: {
+    label: "Telecommunications",
+    tagline: "Your Voice in Telecom",
+    sources: "Light Reading, Fierce Telecom, RCR Wireless, Telecom Reseller, and 25+ telecom sources",
+    communityDesc: "Telecommunications professionals",
+  },
+  agriculture: {
+    label: "Agriculture & Food",
+    tagline: "Your Voice in Agriculture",
+    sources: "AgFunder News, Food Dive, AgriPulse, The Counter, and 25+ agriculture sources",
+    communityDesc: "Agriculture & Food professionals",
+  },
+  other: {
+    label: "Business",
+    tagline: "Your Voice in Business",
+    sources: "Harvard Business Review, Fast Company, Inc., Forbes, and 50+ business publications",
+    communityDesc: "business professionals",
+  },
+};
+
+function getIndustryContent(industry?: string): IndustryContent {
+  if (industry && industryContentMap[industry]) {
+    return industryContentMap[industry];
+  }
+  return industryContentMap.other;
+}
+
 // Once thesocialpundit.com is verified in Resend, emails will work automatically
 // The fromEmail comes from the Resend connector settings
 
@@ -58,10 +190,12 @@ interface EmailResult {
 
 export async function sendWelcomeEmail(
   email: string,
-  firstName: string
+  firstName: string,
+  industry?: string
 ): Promise<EmailResult> {
   try {
     const { client, fromEmail } = await getResendClient();
+    const industryContent = getIndustryContent(industry);
 
     const { data, error } = await client.emails.send({
       from: `${FROM_NAME} <${fromEmail}>`,
@@ -94,7 +228,7 @@ export async function sendWelcomeEmail(
                               </svg>
                             </div>
                             <h1 style="color: #ffffff; font-size: 28px; font-weight: 700; margin: 0; letter-spacing: -0.5px;">TheSocialPundit</h1>
-                            <p style="color: rgba(255,255,255,0.85); font-size: 14px; margin: 8px 0 0 0; font-weight: 400;">Your Voice in Media & Advertising</p>
+                            <p style="color: rgba(255,255,255,0.85); font-size: 14px; margin: 8px 0 0 0; font-weight: 400;">${industryContent.tagline}</p>
                           </td>
                         </tr>
                       </table>
@@ -106,7 +240,7 @@ export async function sendWelcomeEmail(
                     <td style="padding: 40px 40px 20px 40px;">
                       <h2 style="color: #1C1F21; font-size: 24px; font-weight: 600; margin: 0 0 16px 0;">Welcome aboard, ${firstName}!</h2>
                       <p style="color: #52525b; font-size: 16px; line-height: 1.7; margin: 0;">
-                        You've just joined an exclusive community of <strong style="color: #1C1F21;">Media & Advertising professionals</strong> who are building their thought leadership on LinkedIn and Twitter/X.
+                        You've just joined an exclusive community of <strong style="color: #1C1F21;">${industryContent.communityDesc}</strong> who are building their thought leadership on LinkedIn and Twitter/X.
                       </p>
                     </td>
                   </tr>
@@ -137,7 +271,7 @@ export async function sendWelcomeEmail(
                           </td>
                           <td style="padding-left: 12px; vertical-align: top;">
                             <p style="margin: 0 0 4px 0; color: #1C1F21; font-weight: 600; font-size: 15px;">Curated Industry News</p>
-                            <p style="margin: 0; color: #71717a; font-size: 14px; line-height: 1.5;">Get hand-picked articles from AdAge, Digiday, AdWeek, and 50+ premium sources matched to your interests.</p>
+                            <p style="margin: 0; color: #71717a; font-size: 14px; line-height: 1.5;">Get hand-picked articles from ${industryContent.sources} matched to your interests.</p>
                           </td>
                         </tr>
                       </table>
@@ -218,7 +352,7 @@ export async function sendWelcomeEmail(
                       <p style="color: #a1a1aa; font-size: 13px; margin: 0;">
                         <a href="${APP_URL}" style="color: #7C3BED; text-decoration: none; font-weight: 500;">thesocialpundit.com</a>
                         <span style="margin: 0 8px;">|</span>
-                        Build your authority in Media & Advertising
+                        Build your authority in ${industryContent.label}
                       </p>
                     </td>
                   </tr>
