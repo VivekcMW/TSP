@@ -128,7 +128,8 @@ function ConnectionCard({
   onSync,
   isConnecting,
   isDisconnecting,
-  isSyncing 
+  isSyncing,
+  comingSoon = false
 }: { 
   provider: 'linkedin' | 'twitter';
   connected: boolean;
@@ -139,6 +140,7 @@ function ConnectionCard({
   isConnecting: boolean;
   isDisconnecting: boolean;
   isSyncing: boolean;
+  comingSoon?: boolean;
 }) {
   const isLinkedIn = provider === 'linkedin';
   
@@ -157,11 +159,17 @@ function ConnectionCard({
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-medium">{isLinkedIn ? 'LinkedIn' : 'Twitter/X'}</span>
-                <Badge variant={connected ? "default" : "secondary"} className="text-xs">
-                  {connected ? 'Connected' : 'Not connected'}
-                </Badge>
+                {comingSoon ? (
+                  <Badge variant="outline" className="text-xs">
+                    Coming Soon
+                  </Badge>
+                ) : (
+                  <Badge variant={connected ? "default" : "secondary"} className="text-xs">
+                    {connected ? 'Connected' : 'Not connected'}
+                  </Badge>
+                )}
               </div>
-              {connected && accountInfo && (
+              {connected && accountInfo && !comingSoon && (
                 <p className="text-sm text-muted-foreground">
                   {accountInfo.name} ({accountInfo.handle})
                 </p>
@@ -169,7 +177,17 @@ function ConnectionCard({
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {connected ? (
+            {comingSoon ? (
+              <Button 
+                variant="secondary"
+                size="sm"
+                disabled
+                data-testid={`button-connect-${provider}`}
+              >
+                <Link2 className="w-4 h-4 mr-2" />
+                Connect
+              </Button>
+            ) : connected ? (
               <>
                 <Button 
                   variant="outline" 
@@ -433,6 +451,7 @@ export default function AnalyticsPage() {
                   isConnecting={connectTwitterMutation.isPending}
                   isDisconnecting={disconnectMutation.isPending && disconnectMutation.variables === 'twitter'}
                   isSyncing={syncMutation.isPending && syncMutation.variables === 'twitter'}
+                  comingSoon={true}
                 />
               </div>
             </section>
