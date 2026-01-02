@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -10,10 +10,11 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { ArrowLeft, LogIn, Loader2, Zap } from "lucide-react";
+import { ArrowLeft, LogIn, Loader2, Zap, FlaskConical } from "lucide-react";
 import { SiGoogle, SiLinkedin } from "react-icons/si";
 import { SEO } from "@/components/seo";
 import { Separator } from "@/components/ui/separator";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -27,6 +28,38 @@ export default function LoginPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [error, setError] = useState<string | null>(null);
+  const [isTestMode, setIsTestMode] = useState(false);
+  const [isTestLoggingIn, setIsTestLoggingIn] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/test/status")
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.testMode) setIsTestMode(true);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleTestLogin() {
+    setIsTestLoggingIn(true);
+    try {
+      await apiRequest("POST", "/api/test/login");
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      toast({
+        title: "Test Mode",
+        description: "Logged in as test user",
+      });
+      setLocation("/dashboard");
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Test login failed",
+        description: "Could not log in as test user",
+      });
+    } finally {
+      setIsTestLoggingIn(false);
+    }
+  }
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -200,6 +233,33 @@ export default function LoginPage() {
                 </span>
               </Link>
             </p>
+            {isTestMode && (
+              <>
+                <Separator />
+                <Button
+                  variant="outline"
+                  className="w-full border-dashed border-amber-500/50 text-amber-600 dark:text-amber-400"
+                  onClick={handleTestLogin}
+                  disabled={isTestLoggingIn}
+                  data-testid="button-test-login"
+                >
+                  {isTestLoggingIn ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Logging in...
+                    </>
+                  ) : (
+                    <>
+                      <FlaskConical className="h-4 w-4 mr-2" />
+                      Quick Test Login
+                    </>
+                  )}
+                </Button>
+                <p className="text-xs text-muted-foreground text-center">
+                  Dev mode: Skip auth with pre-configured test user
+                </p>
+              </>
+            )}
           </CardFooter>
         </Card>
       </main>

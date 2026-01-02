@@ -14,10 +14,12 @@ export interface IStorage {
   getInboxItems(userId: string): Promise<InboxItem[]>;
   createInboxItem(item: InsertInboxItem): Promise<InboxItem>;
   updateInboxItem(id: string, userId: string, data: { status: string }): Promise<InboxItem | undefined>;
+  clearUserInboxItems(userId: string): Promise<void>;
   getDrafts(userId: string): Promise<Draft[]>;
   createDraft(draft: InsertDraft): Promise<Draft>;
   updateDraft(id: string, userId: string, data: { content?: string; status?: string }): Promise<Draft | undefined>;
   deleteDraft(id: string, userId: string): Promise<void>;
+  clearUserDrafts(userId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -96,6 +98,14 @@ export class DatabaseStorage implements IStorage {
 
   async deleteDraft(id: string, userId: string): Promise<void> {
     await db.delete(drafts).where(and(eq(drafts.id, id), eq(drafts.userId, userId)));
+  }
+
+  async clearUserInboxItems(userId: string): Promise<void> {
+    await db.delete(inboxItems).where(eq(inboxItems.userId, userId));
+  }
+
+  async clearUserDrafts(userId: string): Promise<void> {
+    await db.delete(drafts).where(eq(drafts.userId, userId));
   }
 }
 

@@ -11,10 +11,44 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ArrowRight, Sparkles } from "lucide-react";
 
 const countries = [
-  "United States", "United Kingdom", "Canada", "Australia", "Germany",
-  "France", "India", "Singapore", "United Arab Emirates", "Netherlands",
-  "Sweden", "Switzerland", "Japan", "South Korea", "Brazil",
-  "Mexico", "Spain", "Italy", "Ireland", "New Zealand"
+  "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Argentina", "Armenia", "Australia", 
+  "Austria", "Azerbaijan", "Bahrain", "Bangladesh", "Belarus", "Belgium", "Bhutan", "Bolivia", 
+  "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Cambodia", "Cameroon", 
+  "Canada", "Chile", "China", "Colombia", "Costa Rica", "Croatia", "Cyprus", "Czech Republic", 
+  "Denmark", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Estonia", "Ethiopia", 
+  "Finland", "France", "Georgia", "Germany", "Ghana", "Greece", "Guatemala", "Honduras", 
+  "Hong Kong", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", 
+  "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kuwait", "Latvia", "Lebanon", 
+  "Lithuania", "Luxembourg", "Malaysia", "Maldives", "Malta", "Mauritius", "Mexico", "Moldova", 
+  "Monaco", "Mongolia", "Montenegro", "Morocco", "Myanmar", "Nepal", "Netherlands", "New Zealand", 
+  "Nigeria", "North Macedonia", "Norway", "Oman", "Pakistan", "Panama", "Paraguay", "Peru", 
+  "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Rwanda", "Saudi Arabia", 
+  "Senegal", "Serbia", "Singapore", "Slovakia", "Slovenia", "South Africa", "South Korea", "Spain", 
+  "Sri Lanka", "Sweden", "Switzerland", "Taiwan", "Tanzania", "Thailand", "Tunisia", "Turkey", 
+  "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", 
+  "Uzbekistan", "Venezuela", "Vietnam", "Zambia", "Zimbabwe"
+];
+
+const industries = [
+  { value: "media_advertising", label: "Media & Advertising" },
+  { value: "product_marketing", label: "Product Marketing" },
+  { value: "technology_saas", label: "Technology & SaaS" },
+  { value: "finance_banking", label: "Finance & Banking" },
+  { value: "healthcare_pharma", label: "Healthcare & Pharma" },
+  { value: "consulting_services", label: "Consulting & Professional Services" },
+  { value: "ecommerce_retail", label: "E-commerce & Retail" },
+  { value: "real_estate", label: "Real Estate" },
+  { value: "education_edtech", label: "Education & EdTech" },
+  { value: "manufacturing", label: "Manufacturing & Industrial" },
+  { value: "energy_sustainability", label: "Energy & Sustainability" },
+  { value: "legal_services", label: "Legal Services" },
+  { value: "nonprofit_ngo", label: "Non-profit & NGO" },
+  { value: "government_public", label: "Government & Public Sector" },
+  { value: "hospitality_travel", label: "Hospitality & Travel" },
+  { value: "entertainment_media", label: "Entertainment & Media" },
+  { value: "telecommunications", label: "Telecommunications" },
+  { value: "agriculture", label: "Agriculture & Food" },
+  { value: "other", label: "Other" },
 ];
 
 interface CompleteRegistrationProps {
@@ -27,11 +61,11 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
   const { toast } = useToast();
   const [firstName, setFirstName] = useState(existingFirstName || "");
   const [lastName, setLastName] = useState(existingLastName || "");
-  const [city, setCity] = useState("");
+  const [industry, setIndustry] = useState("");
   const [country, setCountry] = useState("");
 
   const completeRegistrationMutation = useMutation({
-    mutationFn: async (data: { firstName: string; lastName: string; city: string; country: string }) => {
+    mutationFn: async (data: { firstName: string; lastName: string; industry: string; country: string }) => {
       return await apiRequest("POST", "/api/complete-registration", data);
     },
     onSuccess: async () => {
@@ -54,12 +88,12 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (firstName && lastName && city && country) {
-      completeRegistrationMutation.mutate({ firstName, lastName, city, country });
+    if (firstName && lastName && industry && country) {
+      completeRegistrationMutation.mutate({ firstName, lastName, industry, country });
     }
   };
 
-  const isValid = firstName.trim() && lastName.trim() && city.trim() && country;
+  const isValid = firstName.trim() && lastName.trim() && industry && country;
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -101,21 +135,26 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="city">City</Label>
-              <Input
-                id="city"
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                placeholder="San Francisco"
-                data-testid="input-city"
-              />
+              <Label htmlFor="industry">Industry</Label>
+              <Select value={industry} onValueChange={setIndustry}>
+                <SelectTrigger data-testid="select-industry">
+                  <SelectValue placeholder="Select your industry" />
+                </SelectTrigger>
+                <SelectContent>
+                  {industries.map((ind) => (
+                    <SelectItem key={ind.value} value={ind.value} data-testid={`option-industry-${ind.value}`}>
+                      {ind.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             
             <div className="space-y-2">
               <Label htmlFor="country">Country</Label>
               <Select value={country} onValueChange={setCountry}>
                 <SelectTrigger data-testid="select-country">
-                  <SelectValue placeholder="Select a country" />
+                  <SelectValue placeholder="Select your country" />
                 </SelectTrigger>
                 <SelectContent>
                   {countries.map((c) => (

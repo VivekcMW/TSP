@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Inbox, RefreshCw, Link2 } from "lucide-react";
+import { Inbox, RefreshCw, Link2, FlaskConical, RotateCcw, Database, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -20,6 +20,62 @@ export default function DashboardPage() {
   const [selectedItem, setSelectedItem] = useState<InboxItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isInstantReviewOpen, setIsInstantReviewOpen] = useState(false);
+  const [isTestMode, setIsTestMode] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/test/status")
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.testMode) setIsTestMode(true);
+      })
+      .catch(() => {});
+  }, []);
+
+  const resetDataMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/test/reset");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/drafts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      toast({
+        title: "Data reset",
+        description: "All test data has been cleared. You're back to a clean slate.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Reset failed",
+        description: "Could not reset test data.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const populateDemoMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/test/demo-data");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/drafts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      toast({
+        title: "Demo data loaded",
+        description: `Added ${data.data.articlesAdded} articles and ${data.data.draftsAdded} drafts.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Failed to load demo data",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const { data: inboxItems, isLoading } = useQuery<InboxItem[]>({
     queryKey: ["/api/inbox"],
@@ -140,6 +196,48 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {isTestMode && (
+        <div className="flex-shrink-0 bg-amber-500/10 border-b border-amber-500/30 px-6 py-3">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+              <FlaskConical className="w-4 h-4" />
+              <span className="text-sm font-medium">Test Mode Active</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => resetDataMutation.mutate()}
+                disabled={resetDataMutation.isPending}
+                className="border-amber-500/50 text-amber-600 dark:text-amber-400"
+                data-testid="button-reset-data"
+              >
+                {resetDataMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                )}
+                Reset Data
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => populateDemoMutation.mutate()}
+                disabled={populateDemoMutation.isPending}
+                className="border-amber-500/50 text-amber-600 dark:text-amber-400"
+                data-testid="button-load-demo"
+              >
+                {populateDemoMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Database className="w-4 h-4 mr-2" />
+                )}
+                Load Demo Data
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       <header className="flex-shrink-0 bg-background border-b px-6 py-4">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
