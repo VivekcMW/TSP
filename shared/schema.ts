@@ -56,6 +56,68 @@ export const drafts = pgTable("drafts", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [index("idx_drafts_user").on(table.userId)]);
 
+export const INDUSTRY_SLUGS = [
+  "media_advertising",
+  "product_marketing",
+  "technology_saas",
+  "finance_banking",
+  "healthcare_pharma",
+  "consulting_services",
+  "ecommerce_retail",
+  "real_estate",
+  "education_edtech",
+  "manufacturing",
+  "energy_sustainability",
+  "legal_services",
+  "nonprofit_ngo",
+  "government_public",
+  "hospitality_travel",
+  "entertainment_media",
+  "telecommunications",
+  "agriculture",
+  "other",
+] as const;
+
+export type IndustrySlug = typeof INDUSTRY_SLUGS[number];
+
+export const industrySources = pgTable("industry_sources", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  industry: varchar("industry").notNull(),
+  name: varchar("name").notNull(),
+  feedUrl: text("feed_url").notNull(),
+  feedType: varchar("feed_type").default("rss").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  priority: integer("priority").default(0),
+  lastFetchedAt: timestamp("last_fetched_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [index("idx_industry_sources_industry").on(table.industry)]);
+
+export const engineRunLogs = pgTable("engine_run_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  industry: varchar("industry").notNull(),
+  userId: varchar("user_id"),
+  status: varchar("status").notNull(),
+  articlesProcessed: integer("articles_processed").default(0),
+  articlesMatched: integer("articles_matched").default(0),
+  errorMessage: text("error_message"),
+  durationMs: integer("duration_ms"),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("idx_engine_runs_industry").on(table.industry),
+  index("idx_engine_runs_user").on(table.userId),
+]);
+
+export const insertIndustrySourceSchema = createInsertSchema(industrySources).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertEngineRunLogSchema = createInsertSchema(engineRunLogs).omit({
+  id: true,
+  startedAt: true,
+});
+
 export const insertUserProfileSchema = createInsertSchema(userProfiles).omit({
   id: true,
   createdAt: true,
@@ -81,3 +143,9 @@ export type InboxItem = typeof inboxItems.$inferSelect;
 
 export type InsertDraft = z.infer<typeof insertDraftSchema>;
 export type Draft = typeof drafts.$inferSelect;
+
+export type InsertIndustrySource = z.infer<typeof insertIndustrySourceSchema>;
+export type IndustrySource = typeof industrySources.$inferSelect;
+
+export type InsertEngineRunLog = z.infer<typeof insertEngineRunLogSchema>;
+export type EngineRunLog = typeof engineRunLogs.$inferSelect;
