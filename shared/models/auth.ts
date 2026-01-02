@@ -13,26 +13,6 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)]
 );
 
-// Industry types for content engine routing
-export const INDUSTRIES = [
-  "media_advertising",
-  "product_marketing", 
-  "technology_saas",
-  "finance_banking",
-  "healthcare_pharma",
-  "consulting_services",
-  "ecommerce_retail",
-  "real_estate",
-  "education_edtech",
-  "manufacturing_industrial",
-  "energy_sustainability",
-  "legal_services",
-  "nonprofit_ngo",
-  "other",
-] as const;
-
-export type Industry = typeof INDUSTRIES[number];
-
 // User storage table.
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -41,8 +21,8 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
+  city: varchar("city"),
   country: varchar("country"),
-  industry: varchar("industry"),
   registrationCompleted: timestamp("registration_completed"),
   resetToken: varchar("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
