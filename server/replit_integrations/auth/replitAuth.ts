@@ -281,8 +281,10 @@ export async function setupAuth(app: Express) {
     
     app.get("/auth/linkedin/analytics", isAuthenticated, (req, res, next) => {
       const userId = (req.user as any)?.id;
+      const returnTo = req.query.returnTo as string || req.headers.referer || "/analytics";
       if (userId) {
         (req.session as any).analyticsConnectUserId = userId;
+        (req.session as any).analyticsReturnTo = returnTo.includes("/dashboard") ? "/dashboard" : "/analytics";
       }
       passport.authenticate("linkedin-analytics")(req, res, next);
     });
@@ -295,14 +297,18 @@ export async function setupAuth(app: Express) {
       async (req: any, res) => {
         const sessionData = req.session as any;
         const userId = sessionData?.analyticsConnectUserId;
+        const returnTo = sessionData?.analyticsReturnTo || "/analytics";
         const oauthData = req.user;
         
         if (sessionData?.analyticsConnectUserId) {
           delete sessionData.analyticsConnectUserId;
         }
+        if (sessionData?.analyticsReturnTo) {
+          delete sessionData.analyticsReturnTo;
+        }
         
         if (!userId || !oauthData?.profile) {
-          return res.redirect("/analytics?error=linkedin_connect_failed");
+          return res.redirect(`${returnTo}?error=linkedin_connect_failed`);
         }
         
         try {
@@ -344,10 +350,10 @@ export async function setupAuth(app: Express) {
             });
           }
           
-          res.redirect("/analytics?connected=linkedin");
+          res.redirect(`${returnTo}?connected=linkedin`);
         } catch (error) {
           console.error("LinkedIn analytics connection error");
-          res.redirect("/analytics?error=linkedin_connect_failed");
+          res.redirect(`${returnTo}?error=linkedin_connect_failed`);
         }
       }
     );
