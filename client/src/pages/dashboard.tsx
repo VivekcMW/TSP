@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Inbox, RefreshCw, Link2, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -10,21 +10,12 @@ import { InstantReviewModal } from "@/components/dashboard/instant-review-modal"
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { InboxItem } from "@shared/schema";
-import { useSearch } from "wouter";
 
 type FilterType = "all" | "saved" | "dismissed";
-
-interface AnalyticsSummary {
-  connected: {
-    linkedin: boolean;
-    twitter: boolean;
-  };
-}
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const searchString = useSearch();
   const [filter, setFilter] = useState<FilterType>("all");
   const [selectedItem, setSelectedItem] = useState<InboxItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -34,34 +25,6 @@ export default function DashboardPage() {
     queryKey: ["/api/inbox"],
     enabled: !!user,
   });
-  
-  const { data: analyticsSummary } = useQuery<AnalyticsSummary>({
-    queryKey: ["/api/analytics/summary"],
-    enabled: !!user,
-  });
-  
-  useEffect(() => {
-    const params = new URLSearchParams(searchString);
-    const storedPost = sessionStorage.getItem("pendingPost");
-    
-    if (params.get("connected") === "linkedin") {
-      if (storedPost) {
-        const post = JSON.parse(storedPost);
-        openLinkedInShare(post.content, post.articleUrl);
-        sessionStorage.removeItem("pendingPost");
-      }
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-    if (params.get("error") === "linkedin_connect_failed") {
-      toast({
-        title: "Connection failed",
-        description: "Could not connect to LinkedIn. Please try again.",
-        variant: "destructive",
-      });
-      sessionStorage.removeItem("pendingPost");
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-  }, [searchString]);
   
   const openLinkedInShare = (content: string, articleUrl?: string) => {
     navigator.clipboard.writeText(content);
@@ -177,28 +140,17 @@ export default function DashboardPage() {
   const handlePost = (platform: string, tone: string, content: string) => {
     if (platform === "linkedin") {
       const articleUrl = selectedItem?.articleUrl;
-      const isLinkedInConnected = analyticsSummary?.connected?.linkedin;
-      
-      if (!isLinkedInConnected) {
-        sessionStorage.setItem("pendingPost", JSON.stringify({ platform, tone, content, articleUrl }));
-        window.location.href = "/auth/linkedin/analytics?returnTo=/dashboard";
-        return;
-      }
-      
       openLinkedInShare(content, articleUrl);
       setIsModalOpen(false);
     } else {
-      saveDraftMutation.mutate({
-        inboxItemId: selectedItem?.id,
-        platform,
-        tone,
-        content,
-      });
-      setIsModalOpen(false);
+      // Twitter/X - copy and open in new tab
+      navigator.clipboard.writeText(content);
       toast({
-        title: "Draft created",
-        description: "Twitter/X posting coming soon. Find your draft in the Drafts tab.",
+        title: "Content copied!",
+        description: "Paste your post content into Twitter/X.",
       });
+      window.open("https://twitter.com/compose/tweet", "_blank");
+      setIsModalOpen(false);
     }
   };
 
