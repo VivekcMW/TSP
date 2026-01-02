@@ -365,7 +365,11 @@ const defaultIndustryData: IndustryData = {
 
 function getIndustryData(industry?: string): IndustryData {
   if (!industry) return defaultIndustryData;
-  const normalized = industry.toLowerCase().replace(/[\s&]+/g, "-");
+  const normalized = industry.toLowerCase()
+    .replace(/_/g, "-")
+    .replace(/\s*&\s*/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
   return industryDataMap[normalized] || defaultIndustryData;
 }
 
