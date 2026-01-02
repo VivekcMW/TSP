@@ -55,6 +55,32 @@ Preferred communication style: Simple, everyday language.
 - **Tonality Mapping**: UI tonalities map to schema values (professional, authoritative, contrarian, ai-recommended)
 - **Auto Publication Tracking**: When generating posts, the source publication is automatically added to user's preferences
 
+### Modular Industry Engine System
+The platform uses a modular engine architecture to deliver industry-specific content curation:
+
+**Engine Architecture** (`server/services/engines/`)
+- **BaseIndustryEngine**: Abstract base class with shared functionality (RSS fetching, keyword scoring, AI summarization, deduplication)
+- **EngineRegistry**: Routes users to industry-specific engines based on their profile
+- **Types**: `EngineConfig`, `EngineProcessResult`, `RSSFeedSource` interfaces
+
+**Specialized Engines** (each with 10 RSS feeds and 20 trend keywords):
+1. **Media & Advertising** - AdAge, Marketing Week, The Drum, Digiday
+2. **Technology & SaaS** - TechCrunch, Ars Technica, Wired, The Verge
+3. **Product Marketing** - Product-Led Growth, HubSpot, MarketingProfs
+4. **Finance & Banking** - Financial Times, Bloomberg, WSJ, The Economist
+5. **Healthcare & Pharma** - STAT News, Fierce Pharma, Healthcare Dive
+6. **E-commerce & Retail** - Retail Dive, Modern Retail, eMarketer
+7. **Default Engine** - General business news for other industries
+
+**Engine API Endpoints:**
+- `GET /api/engines` - Returns current engine and available specialized engines
+- `GET /api/trends` - Hot trends using user's industry engine
+- `POST /api/inbox/refresh` - Content refresh using industry-specific engine with fallback
+
+**Database Tables:**
+- `industry_sources` - Configurable RSS sources per industry
+- `engine_run_logs` - Tracks engine execution for monitoring
+
 ## External Dependencies
 
 ### Database
