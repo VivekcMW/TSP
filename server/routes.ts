@@ -12,6 +12,7 @@ import { getHotTrends } from "./services/rssService";
 import { fetchArticleFromUrl } from "./services/urlFetcher";
 import { validateUrl, validateUrlSync } from "./services/urlValidator";
 import { engineRegistry } from "./services/engines/index.js";
+import { selectIndustryEngine, getAvailableVerticals, normalizeIndustryToSlug } from "./services/metaEngine";
 import type { IndustrySlug } from "@shared/schema";
 
 const completeOnboardingSchema = z.object({
@@ -20,6 +21,7 @@ const completeOnboardingSchema = z.object({
   keywords: z.array(z.string()).max(20).optional(),
   influencers: z.array(z.string()).max(20).optional(),
   companies: z.array(z.string()).max(20).optional(),
+  recommendedIndustry: z.string().optional(),
 });
 
 const createDraftSchema = z.object({
@@ -141,7 +143,12 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid request data", errors: validation.error.errors });
       }
       
-      const { focusDescription, publications, keywords, influencers, companies } = validation.data;
+      const { focusDescription, publications, keywords, influencers, companies, recommendedIndustry } = validation.data;
+
+      if (recommendedIndustry) {
+        await db.update(users).set({ industry: recommendedIndustry }).where(eq(users.id, userId));
+        console.log(`[Onboarding] Updated user ${userId} industry to: ${recommendedIndustry}`);
+      }
 
       let profile = await storage.getUserProfile(userId);
       
@@ -166,7 +173,16 @@ export async function registerRoutes(
         });
       }
 
-      res.json(profile);
+      const industryToUse = (recommendedIndustry || "other") as IndustrySlug;
+      const engine = engineRegistry.getEngine(industryToUse);
+      
+      res.json({
+        ...profile,
+        assignedEngine: {
+          industry: industryToUse,
+          displayName: engine.config.displayName,
+        },
+      });
     } catch (error) {
       console.error("Error completing onboarding:", error);
       res.status(500).json({ message: "Failed to complete onboarding" });
@@ -175,13 +191,16 @@ export async function registerRoutes(
 
   app.post("/api/ai/analyze-identity", isAuthenticated, async (req: any, res) => {
     try {
-      const { focusDescription } = req.body;
+      const { focusDescription, selectedIndustry } = req.body;
       
       if (!focusDescription || focusDescription.length < 10) {
         return res.status(400).json({ message: "Please provide a description of at least 10 characters" });
       }
       
-      const analysis = await analyzeProfessionalIdentity(focusDescription);
+      const [analysis, engineSelection] = await Promise.all([
+        analyzeProfessionalIdentity(focusDescription),
+        selectIndustryEngine(selectedIndustry || "Other", focusDescription),
+      ]);
       
       res.json({
         primaryIndustry: analysis.primaryIndustry,
@@ -192,10 +211,44 @@ export async function registerRoutes(
         topics: analysis.topics.slice(0, 20).map(t => t.phrase),
         personalities: analysis.personalities.slice(0, 20).map(p => p.name),
         companies: analysis.companies.slice(0, 20).map(c => c.name),
+        recommendedEngine: {
+          industry: engineSelection.recommendedIndustry,
+          displayName: engineSelection.engineDisplayName,
+          confidence: engineSelection.confidence,
+          reasoning: engineSelection.reasoning,
+          matchedSignals: engineSelection.matchedSignals,
+        },
       });
     } catch (error) {
       console.error("Error analyzing identity:", error);
       res.status(500).json({ message: "Failed to analyze professional identity" });
+    }
+  });
+
+  app.post("/api/ai/select-engine", isAuthenticated, async (req: any, res) => {
+    try {
+      const { selectedIndustry, focusDescription } = req.body;
+      
+      if (!focusDescription || focusDescription.length < 10) {
+        return res.status(400).json({ message: "Please provide a description of at least 10 characters" });
+      }
+      
+      const result = await selectIndustryEngine(selectedIndustry || "Other", focusDescription);
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error selecting engine:", error);
+      res.status(500).json({ message: "Failed to select industry engine" });
+    }
+  });
+
+  app.get("/api/verticals", async (_req, res) => {
+    try {
+      const verticals = getAvailableVerticals();
+      res.json(verticals);
+    } catch (error) {
+      console.error("Error fetching verticals:", error);
+      res.status(500).json({ message: "Failed to fetch verticals" });
     }
   });
 
@@ -235,7 +288,7 @@ export async function registerRoutes(
     try {
       const userId = req.user.claims.sub;
       const [user] = await db.select().from(users).where(eq(users.id, userId));
-      const industry = user?.industry as IndustrySlug | undefined;
+      const industry = normalizeIndustryToSlug(user?.industry);
       
       const currentEngine = engineRegistry.getEngine(industry);
       const allEngines = Array.from(engineRegistry.getAllEngines().entries()).map(([slug, engine]) => ({
@@ -265,7 +318,7 @@ export async function registerRoutes(
     try {
       const userId = req.user.claims.sub;
       const [user] = await db.select().from(users).where(eq(users.id, userId));
-      const industry = user?.industry as IndustrySlug | undefined;
+      const industry = normalizeIndustryToSlug(user?.industry);
       
       const engine = engineRegistry.getEngine(industry);
       const trends = await engine.getHotTrends(5);
@@ -286,7 +339,7 @@ export async function registerRoutes(
       }
       
       const [user] = await db.select().from(users).where(eq(users.id, userId));
-      const industry = user?.industry as IndustrySlug | undefined;
+      const industry = normalizeIndustryToSlug(user?.industry);
       
       const engine = engineRegistry.getEngine(industry);
       console.log(`[Inbox Refresh] Using ${engine.config.displayName} engine for user ${userId}`);

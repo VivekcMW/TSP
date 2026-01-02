@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -10,11 +10,24 @@ interface OnboardingData {
   keywords: string[];
   influencers: string[];
   companies: string[];
+  recommendedIndustry?: string;
+}
+
+interface User {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  industry?: string;
 }
 
 export default function OnboardingPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+
+  const { data: user } = useQuery<User>({
+    queryKey: ["/api/auth/user"],
+  });
 
   const completeOnboardingMutation = useMutation({
     mutationFn: async (data: OnboardingData) => {
@@ -41,5 +54,11 @@ export default function OnboardingPage() {
     completeOnboardingMutation.mutate(data);
   };
 
-  return <OnboardingWizard onComplete={handleComplete} isPending={completeOnboardingMutation.isPending} />;
+  return (
+    <OnboardingWizard 
+      onComplete={handleComplete} 
+      isPending={completeOnboardingMutation.isPending}
+      userIndustry={user?.industry}
+    />
+  );
 }

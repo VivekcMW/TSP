@@ -13,6 +13,7 @@ import { Progress } from "@/components/ui/progress";
 interface OnboardingWizardProps {
   onComplete: (data: OnboardingData) => void;
   isPending?: boolean;
+  userIndustry?: string;
 }
 
 interface OnboardingData {
@@ -21,6 +22,7 @@ interface OnboardingData {
   keywords: string[];
   influencers: string[];
   companies: string[];
+  recommendedIndustry?: string;
 }
 
 const samplePublications = [
@@ -57,7 +59,7 @@ type Step = "identity" | "publications" | "topics" | "connections";
 
 const STEPS: Step[] = ["identity", "publications", "topics", "connections"];
 
-export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWizardProps) {
+export function OnboardingWizard({ onComplete, isPending = false, userIndustry }: OnboardingWizardProps) {
   const [currentStep, setCurrentStep] = useState<Step>("identity");
   const [focusDescription, setFocusDescription] = useState("");
   const [selectedPublications, setSelectedPublications] = useState<string[]>([]);
@@ -69,6 +71,8 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
   const [customCompany, setCustomCompany] = useState("");
   const [isGeneratingRecommendations, setIsGeneratingRecommendations] = useState(false);
   const [hasGeneratedRecommendations, setHasGeneratedRecommendations] = useState(false);
+  const [recommendedIndustry, setRecommendedIndustry] = useState<string | undefined>();
+  const [engineDisplayName, setEngineDisplayName] = useState<string>("");
   const { toast } = useToast();
 
   const currentStepIndex = STEPS.indexOf(currentStep);
@@ -86,6 +90,7 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
     try {
       const fetchPromise = apiRequest("POST", "/api/ai/analyze-identity", {
         focusDescription,
+        selectedIndustry: userIndustry,
       }).then(res => res.json());
       
       const data = await Promise.race([fetchPromise, timeoutPromise]) as any;
@@ -96,9 +101,16 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
       setSelectedCompanies(data.companies || sampleCompanies.slice(0, 6));
       setHasGeneratedRecommendations(true);
       
+      if (data.recommendedEngine) {
+        setRecommendedIndustry(data.recommendedEngine.industry);
+        setEngineDisplayName(data.recommendedEngine.displayName);
+      }
+      
       toast({
         title: "Recommendations generated",
-        description: `Identified industry: ${data.primaryIndustry || "General"}`,
+        description: data.recommendedEngine 
+          ? `Matched to: ${data.recommendedEngine.displayName}` 
+          : `Identified industry: ${data.primaryIndustry || "General"}`,
       });
     } catch (error) {
       console.error("Error generating recommendations:", error);
@@ -156,6 +168,7 @@ export function OnboardingWizard({ onComplete, isPending = false }: OnboardingWi
       keywords: selectedKeywords,
       influencers: selectedInfluencers,
       companies: selectedCompanies,
+      recommendedIndustry,
     });
   };
 
