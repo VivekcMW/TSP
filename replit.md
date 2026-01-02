@@ -104,18 +104,11 @@ The platform uses a modular engine architecture to deliver industry-specific con
 ### Development Tools
 - Replit-specific Vite plugins for error overlay and development features
 
-### Test Mode (Development Only)
-Test mode provides quick development and debugging capabilities, only available when `NODE_ENV !== 'production'`:
-
-**Test Endpoints:**
-- `GET /api/test/status` - Check if test mode is available
-- `POST /api/test/login` - Quick login with test user (test@thesocialpundit.com), bypasses auth
-- `POST /api/test/reset` - Clear all inbox items, drafts, and reset profile to clean slate
-- `POST /api/test/demo-data` - Populate sample articles and drafts for testing
-
-**UI Controls:**
-- Login page shows "Quick Test Login" button with amber styling
-- Dashboard shows "Test Mode Active" banner with Reset Data and Load Demo Data buttons
+### Publication-to-RSS Resolver
+The platform includes a publication resolver (`server/services/publicationResolver.ts`) that maps publication names to RSS feed URLs:
+- **80+ publications** mapped across technology, finance, healthcare, marketing, e-commerce, legal, hospitality, and general business categories
+- **Intelligent matching**: Handles variations like "TechCrunch", "tech crunch", "TC"
+- **User publication priority**: Content from user's selected publications is fetched first, with industry feeds as fallback
 
 ### Industry Pre-Qualification
 Users select their industry during registration to route to appropriate content curation engines:
