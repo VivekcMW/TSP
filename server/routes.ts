@@ -39,8 +39,8 @@ const updateInboxItemSchema = z.object({
 const completeRegistrationSchema = z.object({
   firstName: z.string().min(1).max(50),
   lastName: z.string().min(1).max(50),
-  city: z.string().min(1).max(100),
   country: z.string().min(1).max(100),
+  industry: z.string().min(1).max(100),
 });
 
 export async function registerRoutes(
@@ -59,15 +59,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid request data", errors: validation.error.errors });
       }
       
-      const { firstName, lastName, city, country } = validation.data;
+      const { firstName, lastName, country, industry } = validation.data;
       
       const [updatedUser] = await db
         .update(users)
         .set({
           firstName,
           lastName,
-          city,
           country,
+          industry,
           registrationCompleted: new Date(),
           updatedAt: new Date(),
         })
