@@ -1,16 +1,21 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Sparkles } from "lucide-react";
 
 export function AIPov() {
   return (
     <section className="py-20 lg:py-28 bg-muted/30" data-testid="section-ai-pov">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
+          <Badge className="mb-4 bg-primary/10 text-primary border-0">
+            <Sparkles className="w-3 h-3 mr-1" />
+            Powered by Gemini 2.5 Flash
+          </Badge>
           <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">
             Your voice. Your POV. Not generic AI slop.
           </h2>
-          <p className="text-lg text-muted-foreground">
-            Most AI summarizes. We help you take a stand.
+          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+            Our AI reads real articles from 80+ industry publications, understands context, and generates posts in 4 distinct tonalities. Choose Thought Leader, Industry Insider, Provocateur, or Data-Driven.
           </p>
         </div>
         

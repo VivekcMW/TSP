@@ -10,9 +10,9 @@ const problemItems = [
 
 const solutionItems = [
   "Login to published post in under 5 minutes",
-  "Curated news matched to your niche, ready to riff on",
-  "Your voice, your POV, your authority",
-  "Fresh content daily, stay ahead of the conversation",
+  "AI curates 80+ sources, matched to your industry",
+  "4 tonalities: your voice, your POV, your authority",
+  "Real-time RSS feeds, never miss a trend",
 ];
 
 export function Comparison() {

@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Zap, Clock, Sparkles } from "lucide-react";
+import { Zap, Clock, Sparkles, Brain } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Link } from "wouter";
 
@@ -35,7 +35,11 @@ export function Hero() {
               </div>
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-primary" />
-                <span>Your voice, not AI slop</span>
+                <span>Gemini 2.5 Flash AI</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-primary" />
+                <span>11 industries</span>
               </div>
             </div>
             
