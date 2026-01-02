@@ -9,6 +9,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDistanceToNow } from "date-fns";
+import { useEffect } from "react";
+import { useSearch } from "wouter";
 
 interface AnalyticsSummary {
   connected: {
@@ -269,20 +271,52 @@ function PlatformAnalytics({ data, platform }: { data: any; platform: 'linkedin'
 
 export default function AnalyticsPage() {
   const { toast } = useToast();
+  const searchString = useSearch();
 
-  const { data: summary, isLoading } = useQuery<AnalyticsSummary>({
+  const { data: summary, isLoading, refetch } = useQuery<AnalyticsSummary>({
     queryKey: ['/api/analytics/summary'],
   });
 
-  const connectMutation = useMutation({
-    mutationFn: async (provider: string) => {
-      return apiRequest('POST', `/api/social/connect/${provider}`);
+  // Handle OAuth callback URL parameters
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const connected = params.get('connected');
+    const error = params.get('error');
+    
+    if (connected) {
+      refetch();
+      toast({
+        title: "Account Connected",
+        description: `Your ${connected} account has been connected successfully.`,
+      });
+      window.history.replaceState({}, '', '/analytics');
+    }
+    
+    if (error) {
+      toast({
+        title: "Connection Failed",
+        description: "Failed to connect account. Please try again.",
+        variant: "destructive",
+      });
+      window.history.replaceState({}, '', '/analytics');
+    }
+  }, [searchString, toast, refetch]);
+
+  // Connect LinkedIn via OAuth redirect
+  const handleLinkedInConnect = () => {
+    window.location.href = '/auth/linkedin/analytics';
+  };
+
+  // Connect Twitter via API (demo data since Twitter API requires elevated access)
+  const connectTwitterMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', '/api/social/connect/twitter');
     },
-    onSuccess: (_, provider) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/analytics/summary'] });
       toast({
         title: "Account Connected",
-        description: `Your ${provider} account has been connected successfully.`,
+        description: "Your Twitter/X account has been connected successfully.",
       });
     },
     onError: (error: any) => {
@@ -382,10 +416,10 @@ export default function AnalyticsPage() {
                   provider="linkedin"
                   connected={summary?.connected.linkedin || false}
                   accountInfo={summary?.linkedin?.account}
-                  onConnect={() => connectMutation.mutate('linkedin')}
+                  onConnect={handleLinkedInConnect}
                   onDisconnect={() => disconnectMutation.mutate('linkedin')}
                   onSync={() => syncMutation.mutate('linkedin')}
-                  isConnecting={connectMutation.isPending && connectMutation.variables === 'linkedin'}
+                  isConnecting={false}
                   isDisconnecting={disconnectMutation.isPending && disconnectMutation.variables === 'linkedin'}
                   isSyncing={syncMutation.isPending && syncMutation.variables === 'linkedin'}
                 />
@@ -393,10 +427,10 @@ export default function AnalyticsPage() {
                   provider="twitter"
                   connected={summary?.connected.twitter || false}
                   accountInfo={summary?.twitter?.account}
-                  onConnect={() => connectMutation.mutate('twitter')}
+                  onConnect={() => connectTwitterMutation.mutate()}
                   onDisconnect={() => disconnectMutation.mutate('twitter')}
                   onSync={() => syncMutation.mutate('twitter')}
-                  isConnecting={connectMutation.isPending && connectMutation.variables === 'twitter'}
+                  isConnecting={connectTwitterMutation.isPending}
                   isDisconnecting={disconnectMutation.isPending && disconnectMutation.variables === 'twitter'}
                   isSyncing={syncMutation.isPending && syncMutation.variables === 'twitter'}
                 />

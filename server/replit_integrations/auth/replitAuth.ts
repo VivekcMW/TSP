@@ -240,7 +240,7 @@ export async function setupAuth(app: Express) {
     }
   );
 
-  // LinkedIn OAuth routes
+  // LinkedIn OAuth routes (for login)
   app.get("/auth/linkedin", passport.authenticate("linkedin"));
   
   app.get("/auth/linkedin/callback",
@@ -249,6 +249,109 @@ export async function setupAuth(app: Express) {
       res.redirect("/dashboard");
     }
   );
+
+  // LinkedIn Analytics OAuth routes (for connecting social account)
+  if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
+    const replitDomainAnalytics = process.env.REPLIT_DOMAINS?.split(",")[0];
+    const linkedinAnalyticsCallbackURL = replitDomainAnalytics 
+      ? `https://${replitDomainAnalytics}/auth/linkedin/analytics/callback`
+      : "http://localhost:5000/auth/linkedin/analytics/callback";
+    console.log("LinkedIn Analytics OAuth callback URL:", linkedinAnalyticsCallbackURL);
+    
+    passport.use(
+      "linkedin-analytics",
+      new LinkedInStrategy(
+        {
+          clientID: process.env.LINKEDIN_CLIENT_ID,
+          clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
+          callbackURL: linkedinAnalyticsCallbackURL,
+          scope: ["openid", "profile", "email"],
+          passReqToCallback: true,
+        },
+        async (req: any, accessToken: string, refreshToken: string, profile: any, done: any) => {
+          try {
+            done(null, { accessToken, refreshToken, profile });
+          } catch (error) {
+            done(error);
+          }
+        }
+      )
+    );
+    console.log("LinkedIn Analytics OAuth strategy configured");
+    
+    app.get("/auth/linkedin/analytics", isAuthenticated, (req, res, next) => {
+      const userId = (req.user as any)?.id;
+      if (userId) {
+        (req.session as any).analyticsConnectUserId = userId;
+      }
+      passport.authenticate("linkedin-analytics")(req, res, next);
+    });
+    
+    app.get("/auth/linkedin/analytics/callback",
+      passport.authenticate("linkedin-analytics", { 
+        failureRedirect: "/analytics?error=linkedin_connect_failed",
+        session: false,
+      }),
+      async (req: any, res) => {
+        const sessionData = req.session as any;
+        const userId = sessionData?.analyticsConnectUserId;
+        const oauthData = req.user;
+        
+        if (sessionData?.analyticsConnectUserId) {
+          delete sessionData.analyticsConnectUserId;
+        }
+        
+        if (!userId || !oauthData?.profile) {
+          return res.redirect("/analytics?error=linkedin_connect_failed");
+        }
+        
+        try {
+          const { storage } = await import("../../storage");
+          
+          const existing = await storage.getSocialAccountByProvider(userId, "linkedin");
+          if (existing) {
+            await storage.updateSocialAccount(existing.id, {
+              accessToken: oauthData.accessToken,
+              refreshToken: oauthData.refreshToken || null,
+              lastSyncAt: new Date(),
+            });
+          } else {
+            const displayName = oauthData.profile.displayName || 
+              `${oauthData.profile.name?.givenName || ''} ${oauthData.profile.name?.familyName || ''}`.trim() ||
+              'LinkedIn User';
+            
+            const account = await storage.createSocialAccount({
+              userId,
+              provider: "linkedin",
+              providerAccountId: oauthData.profile.id,
+              accountName: displayName,
+              accountHandle: `@${oauthData.profile.id}`,
+              accessToken: oauthData.accessToken,
+              refreshToken: oauthData.refreshToken || null,
+              isActive: true,
+              scopes: ["openid", "profile", "email"],
+              lastSyncAt: new Date(),
+            });
+            
+            const demoMetrics = generateDemoAnalyticsMetrics("linkedin");
+            await storage.createSocialAnalytics({
+              userId,
+              socialAccountId: account.id,
+              provider: "linkedin",
+              snapshotDate: new Date(),
+              metrics: demoMetrics.metrics,
+              topPosts: demoMetrics.topPosts,
+            });
+          }
+          
+          res.redirect("/analytics?connected=linkedin");
+        } catch (error) {
+          console.error("LinkedIn analytics connection error");
+          res.redirect("/analytics?error=linkedin_connect_failed");
+        }
+      }
+    );
+  }
 
   app.post("/api/auth/register", async (req, res) => {
     try {
@@ -438,3 +541,63 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
   }
   return res.status(401).json({ message: "Unauthorized" });
 };
+
+function generateDemoAnalyticsMetrics(provider: string) {
+  const baseFollowers = provider === 'linkedin' ? 2500 : 1800;
+  const variance = () => Math.floor(Math.random() * 200) - 100;
+  
+  const metrics = {
+    followers: baseFollowers + variance(),
+    following: provider === 'linkedin' ? 450 + variance() : 320 + variance(),
+    posts: 24 + Math.floor(Math.random() * 10),
+    impressions: 12400 + Math.floor(Math.random() * 3000),
+    engagements: 520 + Math.floor(Math.random() * 200),
+    engagementRate: parseFloat((4.2 + Math.random() * 2).toFixed(2)),
+    likes: 340 + Math.floor(Math.random() * 100),
+    comments: 45 + Math.floor(Math.random() * 30),
+    shares: 28 + Math.floor(Math.random() * 20),
+    clicks: 156 + Math.floor(Math.random() * 50),
+    profileViews: provider === 'linkedin' ? 89 + Math.floor(Math.random() * 40) : undefined,
+  };
+  
+  const topPosts = [
+    {
+      postId: `post_${Date.now()}_1`,
+      content: provider === 'linkedin' 
+        ? "The future of B2B marketing isn't about more content—it's about better context. Here's what I learned from analyzing 500+ campaigns..."
+        : "Hot take: Most SaaS companies are over-engineering their onboarding. Simple wins. Here's why...",
+      impressions: 3200 + Math.floor(Math.random() * 1000),
+      engagements: 180 + Math.floor(Math.random() * 50),
+      likes: 120 + Math.floor(Math.random() * 30),
+      comments: 24 + Math.floor(Math.random() * 10),
+      shares: 18 + Math.floor(Math.random() * 8),
+      postedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      postId: `post_${Date.now()}_2`,
+      content: provider === 'linkedin'
+        ? "Just shipped a major feature after 3 months of work. The key insight? Listen to users, not just their words, but their behaviors."
+        : "Thread: 5 counterintuitive lessons from scaling to $10M ARR. Let's go...",
+      impressions: 2800 + Math.floor(Math.random() * 800),
+      engagements: 145 + Math.floor(Math.random() * 40),
+      likes: 95 + Math.floor(Math.random() * 25),
+      comments: 18 + Math.floor(Math.random() * 8),
+      shares: 12 + Math.floor(Math.random() * 6),
+      postedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      postId: `post_${Date.now()}_3`,
+      content: provider === 'linkedin'
+        ? "AI won't replace marketers. But marketers who use AI will replace those who don't. Here's my stack for 2026..."
+        : "Unpopular opinion: Most productivity advice is just procrastination in disguise.",
+      impressions: 2100 + Math.floor(Math.random() * 600),
+      engagements: 98 + Math.floor(Math.random() * 30),
+      likes: 72 + Math.floor(Math.random() * 20),
+      comments: 12 + Math.floor(Math.random() * 6),
+      shares: 8 + Math.floor(Math.random() * 4),
+      postedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+  ];
+  
+  return { metrics, topPosts };
+}

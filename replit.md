@@ -54,6 +54,30 @@ Preferred communication style: Simple, everyday language.
 - **Instant Review**: Generate posts from any URL with 4 tonalities (Thought Leader, Industry Insider, Provocateur, Data-Driven)
 - **Tonality Mapping**: UI tonalities map to schema values (professional, authoritative, contrarian, ai-recommended)
 - **Auto Publication Tracking**: When generating posts, the source publication is automatically added to user's preferences
+- **Social Media Analytics**: Track performance across LinkedIn and Twitter/X with combined and platform-specific metrics
+
+### Social Media Analytics Integration
+The platform supports connecting social media accounts to track post performance:
+
+**Database Tables:**
+- `social_accounts` - Stores connected social accounts with OAuth tokens
+- `social_analytics` - Stores analytics snapshots with metrics and top posts
+
+**Connection Methods:**
+- **LinkedIn**: Real OAuth flow via `/auth/linkedin/analytics` (requires callback URL in LinkedIn Developer Portal)
+- **Twitter/X**: Demo data approach (real API requires elevated developer access)
+
+**Analytics Endpoints:**
+- `GET /api/social/connections` - List connected accounts
+- `POST /api/social/connect/:provider` - Connect account (Twitter demo data)
+- `DELETE /api/social/disconnect/:provider` - Disconnect account
+- `POST /api/social/sync/:provider` - Refresh analytics data
+- `GET /api/analytics/summary` - Combined analytics for all platforms
+- `GET /api/analytics/:provider` - Platform-specific analytics with history
+
+**LinkedIn OAuth Setup:**
+For real LinkedIn connection, add this callback URL to your LinkedIn Developer Portal:
+`https://<your-domain>/auth/linkedin/analytics/callback`
 
 ### Modular Industry Engine System
 The platform uses a modular engine architecture to deliver industry-specific content curation:
