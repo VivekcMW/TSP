@@ -77,3 +77,24 @@ Preferred communication style: Simple, everyday language.
 
 ### Development Tools
 - Replit-specific Vite plugins for error overlay and development features
+
+### Test Mode (Development Only)
+Test mode provides quick development and debugging capabilities, only available when `NODE_ENV !== 'production'`:
+
+**Test Endpoints:**
+- `GET /api/test/status` - Check if test mode is available
+- `POST /api/test/login` - Quick login with test user (test@thesocialpundit.com), bypasses auth
+- `POST /api/test/reset` - Clear all inbox items, drafts, and reset profile to clean slate
+- `POST /api/test/demo-data` - Populate sample articles and drafts for testing
+
+**UI Controls:**
+- Login page shows "Quick Test Login" button with amber styling
+- Dashboard shows "Test Mode Active" banner with Reset Data and Load Demo Data buttons
+
+### Industry Pre-Qualification
+Users select their industry during registration to route to appropriate content curation engines:
+- Media & Advertising, Product Marketing, Technology & SaaS, Finance & Banking
+- Healthcare & Pharma, Consulting & Services, E-commerce & Retail, Real Estate
+- Education & EdTech, Manufacturing, Energy & Sustainability, Legal Services
+- Non-profit & NGO, Government & Public Sector, Hospitality & Travel
+- Entertainment & Media, Telecommunications, Agriculture & Food, Other
