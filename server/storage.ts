@@ -1,12 +1,15 @@
 import { 
   users, userProfiles, inboxItems, drafts, industrySources, engineRunLogs,
+  socialAccounts, socialAnalytics,
   type User, type UserProfile, type InboxItem, type Draft,
   type InsertUserProfile, type InsertInboxItem, type InsertDraft,
   type IndustrySource, type InsertIndustrySource,
-  type EngineRunLog, type InsertEngineRunLog
+  type EngineRunLog, type InsertEngineRunLog,
+  type SocialAccount, type InsertSocialAccount,
+  type SocialAnalyticsSnapshot, type InsertSocialAnalytics
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, gte } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -27,6 +30,16 @@ export interface IStorage {
   createIndustrySource(source: InsertIndustrySource): Promise<IndustrySource>;
   createEngineRunLog(log: InsertEngineRunLog): Promise<EngineRunLog>;
   updateEngineRunLog(id: string, data: Partial<InsertEngineRunLog>): Promise<EngineRunLog | undefined>;
+  // Social accounts
+  getSocialAccounts(userId: string): Promise<SocialAccount[]>;
+  getSocialAccountByProvider(userId: string, provider: string): Promise<SocialAccount | undefined>;
+  createSocialAccount(account: InsertSocialAccount): Promise<SocialAccount>;
+  updateSocialAccount(id: string, data: Partial<InsertSocialAccount>): Promise<SocialAccount | undefined>;
+  deleteSocialAccount(id: string, userId: string): Promise<void>;
+  // Social analytics
+  getSocialAnalytics(userId: string, provider?: string, daysBack?: number): Promise<SocialAnalyticsSnapshot[]>;
+  getLatestSocialAnalytics(userId: string, provider: string): Promise<SocialAnalyticsSnapshot | undefined>;
+  createSocialAnalytics(analytics: InsertSocialAnalytics): Promise<SocialAnalyticsSnapshot>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -148,6 +161,84 @@ export class DatabaseStorage implements IStorage {
       .where(eq(engineRunLogs.id, id))
       .returning();
     return updated || undefined;
+  }
+
+  // Social accounts methods
+  async getSocialAccounts(userId: string): Promise<SocialAccount[]> {
+    return await db
+      .select()
+      .from(socialAccounts)
+      .where(eq(socialAccounts.userId, userId))
+      .orderBy(desc(socialAccounts.createdAt));
+  }
+
+  async getSocialAccountByProvider(userId: string, provider: string): Promise<SocialAccount | undefined> {
+    const [account] = await db
+      .select()
+      .from(socialAccounts)
+      .where(and(eq(socialAccounts.userId, userId), eq(socialAccounts.provider, provider)));
+    return account || undefined;
+  }
+
+  async createSocialAccount(account: InsertSocialAccount): Promise<SocialAccount> {
+    const [newAccount] = await db.insert(socialAccounts).values(account).returning();
+    return newAccount;
+  }
+
+  async updateSocialAccount(id: string, data: Partial<InsertSocialAccount>): Promise<SocialAccount | undefined> {
+    const updateData: any = { updatedAt: new Date(), ...data };
+    const [updated] = await db
+      .update(socialAccounts)
+      .set(updateData)
+      .where(eq(socialAccounts.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteSocialAccount(id: string, userId: string): Promise<void> {
+    await db.delete(socialAccounts).where(and(eq(socialAccounts.id, id), eq(socialAccounts.userId, userId)));
+  }
+
+  // Social analytics methods
+  async getSocialAnalytics(userId: string, provider?: string, daysBack: number = 30): Promise<SocialAnalyticsSnapshot[]> {
+    const sinceDate = new Date();
+    sinceDate.setDate(sinceDate.getDate() - daysBack);
+    
+    if (provider) {
+      return await db
+        .select()
+        .from(socialAnalytics)
+        .where(and(
+          eq(socialAnalytics.userId, userId),
+          eq(socialAnalytics.provider, provider),
+          gte(socialAnalytics.snapshotDate, sinceDate)
+        ))
+        .orderBy(desc(socialAnalytics.snapshotDate));
+    }
+    
+    return await db
+      .select()
+      .from(socialAnalytics)
+      .where(and(
+        eq(socialAnalytics.userId, userId),
+        gte(socialAnalytics.snapshotDate, sinceDate)
+      ))
+      .orderBy(desc(socialAnalytics.snapshotDate));
+  }
+
+  async getLatestSocialAnalytics(userId: string, provider: string): Promise<SocialAnalyticsSnapshot | undefined> {
+    const [latest] = await db
+      .select()
+      .from(socialAnalytics)
+      .where(and(eq(socialAnalytics.userId, userId), eq(socialAnalytics.provider, provider)))
+      .orderBy(desc(socialAnalytics.snapshotDate))
+      .limit(1);
+    return latest || undefined;
+  }
+
+  async createSocialAnalytics(analytics: InsertSocialAnalytics): Promise<SocialAnalyticsSnapshot> {
+    const [newAnalytics] = await db.insert(socialAnalytics).values(analytics).returning();
+    return newAnalytics;
   }
 }
 

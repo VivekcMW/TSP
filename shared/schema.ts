@@ -149,3 +149,82 @@ export type IndustrySource = typeof industrySources.$inferSelect;
 
 export type InsertEngineRunLog = z.infer<typeof insertEngineRunLogSchema>;
 export type EngineRunLog = typeof engineRunLogs.$inferSelect;
+
+// Social media accounts for analytics integration
+export const socialAccounts = pgTable("social_accounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  provider: varchar("provider").notNull(), // 'linkedin' | 'twitter'
+  providerAccountId: varchar("provider_account_id").notNull(),
+  accountName: varchar("account_name"),
+  accountHandle: varchar("account_handle"),
+  profileImageUrl: varchar("profile_image_url"),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  tokenExpiresAt: timestamp("token_expires_at"),
+  scopes: jsonb("scopes").$type<string[]>().default([]),
+  isActive: boolean("is_active").default(true).notNull(),
+  lastSyncAt: timestamp("last_sync_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_social_accounts_user").on(table.userId),
+  index("idx_social_accounts_provider").on(table.provider),
+]);
+
+// Analytics metrics interface
+export interface SocialMetrics {
+  followers: number;
+  following: number;
+  posts: number;
+  impressions: number;
+  engagements: number;
+  engagementRate: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  clicks: number;
+  profileViews?: number;
+}
+
+// Social analytics snapshots
+export const socialAnalytics = pgTable("social_analytics", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  socialAccountId: varchar("social_account_id").notNull(),
+  provider: varchar("provider").notNull(), // 'linkedin' | 'twitter'
+  snapshotDate: timestamp("snapshot_date").notNull(),
+  metrics: jsonb("metrics").$type<SocialMetrics>().notNull(),
+  topPosts: jsonb("top_posts").$type<Array<{
+    postId: string;
+    content: string;
+    impressions: number;
+    engagements: number;
+    likes: number;
+    comments: number;
+    shares: number;
+    postedAt: string;
+  }>>().default([]),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_social_analytics_user").on(table.userId),
+  index("idx_social_analytics_account").on(table.socialAccountId),
+  index("idx_social_analytics_date").on(table.snapshotDate),
+]);
+
+export const insertSocialAccountSchema = createInsertSchema(socialAccounts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertSocialAnalyticsSchema = createInsertSchema(socialAnalytics).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertSocialAccount = z.infer<typeof insertSocialAccountSchema>;
+export type SocialAccount = typeof socialAccounts.$inferSelect;
+
+export type InsertSocialAnalytics = z.infer<typeof insertSocialAnalyticsSchema>;
+export type SocialAnalyticsSnapshot = typeof socialAnalytics.$inferSelect;
