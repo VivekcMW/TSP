@@ -174,22 +174,28 @@ export async function setupAuth(app: Express) {
         },
         async (accessToken: string, refreshToken: string, profile: any, done: any) => {
           try {
+            console.log("LinkedIn OAuth callback - Profile ID:", profile.id);
             const email = profile.emails?.[0]?.value;
             if (!email) {
+              console.error("LinkedIn OAuth: No email found in profile");
               return done(null, false, { message: "No email found in LinkedIn profile" });
             }
+            console.log("LinkedIn OAuth: Email found -", email);
 
             // Check if user exists with this LinkedIn account
             let user = await authStorage.findUserByOAuthProvider("linkedin", profile.id);
             
             if (!user) {
+              console.log("LinkedIn OAuth: No existing OAuth link found, checking by email");
               // Check if user exists with this email
               user = await authStorage.getUserByEmail(email);
               
               if (user) {
+                console.log("LinkedIn OAuth: Linking to existing user:", user.id);
                 // Link LinkedIn account to existing user
                 await authStorage.linkOAuthAccount(user.id, "linkedin", profile.id, accessToken, refreshToken);
               } else {
+                console.log("LinkedIn OAuth: Creating new user for:", email);
                 // Create new user
                 user = await authStorage.createUser({
                   email,
@@ -197,13 +203,17 @@ export async function setupAuth(app: Express) {
                   lastName: profile.name?.familyName || profile.displayName?.split(" ").slice(1).join(" ") || null,
                   profileImageUrl: profile.photos?.[0]?.value || null,
                 });
+                console.log("LinkedIn OAuth: User created with ID:", user.id);
                 await authStorage.linkOAuthAccount(user.id, "linkedin", profile.id, accessToken, refreshToken);
                 // Welcome email is sent after registration is completed with industry selection
               }
+            } else {
+              console.log("LinkedIn OAuth: Existing user found via OAuth link:", user.id);
             }
 
             return done(null, user);
           } catch (error) {
+            console.error("LinkedIn OAuth error:", error);
             return done(error);
           }
         }
@@ -235,12 +245,31 @@ export async function setupAuth(app: Express) {
   );
 
   // LinkedIn OAuth routes (for login)
-  app.get("/auth/linkedin", passport.authenticate("linkedin"));
+  app.get("/auth/linkedin", (req, res, next) => {
+    console.log("LinkedIn OAuth: Initiating authentication");
+    passport.authenticate("linkedin")(req, res, next);
+  });
   
   app.get("/auth/linkedin/callback",
-    passport.authenticate("linkedin", { failureRedirect: "/login?error=linkedin_auth_failed" }),
-    (req, res) => {
-      res.redirect("/dashboard");
+    (req, res, next) => {
+      passport.authenticate("linkedin", (err: any, user: any, info: any) => {
+        if (err) {
+          console.error("LinkedIn OAuth callback error:", err);
+          return res.redirect("/login?error=linkedin_auth_failed");
+        }
+        if (!user) {
+          console.error("LinkedIn OAuth: No user returned, info:", info);
+          return res.redirect("/login?error=linkedin_auth_failed");
+        }
+        req.logIn(user, (loginErr) => {
+          if (loginErr) {
+            console.error("LinkedIn OAuth: Login error:", loginErr);
+            return res.redirect("/login?error=linkedin_auth_failed");
+          }
+          console.log("LinkedIn OAuth: Successfully logged in user:", user.id);
+          res.redirect("/dashboard");
+        });
+      })(req, res, next);
     }
   );
 

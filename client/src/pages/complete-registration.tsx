@@ -77,12 +77,19 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
       });
       setLocation("/onboarding");
     },
-    onError: () => {
+    onError: (error: any) => {
+      const message = error?.message || "Please try again.";
+      const isUserNotFound = message.includes("not found");
       toast({
-        title: "Something went wrong",
-        description: "Please try again.",
+        title: isUserNotFound ? "Account Not Found" : "Something went wrong",
+        description: isUserNotFound 
+          ? "Your account was not found. Please register again." 
+          : message,
         variant: "destructive",
       });
+      if (isUserNotFound) {
+        setTimeout(() => setLocation("/register"), 2000);
+      }
     },
   });
 

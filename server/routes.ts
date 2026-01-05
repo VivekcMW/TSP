@@ -56,7 +56,12 @@ export async function registerRoutes(
 
   app.post("/api/complete-registration", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user?.claims?.sub || req.user?.id;
+      
+      if (!userId) {
+        console.error("No user ID found in request for complete-registration");
+        return res.status(401).json({ message: "User not authenticated" });
+      }
       
       const validation = completeRegistrationSchema.safeParse(req.body);
       if (!validation.success) {
@@ -64,6 +69,14 @@ export async function registerRoutes(
       }
       
       const { firstName, lastName, country, industry } = validation.data;
+      
+      // First check if user exists
+      const [existingUser] = await db.select().from(users).where(eq(users.id, userId));
+      
+      if (!existingUser) {
+        console.error("User not found for complete-registration:", userId);
+        return res.status(404).json({ message: "User account not found. Please register again." });
+      }
       
       const [updatedUser] = await db
         .update(users)
