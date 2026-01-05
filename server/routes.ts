@@ -94,7 +94,13 @@ export async function registerRoutes(
 
   app.get("/api/profile", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user?.claims?.sub || req.user?.id;
+      
+      if (!userId) {
+        console.error("No user ID found in request");
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+      
       let profile = await storage.getUserProfile(userId);
       
       if (!profile) {
