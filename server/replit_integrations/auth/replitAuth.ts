@@ -247,14 +247,54 @@ export async function setupAuth(app: Express) {
   // LinkedIn OAuth routes (for login)
   app.get("/auth/linkedin", (req, res, next) => {
     console.log("LinkedIn OAuth: Initiating authentication");
-    passport.authenticate("linkedin")(req, res, next);
+    console.log("LinkedIn OAuth: Session ID before auth:", req.sessionID);
+    
+    // Store a custom state value in session to track CSRF
+    const stateValue = `li_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    (req.session as any).linkedinOAuthState = stateValue;
+    console.log("LinkedIn OAuth: Generated state value:", stateValue);
+    
+    passport.authenticate("linkedin", { state: stateValue })(req, res, next);
   });
   
   app.get("/auth/linkedin/callback",
     (req, res, next) => {
+      // Log all incoming query parameters for debugging
+      console.log("LinkedIn OAuth Callback: Full query params:", JSON.stringify(req.query));
+      console.log("LinkedIn OAuth Callback: Session ID:", req.sessionID);
+      console.log("LinkedIn OAuth Callback: Incoming state from LinkedIn:", req.query.state);
+      console.log("LinkedIn OAuth Callback: Stored state in session:", (req.session as any)?.linkedinOAuthState);
+      
+      // Check for error from LinkedIn
+      if (req.query.error) {
+        console.error("LinkedIn OAuth Callback: Error from LinkedIn:", {
+          error: req.query.error,
+          error_description: req.query.error_description,
+        });
+        return res.redirect(`/login?error=linkedin_auth_failed&reason=${encodeURIComponent(req.query.error_description as string || req.query.error as string)}`);
+      }
+      
+      // Verify state matches (CSRF protection)
+      const storedState = (req.session as any)?.linkedinOAuthState;
+      const incomingState = req.query.state as string;
+      
+      if (storedState && incomingState && storedState !== incomingState) {
+        console.error("LinkedIn OAuth Callback: STATE MISMATCH!", {
+          stored: storedState,
+          incoming: incomingState,
+        });
+        return res.redirect("/login?error=linkedin_auth_failed&reason=state_mismatch");
+      }
+      
+      // Clear the stored state
+      if ((req.session as any)?.linkedinOAuthState) {
+        delete (req.session as any).linkedinOAuthState;
+      }
+      
       passport.authenticate("linkedin", (err: any, user: any, info: any) => {
         if (err) {
           console.error("LinkedIn OAuth callback error:", err);
+          console.error("LinkedIn OAuth callback error details:", JSON.stringify(err, null, 2));
           return res.redirect("/login?error=linkedin_auth_failed");
         }
         if (!user) {

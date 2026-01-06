@@ -41,19 +41,23 @@ export default function LoginPage() {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const oauthError = urlParams.get("error");
+    const errorReason = urlParams.get("reason");
+    
     if (oauthError === "google_auth_failed") {
-      setError("Google sign-in failed. Please try again or use email/password.");
+      const reasonText = errorReason ? ` Reason: ${errorReason}` : "";
+      setError(`Google sign-in failed.${reasonText} Please try again or use email/password.`);
       toast({
         variant: "destructive",
         title: "Google Sign-in Failed",
-        description: "Please try again or use email/password.",
+        description: errorReason || "Please try again or use email/password.",
       });
     } else if (oauthError === "linkedin_auth_failed") {
-      setError("LinkedIn sign-in failed. Please try again or use email/password.");
+      const reasonText = errorReason ? ` Reason: ${errorReason}` : "";
+      setError(`LinkedIn sign-in failed.${reasonText} Please try again or use email/password.`);
       toast({
         variant: "destructive",
         title: "LinkedIn Sign-in Failed",
-        description: "Please try again or use email/password.",
+        description: errorReason || "Please try again or use email/password.",
       });
     }
   }, [toast]);
