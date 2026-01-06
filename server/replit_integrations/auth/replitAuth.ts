@@ -3,7 +3,7 @@ import session from "express-session";
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { Strategy as GoogleStrategy, Profile as GoogleProfile } from "passport-google-oauth20";
-import { Strategy as LinkedInStrategy } from "passport-linkedin-oauth2";
+import { Strategy as OAuth2Strategy } from "passport-oauth2";
 import bcrypt from "bcryptjs";
 import { authStorage } from "./storage";
 import connectPg from "connect-pg-simple";
@@ -158,7 +158,7 @@ export async function setupAuth(app: Express) {
     console.log("Google OAuth not configured - missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET");
   }
 
-  // LinkedIn OAuth Strategy
+  // LinkedIn OAuth Strategy using OIDC userinfo endpoint
   if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
     const replitDomainLI = process.env.REPLIT_DOMAINS?.split(",")[0];
     const linkedinCallbackURL = process.env.LINKEDIN_CALLBACK_URL || 
@@ -167,75 +167,102 @@ export async function setupAuth(app: Express) {
         : "http://localhost:5000/auth/linkedin/callback");
     console.log("LinkedIn OAuth callback URL:", linkedinCallbackURL);
     
-    // Use OpenID Connect scopes - requires "Sign In with LinkedIn using OpenID Connect" product
-    // If you have "Community Management API" enabled, these scopes may fail
-    // In that case, you need to use: ["r_liteprofile", "r_emailaddress"] instead
+    // LinkedIn OIDC endpoints
+    const linkedinAuthURL = "https://www.linkedin.com/oauth/v2/authorization";
+    const linkedinTokenURL = "https://www.linkedin.com/oauth/v2/accessToken";
+    const linkedinUserInfoURL = "https://api.linkedin.com/v2/userinfo";
+    
+    // Use OpenID Connect scopes
     const linkedinScopes = ["openid", "profile", "email"];
     console.log("LinkedIn OAuth scopes:", linkedinScopes);
+    console.log("LinkedIn OAuth using OIDC userinfo endpoint:", linkedinUserInfoURL);
     
-    passport.use(
-      new LinkedInStrategy(
-        {
-          clientID: process.env.LINKEDIN_CLIENT_ID,
-          clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
-          callbackURL: linkedinCallbackURL,
-          scope: linkedinScopes,
-        } as any, // Cast to any to allow additional options
-        async (accessToken: string, refreshToken: string, profile: any, done: any) => {
-          try {
-            console.log("LinkedIn OAuth callback - Raw profile:", JSON.stringify(profile, null, 2));
-            console.log("LinkedIn OAuth callback - Profile ID:", profile.id);
-            
-            // Handle different profile structures based on API version
-            let email = profile.emails?.[0]?.value || profile.email;
-            if (!email && profile._json?.email) {
-              email = profile._json.email;
-            }
-            
-            if (!email) {
-              console.error("LinkedIn OAuth: No email found in profile. Profile structure:", Object.keys(profile));
-              return done(null, false, { message: "No email found in LinkedIn profile" });
-            }
-            console.log("LinkedIn OAuth: Email found -", email);
-
-            // Check if user exists with this LinkedIn account
-            let user = await authStorage.findUserByOAuthProvider("linkedin", profile.id);
-            
-            if (!user) {
-              console.log("LinkedIn OAuth: No existing OAuth link found, checking by email");
-              // Check if user exists with this email
-              user = await authStorage.getUserByEmail(email);
-              
-              if (user) {
-                console.log("LinkedIn OAuth: Linking to existing user:", user.id);
-                // Link LinkedIn account to existing user
-                await authStorage.linkOAuthAccount(user.id, "linkedin", profile.id, accessToken, refreshToken);
-              } else {
-                console.log("LinkedIn OAuth: Creating new user for:", email);
-                // Create new user
-                user = await authStorage.createUser({
-                  email,
-                  firstName: profile.name?.givenName || profile.displayName?.split(" ")[0] || null,
-                  lastName: profile.name?.familyName || profile.displayName?.split(" ").slice(1).join(" ") || null,
-                  profileImageUrl: profile.photos?.[0]?.value || null,
-                });
-                console.log("LinkedIn OAuth: User created with ID:", user.id);
-                await authStorage.linkOAuthAccount(user.id, "linkedin", profile.id, accessToken, refreshToken);
-                // Welcome email is sent after registration is completed with industry selection
-              }
-            } else {
-              console.log("LinkedIn OAuth: Existing user found via OAuth link:", user.id);
-            }
-
-            return done(null, user);
-          } catch (error) {
-            console.error("LinkedIn OAuth error:", error);
-            return done(error);
+    // Custom OAuth2 strategy for LinkedIn OIDC
+    const linkedinStrategy = new OAuth2Strategy(
+      {
+        authorizationURL: linkedinAuthURL,
+        tokenURL: linkedinTokenURL,
+        clientID: process.env.LINKEDIN_CLIENT_ID,
+        clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
+        callbackURL: linkedinCallbackURL,
+        scope: linkedinScopes.join(" "),
+      },
+      async (accessToken: string, refreshToken: string, params: any, profile: any, done: any) => {
+        try {
+          console.log("LinkedIn OAuth: Got access token, fetching userinfo from OIDC endpoint");
+          
+          // Fetch user profile from LinkedIn OIDC userinfo endpoint
+          const userInfoResponse = await fetch(linkedinUserInfoURL, {
+            headers: {
+              "Authorization": `Bearer ${accessToken}`,
+              "Accept": "application/json",
+            },
+          });
+          
+          if (!userInfoResponse.ok) {
+            const errorText = await userInfoResponse.text();
+            console.error("LinkedIn userinfo error:", userInfoResponse.status, errorText);
+            return done(new Error(`Failed to fetch LinkedIn userinfo: ${userInfoResponse.status}`));
           }
+          
+          const userInfo = await userInfoResponse.json();
+          console.log("LinkedIn OIDC userinfo response:", JSON.stringify(userInfo, null, 2));
+          
+          // Extract user data from OIDC userinfo response
+          // OIDC userinfo returns: sub, name, given_name, family_name, picture, email, email_verified
+          const linkedinId = userInfo.sub;
+          const email = userInfo.email;
+          const firstName = userInfo.given_name || userInfo.name?.split(" ")[0] || null;
+          const lastName = userInfo.family_name || userInfo.name?.split(" ").slice(1).join(" ") || null;
+          const profileImageUrl = userInfo.picture || null;
+          
+          if (!email) {
+            console.error("LinkedIn OAuth: No email found in userinfo response");
+            return done(null, false, { message: "No email found in LinkedIn profile" });
+          }
+          console.log("LinkedIn OAuth: Email found -", email);
+
+          // Check if user exists with this LinkedIn account
+          let user = await authStorage.findUserByOAuthProvider("linkedin", linkedinId);
+          
+          if (!user) {
+            console.log("LinkedIn OAuth: No existing OAuth link found, checking by email");
+            // Check if user exists with this email
+            user = await authStorage.getUserByEmail(email);
+            
+            if (user) {
+              console.log("LinkedIn OAuth: Linking to existing user:", user.id);
+              // Link LinkedIn account to existing user
+              await authStorage.linkOAuthAccount(user.id, "linkedin", linkedinId, accessToken, refreshToken);
+            } else {
+              console.log("LinkedIn OAuth: Creating new user for:", email);
+              // Create new user
+              user = await authStorage.createUser({
+                email,
+                firstName,
+                lastName,
+                profileImageUrl,
+              });
+              console.log("LinkedIn OAuth: User created with ID:", user.id);
+              await authStorage.linkOAuthAccount(user.id, "linkedin", linkedinId, accessToken, refreshToken);
+              // Welcome email is sent after registration is completed with industry selection
+            }
+          } else {
+            console.log("LinkedIn OAuth: Existing user found via OAuth link:", user.id);
+          }
+
+          return done(null, user);
+        } catch (error) {
+          console.error("LinkedIn OAuth error:", error);
+          return done(error);
         }
-      )
+      }
     );
-    console.log("LinkedIn OAuth strategy configured");
+    
+    // Set strategy name
+    linkedinStrategy.name = "linkedin";
+    passport.use(linkedinStrategy);
+    console.log("LinkedIn OAuth strategy configured (OIDC)");
   } else {
     console.log("LinkedIn OAuth not configured - missing LINKEDIN_CLIENT_ID or LINKEDIN_CLIENT_SECRET");
   }
@@ -354,7 +381,7 @@ export async function setupAuth(app: Express) {
     }
   );
 
-  // LinkedIn Analytics OAuth routes (for connecting social account)
+  // LinkedIn Analytics OAuth routes (for connecting social account) - using OIDC
   if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
     const replitDomainAnalytics = process.env.REPLIT_DOMAINS?.split(",")[0];
     const linkedinAnalyticsCallbackURL = replitDomainAnalytics 
@@ -362,26 +389,63 @@ export async function setupAuth(app: Express) {
       : "http://localhost:5000/auth/linkedin/analytics/callback";
     console.log("LinkedIn Analytics OAuth callback URL:", linkedinAnalyticsCallbackURL);
     
-    passport.use(
-      "linkedin-analytics",
-      new LinkedInStrategy(
-        {
-          clientID: process.env.LINKEDIN_CLIENT_ID,
-          clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
-          callbackURL: linkedinAnalyticsCallbackURL,
-          scope: ["openid", "profile", "email"],
-          passReqToCallback: true,
-        },
-        async (req: any, accessToken: string, refreshToken: string, profile: any, done: any) => {
-          try {
-            done(null, { accessToken, refreshToken, profile });
-          } catch (error) {
-            done(error);
+    // LinkedIn OIDC endpoints for analytics
+    const linkedinAuthURL = "https://www.linkedin.com/oauth/v2/authorization";
+    const linkedinTokenURL = "https://www.linkedin.com/oauth/v2/accessToken";
+    const linkedinUserInfoURL = "https://api.linkedin.com/v2/userinfo";
+    
+    // Custom OAuth2 strategy for LinkedIn Analytics OIDC
+    const linkedinAnalyticsStrategy = new OAuth2Strategy(
+      {
+        authorizationURL: linkedinAuthURL,
+        tokenURL: linkedinTokenURL,
+        clientID: process.env.LINKEDIN_CLIENT_ID,
+        clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
+        callbackURL: linkedinAnalyticsCallbackURL,
+        scope: "openid profile email",
+        passReqToCallback: true,
+      } as any,
+      async (req: any, accessToken: string, refreshToken: string, params: any, profile: any, done: any) => {
+        try {
+          // Fetch user info from OIDC endpoint
+          const userInfoResponse = await fetch(linkedinUserInfoURL, {
+            headers: {
+              "Authorization": `Bearer ${accessToken}`,
+              "Accept": "application/json",
+            },
+          });
+          
+          if (!userInfoResponse.ok) {
+            const errorText = await userInfoResponse.text();
+            console.error("LinkedIn Analytics userinfo error:", userInfoResponse.status, errorText);
+            return done(new Error(`Failed to fetch LinkedIn userinfo: ${userInfoResponse.status}`));
           }
+          
+          const userInfo = await userInfoResponse.json();
+          console.log("LinkedIn Analytics OIDC userinfo:", JSON.stringify(userInfo, null, 2));
+          
+          // Create profile object compatible with existing code
+          const profileData = {
+            id: userInfo.sub,
+            displayName: userInfo.name || `${userInfo.given_name || ''} ${userInfo.family_name || ''}`.trim(),
+            name: {
+              givenName: userInfo.given_name,
+              familyName: userInfo.family_name,
+            },
+            emails: userInfo.email ? [{ value: userInfo.email }] : [],
+            photos: userInfo.picture ? [{ value: userInfo.picture }] : [],
+          };
+          
+          done(null, { accessToken, refreshToken, profile: profileData });
+        } catch (error) {
+          done(error);
         }
-      )
+      }
     );
-    console.log("LinkedIn Analytics OAuth strategy configured");
+    
+    linkedinAnalyticsStrategy.name = "linkedin-analytics";
+    passport.use(linkedinAnalyticsStrategy);
+    console.log("LinkedIn Analytics OAuth strategy configured (OIDC)");
     
     app.get("/auth/linkedin/analytics", isAuthenticated, (req, res, next) => {
       const userId = (req.user as any)?.id;
@@ -390,7 +454,14 @@ export async function setupAuth(app: Express) {
         (req.session as any).analyticsConnectUserId = userId;
         (req.session as any).analyticsReturnTo = returnTo.includes("/dashboard") ? "/dashboard" : "/analytics";
       }
-      passport.authenticate("linkedin-analytics")(req, res, next);
+      // Save session before OAuth redirect
+      req.session.save((err) => {
+        if (err) {
+          console.error("LinkedIn Analytics: Failed to save session:", err);
+          return res.redirect(`${returnTo}?error=linkedin_connect_failed`);
+        }
+        passport.authenticate("linkedin-analytics")(req, res, next);
+      });
     });
     
     app.get("/auth/linkedin/analytics/callback",
