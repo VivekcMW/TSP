@@ -1,7 +1,7 @@
 // Email service using Resend integration
 import { Resend } from 'resend';
 
-const APP_URL = process.env.APP_URL || "https://thesocialpundit.com";
+const APP_URL = process.env.APP_URL || "https://www.thesocialpundit.com";
 const FROM_NAME = "TheSocialPundit";
 
 // Industry-specific content for welcome emails
