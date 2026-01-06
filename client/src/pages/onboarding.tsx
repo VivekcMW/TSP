@@ -19,6 +19,7 @@ interface User {
   firstName: string;
   lastName: string;
   industry?: string;
+  country?: string;
 }
 
 export default function OnboardingPage() {
@@ -59,6 +60,7 @@ export default function OnboardingPage() {
       onComplete={handleComplete} 
       isPending={completeOnboardingMutation.isPending}
       userIndustry={user?.industry}
+      userCountry={user?.country}
     />
   );
 }

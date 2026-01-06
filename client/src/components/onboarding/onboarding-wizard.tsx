@@ -14,6 +14,7 @@ interface OnboardingWizardProps {
   onComplete: (data: OnboardingData) => void;
   isPending?: boolean;
   userIndustry?: string;
+  userCountry?: string;
 }
 
 interface OnboardingData {
@@ -363,21 +364,232 @@ const defaultIndustryData: IndustryData = {
   ]
 };
 
-function getIndustryData(industry?: string): IndustryData {
-  if (!industry) return defaultIndustryData;
-  const normalized = industry.toLowerCase()
-    .replace(/_/g, "-")
-    .replace(/\s*&\s*/g, "-")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-");
-  return industryDataMap[normalized] || defaultIndustryData;
+// Country-specific local industry leaders (mixed with global leaders based on user's country)
+const countryInfluencers: Record<string, Record<string, string[]>> = {
+  "Japan": {
+    "media-advertising": [
+      "Tadashi Yanai", "Masayoshi Son", "Hiroshi Mikitani", "Yusaku Maezawa", "Takeshi Natsuno",
+      "Kazuo Hirai", "Kenichiro Yoshida", "Akira Shimizu", "Hiroyuki Nishimura", "Jun Murai"
+    ],
+    "technology-saas": [
+      "Masayoshi Son", "Tadashi Yanai", "Hiroshi Mikitani", "Kazuo Hirai", "Ken Kutaragi",
+      "Satoshi Nakajima", "Takeshi Natsuno", "Jun Murai", "Toru Iwatani", "Shigeru Miyamoto"
+    ],
+    "finance-banking": [
+      "Koji Nagai", "Nobuyuki Hirano", "Tatsufumi Sakai", "Makoto Takashima", "Keiichiro Kanda",
+      "Yasuyuki Suzuki", "Takeshi Kunibe", "Masatsugu Nagato", "Toru Hashimoto", "Ken Miki"
+    ],
+    "default": [
+      "Masayoshi Son", "Tadashi Yanai", "Hiroshi Mikitani", "Kazuo Hirai", "Kenichiro Yoshida",
+      "Akio Toyoda", "Takeshi Niinami", "Shunichi Miyanaga", "Hiroaki Nakanishi", "Fumio Otsubo"
+    ]
+  },
+  "India": {
+    "media-advertising": [
+      "Piyush Pandey", "Prasoon Joshi", "Josy Paul", "Sajan Raj Kurup", "Ashish Bhasin",
+      "CVL Srinivas", "Kartik Iyer", "Sam Balsara", "Vikram Sakhuja", "Rana Barua"
+    ],
+    "technology-saas": [
+      "Nandan Nilekani", "Shiv Nadar", "Azim Premji", "N.R. Narayana Murthy", "Satya Nadella",
+      "Sundar Pichai", "Vinod Khosla", "Kunal Bahl", "Bhavish Aggarwal", "Ritesh Agarwal"
+    ],
+    "finance-banking": [
+      "Uday Kotak", "Deepak Parekh", "Aditya Puri", "Chanda Kochhar", "Shikha Sharma",
+      "Rana Kapoor", "Romesh Sobti", "K.V. Kamath", "N.R. Narayana Murthy", "Azim Premji"
+    ],
+    "default": [
+      "Mukesh Ambani", "Ratan Tata", "Gautam Adani", "Azim Premji", "Shiv Nadar",
+      "Kumar Mangalam Birla", "Anand Mahindra", "Uday Kotak", "Nandan Nilekani", "N. Chandrasekaran"
+    ]
+  },
+  "United Kingdom": {
+    "media-advertising": [
+      "Martin Sorrell", "David Abbott", "John Hegarty", "Trevor Beattie", "Charles Saatchi",
+      "Maurice Saatchi", "Nigel Bogle", "Tim Mellors", "Dave Trott", "Steve Henry"
+    ],
+    "technology-saas": [
+      "Hermann Hauser", "Mike Lynch", "Martha Lane Fox", "Lastminute.com", "Brent Hoberman",
+      "Sherry Coutu", "Eileen Burbidge", "Tom Blomfield", "Anne Boden", "Nick Hungerford"
+    ],
+    "finance-banking": [
+      "Nigel Farage", "Jes Staley", "Tidjane Thiam", "Antonio Horta-Osorio", "John Varley",
+      "Stuart Gulliver", "Ana Botin", "Peter Sands", "Douglas Flint", "Mark Carney"
+    ],
+    "default": [
+      "Richard Branson", "James Dyson", "Martin Sorrell", "Hermann Hauser", "Martha Lane Fox",
+      "Peter Jones", "Deborah Meaden", "Karren Brady", "Alan Sugar", "Jeremy Hunt"
+    ]
+  },
+  "United States": {
+    "media-advertising": [
+      "David Droga", "Susan Credle", "Rob Reilly", "Nick Law", "Colleen DeCourcy",
+      "Alex Bogusky", "Lee Clow", "David Kennedy", "Jeff Goodby", "Rich Silverstein"
+    ],
+    "technology-saas": [
+      "Elon Musk", "Jeff Bezos", "Mark Zuckerberg", "Tim Cook", "Satya Nadella",
+      "Sundar Pichai", "Sam Altman", "Jensen Huang", "Marc Benioff", "Reed Hastings"
+    ],
+    "finance-banking": [
+      "Jamie Dimon", "Warren Buffett", "Larry Fink", "David Solomon", "Brian Moynihan",
+      "Jane Fraser", "Cathie Wood", "Ray Dalio", "Ken Griffin", "Stephen Schwarzman"
+    ],
+    "default": [
+      "Elon Musk", "Jeff Bezos", "Tim Cook", "Satya Nadella", "Mark Zuckerberg",
+      "Warren Buffett", "Jamie Dimon", "Larry Fink", "Mary Barra", "Andy Jassy"
+    ]
+  },
+  "Germany": {
+    "media-advertising": [
+      "Florian Haller", "Thomas Koch", "Jean-Remy von Matt", "Frank Dopheide", "Michael Conrad",
+      "Matthias Schrader", "Dieter Rams", "Erik Spiekermann", "Stefan Sagmeister", "Mirko Borsche"
+    ],
+    "technology-saas": [
+      "Hasso Plattner", "Dietmar Hopp", "Oliver Samwer", "Marc Samwer", "Alexander Samwer",
+      "Christian Reber", "Niklas Ostberg", "Valentin Stalf", "Maximilian Tayenthal", "Johannes Schildt"
+    ],
+    "finance-banking": [
+      "Christian Sewing", "Karl von Rohr", "Werner Baumann", "Joe Kaeser", "Johannes Teyssen",
+      "Kasper Rorsted", "Carsten Spohr", "Oliver Bate", "Rolf Buch", "Stefan Oschmann"
+    ],
+    "default": [
+      "Oliver Samwer", "Hasso Plattner", "Dietmar Hopp", "Christian Sewing", "Herbert Diess",
+      "Ola Kallenius", "Werner Baumann", "Joe Kaeser", "Carsten Spohr", "Kasper Rorsted"
+    ]
+  },
+  "China": {
+    "media-advertising": [
+      "Jack Ma", "Pony Ma", "Robin Li", "Zhang Yiming", "Lei Jun",
+      "Liu Qiangdong", "Wang Jianlin", "Huang Zheng", "Su Hua", "Yiming Zhang"
+    ],
+    "technology-saas": [
+      "Pony Ma", "Jack Ma", "Robin Li", "Zhang Yiming", "Lei Jun",
+      "Ren Zhengfei", "Liu Qiangdong", "Huang Zheng", "Wang Xing", "Colin Huang"
+    ],
+    "finance-banking": [
+      "Guo Shuqing", "Yi Gang", "Jiang Jianqing", "Chen Siqing", "Tian Guoli",
+      "Wang Jianlin", "Xu Jiayin", "Yang Huiyan", "Pan Gang", "Lei Jun"
+    ],
+    "default": [
+      "Jack Ma", "Pony Ma", "Robin Li", "Ren Zhengfei", "Zhang Yiming",
+      "Lei Jun", "Liu Qiangdong", "Wang Jianlin", "He Xiangjian", "Yang Huiyan"
+    ]
+  },
+  "Singapore": {
+    "media-advertising": [
+      "Kunal Jeswani", "Primus Nair", "Eugene Cheong", "Patrick Low", "Tay Guan Hin",
+      "Ali Shabaz", "Ian Thubron", "Valerie Cheng", "Farrokh Madon", "Crystal Chong"
+    ],
+    "technology-saas": [
+      "Forrest Li", "Anthony Tan", "Hooi Ling Tan", "Min-Liang Tan", "Melvin Chee",
+      "Darius Cheung", "Ankiti Bose", "Jonathan Teo", "Oskar Mielczarek de la Miel", "Dave Rogers"
+    ],
+    "finance-banking": [
+      "Piyush Gupta", "Wee Ee Cheong", "Samuel Tsien", "Lim Chee Onn", "Hiew Yoon Khong",
+      "Michael Chin", "Tan Su Shan", "Koh Beng Seng", "Wong Kim Yin", "Lui Chong Chee"
+    ],
+    "default": [
+      "Piyush Gupta", "Forrest Li", "Anthony Tan", "Min-Liang Tan", "Wee Ee Cheong",
+      "Samuel Tsien", "Ho Ching", "Lim Boon Heng", "Kwek Leng Beng", "Robert Kuok"
+    ]
+  },
+  "Australia": {
+    "media-advertising": [
+      "Michael Stephenson", "Russel Howcroft", "John Singleton", "Dee Madigan", "Todd Sampson",
+      "Andrew Carswell", "Aden Hepburn", "Simon Hewett", "Jane Caro", "Adam Ferrier"
+    ],
+    "technology-saas": [
+      "Mike Cannon-Brookes", "Scott Farquhar", "Melanie Perkins", "Cliff Obrecht", "Nick Molnar",
+      "Anthony Eisen", "Matt Barrie", "David Thodey", "Robyn Denholm", "Daniel Petre"
+    ],
+    "finance-banking": [
+      "Matt Comyn", "Shayne Elliott", "Ross McEwan", "Peter King", "Shemara Wikramanayake",
+      "Anthony Healy", "David Murray", "Gail Kelly", "Brian Hartzer", "Ian Narev"
+    ],
+    "default": [
+      "Gina Rinehart", "Andrew Forrest", "Mike Cannon-Brookes", "Scott Farquhar", "Melanie Perkins",
+      "Anthony Pratt", "Frank Lowy", "Harry Triguboff", "Lindsay Fox", "Kerry Stokes"
+    ]
+  },
+  "France": {
+    "media-advertising": [
+      "Maurice Levy", "Arthur Sadoun", "Jacques Seguela", "Jean-Marie Dru", "Mercedes Erra",
+      "Stephane Xiberras", "Erik Vervroegen", "Thomas Jamet", "Natalie Rastoin", "Christophe Lambert"
+    ],
+    "technology-saas": [
+      "Xavier Niel", "Stephane Richard", "Frederic Mazzella", "Jean-Baptiste Rudelle", "Nicolas Brusson",
+      "Francis Nappez", "Octave Klaba", "Alexandre Prot", "Steve Anavi", "Roxanne Varza"
+    ],
+    "finance-banking": [
+      "Jean-Laurent Bonnafe", "Frederic Oudea", "Philippe Brassac", "Nicolas Namias", "Laurent Mignon",
+      "Patrick Koller", "Bernard Arnault", "Francois-Henri Pinault", "Antoine Arnault", "Emmanuel Faber"
+    ],
+    "default": [
+      "Bernard Arnault", "Francois-Henri Pinault", "Xavier Niel", "Patrick Drahi", "Stephane Richard",
+      "Maurice Levy", "Jean-Laurent Bonnafe", "Frederic Oudea", "Emmanuel Faber", "Isabelle Kocher"
+    ]
+  },
+  "Brazil": {
+    "media-advertising": [
+      "Washington Olivetto", "Nizan Guanaes", "Marcello Serpa", "Roberto Justus", "Luiz Lara",
+      "Hugo Rodrigues", "Sergio Gordilho", "Kevin Roberts", "Fabio Fernandes", "Alexandre Gama"
+    ],
+    "technology-saas": [
+      "David Velez", "Cristina Junqueira", "Florian Otto", "Guilherme Benchimol", "Marcel Telles",
+      "Julio Capua", "Bruno Peroni", "Eduardo Pontes", "Fabricio Bloisi", "Eric Santos"
+    ],
+    "finance-banking": [
+      "Roberto Setubal", "Pedro Moreira Salles", "Candido Bracher", "Octavio de Lazari Junior", "Sergio Rial",
+      "Andre Esteves", "Marcel Telles", "Jorge Paulo Lemann", "Carlos Alberto Sicupira", "David Velez"
+    ],
+    "default": [
+      "Jorge Paulo Lemann", "Marcel Telles", "Carlos Alberto Sicupira", "David Velez", "Eduardo Saverin",
+      "Guilherme Benchimol", "Roberto Setubal", "Pedro Moreira Salles", "Andre Esteves", "Luiza Trajano"
+    ]
+  }
+};
+
+// Get global leaders (first 10) and mix with local leaders (up to 10) based on country
+function getIndustryData(industry?: string, country?: string): IndustryData {
+  // Normalize industry slug if provided
+  const normalized = industry 
+    ? industry.toLowerCase()
+        .replace(/_/g, "-")
+        .replace(/\s*&\s*/g, "-")
+        .replace(/\s+/g, "-")
+        .replace(/-+/g, "-")
+    : null;
+  
+  const baseData = normalized ? (industryDataMap[normalized] || defaultIndustryData) : defaultIndustryData;
+  
+  // If no country or country not in our data, return base industry data
+  if (!country || !countryInfluencers[country]) {
+    return baseData;
+  }
+  
+  // Get country-specific influencers for the industry (or default)
+  const countryData = countryInfluencers[country];
+  const localInfluencers = (normalized && countryData[normalized]) 
+    ? countryData[normalized] 
+    : countryData["default"] || [];
+  
+  // Mix local (first 10) with global (first 10), local leaders appear first
+  const globalInfluencers = baseData.influencers.slice(0, 10);
+  const mixedInfluencers = [...localInfluencers.slice(0, 10), ...globalInfluencers];
+  
+  // Remove duplicates while preserving order
+  const uniqueInfluencers = Array.from(new Set(mixedInfluencers));
+  
+  return {
+    ...baseData,
+    influencers: uniqueInfluencers,
+  };
 }
 
 type Step = "identity" | "publications" | "topics" | "connections";
 
 const STEPS: Step[] = ["identity", "publications", "topics", "connections"];
 
-export function OnboardingWizard({ onComplete, isPending = false, userIndustry }: OnboardingWizardProps) {
+export function OnboardingWizard({ onComplete, isPending = false, userIndustry, userCountry }: OnboardingWizardProps) {
   const [currentStep, setCurrentStep] = useState<Step>("identity");
   const [focusDescription, setFocusDescription] = useState("");
   const [selectedPublications, setSelectedPublications] = useState<string[]>([]);
@@ -393,7 +605,7 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry }
   const [engineDisplayName, setEngineDisplayName] = useState<string>("");
   const { toast } = useToast();
 
-  const industryData = getIndustryData(userIndustry);
+  const industryData = getIndustryData(userIndustry, userCountry);
   const currentStepIndex = STEPS.indexOf(currentStep);
   const progress = ((currentStepIndex + 1) / STEPS.length) * 100;
 
