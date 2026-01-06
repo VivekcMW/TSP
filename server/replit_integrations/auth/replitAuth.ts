@@ -162,7 +162,7 @@ export async function setupAuth(app: Express) {
   // LinkedIn OAuth Strategy using OIDC userinfo endpoint
   if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
     // Hardcoded LinkedIn callback URL for consistent OAuth flow
-    const linkedinCallbackURL = 'https://page-logic--nmreplitproject.replit.app/auth/linkedin/callback';
+    const linkedinCallbackURL = 'https://www.thesocialpundit.com/auth/linkedin/callback';
     console.log("LinkedIn OAuth callback URL:", linkedinCallbackURL);
     
     // LinkedIn OIDC endpoints
@@ -293,7 +293,7 @@ export async function setupAuth(app: Express) {
       return res.redirect("/login?error=linkedin_auth_failed&reason=client_not_configured");
     }
     
-    const redirectUri = 'https://page-logic--nmreplitproject.replit.app/auth/linkedin/callback';
+    const redirectUri = 'https://www.thesocialpundit.com/auth/linkedin/callback';
     const state = crypto.randomUUID();
     
     // Store state in session for CSRF protection
@@ -398,7 +398,7 @@ export async function setupAuth(app: Express) {
   // LinkedIn Analytics OAuth routes (for connecting social account) - using OIDC
   if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
     // Hardcoded LinkedIn Analytics callback URL for consistent OAuth flow
-    const linkedinAnalyticsCallbackURL = 'https://page-logic--nmreplitproject.replit.app/auth/linkedin/analytics/callback';
+    const linkedinAnalyticsCallbackURL = 'https://www.thesocialpundit.com/auth/linkedin/analytics/callback';
     console.log("LinkedIn Analytics OAuth callback URL:", linkedinAnalyticsCallbackURL);
     
     // LinkedIn OIDC endpoints for analytics
@@ -473,7 +473,7 @@ export async function setupAuth(app: Express) {
         return res.redirect(`${returnTo}?error=linkedin_connect_failed&reason=client_not_configured`);
       }
       
-      const redirectUri = 'https://page-logic--nmreplitproject.replit.app/auth/linkedin/analytics/callback';
+      const redirectUri = 'https://www.thesocialpundit.com/auth/linkedin/analytics/callback';
       const state = crypto.randomUUID();
       
       // Store state in session for CSRF protection
