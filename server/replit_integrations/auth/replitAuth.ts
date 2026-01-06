@@ -5,6 +5,7 @@ import { Strategy as LocalStrategy } from "passport-local";
 import { Strategy as GoogleStrategy, Profile as GoogleProfile } from "passport-google-oauth20";
 import { Strategy as OAuth2Strategy } from "passport-oauth2";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { authStorage } from "./storage";
 import connectPg from "connect-pg-simple";
 import { pool } from "../../db";
@@ -160,11 +161,8 @@ export async function setupAuth(app: Express) {
 
   // LinkedIn OAuth Strategy using OIDC userinfo endpoint
   if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
-    const replitDomainLI = process.env.REPLIT_DOMAINS?.split(",")[0];
-    const linkedinCallbackURL = process.env.LINKEDIN_CALLBACK_URL || 
-      (replitDomainLI 
-        ? `https://${replitDomainLI}/auth/linkedin/callback`
-        : "http://localhost:5000/auth/linkedin/callback");
+    // Hardcoded LinkedIn callback URL for consistent OAuth flow
+    const linkedinCallbackURL = 'https://page-logic--nmreplitproject.replit.app/auth/linkedin/callback';
     console.log("LinkedIn OAuth callback URL:", linkedinCallbackURL);
     
     // LinkedIn OIDC endpoints
@@ -172,9 +170,6 @@ export async function setupAuth(app: Express) {
     const linkedinTokenURL = "https://www.linkedin.com/oauth/v2/accessToken";
     const linkedinUserInfoURL = "https://api.linkedin.com/v2/userinfo";
     
-    // Use OpenID Connect scopes
-    const linkedinScopes = ["openid", "profile", "email"];
-    console.log("LinkedIn OAuth scopes:", linkedinScopes);
     console.log("LinkedIn OAuth using OIDC userinfo endpoint:", linkedinUserInfoURL);
     
     // Custom OAuth2 strategy for LinkedIn OIDC
@@ -185,7 +180,7 @@ export async function setupAuth(app: Express) {
         clientID: process.env.LINKEDIN_CLIENT_ID,
         clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
         callbackURL: linkedinCallbackURL,
-        scope: linkedinScopes.join(" "),
+        scope: "openid profile email",
       },
       async (accessToken: string, refreshToken: string, params: any, profile: any, done: any) => {
         try {
@@ -288,14 +283,33 @@ export async function setupAuth(app: Express) {
   );
 
   // LinkedIn OAuth routes (for login)
-  app.get("/auth/linkedin", (req, res, next) => {
+  app.get("/auth/linkedin", (req, res) => {
     console.log("LinkedIn OAuth: Initiating authentication");
     console.log("LinkedIn OAuth: Session ID before auth:", req.sessionID);
     
-    // Store a custom state value in session to track CSRF
-    const stateValue = `li_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-    (req.session as any).linkedinOAuthState = stateValue;
-    console.log("LinkedIn OAuth: Generated state value:", stateValue);
+    const clientId = process.env.LINKEDIN_CLIENT_ID;
+    if (!clientId) {
+      console.error("LinkedIn OAuth: LINKEDIN_CLIENT_ID is not configured");
+      return res.redirect("/login?error=linkedin_auth_failed&reason=client_not_configured");
+    }
+    
+    const redirectUri = 'https://page-logic--nmreplitproject.replit.app/auth/linkedin/callback';
+    const state = crypto.randomUUID();
+    
+    // Store state in session for CSRF protection
+    (req.session as any).linkedinOAuthState = state;
+    console.log("LinkedIn OAuth: Generated state value:", state);
+    console.log("LinkedIn OAuth: Using redirect URI:", redirectUri);
+    
+    const authUrl =
+      'https://www.linkedin.com/oauth/v2/authorization' +
+      '?response_type=code' +
+      `&client_id=${clientId}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      '&scope=openid%20profile%20email' +
+      `&state=${state}`;
+    
+    console.log("LinkedIn OAuth: Constructed auth URL:", authUrl);
     
     // Explicitly save session before OAuth redirect to ensure state is persisted
     req.session.save((err) => {
@@ -304,7 +318,7 @@ export async function setupAuth(app: Express) {
         return res.redirect("/login?error=linkedin_auth_failed&reason=session_error");
       }
       console.log("LinkedIn OAuth: Session saved, redirecting to LinkedIn");
-      passport.authenticate("linkedin", { state: stateValue })(req, res, next);
+      res.redirect(authUrl);
     });
   });
   
@@ -383,10 +397,8 @@ export async function setupAuth(app: Express) {
 
   // LinkedIn Analytics OAuth routes (for connecting social account) - using OIDC
   if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
-    const replitDomainAnalytics = process.env.REPLIT_DOMAINS?.split(",")[0];
-    const linkedinAnalyticsCallbackURL = replitDomainAnalytics 
-      ? `https://${replitDomainAnalytics}/auth/linkedin/analytics/callback`
-      : "http://localhost:5000/auth/linkedin/analytics/callback";
+    // Hardcoded LinkedIn Analytics callback URL for consistent OAuth flow
+    const linkedinAnalyticsCallbackURL = 'https://page-logic--nmreplitproject.replit.app/auth/linkedin/analytics/callback';
     console.log("LinkedIn Analytics OAuth callback URL:", linkedinAnalyticsCallbackURL);
     
     // LinkedIn OIDC endpoints for analytics
@@ -447,28 +459,89 @@ export async function setupAuth(app: Express) {
     passport.use(linkedinAnalyticsStrategy);
     console.log("LinkedIn Analytics OAuth strategy configured (OIDC)");
     
-    app.get("/auth/linkedin/analytics", isAuthenticated, (req, res, next) => {
+    app.get("/auth/linkedin/analytics", isAuthenticated, (req, res) => {
       const userId = (req.user as any)?.id;
       const returnTo = req.query.returnTo as string || req.headers.referer || "/analytics";
       if (userId) {
         (req.session as any).analyticsConnectUserId = userId;
         (req.session as any).analyticsReturnTo = returnTo.includes("/dashboard") ? "/dashboard" : "/analytics";
       }
+      
+      const clientId = process.env.LINKEDIN_CLIENT_ID;
+      if (!clientId) {
+        console.error("LinkedIn Analytics OAuth: LINKEDIN_CLIENT_ID is not configured");
+        return res.redirect(`${returnTo}?error=linkedin_connect_failed&reason=client_not_configured`);
+      }
+      
+      const redirectUri = 'https://page-logic--nmreplitproject.replit.app/auth/linkedin/analytics/callback';
+      const state = crypto.randomUUID();
+      
+      // Store state in session for CSRF protection
+      (req.session as any).linkedinAnalyticsOAuthState = state;
+      console.log("LinkedIn Analytics OAuth: Generated state value:", state);
+      console.log("LinkedIn Analytics OAuth: Using redirect URI:", redirectUri);
+      
+      const authUrl =
+        'https://www.linkedin.com/oauth/v2/authorization' +
+        '?response_type=code' +
+        `&client_id=${clientId}` +
+        `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+        '&scope=openid%20profile%20email' +
+        `&state=${state}`;
+      
+      console.log("LinkedIn Analytics OAuth: Constructed auth URL:", authUrl);
+      
       // Save session before OAuth redirect
       req.session.save((err) => {
         if (err) {
           console.error("LinkedIn Analytics: Failed to save session:", err);
           return res.redirect(`${returnTo}?error=linkedin_connect_failed`);
         }
-        passport.authenticate("linkedin-analytics")(req, res, next);
+        res.redirect(authUrl);
       });
     });
     
     app.get("/auth/linkedin/analytics/callback",
-      passport.authenticate("linkedin-analytics", { 
-        failureRedirect: "/analytics?error=linkedin_connect_failed",
-        session: false,
-      }),
+      (req, res, next) => {
+        // Log incoming callback for debugging
+        console.log("LinkedIn Analytics Callback: Query params:", JSON.stringify(req.query));
+        console.log("LinkedIn Analytics Callback: Session ID:", req.sessionID);
+        
+        // Check for error from LinkedIn
+        if (req.query.error) {
+          console.error("LinkedIn Analytics Callback: Error from LinkedIn:", {
+            error: req.query.error,
+            error_description: req.query.error_description,
+          });
+          const returnTo = (req.session as any)?.analyticsReturnTo || "/analytics";
+          return res.redirect(`${returnTo}?error=linkedin_connect_failed&reason=${encodeURIComponent(req.query.error_description as string || req.query.error as string)}`);
+        }
+        
+        // Validate state (CSRF protection)
+        const storedState = (req.session as any)?.linkedinAnalyticsOAuthState;
+        const incomingState = req.query.state as string;
+        
+        if (!storedState) {
+          console.warn("LinkedIn Analytics Callback: No stored state in session");
+        } else if (incomingState && storedState !== incomingState) {
+          console.error("LinkedIn Analytics Callback: STATE MISMATCH!", {
+            stored: storedState,
+            incoming: incomingState,
+          });
+          const returnTo = (req.session as any)?.analyticsReturnTo || "/analytics";
+          return res.redirect(`${returnTo}?error=linkedin_connect_failed&reason=state_mismatch`);
+        }
+        
+        // Clear the stored state
+        if ((req.session as any)?.linkedinAnalyticsOAuthState) {
+          delete (req.session as any).linkedinAnalyticsOAuthState;
+        }
+        
+        passport.authenticate("linkedin-analytics", { 
+          failureRedirect: "/analytics?error=linkedin_connect_failed",
+          session: false,
+        })(req, res, next);
+      },
       async (req: any, res) => {
         const sessionData = req.session as any;
         const userId = sessionData?.analyticsConnectUserId;
