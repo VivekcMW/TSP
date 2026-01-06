@@ -164,20 +164,33 @@ export async function setupAuth(app: Express) {
         : "http://localhost:5000/auth/linkedin/callback");
     console.log("LinkedIn OAuth callback URL:", linkedinCallbackURL);
     
+    // Use OpenID Connect scopes - requires "Sign In with LinkedIn using OpenID Connect" product
+    // If you have "Community Management API" enabled, these scopes may fail
+    // In that case, you need to use: ["r_liteprofile", "r_emailaddress"] instead
+    const linkedinScopes = ["openid", "profile", "email"];
+    console.log("LinkedIn OAuth scopes:", linkedinScopes);
+    
     passport.use(
       new LinkedInStrategy(
         {
           clientID: process.env.LINKEDIN_CLIENT_ID,
           clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
           callbackURL: linkedinCallbackURL,
-          scope: ["openid", "profile", "email"],
-        },
+          scope: linkedinScopes,
+        } as any, // Cast to any to allow additional options
         async (accessToken: string, refreshToken: string, profile: any, done: any) => {
           try {
+            console.log("LinkedIn OAuth callback - Raw profile:", JSON.stringify(profile, null, 2));
             console.log("LinkedIn OAuth callback - Profile ID:", profile.id);
-            const email = profile.emails?.[0]?.value;
+            
+            // Handle different profile structures based on API version
+            let email = profile.emails?.[0]?.value || profile.email;
+            if (!email && profile._json?.email) {
+              email = profile._json.email;
+            }
+            
             if (!email) {
-              console.error("LinkedIn OAuth: No email found in profile");
+              console.error("LinkedIn OAuth: No email found in profile. Profile structure:", Object.keys(profile));
               return done(null, false, { message: "No email found in LinkedIn profile" });
             }
             console.log("LinkedIn OAuth: Email found -", email);
