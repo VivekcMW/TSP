@@ -45,15 +45,18 @@ export function getSession() {
     tableName: "sessions",
   });
 
+  // Determine if we're in a production-like environment (Replit deployment)
+  const isProduction = process.env.NODE_ENV === "production" || !!process.env.REPLIT_DOMAINS;
+  
   return session({
     store: sessionStore,
     secret: process.env.SESSION_SECRET,
     resave: false,
-    saveUninitialized: false,
+    saveUninitialized: true, // Changed to true to ensure session is created for OAuth flow
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: isProduction, // Use secure cookies on Replit (always HTTPS)
+      sameSite: "lax", // "lax" allows cookies to be sent on OAuth redirects
       maxAge: 7 * 24 * 60 * 60 * 1000,
     },
   });
@@ -267,7 +270,15 @@ export async function setupAuth(app: Express) {
     (req.session as any).linkedinOAuthState = stateValue;
     console.log("LinkedIn OAuth: Generated state value:", stateValue);
     
-    passport.authenticate("linkedin", { state: stateValue })(req, res, next);
+    // Explicitly save session before OAuth redirect to ensure state is persisted
+    req.session.save((err) => {
+      if (err) {
+        console.error("LinkedIn OAuth: Failed to save session:", err);
+        return res.redirect("/login?error=linkedin_auth_failed&reason=session_error");
+      }
+      console.log("LinkedIn OAuth: Session saved, redirecting to LinkedIn");
+      passport.authenticate("linkedin", { state: stateValue })(req, res, next);
+    });
   });
   
   app.get("/auth/linkedin/callback",
@@ -277,6 +288,7 @@ export async function setupAuth(app: Express) {
       console.log("LinkedIn OAuth Callback: Session ID:", req.sessionID);
       console.log("LinkedIn OAuth Callback: Incoming state from LinkedIn:", req.query.state);
       console.log("LinkedIn OAuth Callback: Stored state in session:", (req.session as any)?.linkedinOAuthState);
+      console.log("LinkedIn OAuth Callback: Session data:", JSON.stringify(req.session, null, 2));
       
       // Check for error from LinkedIn
       if (req.query.error) {
@@ -287,11 +299,14 @@ export async function setupAuth(app: Express) {
         return res.redirect(`/login?error=linkedin_auth_failed&reason=${encodeURIComponent(req.query.error_description as string || req.query.error as string)}`);
       }
       
-      // Verify state matches (CSRF protection)
+      // Verify state matches (CSRF protection) - but skip if no stored state (session issue)
       const storedState = (req.session as any)?.linkedinOAuthState;
       const incomingState = req.query.state as string;
       
-      if (storedState && incomingState && storedState !== incomingState) {
+      if (!storedState) {
+        console.warn("LinkedIn OAuth Callback: No stored state in session - session may have been lost");
+        // Continue anyway - the passport strategy will verify state internally
+      } else if (incomingState && storedState !== incomingState) {
         console.error("LinkedIn OAuth Callback: STATE MISMATCH!", {
           stored: storedState,
           incoming: incomingState,
@@ -307,20 +322,33 @@ export async function setupAuth(app: Express) {
       passport.authenticate("linkedin", (err: any, user: any, info: any) => {
         if (err) {
           console.error("LinkedIn OAuth callback error:", err);
-          console.error("LinkedIn OAuth callback error details:", JSON.stringify(err, null, 2));
-          return res.redirect("/login?error=linkedin_auth_failed");
+          console.error("LinkedIn OAuth callback error message:", err?.message);
+          console.error("LinkedIn OAuth callback error oauthError:", err?.oauthError);
+          if (err.oauthError) {
+            console.error("LinkedIn OAuth callback oauthError data:", err.oauthError?.data);
+            console.error("LinkedIn OAuth callback oauthError statusCode:", err.oauthError?.statusCode);
+          }
+          const errorReason = encodeURIComponent(err?.message || "unknown_error");
+          return res.redirect(`/login?error=linkedin_auth_failed&reason=${errorReason}`);
         }
         if (!user) {
           console.error("LinkedIn OAuth: No user returned, info:", info);
-          return res.redirect("/login?error=linkedin_auth_failed");
+          const infoMessage = info?.message || "no_user_returned";
+          return res.redirect(`/login?error=linkedin_auth_failed&reason=${encodeURIComponent(infoMessage)}`);
         }
         req.logIn(user, (loginErr) => {
           if (loginErr) {
             console.error("LinkedIn OAuth: Login error:", loginErr);
-            return res.redirect("/login?error=linkedin_auth_failed");
+            return res.redirect("/login?error=linkedin_auth_failed&reason=login_error");
           }
-          console.log("LinkedIn OAuth: Successfully logged in user:", user.id);
-          res.redirect("/dashboard");
+          // Save session after login to ensure it persists
+          req.session.save((saveErr) => {
+            if (saveErr) {
+              console.error("LinkedIn OAuth: Session save error after login:", saveErr);
+            }
+            console.log("LinkedIn OAuth: Successfully logged in user:", user.id);
+            res.redirect("/dashboard");
+          });
         });
       })(req, res, next);
     }
