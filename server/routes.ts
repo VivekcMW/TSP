@@ -16,13 +16,25 @@ import { selectIndustryEngine, getAvailableVerticals, normalizeIndustryToSlug } 
 import type { IndustrySlug } from "@shared/schema";
 
 const completeOnboardingSchema = z.object({
-  focusDescription: z.string().min(10).max(150).optional(),
+  focusDescription: z.string().min(10).max(500).optional(),
   publications: z.array(z.string()).max(20).optional(),
   keywords: z.array(z.string()).max(20).optional(),
   influencers: z.array(z.string()).max(20).optional(),
   companies: z.array(z.string()).max(20).optional(),
   recommendedIndustry: z.string().optional(),
 });
+
+// Helper to sanitize onboarding data - truncates strings and arrays to prevent validation errors
+function sanitizeOnboardingData(data: any) {
+  return {
+    ...data,
+    focusDescription: data.focusDescription?.slice(0, 500),
+    publications: data.publications?.slice(0, 20),
+    keywords: data.keywords?.slice(0, 20),
+    influencers: data.influencers?.slice(0, 20),
+    companies: data.companies?.slice(0, 20),
+  };
+}
 
 const createDraftSchema = z.object({
   inboxItemId: z.string().optional(),
@@ -164,7 +176,10 @@ export async function registerRoutes(
     try {
       const userId = req.user.claims.sub;
       
-      const validation = completeOnboardingSchema.safeParse(req.body);
+      // Sanitize data before validation to prevent truncation errors
+      const sanitizedBody = sanitizeOnboardingData(req.body);
+      
+      const validation = completeOnboardingSchema.safeParse(sanitizedBody);
       if (!validation.success) {
         return res.status(400).json({ message: "Invalid request data", errors: validation.error.errors });
       }
