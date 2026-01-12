@@ -1,0 +1,209 @@
+Absolutely. Below is a **copy-paste ready, detailed engineering prompt** you can give directly to **Replit AI / Replit Agent** to fix this issue correctly.
+
+This prompt is written to be **strict, unambiguous, and production-safe**, and it explicitly prevents the Replit URL from ever appearing after login.
+
+---
+
+## ✅ REPLIT AI PROMPT (USE AS-IS)
+
+> **Goal:**
+> Ensure that after authentication (login / OAuth callback), the application **always stays on the custom domain** and **never redirects to `*.replit.app`**.
+>
+> The current issue is that after sign-in, the app redirects to
+> `page-logic--nmreplitproject.replit.app/dashboard` instead of the custom domain.
+
+---
+
+### 🔒 Hard Requirements (Do Not Violate)
+
+1. **Do NOT hard-code any domain**
+
+   * No `replit.app`
+   * No `page-logic--`
+   * No fixed base URLs like `http://localhost`, `https://xyz.com`
+
+2. **Redirects must be derived dynamically** from the incoming request:
+
+   * Use `req.headers.host`
+   * Use `x-forwarded-proto` when available
+
+3. **OAuth must continue working**
+
+   * LinkedIn / Google / any OAuth must remain functional
+   * Redirect URIs must use the custom domain automatically
+
+---
+
+### 🛠 Required Code Changes
+
+#### 1️⃣ Canonical Domain Redirect (Global Middleware)
+
+Add middleware **before all routes** to force the custom domain and block Replit URLs.
+
+```js
+app.use((req, res, next) => {
+  const CANONICAL_HOST = "app.yourdomain.com"; // replace with actual custom domain
+  const host = req.headers.host;
+
+  if (host.includes("replit.app") && host !== CANONICAL_HOST) {
+    return res.redirect(
+      301,
+      `https://${CANONICAL_HOST}${req.originalUrl}`
+    );
+  }
+
+  next();
+});
+```
+
+✅ This ensures:
+
+* Replit URLs never persist
+* SEO-safe canonical URLs
+* Users can’t land on Replit domain even after login
+
+---
+
+#### 2️⃣ Fix Auth Callback Redirect Logic (Critical)
+
+**Find the authentication callback handler** and REMOVE any fixed redirect like:
+
+```js
+res.redirect("https://page-logic--nmreplitproject.replit.app/dashboard");
+```
+
+✅ Replace with **dynamic redirect logic**:
+
+```js
+const protocol = req.headers["x-forwarded-proto"] || "https";
+const host = req.headers.host;
+
+res.redirect(`${protocol}://${host}/dashboard`);
+```
+
+This must be used for:
+
+* Login success
+* Signup success
+* OAuth callback success
+* Session restore flows
+
+---
+
+#### 3️⃣ Fix OAuth Redirect URI Construction
+
+If OAuth redirect URIs are constructed in code, they must be **dynamic**:
+
+```js
+const protocol = req.headers["x-forwarded-proto"] || "https";
+const host = req.headers.host;
+
+const redirectUri = `${protocol}://${host}/auth/linkedin/callback`;
+```
+
+🚫 Do NOT store OAuth redirect URIs with `replit.app`
+
+---
+
+#### 4️⃣ Environment Variables Cleanup
+
+Search and remove / update:
+
+* `BASE_URL`
+* `NEXT_PUBLIC_BASE_URL`
+* `APP_URL`
+* Any env var containing `replit.app`
+
+If a base URL is required, it should be **optional** and overridden by request headers.
+
+---
+
+#### 5️⃣ Frontend Navigation Safety (If React / Next.js)
+
+Ensure frontend navigation does **not** use absolute URLs.
+
+❌ Bad:
+
+```js
+window.location.href = "https://page-logic--nmreplitproject.replit.app/dashboard";
+```
+
+✅ Good:
+
+```js
+router.push("/dashboard");
+```
+
+or
+
+```js
+window.location.href = "/dashboard";
+```
+
+---
+
+### 🧪 Mandatory Debug Verification
+
+Temporarily log this in auth callback:
+
+```js
+console.log("HOST:", req.headers.host);
+console.log("PROTO:", req.headers["x-forwarded-proto"]);
+```
+
+Expected output **after fix**:
+
+```
+HOST: app.yourdomain.com
+PROTO: https
+```
+
+If `replit.app` appears → the fix is incomplete.
+
+---
+
+### ✅ Final Acceptance Criteria
+
+* Login URL stays on `app.yourdomain.com`
+* After sign-in → `/dashboard` stays on custom domain
+* OAuth callbacks use custom domain
+* Manually opening a `replit.app` URL redirects immediately to custom domain
+* No auth loops
+* No broken sessions
+
+---
+
+### ❗ Important Notes for Replit
+
+* Do **not** modify Replit deployment settings
+* Do **not** remove OAuth configs
+* Do **not** introduce reverse proxies
+* Fix must be **code-level only**
+
+---
+
+## 🎯 Expected Outcome
+
+```
+app.yourdomain.com/login
+→ authenticate
+→ app.yourdomain.com/dashboard
+```
+
+🚫 At no point should:
+
+```
+page-logic--nmreplitproject.replit.app
+```
+
+appear in the browser.
+
+---
+
+If you want, next I can:
+
+* Rewrite this prompt **specifically for Next.js App Router**
+* Do a **LinkedIn OAuth–only hardened version**
+* Provide a **domain-agnostic helper utility** you can reuse across services
+
+Just tell me your framework.
