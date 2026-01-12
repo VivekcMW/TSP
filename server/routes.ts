@@ -146,10 +146,34 @@ export async function registerRoutes(
     }
   });
 
+  // Zod schema for profile updates
+  const updateProfileSchema = z.object({
+    focusDescription: z.string().max(500).optional(),
+    publications: z.array(z.string()).optional(),
+    keywords: z.array(z.string()).optional(),
+    influencers: z.array(z.string()).optional(),
+    companies: z.array(z.string()).optional(),
+    hasSeenWelcome: z.boolean().optional(),
+    hasGeneratedPost: z.boolean().optional(),
+    hasSavedDraft: z.boolean().optional(),
+    hasExploredInbox: z.boolean().optional(),
+    hasDismissedChecklist: z.boolean().optional(),
+  });
+
   app.patch("/api/profile", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { focusDescription, publications, keywords, influencers, companies } = req.body;
+      
+      // Validate request body
+      const validation = updateProfileSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ message: "Invalid request data", errors: validation.error.errors });
+      }
+      
+      const { 
+        focusDescription, publications, keywords, influencers, companies,
+        hasSeenWelcome, hasGeneratedPost, hasSavedDraft, hasExploredInbox, hasDismissedChecklist
+      } = validation.data;
       
       const existingProfile = await storage.getUserProfile(userId);
       if (!existingProfile) {
@@ -162,6 +186,12 @@ export async function registerRoutes(
       if (keywords !== undefined) updateData.keywords = keywords;
       if (influencers !== undefined) updateData.influencers = influencers;
       if (companies !== undefined) updateData.companies = companies;
+      // User progress tracking fields
+      if (hasSeenWelcome !== undefined) updateData.hasSeenWelcome = hasSeenWelcome;
+      if (hasGeneratedPost !== undefined) updateData.hasGeneratedPost = hasGeneratedPost;
+      if (hasSavedDraft !== undefined) updateData.hasSavedDraft = hasSavedDraft;
+      if (hasExploredInbox !== undefined) updateData.hasExploredInbox = hasExploredInbox;
+      if (hasDismissedChecklist !== undefined) updateData.hasDismissedChecklist = hasDismissedChecklist;
       
       const profile = await storage.updateUserProfile(userId, updateData);
       

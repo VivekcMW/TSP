@@ -28,6 +28,12 @@ export const userProfiles = pgTable("user_profiles", {
   keywords: jsonb("keywords").$type<string[]>().default([]),
   influencers: jsonb("influencers").$type<string[]>().default([]),
   companies: jsonb("companies").$type<string[]>().default([]),
+  // First-time user experience tracking
+  hasSeenWelcome: boolean("has_seen_welcome").default(false).notNull(),
+  hasGeneratedPost: boolean("has_generated_post").default(false).notNull(),
+  hasSavedDraft: boolean("has_saved_draft").default(false).notNull(),
+  hasExploredInbox: boolean("has_explored_inbox").default(false).notNull(),
+  hasDismissedChecklist: boolean("has_dismissed_checklist").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

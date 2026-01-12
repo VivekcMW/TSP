@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { Linkedin, RefreshCw, Send, Save, Copy, Check, ExternalLink, X } from "lucide-react";
 import { SiX } from "react-icons/si";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -170,7 +171,10 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl p-0 gap-0 overflow-hidden max-h-[90vh]">
+      <DialogContent className="max-w-5xl p-0 gap-0 overflow-hidden max-h-[90vh]" aria-describedby={undefined}>
+        <VisuallyHidden>
+          <DialogTitle>Generate Post</DialogTitle>
+        </VisuallyHidden>
         <div className="flex h-full">
           <div className="w-72 shrink-0 border-r bg-muted/30 p-6 flex flex-col">
             <div className="flex items-center justify-between mb-6">
