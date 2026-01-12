@@ -111,8 +111,28 @@ The platform uses a modular engine architecture to deliver industry-specific con
 - PostgreSQL database (connection via `DATABASE_URL` environment variable)
 
 ### Authentication
-- Replit OpenID Connect provider (`ISSUER_URL` environment variable)
+- **OAuth Providers**: Google OAuth, LinkedIn OAuth (OIDC)
 - Session secret (`SESSION_SECRET` environment variable)
+- **Canonical Domain**: `CANONICAL_HOST` environment variable (default: www.thesocialpundit.com)
+
+### Domain Configuration
+The application is configured to always redirect to the canonical domain:
+- **Canonical Domain Middleware**: Automatically redirects replit.app URLs to the custom domain
+- **OAuth Callback URLs**: Dynamically constructed using CANONICAL_HOST
+- **Environment Variables**:
+  - `CANONICAL_HOST` - Custom domain (e.g., www.thesocialpundit.com)
+  - `GOOGLE_CALLBACK_URL` - Optional override for Google OAuth callback
+  - `LINKEDIN_CALLBACK_URL` - Optional override for LinkedIn OAuth callback
+  - `LINKEDIN_ANALYTICS_CALLBACK_URL` - Optional override for LinkedIn Analytics OAuth callback
+
+**LinkedIn Developer Portal Setup:**
+Add these callback URLs:
+- `https://www.thesocialpundit.com/auth/linkedin/callback`
+- `https://www.thesocialpundit.com/auth/linkedin/analytics/callback`
+
+**Google Cloud Console Setup:**
+Add this callback URL:
+- `https://www.thesocialpundit.com/auth/google/callback`
 
 ### AI Services (Planned)
 - Google Gemini API for content curation and post generation (referenced in design docs)

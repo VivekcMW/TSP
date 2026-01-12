@@ -22,6 +22,28 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// Canonical domain redirect middleware - forces custom domain and blocks Replit URLs
+// Only active when CANONICAL_HOST is explicitly set (production)
+const CANONICAL_HOST = process.env.CANONICAL_HOST;
+
+if (CANONICAL_HOST) {
+  app.use((req, res, next) => {
+    const host = req.headers.host || "";
+    
+    // If accessing via replit.app, redirect to canonical domain
+    if (host.includes("replit.app") && host !== CANONICAL_HOST) {
+      const protocol = req.headers["x-forwarded-proto"] || "https";
+      console.log(`[Domain Redirect] Redirecting from ${host} to ${CANONICAL_HOST}`);
+      return res.redirect(301, `${protocol}://${CANONICAL_HOST}${req.originalUrl}`);
+    }
+    
+    next();
+  });
+  console.log(`[Domain Config] Canonical domain redirect active: ${CANONICAL_HOST}`);
+} else {
+  console.log("[Domain Config] No CANONICAL_HOST set, replit.app redirect disabled (dev mode)");
+}
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",

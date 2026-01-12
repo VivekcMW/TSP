@@ -100,13 +100,23 @@ export async function setupAuth(app: Express) {
     )
   );
 
+  // Helper function to get OAuth callback URL
+  // Prioritizes: 1) Explicit env var, 2) CANONICAL_HOST with https, 3) REPLIT_DOMAINS, 4) localhost
+  const getOAuthCallbackUrl = (path: string, envOverride?: string): string => {
+    if (envOverride) return envOverride;
+    
+    const canonicalHost = process.env.CANONICAL_HOST;
+    if (canonicalHost) return `https://${canonicalHost}${path}`;
+    
+    const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0];
+    if (replitDomain) return `https://${replitDomain}${path}`;
+    
+    return `http://localhost:5000${path}`;
+  };
+
   // Google OAuth Strategy
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-    const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0];
-    const googleCallbackURL = process.env.GOOGLE_CALLBACK_URL || 
-      (replitDomain 
-        ? `https://${replitDomain}/auth/google/callback`
-        : "http://localhost:5000/auth/google/callback");
+    const googleCallbackURL = getOAuthCallbackUrl("/auth/google/callback", process.env.GOOGLE_CALLBACK_URL);
     console.log("Google OAuth callback URL:", googleCallbackURL);
     
     passport.use(
@@ -161,8 +171,7 @@ export async function setupAuth(app: Express) {
 
   // LinkedIn OAuth Strategy using OIDC userinfo endpoint
   if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
-    // Hardcoded LinkedIn callback URL for consistent OAuth flow
-    const linkedinCallbackURL = 'https://page-logic--nmreplitproject.replit.app/auth/linkedin/callback';
+    const linkedinCallbackURL = getOAuthCallbackUrl("/auth/linkedin/callback", process.env.LINKEDIN_CALLBACK_URL);
     console.log("LinkedIn OAuth callback URL:", linkedinCallbackURL);
     
     // LinkedIn OIDC endpoints
@@ -278,6 +287,10 @@ export async function setupAuth(app: Express) {
   app.get("/auth/google/callback", 
     passport.authenticate("google", { failureRedirect: "/login?error=google_auth_failed" }),
     (req, res) => {
+      // Debug logging for domain verification
+      console.log("[Auth Callback] HOST:", req.headers.host);
+      console.log("[Auth Callback] PROTO:", req.headers["x-forwarded-proto"]);
+      // Use relative redirect to stay on current domain
       res.redirect("/dashboard");
     }
   );
@@ -293,7 +306,8 @@ export async function setupAuth(app: Express) {
       return res.redirect("/login?error=linkedin_auth_failed&reason=client_not_configured");
     }
     
-    const redirectUri = 'https://page-logic--nmreplitproject.replit.app/auth/linkedin/callback';
+    // Use same callback URL as strategy registration
+    const redirectUri = getOAuthCallbackUrl("/auth/linkedin/callback", process.env.LINKEDIN_CALLBACK_URL);
     const state = crypto.randomUUID();
     
     // Store state in session for CSRF protection
@@ -387,7 +401,11 @@ export async function setupAuth(app: Express) {
             if (saveErr) {
               console.error("LinkedIn OAuth: Session save error after login:", saveErr);
             }
+            // Debug logging for domain verification
+            console.log("[Auth Callback] HOST:", req.headers.host);
+            console.log("[Auth Callback] PROTO:", req.headers["x-forwarded-proto"]);
             console.log("LinkedIn OAuth: Successfully logged in user:", user.id);
+            // Use relative redirect to stay on current domain
             res.redirect("/dashboard");
           });
         });
@@ -397,8 +415,7 @@ export async function setupAuth(app: Express) {
 
   // LinkedIn Analytics OAuth routes (for connecting social account) - using OIDC
   if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
-    // Hardcoded LinkedIn Analytics callback URL for consistent OAuth flow
-    const linkedinAnalyticsCallbackURL = 'https://page-logic--nmreplitproject.replit.app/auth/linkedin/analytics/callback';
+    const linkedinAnalyticsCallbackURL = getOAuthCallbackUrl("/auth/linkedin/analytics/callback", process.env.LINKEDIN_ANALYTICS_CALLBACK_URL);
     console.log("LinkedIn Analytics OAuth callback URL:", linkedinAnalyticsCallbackURL);
     
     // LinkedIn OIDC endpoints for analytics
@@ -473,7 +490,8 @@ export async function setupAuth(app: Express) {
         return res.redirect(`${returnTo}?error=linkedin_connect_failed&reason=client_not_configured`);
       }
       
-      const redirectUri = 'https://page-logic--nmreplitproject.replit.app/auth/linkedin/analytics/callback';
+      // Use same callback URL as strategy registration
+      const redirectUri = getOAuthCallbackUrl("/auth/linkedin/analytics/callback", process.env.LINKEDIN_ANALYTICS_CALLBACK_URL);
       const state = crypto.randomUUID();
       
       // Store state in session for CSRF protection
