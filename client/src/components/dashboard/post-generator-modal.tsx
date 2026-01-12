@@ -297,7 +297,7 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
                     ) : (
                       <>
                         <Copy className="w-3.5 h-3.5 mr-1.5" />
-                        Copy
+                        Copy and Paste To LinkedIn
                       </>
                     )}
                   </Button>
