@@ -55,28 +55,6 @@ Preferred communication style: Simple, everyday language.
 - **Tonality Mapping**: UI tonalities map to schema values (professional, authoritative, contrarian, ai-recommended)
 - **Auto Publication Tracking**: When generating posts, the source publication is automatically added to user's preferences
 - **Social Media Analytics**: Track performance across LinkedIn and Twitter/X with combined and platform-specific metrics
-- **First-Time User Experience**: Welcome modal and getting started checklist guide new users
-
-### First-Time User Experience
-The platform includes a two-tier onboarding system for new users:
-
-**Blocking Flows (require server confirmation):**
-- **WelcomeModal**: Shows on first visit, must be acknowledged before dismissing
-- **Checklist Dismiss**: Server-side `hasDismissedChecklist` flag controls visibility
-
-**Background Progress Tracking (non-blocking):**
-- `hasExploredInbox` - Tracked when user views inbox items
-- `hasGeneratedPost` - Tracked when user generates their first post
-- `hasSavedDraft` - Tracked when user saves or publishes a post
-
-**Database Fields (userProfiles table):**
-- `hasSeenWelcome` - Controls welcome modal visibility
-- `hasGeneratedPost`, `hasSavedDraft`, `hasExploredInbox` - Progress milestones
-- `hasDismissedChecklist` - Controls checklist visibility
-
-**Components:**
-- `client/src/components/dashboard/welcome-modal.tsx` - Product intro modal
-- `client/src/components/dashboard/getting-started-checklist.tsx` - Progress checklist
 
 ### Social Media Analytics Integration
 The platform supports connecting social media accounts to track post performance:

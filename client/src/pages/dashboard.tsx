@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Inbox, RefreshCw, Link2, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -7,11 +7,9 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { InboxCard } from "@/components/dashboard/inbox-card";
 import { PostGeneratorModal } from "@/components/dashboard/post-generator-modal";
 import { InstantReviewModal } from "@/components/dashboard/instant-review-modal";
-import { WelcomeModal } from "@/components/dashboard/welcome-modal";
-import { GettingStartedChecklist } from "@/components/dashboard/getting-started-checklist";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { InboxItem, UserProfile } from "@shared/schema";
+import type { InboxItem } from "@shared/schema";
 
 type FilterType = "all" | "saved" | "dismissed";
 
@@ -22,50 +20,11 @@ export default function DashboardPage() {
   const [selectedItem, setSelectedItem] = useState<InboxItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isInstantReviewOpen, setIsInstantReviewOpen] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(false);
-
-  const { data: profile } = useQuery<UserProfile>({
-    queryKey: ["/api/profile"],
-    enabled: !!user,
-  });
 
   const { data: inboxItems, isLoading } = useQuery<InboxItem[]>({
     queryKey: ["/api/inbox"],
     enabled: !!user,
   });
-
-  // Show welcome modal for first-time users
-  useEffect(() => {
-    if (profile && !profile.hasSeenWelcome) {
-      setShowWelcome(true);
-    }
-  }, [profile?.hasSeenWelcome]);
-
-  // Mutation for updating user progress - these are non-critical background updates
-  const updateProgressMutation = useMutation({
-    mutationFn: async (data: Partial<{ hasExploredInbox: boolean; hasGeneratedPost: boolean; hasSavedDraft: boolean }>) => {
-      const res = await apiRequest("PATCH", "/api/profile", data);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
-    },
-    onError: (error: Error) => {
-      console.error("Error updating user progress:", error);
-      // Silent fail for background progress tracking - these don't block user workflows
-    },
-  });
-
-
-  // Track when user explores inbox (scrolls or interacts)
-  useEffect(() => {
-    if (profile && !profile.hasExploredInbox && inboxItems && inboxItems.length > 0) {
-      const timer = setTimeout(() => {
-        updateProgressMutation.mutate({ hasExploredInbox: true });
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [profile?.hasExploredInbox, inboxItems]);
   
   const openLinkedInShare = (content: string, articleUrl?: string) => {
     navigator.clipboard.writeText(content);
@@ -150,11 +109,6 @@ export default function DashboardPage() {
   const handleGeneratePost = (item: InboxItem) => {
     setSelectedItem(item);
     setIsModalOpen(true);
-    
-    // Track first post generation
-    if (profile && !profile.hasGeneratedPost) {
-      updateProgressMutation.mutate({ hasGeneratedPost: true });
-    }
   };
 
   const handleSave = (item: InboxItem) => {
@@ -181,11 +135,6 @@ export default function DashboardPage() {
       content,
     });
     setIsModalOpen(false);
-    
-    // Track first draft saved
-    if (profile && !profile.hasSavedDraft) {
-      updateProgressMutation.mutate({ hasSavedDraft: true });
-    }
   };
 
   const handlePost = (platform: string, tone: string, content: string) => {
@@ -202,11 +151,6 @@ export default function DashboardPage() {
       });
       window.open("https://twitter.com/compose/tweet", "_blank");
       setIsModalOpen(false);
-    }
-    
-    // Track as saved/posted action
-    if (profile && !profile.hasSavedDraft) {
-      updateProgressMutation.mutate({ hasSavedDraft: true });
     }
   };
 
@@ -263,12 +207,6 @@ export default function DashboardPage() {
       </header>
       
       <main className="flex-1 p-6 overflow-y-auto">
-        {profile && !profile.hasDismissedChecklist && (
-          <GettingStartedChecklist 
-            profile={profile} 
-          />
-        )}
-        
         {isLoading ? (
           <div className="grid gap-4">
             {[1, 2, 3, 4].map((i) => (
@@ -324,11 +262,6 @@ export default function DashboardPage() {
       <InstantReviewModal
         isOpen={isInstantReviewOpen}
         onClose={() => setIsInstantReviewOpen(false)}
-      />
-      
-      <WelcomeModal
-        isOpen={showWelcome}
-        onClose={() => setShowWelcome(false)}
       />
     </div>
   );
