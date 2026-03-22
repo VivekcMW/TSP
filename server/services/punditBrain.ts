@@ -559,46 +559,105 @@ function validatePostContent(
   };
 }
 
+const VOICE_STYLE_GUIDE = `
+SENTENCE STRUCTURE:
+- Write short, declarative sentences most of the time.
+- Vary length. Mix short punchy statements with longer momentum-building sentences.
+- Every comma is a potential period. Break sentences where possible.
+- Don't repeat the same word in a paragraph. Rephrase or use a synonym.
+
+VOICE AND TONE:
+- Write like humans speak. No corporate jargon.
+- Be direct and confident. State things. Don't soften with "I think," "maybe," or "could."
+- Use active voice.
+- Use contractions: "I'll," "won't," "can't," "it's," "they're."
+- Say "you" more than "we."
+- State what something IS. Don't define it by what it isn't.
+
+SPECIFICITY:
+- Be specific. Use real numbers, names, examples — not vague superlatives.
+- Back claims with a concrete example or metric where possible.
+- Vague authority claims like "this is reshaping the industry" are not allowed. Name what's shifting and why.
+
+BANNED WORDS — never use any of these:
+leverage, delve, robust, seamless, seamlessly, innovative, game-changing,
+implement, utilize, numerous, facilitate, just, great, disruptive, disrupt,
+modern, modernized, blazing fast, lightning fast, pretty, quite, rather, really,
+very, actual, actually, agile, arguably, assistance, battle-tested,
+best practices, cognitive load, mission-critical, out of the box, performant,
+remainder, sufficient, webinar, a bit, a little, commence, initial,
+individual (use "person" or a specific role), referred to as, business logic
+
+BANNED PHRASES — never use any of these:
+"I think" / "I believe" / "we believe" — state it directly instead
+"it seems" / "sort of" / "kind of" / "pretty much"
+"The future of ___"
+"In today's fast-paced world"
+"In the ever-evolving landscape of"
+"it's not just X, it's Y"
+"Let's dive into"
+"In conclusion" / "Overall" / "To summarize"
+"Furthermore" / "Additionally" / "Moreover" — replace with direct statements
+"may potentially" / "it's important to note that"
+"a lot" — be specific instead
+"We're excited" / "We can't wait"
+"game-changer" — state the specific benefit instead
+
+AVOID THESE LLM PATTERNS:
+- No em dashes (—). Use semicolons, commas, or sentence breaks instead.
+- Don't end with a rhetorical question ("What do you think?" / "Who else is seeing this?" / "How are you adapting?").
+- Don't create perfectly symmetrical paragraphs or lists starting with "Firstly... Secondly..."
+- Sentences can start with "But" and "And" — sparingly.
+- No "Hope this helps!" type closers.
+- Don't stack hedges: never write "may potentially" or "might perhaps."
+- No high-school essay closers: "In conclusion," "Overall," "To summarize."
+- Use ' not curly apostrophes.
+- No overuse of transition words: "Furthermore," "Additionally," "Moreover."
+- Avoid perfectly symmetrical paragraph structures.
+
+PUNCTUATION:
+- Oxford commas consistently.
+- Exclamation points sparingly — maximum one per post, only if earned.
+- Use periods instead of commas where possible for clarity.
+`;
+
 // Generate LinkedIn-specific prompt
 function getLinkedInPrompt(
   article: { headline: string; summary: string; source: string; articleUrl?: string },
   tone: string,
   userContext?: string
 ): string {
-  return `You are a professional industry commentator writing in the user's own voice for LinkedIn.
-
-CRITICAL PHILOSOPHY:
-- You are REACTING to an article, NOT summarizing it
-- The user's POINT OF VIEW is the hero, not the article
-- Write as a human who just read something interesting and has thoughts about it
-- Treat the publication as a partner - drive traffic back to them
-
+  return `You are writing a LinkedIn post in the voice of a confident industry professional who just read this article and has a specific reaction to share.
+${VOICE_STYLE_GUIDE}
 ARTICLE REFERENCE:
 Headline: ${article.headline}
 Source: ${article.source}
 ${article.articleUrl ? `URL: ${article.articleUrl}` : ""}
-Summary (for context only, DO NOT summarize): ${article.summary}
+Summary (context only — do NOT summarize this): ${article.summary}
 
 TONE: ${tone}
 ${userContext ? `USER CONTEXT: ${userContext}` : ""}
 
-LINKEDIN FORMAT REQUIREMENTS:
-1. START with a strong POV hook - your opinion, not the article headline
-2. Reference the article naturally in the middle (mention "${article.source}" by name)
-${article.articleUrl ? `3. Insert the URL ONCE, cleanly at the end: ${article.articleUrl}` : "3. No URL available - focus on the opinion and insight"}
-4. END with an insight or thought-provoking question
-5. Maximum 3000 characters
+WHAT TO WRITE:
+- React to the article with a specific opinion. Don't summarize it.
+- Mention "${article.source}" by name naturally somewhere in the body.
+${article.articleUrl ? `- Include the URL once, at the end: ${article.articleUrl}` : "- No URL available. Don't include placeholder text like [URL]."}
+- Keep it under 3000 characters.
 
-STRICT RULES:
-- NEVER copy article language verbatim
-- NEVER start with "I just read..." or "This article says..."
-- NEVER sound like an AI summary
-- ALWAYS mention the publication name "${article.source}"
-${article.articleUrl ? `- ALWAYS include the exact URL: ${article.articleUrl}` : "- Do NOT include any placeholder URLs like [URL] - only use real URLs"}
-- Write in first person with genuine opinion
-- One link only, no tracking parameters, no shortening
+HOW TO OPEN:
+Don't open with the article headline. Don't start with "I just read..." or "This article says..."
+Open with your reaction: a specific fact, a number, a blunt take, or a direct contradiction of conventional wisdom.
 
-Return ONLY the post content. No quotes, no explanation, no markdown formatting.`;
+HOW TO CLOSE:
+End with a statement or sharp observation. Not a question. Not "What do you think?"
+
+HARD RULES:
+- Never copy article language verbatim.
+- Mention "${article.source}" by name.
+${article.articleUrl ? `- Include this URL exactly once: ${article.articleUrl}` : "- No placeholder URLs."}
+- One link only. No tracking parameters. No shortened URLs.
+
+Return ONLY the post content. No explanation. No quotes around it. No markdown.`;
 }
 
 // Generate Twitter-specific prompt
@@ -607,13 +666,12 @@ function getTwitterPrompt(
   tone: string,
   userContext?: string
 ): string {
-  return `You are a professional industry commentator writing a tweet in the user's own voice.
+  return `You are writing a tweet in the voice of a confident industry professional reacting to this article.
 
-CRITICAL PHILOSOPHY:
-- You are REACTING to an article, NOT summarizing it
-- Express YOUR point of view first
-- Write as a human, not an AI
-- Credit the publication
+SENTENCE STRUCTURE: Short and punchy. Every word earns its place.
+VOICE: Direct. Confident. No hedging. Contractions are fine.
+BANNED WORDS: leverage, delve, robust, seamless, innovative, game-changing, utilize, implement, furthermore, additionally, actually, just, great.
+BANNED PATTERNS: No em dashes (—). No rhetorical questions at the end. No "Let's dive in." No "The future of ___."
 
 ARTICLE REFERENCE:
 Headline: ${article.headline}
@@ -623,23 +681,24 @@ ${article.articleUrl ? `URL: ${article.articleUrl}` : ""}
 TONE: ${tone}
 ${userContext ? `USER CONTEXT: ${userContext}` : ""}
 
-TWITTER FORMAT REQUIREMENTS:
-1. Lead with your POV or hot take
-2. Mention "${article.source}" somewhere in the tweet
-${article.articleUrl ? `3. Include this exact URL: ${article.articleUrl}` : "3. No URL available - focus on your opinion"}
-4. Maximum 1-2 hashtags
-5. MUST be under 280 characters total (including URL and hashtags)
+WHAT TO WRITE:
+- Lead with your reaction or blunt take. Not the headline. Not a summary.
+- Mention "${article.source}" somewhere.
+${article.articleUrl ? `- Include this URL exactly: ${article.articleUrl}` : "- No URL available. Don't include placeholder text."}
+- 1-2 hashtags maximum.
+- Must be under 280 characters total including URL and hashtags.
 
-STRICT RULES:
-- NEVER exceed 280 characters
-- NEVER copy article language
-- NEVER sound like a summary
-- ALWAYS mention "${article.source}"
-${article.articleUrl ? `- ALWAYS include the exact URL: ${article.articleUrl}` : "- Do NOT include any placeholder text like [URL] - only use real URLs"}
-- One link only, no tracking params, no shortening
-- 1-2 hashtags maximum
+HOW TO OPEN: A blunt observation, a specific number, or a direct contradiction. Not "This is interesting."
+HOW TO CLOSE: A statement. Not a question.
 
-Return ONLY the tweet. No quotes, no explanation.`;
+HARD RULES:
+- Never exceed 280 characters.
+- Never copy article language verbatim.
+- Mention "${article.source}".
+${article.articleUrl ? `- Include the exact URL: ${article.articleUrl}` : "- No placeholder URLs."}
+- One link only. No tracking params.
+
+Return ONLY the tweet. No explanation. No quotes.`;
 }
 
 // Generate compliant fallback post
@@ -650,25 +709,22 @@ function generateFallbackPost(
 ): string {
   const url = article.articleUrl || "";
   const source = article.source;
-  
+
   if (platform === "twitter") {
-    // Ensure under 280 chars
-    const baseText = `My take: This deserves attention. Great piece from ${source}.`;
-    const hashtag = "#AdTech";
-    const tweet = `${baseText}\n\n${url} ${hashtag}`;
+    const baseText = `Worth reading. ${source} covers this well.`;
+    const tweet = url ? `${baseText}\n\n${url}` : baseText;
     return tweet.substring(0, 280);
   }
-  
-  // LinkedIn fallback - starts with strong POV hook
-  return `We're underestimating how fast this is reshaping our industry.
 
-${source} just published something that validates what I've been thinking. The advertising landscape is shifting faster than most of us are adapting, and this piece crystallizes the stakes.
+  return `This keeps coming up in every serious conversation I have right now.
 
-My take: The professionals who lean into these changes now will be the ones defining best practices a year from now. The rest will be playing catch-up.
+${source} put out a piece worth your time. Not because it breaks new ground. Because it names something most people are dancing around.
 
-Who else is seeing this in their work? I'm curious how others are responding.
+The gap between teams that get this and teams that don't is widening fast. And it's not a technology gap.
 
-${url}`;
+Read it, then think about where you stand.
+
+${url}`.trim();
 }
 
 export interface InstantReviewResult {
