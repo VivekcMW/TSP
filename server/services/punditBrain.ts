@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { fetchAllFeeds, matchArticlesToKeywords, MEDIA_ADVERTISING_FEEDS, RSSArticle } from "./rssService";
+import type { IndustrySlug } from "@shared/schema";
 
 export { MEDIA_ADVERTISING_FEEDS } from "./rssService";
 
@@ -41,58 +42,291 @@ export interface PunditAnalysis {
   }>;
 }
 
-const MASTER_PROMPT = `You are The Pundit Brain, an expert-level analyst specializing EXCLUSIVELY in the Media & Advertising industry.
+const INDUSTRY_CONFIG: Record<IndustrySlug | "default", { displayName: string; subDomains: string[]; keywords: string; publications: string; personalities: string; companies: string }> = {
+  media_advertising: {
+    displayName: "Media & Advertising",
+    subDomains: [
+      "Programmatic Advertising", "Brand Safety & Ad Verification", "Connected TV (CTV) Advertising",
+      "Retail Media Networks", "Creative Automation", "Attention Metrics & Measurement",
+      "Privacy & Identity in Advertising", "Agency Transformation", "Commerce Media",
+    ],
+    keywords: "programmatic, ad tech, martech, DSP, SSP, DMP, CDP, brand safety, viewability, CTV, OTT, DOOH, OOH, retail media, performance marketing, influencer marketing, content marketing, attribution, measurement, identity resolution, first-party data, contextual targeting, creative optimization, media buying, media planning, campaign management, agency, brand strategy, digital advertising, social media marketing",
+    publications: "Adweek, AdAge, The Drum, Digiday, Marketing Week, Campaign, MediaPost, eMarketer, WARC, Marketing Land, AdExchanger, The Trade Desk Insights, Think with Google, Nielsen Insights, IAB Research",
+    personalities: "Marc Pritchard (P&G), Keith Weed (Unilever), Bob Liodice (ANA), Carolyn Everson (Meta), David Kenny (Nielsen), Jeff Green (The Trade Desk), Brian Lesser (GroupM), Rishad Tobaccowala (Publicis), Gary Vaynerchuk (VaynerMedia), Linda Yaccarino (X)",
+    companies: "WPP, Publicis Groupe, Omnicom, IPG, Dentsu, The Trade Desk, Google (DV360), Meta Ads, Amazon Advertising, Criteo, IAS, DoubleVerify, LiveRamp, Nielsen, Comscore",
+  },
+  technology_saas: {
+    displayName: "Technology & SaaS",
+    subDomains: [
+      "Artificial Intelligence & Machine Learning", "Cloud Infrastructure & DevOps", "Cybersecurity",
+      "Enterprise SaaS", "Developer Tools & APIs", "Data Engineering & Analytics",
+      "Product-Led Growth (PLG)", "Open Source Software", "Web3 & Emerging Tech",
+    ],
+    keywords: "AI, LLM, large language models, generative AI, machine learning, deep learning, cloud computing, AWS, Azure, GCP, Kubernetes, Docker, DevOps, CI/CD, SaaS, API, microservices, serverless, cybersecurity, zero trust, SOC 2, data engineering, ETL, data pipelines, MLOps, vector databases, RAG, prompt engineering, product-led growth, PLG, open source, developer experience, platform engineering",
+    publications: "TechCrunch, Ars Technica, The Verge, Wired, The Information, VentureBeat, Hacker News, IEEE Spectrum, MIT Technology Review, InfoQ, SiliconANGLE, ZDNet, The Register, Protocol, Stratechery",
+    personalities: "Sam Altman (OpenAI), Satya Nadella (Microsoft), Jensen Huang (Nvidia), Dario Amodei (Anthropic), Demis Hassabis (DeepMind), Marc Andreessen (a16z), Paul Graham (YC), Linus Torvalds (Linux), Werner Vogels (Amazon), Kelsey Hightower (Google)",
+    companies: "OpenAI, Anthropic, Nvidia, Microsoft, Google DeepMind, AWS, Cloudflare, Databricks, Snowflake, MongoDB, HashiCorp, Stripe, Vercel, GitHub, Hugging Face",
+  },
+  product_marketing: {
+    displayName: "Product Marketing",
+    subDomains: [
+      "Go-to-Market Strategy", "Product Positioning & Messaging", "Competitive Intelligence",
+      "Sales Enablement", "Customer Marketing & Advocacy", "Product-Led Growth",
+      "Launch Strategy", "Analyst Relations", "Category Creation",
+    ],
+    keywords: "go-to-market, GTM, positioning, messaging, competitive intelligence, sales enablement, customer marketing, product launch, ICP, ideal customer profile, buyer persona, value proposition, differentiation, market segmentation, category creation, analyst relations, Gartner, Forrester, win/loss analysis, battle cards, product-led growth, PLG, freemium, onboarding, activation, expansion revenue, NRR, ARR",
+    publications: "Product Marketing Alliance, Pragmatic Institute, OpenView Partners Blog, HubSpot Blog, First Round Review, Lenny's Newsletter, Reforge, SaaStr, ChiefMartec, G2 Learn Hub, ProductBoard Blog, Amplitude Blog, Mixpanel Blog",
+    personalities: "April Dunford (Obviously Awesome), Wes Bush (ProductLed), Melissa Perri (Reforge), Lenny Rachitsky (Lenny's Newsletter), Brian Balfour (Reforge), Claire Suellentrop (Forget The Funnel), Hana Abaza (Uberflip), Yasmeen Turayhi (Product Marketing), Kyle Poyar (OpenView), Jon Miller (Demandbase)",
+    companies: "HubSpot, Drift, Gong, Highspot, Seismic, Outreach, Intercom, Amplitude, Mixpanel, Pendo, ProductBoard, Loom, Notion, Figma, Miro",
+  },
+  finance_banking: {
+    displayName: "Finance & Banking",
+    subDomains: [
+      "Investment Banking & Capital Markets", "Fintech & Digital Banking", "Asset Management & Wealth",
+      "Payments & Infrastructure", "Cryptocurrency & DeFi", "Regulatory Compliance & Risk",
+      "Private Equity & Venture Capital", "Insurance & Insurtech", "Open Banking & APIs",
+    ],
+    keywords: "fintech, investment banking, capital markets, private equity, venture capital, asset management, wealth management, hedge funds, trading, derivatives, fixed income, equities, M&A, IPO, SPACs, payments, SWIFT, ACH, open banking, PSD2, BNPL, cryptocurrency, DeFi, blockchain, stablecoins, CBDCs, Basel III, GDPR, AML, KYC, ESG investing, robo-advisors, algorithmic trading, quantitative finance",
+    publications: "Financial Times, Bloomberg, Wall Street Journal, The Economist, Reuters, Financial News, The Banker, Euromoney, American Banker, CFO Dive, Tearsheet, Finextra, PaymentsSource, Coindesk, Blockworks",
+    personalities: "Jamie Dimon (JPMorgan), Larry Fink (BlackRock), Warren Buffett (Berkshire), Ray Dalio (Bridgewater), Brian Moynihan (Bank of America), Jane Fraser (Citigroup), Dan Schulman (PayPal), Brian Armstrong (Coinbase), Vikram Pandit (Orogen), Anne Boden (Starling Bank)",
+    companies: "JPMorgan Chase, Goldman Sachs, BlackRock, Visa, Mastercard, PayPal, Stripe, Square, Robinhood, Revolut, Nubank, Plaid, Affirm, Coinbase, Bloomberg",
+  },
+  healthcare_pharma: {
+    displayName: "Healthcare & Pharma",
+    subDomains: [
+      "Drug Discovery & Development", "Clinical Trials & Research", "Digital Health & Health Tech",
+      "Medical Devices & Diagnostics", "Healthcare IT & EHR", "Regulatory Affairs (FDA, EMA)",
+      "Biotech & Genomics", "Hospital & Health Systems", "Patient Engagement & Outcomes",
+    ],
+    keywords: "drug development, clinical trials, FDA approval, EMA, Phase 1/2/3, randomized controlled trial, biotech, genomics, CRISPR, precision medicine, oncology, rare disease, cell therapy, gene therapy, digital health, EHR, EMR, Epic, telehealth, wearables, AI diagnostics, medical imaging, hospital operations, value-based care, revenue cycle, HIPAA, interoperability, FHIR, HL7, pharmaceutical, biosimilars, medical devices, patient outcomes",
+    publications: "STAT News, Fierce Pharma, Healthcare Dive, Modern Healthcare, Health Affairs, BioPharma Dive, MedCity News, Endpoints News, The Lancet, NEJM, BMJ, Managed Healthcare Executive, Becker's Hospital Review, MobiHealthNews, Rock Health",
+    personalities: "Eric Topol (Scripps Research), Atul Gawande (Harvard), Peter Attia (longevity), Vinod Khosla (Khosla Ventures Health), Andrew Lo (MIT), Robert Califf (FDA), Vas Narasimhan (Novartis), Albert Bourla (Pfizer), Pascal Soriot (AstraZeneca), Anne Wojcicki (23andMe)",
+    companies: "Pfizer, Moderna, Johnson & Johnson, Roche, Novartis, AstraZeneca, Epic Systems, Veeva Systems, IQVIA, Flatiron Health, Tempus, Color Health, Nuvation Bio, Recursion Pharmaceuticals, Abbott Laboratories",
+  },
+  ecommerce_retail: {
+    displayName: "E-commerce & Retail",
+    subDomains: [
+      "DTC & Brand Commerce", "Marketplace Strategy", "Supply Chain & Fulfillment",
+      "Retail Media & Commerce Advertising", "Omnichannel & In-Store Experience",
+      "Customer Acquisition & Retention", "Social Commerce", "Sustainable Retail", "Grocery & Quick Commerce",
+    ],
+    keywords: "e-commerce, DTC, direct-to-consumer, marketplace, Amazon, Shopify, omnichannel, fulfillment, last-mile delivery, supply chain, inventory management, AOV, LTV, CAC, ROAS, conversion rate optimization, CRO, product discovery, personalization, loyalty programs, subscription commerce, social commerce, TikTok shop, livestream commerce, retail media, grocery, quick commerce, returns management, sustainability, circular economy",
+    publications: "Retail Dive, Modern Retail, eMarketer, Digital Commerce 360, Glossy, Business of Fashion, RetailWire, Practical Ecommerce, Shopify Blog, BigCommerce Blog, 2PM Inc, The Prepared, Supply Chain Dive, Chain Store Age, WWD",
+    personalities: "Harley Finkelstein (Shopify), Andy Jassy (Amazon), Doug McMillon (Walmart), Brian Cornell (Target), Tim Brown (Allbirds), Whitney Wolfe Herd (Bumble), Jason Del Rey (Recode), Ingrid Lunden (TechCrunch), Nik Sharma (Sharma Brands), Andrew Lipsman (eMarketer)",
+    companies: "Amazon, Shopify, Walmart, Target, Alibaba, BigCommerce, WooCommerce, Klaviyo, Yotpo, Attentive, Affirm, Returnly, Loop Returns, Flexport, ShipBob",
+  },
+  consulting_services: {
+    displayName: "Consulting & Professional Services",
+    subDomains: [
+      "Management Consulting", "Digital Transformation", "Strategy & Corporate Finance",
+      "Operations & Supply Chain Consulting", "HR & Organizational Design",
+      "Technology Consulting & Systems Integration", "Sustainability Consulting", "Risk & Compliance Advisory",
+    ],
+    keywords: "management consulting, strategy consulting, digital transformation, change management, organizational design, operating model, business process reengineering, M&A advisory, due diligence, post-merger integration, cost optimization, performance improvement, McKinsey, BCG, Bain, Big Four, Deloitte, PwC, EY, KPMG, Accenture, systems integration, ERP, SAP, Salesforce implementation, workforce strategy, talent advisory, ESG consulting",
+    publications: "Harvard Business Review, McKinsey Quarterly, BCG Perspectives, Deloitte Insights, Strategy+Business, MIT Sloan Management Review, Forbes, Bloomberg Businessweek, Consulting Magazine, Kennedy Vanguard Research, The Economist, Gartner Research, Forrester Research",
+    personalities: "Bob Sternfels (McKinsey), Christoph Franz (Roche/BCG Board), Rich Lesser (BCG), Manny Maceda (Bain), Julie Sweet (Accenture), David Lancefield (PwC), Roger Martin (strategy thinker), Michael Porter (HBS), Clayton Christensen (HBS legacy), Ram Charan (advisor)",
+    companies: "McKinsey & Company, Boston Consulting Group, Bain & Company, Deloitte, PwC, EY, KPMG, Accenture, Booz Allen Hamilton, Oliver Wyman, Roland Berger, A.T. Kearney, L.E.K. Consulting, Gartner, Forrester",
+  },
+  real_estate: {
+    displayName: "Real Estate",
+    subDomains: [
+      "Commercial Real Estate (CRE)", "Residential Real Estate", "PropTech & Real Estate Tech",
+      "Real Estate Investment & REITs", "Property Management", "Construction & Development",
+      "Industrial & Logistics Real Estate", "Retail Real Estate", "Affordable Housing",
+    ],
+    keywords: "commercial real estate, CRE, residential, PropTech, REITs, cap rate, NOI, net operating income, lease, landlord, tenant, property management, asset management, development, construction, mixed-use, multifamily, single-family, office market, retail vacancy, industrial real estate, logistics, warehousing, affordable housing, zoning, permitting, mortgage, interest rates, CoStar, Zillow, LoopNet",
+    publications: "Commercial Observer, Bisnow, CoStar News, Real Deal, GlobeSt, NREI, Multifamily Executive, Urban Land, Propmodo, Real Estate Weekly, Housing Wire, Inman News, The Real Estate Tech Report, CBRE Research, JLL Research",
+    personalities: "Sam Zell (Equity Group), Barry Sternlicht (Starwood), Stephen Schwarzman (Blackstone), Jonathan Gray (Blackstone Real Estate), Robert Reffkin (Compass), Ryan Serhant (Serhant), Barbara Corcoran (Corcoran Group), Gary Keller (Keller Williams), Richard LeFrak (LeFrak Organization), Richard Mack (Mack Real Estate)",
+    companies: "CBRE, JLL, Cushman & Wakefield, Colliers, Blackstone Real Estate, Brookfield Asset Management, Prologis, Equity Residential, AvalonBay, Zillow, Opendoor, Compass, CoStar, WeWork, Redfin",
+  },
+  education_edtech: {
+    displayName: "Education & EdTech",
+    subDomains: [
+      "K-12 Education Technology", "Higher Education & Universities", "Corporate Learning & L&D",
+      "Online Learning & MOOCs", "EdTech Startups & Venture", "Skills & Workforce Development",
+      "AI in Education", "Special Education Technology", "Learning Management Systems (LMS)",
+    ],
+    keywords: "edtech, e-learning, LMS, learning management system, MOOC, online education, K-12, higher education, corporate training, L&D, learning and development, upskilling, reskilling, microlearning, gamification, adaptive learning, personalized learning, AI tutoring, assessment, curriculum design, instructional design, student outcomes, accreditation, STEM education, coding bootcamp, Coursera, Udemy, Khan Academy",
+    publications: "EdSurge, Education Week, Inside Higher Ed, Chronicle of Higher Education, eLearning Industry, Getting Smart, THE (Times Higher Education), EdTech Magazine, Mindshift, Hechinger Report, EdTech Digest, Class Central, Evolllution, Campus Technology",
+    personalities: "Sal Khan (Khan Academy), Daphne Koller (Coursera), Jeff Maggioncalda (Coursera), Andrew Ng (deeplearning.ai), John Katzman (Noodle), Mike Levine (Pearson Digital), Sir Michael Barber (education reform), Tom Vander Ark (Getting Smart), Yanna Vogiatzis (EdTech Europe), Barbara Kurshan (UPenn)",
+    companies: "Coursera, Udemy, Duolingo, Chegg, Pearson, McGraw-Hill, Instructure (Canvas), Blackboard, PowerSchool, Nearpod, Quizlet, Kahoot, Guild Education, Emeritus, 2U",
+  },
+  manufacturing: {
+    displayName: "Manufacturing",
+    subDomains: [
+      "Industry 4.0 & Smart Manufacturing", "Supply Chain & Procurement", "Quality Management",
+      "Lean Manufacturing & Six Sigma", "Industrial Automation & Robotics", "Additive Manufacturing (3D Printing)",
+      "Sustainability & Green Manufacturing", "ERP & Manufacturing Software", "Contract Manufacturing",
+    ],
+    keywords: "Industry 4.0, smart factory, IIoT, industrial IoT, digital twin, robotics, automation, PLC, SCADA, MES, ERP, SAP, lean manufacturing, Six Sigma, kaizen, supply chain management, procurement, just-in-time, additive manufacturing, 3D printing, CNC machining, quality control, ISO certification, OEE, overall equipment effectiveness, predictive maintenance, sustainability, circular economy, reshoring, nearshoring",
+    publications: "IndustryWeek, Manufacturing Engineering, Assembly Magazine, Machine Design, Plant Engineering, Quality Magazine, Automation World, Control Engineering, Supply Chain Dive, Thomas Network, Modern Machine Shop, Additive Manufacturing, Production Machining, Manufacturing Today, The Manufacturer",
+    personalities: "Mary Barra (GM), Elon Musk (Tesla manufacturing), Jim Farley (Ford), Klaus Rosenfeld (Schaeffler), Roland Busch (Siemens), Bill Anderson (Bayer), Ola Källenius (Mercedes-Benz), Carlos Tavares (Stellantis), Wendell Weeks (Corning), Dave Calhoun (Boeing)",
+    companies: "Siemens, Rockwell Automation, ABB, Fanuc, Honeywell, GE, Emerson Electric, 3M, Caterpillar, Bosch, BASF, Dow Chemical, Procter & Gamble, General Motors, Ford",
+  },
+  energy_sustainability: {
+    displayName: "Energy & Sustainability",
+    subDomains: [
+      "Renewable Energy (Solar, Wind, Hydro)", "Energy Storage & Batteries", "Electric Vehicles & Mobility",
+      "Carbon Markets & Climate Finance", "ESG Reporting & Strategy", "Grid Modernization & Smart Grid",
+      "Oil & Gas (Traditional Energy)", "Cleantech & GreenTech Startups", "Sustainability Policy & Regulation",
+    ],
+    keywords: "renewable energy, solar, wind, energy storage, lithium-ion batteries, EV, electric vehicles, grid modernization, smart grid, carbon credits, carbon markets, ESG, sustainability reporting, net zero, decarbonization, climate tech, cleantech, greentech, hydrogen, green hydrogen, biofuels, CCUS, carbon capture, energy transition, IRA, Inflation Reduction Act, EU Green Deal, TCFD, CSRD, GHG emissions, Scope 1/2/3",
+    publications: "Canary Media, Heatmap, Bloomberg Green, GreenBiz, CleanTechnica, PV Magazine, Wind Power Monthly, Energy Monitor, S&P Global Platts, Wood Mackenzie, BloombergNEF, Carbon Brief, E&E News, Utility Dive, Environmental Leader",
+    personalities: "Fatih Birol (IEA), John Kerry (US climate envoy), Mark Carney (TNFD), Christiana Figueres (Global Optimism), Bill Gates (Breakthrough Energy), Jigar Shah (DOE Loans), RJ Scaringe (Rivian), Elon Musk (Tesla), Ørsted CEO, Mary Nichols (EPA legacy)",
+    companies: "NextEra Energy, Orsted, Vestas, First Solar, Tesla Energy, Brookfield Renewable, Equinor, Shell (renewables), Schneider Electric, Siemens Energy, QuantumScape, Rivian, Lucid Motors, Climeworks, Carbon Engineering",
+  },
+  legal_services: {
+    displayName: "Legal Services",
+    subDomains: [
+      "Corporate & M&A Law", "Intellectual Property & Patents", "Technology & Privacy Law",
+      "Litigation & Dispute Resolution", "Regulatory & Compliance", "Legal Technology (LegalTech)",
+      "Employment & Labor Law", "Financial & Securities Law", "International Arbitration",
+    ],
+    keywords: "corporate law, M&A, mergers and acquisitions, due diligence, IP law, patents, trademarks, copyright, GDPR, CCPA, privacy law, data protection, litigation, arbitration, dispute resolution, securities law, SEC, regulatory compliance, employment law, contract law, antitrust, competition law, legal tech, LegalTech, AI in law, eDiscovery, contract management, CLM, law firm management, BigLaw, AmLaw 200",
+    publications: "Law360, American Lawyer, Legal Business, The Recorder, New York Law Journal, Legal Week, Above the Law, Law Technology Today, Artificial Lawyer, Legal Futures, Bloomberg Law, LexisNexis Insights, Thomson Reuters Legal, IFLR, Global Arbitration Review",
+    personalities: "Mary Jo White (SEC former chair), David Boies (Boies Schiller), Paul Weiss (various), Kim Kardashian (law student/advocate), Priya Aiyar (Willkie), Loretta Lynch (Paul Weiss), William Barr (former AG), Elena Kagan (SCOTUS), Koh Swee Chen (Allen & Gledhill), Richard Susskind (legal futurist)",
+    companies: "Kirkland & Ellis, Latham & Watkins, Skadden, Cravath, Sullivan & Cromwell, Clifford Chance, Linklaters, Freshfields, Baker McKenzie, DLA Piper, Thomson Reuters, LexisNexis, Relativity (eDiscovery), Ironclad, Clio",
+  },
+  nonprofit_ngo: {
+    displayName: "Non-profit & NGO",
+    subDomains: [
+      "International Development & Aid", "Philanthropy & Grantmaking", "Advocacy & Policy",
+      "Social Enterprise & Impact Investing", "Fundraising & Donor Relations", "Community Development",
+      "Environmental & Conservation NGOs", "Healthcare NGOs", "Education & Youth NGOs",
+    ],
+    keywords: "nonprofit, NGO, non-governmental organization, philanthropy, grantmaking, fundraising, donor relations, impact measurement, theory of change, social impact, ESG, impact investing, program evaluation, M&E, monitoring and evaluation, advocacy, policy reform, community development, international development, humanitarian aid, social enterprise, B Corp, fiscal sponsor, 501c3, endowment, major gifts, annual fund, corporate social responsibility, CSR, volunteerism, capacity building",
+    publications: "Chronicle of Philanthropy, NonProfit Times, SSIR (Stanford Social Innovation Review), Alliance Magazine, The Guardian Global Development, Devex, IDS Bulletin, Philanthropy News Digest, Nonprofit Quarterly, GiveWell Research, Candid (GuideStar), Bond UK, CIVICUS Monitor, Inside Philanthropy",
+    personalities: "Melinda French Gates (philanthropist), MacKenzie Scott (philanthropist), Darren Walker (Ford Foundation), Rajiv Shah (Rockefeller Foundation), Ngozi Okonjo-Iweala (WTO), Ban Ki-moon (ex-UN), Jacinda Ardern (Ardern Foundation), Priscilla Chan (Chan Zuckerberg Initiative), Leila Nathoo (Aga Khan Foundation), Strive Masiyiwa (Econet/philanthropy)",
+    companies: "Gates Foundation, Chan Zuckerberg Initiative, Ford Foundation, Rockefeller Foundation, Open Society Foundations, CARE, Oxfam, Save the Children, World Vision, Médecins Sans Frontières, BRAC, Ashoka, Skoll Foundation, Omidyar Network, Bloomberg Philanthropies",
+  },
+  government_public: {
+    displayName: "Government & Public Sector",
+    subDomains: [
+      "Digital Government & GovTech", "Public Policy & Regulation", "Defense & National Security",
+      "Smart Cities & Urban Planning", "Public Health & Social Services", "Education Policy",
+      "Infrastructure & Transportation Policy", "Environmental & Climate Policy", "Procurement & Contracting",
+    ],
+    keywords: "government, public sector, GovTech, digital government, e-government, public policy, regulation, legislation, federal, state, local government, procurement, RFP, contracting, defense, cybersecurity, CISA, national security, smart cities, urban planning, public health, CMS, HHS, DOD, DoD, social services, benefits, welfare, infrastructure, transportation, climate policy, NEPA, regulatory compliance",
+    publications: "Government Executive, GovTech, NextGov, FCW, Federal Times, Defense News, State Scoop, Route Fifty, Governing, National Journal, The Hill, Politico, Roll Call, Bloomberg Government, CQ Roll Call",
+    personalities: "Kamala Harris (VP), Pete Buttigieg (DOT), Gina Raimondo (Commerce), Jen Easterly (CISA), Eric Schmidt (NSCAI), Mina Hsiang (USDS), Matt Lira (ex-White House Tech), Anne Rung (procurement), Greg Pellegrino (Deloitte public sector), Clarence Wardell (USDS)",
+    companies: "Palantir, Booz Allen Hamilton, Leidos, SAIC, CACI, ManTech, Maximus, Unison, Tyler Technologies, Socrata, Microsoft (government cloud), AWS GovCloud, Salesforce Government Cloud, ServiceNow, Carahsoft",
+  },
+  hospitality_travel: {
+    displayName: "Hospitality & Travel",
+    subDomains: [
+      "Hotels & Resorts", "Airlines & Aviation", "Online Travel Agencies (OTAs)",
+      "Travel Technology & Distribution", "Cruise & Tour Operators", "Restaurant & Food Service",
+      "Revenue Management & Pricing", "Loyalty & Rewards Programs", "Sustainable Tourism",
+    ],
+    keywords: "hospitality, hotel, resort, airline, aviation, OTA, online travel agency, Booking.com, Expedia, Airbnb, vacation rental, restaurant, food service, revenue management, yield management, ADR, RevPAR, occupancy rate, distribution, GDS, global distribution system, loyalty programs, frequent flyer, travel tech, PMS, property management system, contactless, experience economy, sustainable tourism, ecotourism, business travel, MICE",
+    publications: "Skift, Phocuswire, Hotel Management, Hotels Magazine, Travel Weekly, Travel Agent Central, Hospitality Net, Nation's Restaurant News, QSR Magazine, Restaurant Business, HOTELS, Airline Weekly, Aviation Week, Lodging Magazine, TravelAge West",
+    personalities: "Arne Sorenson (Marriott legacy), Chris Nassetta (Hilton), Sébastien Bazin (Accor), Brian Chesky (Airbnb), Glenn Fogel (Booking Holdings), Peter Kern (Expedia), Ed Bastian (Delta), Scott Kirby (United), Joie de Vivre (Chip Conley), Wolfgang Puck (hospitality)",
+    companies: "Marriott International, Hilton, Hyatt, IHG, Accor, Airbnb, Booking Holdings, Expedia, Amadeus, Sabre, Oracle Hospitality, Mews, Cloudbeds, Toast, Olo",
+  },
+  entertainment_media: {
+    displayName: "Entertainment & Media",
+    subDomains: [
+      "Streaming & OTT Platforms", "Film & Television Production", "Music & Audio Industry",
+      "Gaming & Esports", "Podcasting & Creator Economy", "Sports Business & Media Rights",
+      "Publishing & Digital Media", "Live Events & Experiential", "Social Media & Influencer",
+    ],
+    keywords: "streaming, OTT, Netflix, Disney+, HBO Max, Spotify, podcast, gaming, esports, creator economy, influencer, content creator, IP, intellectual property, licensing, media rights, sports rights, box office, box set, film production, TV production, showrunner, SVOD, AVOD, FAST, free ad-supported TV, music streaming, record label, talent management, live events, concert, social media, TikTok, YouTube",
+    publications: "Variety, The Hollywood Reporter, Deadline, Billboard, Rolling Stone, The Wrap, IndieWire, Vulture, The Ringer, Music Business Worldwide, Games Industry Biz, Kotaku, TechCrunch (media), Digiday (media), Puck News",
+    personalities: "Ted Sarandos (Netflix), Bob Iger (Disney), David Zaslav (Warner Bros Discovery), Ek Daniel (Spotify), Phil Spencer (Xbox), Ryan Tedder (music), John Stankey (AT&T/HBO), Jason Blum (Blumhouse), Ari Emanuel (Endeavor), Scooter Braun (music management)",
+    companies: "Netflix, Disney, Warner Bros Discovery, Paramount Global, Apple TV+, Spotify, Universal Music Group, Sony Music, EA Games, Activision Blizzard, Epic Games, YouTube, TikTok, Twitch, Live Nation",
+  },
+  telecommunications: {
+    displayName: "Telecommunications",
+    subDomains: [
+      "5G & Next-Gen Networks", "Fiber & Broadband Infrastructure", "Mobile Network Operators (MNOs)",
+      "Network Virtualization & SDN", "Telecom APIs & Platforms", "IoT & Connected Devices",
+      "Satellite & Space Communications", "UCaaS & Business Communications", "Telecom Regulation",
+    ],
+    keywords: "5G, 4G LTE, 6G, fiber optic, broadband, FTTH, mobile network, MNO, MVNO, spectrum, network slicing, SDN, NFV, network function virtualization, open RAN, O-RAN, IoT, connected devices, edge computing, MEC, mobile edge computing, satellite communications, LEO, Starlink, UCaaS, CPaaS, VoIP, SIP, PSTN, roaming, eSIM, IMSI, telecom APIs, telecom regulation, FCC, Ofcom",
+    publications: "Light Reading, TechTarget Networking, RCR Wireless, Fierce Telecom, Total Telecom, Telecoms.com, Mobile World Live, SDxCentral, Channel Futures, Capacity Media, Telecom Asia, Communications Today, Inside Towers, Fierce Wireless, Via Satellite",
+    personalities: "Mats Granryd (GSMA), Hans Vestberg (Verizon), Mike Sievert (T-Mobile), Ralph de la Vega (ex-AT&T), Christel Heydemann (Orange), Börje Ekholm (Ericsson), Pekka Lundmark (Nokia), Christoph Aeschlimann (Swisscom), Sunil Bharti Mittal (Airtel), Masayoshi Son (SoftBank)",
+    companies: "AT&T, Verizon, T-Mobile, Deutsche Telekom, Vodafone, Nokia, Ericsson, Qualcomm, Cisco, Huawei, Samsung Networks, Oracle Communications, Amdocs, DISH Network, SpaceX Starlink",
+  },
+  agriculture: {
+    displayName: "Agriculture & Food",
+    subDomains: [
+      "AgTech & Precision Agriculture", "Food Supply Chain & Logistics", "Alternative Proteins & Food Innovation",
+      "Vertical Farming & Indoor Agriculture", "Agribusiness & Commodity Markets", "Soil Health & Regenerative Farming",
+      "Aquaculture & Fisheries", "Food Safety & Regulation", "Farm Management Software",
+    ],
+    keywords: "agriculture, agtech, precision agriculture, precision farming, drone agriculture, IoT sensors, soil health, regenerative agriculture, sustainable farming, vertical farming, indoor farming, hydroponics, aquaponics, alternative proteins, plant-based, cultivated meat, food supply chain, commodity markets, grain, livestock, dairy, food safety, FDA, USDA, farm management software, GPS farming, satellite imagery, crop monitoring, water management, irrigation, food waste",
+    publications: "AgFunder News, FoodNavigator, Food Dive, Progressive Farmer, Successful Farming, Agri Investor, CropLife, Meatingplace, New Food Economy, The Packer, World Grain, Farm Journal, National Hog Farmer, Dairy Herd Management, Precision Ag",
+    personalities: "Indra Nooyi (ex-PepsiCo), David MacLennan (Cargill), Dara Khosrowshahi (food delivery via Uber), Ethan Brown (Beyond Meat), Uma Valeti (Upside Foods), Rob Trice (Better Food Ventures), Zachary Raff (AgTech), Jennifer Prendergast (FAO), Agnes Kalibata (AGRA), Tim Brill (John Deere)",
+    companies: "John Deere, Cargill, ADM, Bayer Crop Science, Corteva Agriscience, BASF Agricultural Solutions, Syngenta, Trimble Agriculture, Climate Corp, Indigo Agriculture, AppHarvest, AeroFarms, Beyond Meat, Impossible Foods, Apeel Sciences",
+  },
+  other: {
+    displayName: "General Business",
+    subDomains: [
+      "Business Strategy & Operations", "Entrepreneurship & Startups", "Leadership & Management",
+      "Digital Transformation", "Innovation & Emerging Tech", "Organizational Culture",
+      "Business Development & Partnerships", "Corporate Governance", "Future of Work",
+    ],
+    keywords: "business strategy, leadership, management, entrepreneurship, startup, innovation, digital transformation, organizational culture, corporate governance, business development, partnerships, M&A, competitive strategy, market analysis, business model, revenue growth, operational efficiency, change management, team building, talent management, board governance, investor relations, stakeholder management, ESG, corporate responsibility, future of work, remote work, hybrid work",
+    publications: "Harvard Business Review, MIT Sloan Management Review, Forbes, Fortune, Bloomberg Businessweek, The Economist, Wall Street Journal, Financial Times, Fast Company, Inc Magazine, Entrepreneur, McKinsey Quarterly, Strategy+Business, Business Insider, Quartz",
+    personalities: "Satya Nadella (Microsoft), Tim Cook (Apple), Mary Barra (GM), Jeff Bezos (Amazon), Elon Musk (Tesla/SpaceX), Jensen Huang (Nvidia), Mark Zuckerberg (Meta), Sundar Pichai (Google), Jamie Dimon (JPMorgan), Reed Hastings (Netflix)",
+    companies: "McKinsey, BCG, Deloitte, Accenture, Apple, Microsoft, Amazon, Alphabet, Meta, Tesla",
+  },
+  default: {
+    displayName: "Professional",
+    subDomains: [
+      "Industry Trends & Innovation", "Leadership & Strategy", "Digital Transformation",
+      "Business Development", "Market Analysis", "Organizational Effectiveness",
+    ],
+    keywords: "strategy, leadership, innovation, digital transformation, business development, market trends, competitive analysis, stakeholder management, organizational culture, change management, emerging technology, data-driven decision making, customer experience, growth strategy, operational excellence",
+    publications: "Harvard Business Review, The Economist, Wall Street Journal, Bloomberg, Forbes, Financial Times, MIT Technology Review, McKinsey Quarterly, Fast Company, Wired",
+    personalities: "thought leaders, industry executives, business innovators, researchers, policy makers",
+    companies: "leading companies in the sector, emerging startups, technology enablers, market leaders",
+  },
+};
 
-INDUSTRY FOCUS: Media & Advertising
+function getMasterPrompt(industry: IndustrySlug | string): string {
+  const config = INDUSTRY_CONFIG[industry as IndustrySlug] ?? INDUSTRY_CONFIG["other"];
+  
+  return `You are The Pundit Brain, an expert-level analyst specializing EXCLUSIVELY in the ${config.displayName} industry.
+
+INDUSTRY FOCUS: ${config.displayName}
 This includes and is limited to:
-- Digital Advertising (programmatic, display, video, native, audio)
-- Brand Strategy & Marketing Communications
-- Media Planning & Buying
-- Ad Tech & MarTech platforms
-- Social Media Marketing & Influencer Marketing
-- Content Marketing & Branded Content
-- TV, OTT, and Streaming Advertising
-- Out-of-Home (OOH) and Digital Out-of-Home (DOOH)
-- Agency Business & Operations
-- Creative & Production
-- Data-Driven Marketing & Attribution
-- Retail Media & Commerce Advertising
-- Mobile Advertising
-- Search & Performance Marketing
+${config.subDomains.map(d => `- ${d}`).join("\n")}
 
 Your task is to:
-- Understand the user's role within Media & Advertising from minimal input
-- Map their specialty to sub-domains within Media & Advertising only
-- Identify trusted industry publications, current topics, key personalities, and relevant companies
-- Guarantee depth and relevance within the Media & Advertising ecosystem
-- Avoid generic recommendations outside this industry
+- Understand the user's specific role and niche within ${config.displayName} from minimal input
+- Map their specialty to the most relevant sub-domains listed above
+- Identify the most trusted and authoritative industry publications, current hot topics, key personalities, and relevant companies
+- Guarantee depth and relevance within the ${config.displayName} ecosystem
+- Avoid generic recommendations outside this industry context
 
 HARD CONSTRAINTS:
-- ALL recommendations MUST be relevant to Media & Advertising
+- ALL recommendations MUST be directly relevant to ${config.displayName}
 - Always return exactly 20 items for: Publications, Topics, Personalities, Companies
-- Prefer quality over popularity
-- Do not hallucinate unknown sources
-- Keep recommendations globally relevant to advertising and media professionals
-- No generic tech terms - focus on advertising-specific terminology
-- Minimum 30-40 advertising/media-specific keywords
+- Prefer quality and specificity over popularity
+- Do not hallucinate or invent unknown sources, publications, or people
+- Keep recommendations globally relevant to ${config.displayName} professionals
+- Minimum 30-40 industry-specific keywords — no generic business buzzwords unless directly applicable
+- Prioritize niche, authoritative sources over mainstream general business media
 
-EXAMPLE SUB-DOMAINS:
-- Programmatic Advertising
-- Brand Safety & Ad Verification
-- Connected TV (CTV) Advertising
-- Retail Media Networks
-- Creative Automation
-- Attention Metrics & Measurement
-- Privacy & Identity in Advertising
-- Agency Transformation
-- Commerce Media
+EXAMPLE TRUSTED SOURCES IN THIS INDUSTRY:
+${config.publications}
+
+EXAMPLE RELEVANT PERSONALITIES:
+${config.personalities}
+
+EXAMPLE COMPANIES TO TRACK:
+${config.companies}
+
+EXAMPLE KEYWORDS:
+${config.keywords}
 
 You must respond with valid JSON only, no markdown or explanation. Use this exact structure:
 {
-  "primaryIndustry": "Media & Advertising",
+  "primaryIndustry": "${config.displayName}",
   "confidence": 0.0-1.0,
-  "subDomains": ["5-8 Media & Advertising sub-domains"],
-  "keywords": ["30-40 advertising/media-specific keywords"],
+  "subDomains": ["5-8 ${config.displayName} sub-domains"],
+  "keywords": ["30-40 ${config.displayName}-specific keywords"],
   "publications": [
     {"name": "string", "url": "string", "focus": "string", "relevance": "string"}
   ],
@@ -106,13 +340,17 @@ You must respond with valid JSON only, no markdown or explanation. Use this exac
     {"name": "string", "industry": "string", "whyToTrack": "string", "newsToWatch": "string"}
   ]
 }`;
+}
 
-export async function analyzeProfessionalIdentity(userInput: string): Promise<PunditAnalysis> {
-  const prompt = `${MASTER_PROMPT}
+export async function analyzeProfessionalIdentity(userInput: string, industry?: string): Promise<PunditAnalysis> {
+  const masterPrompt = getMasterPrompt(industry || "other");
+  const config = INDUSTRY_CONFIG[(industry as IndustrySlug) ?? "other"] ?? INDUSTRY_CONFIG["other"];
+
+  const prompt = `${masterPrompt}
 
 USER INPUT: "${userInput}"
 
-Analyze this professional's identity within the Media & Advertising industry and provide comprehensive recommendations. Even if the user mentions other industries, focus your analysis on how their role connects to Media & Advertising. Return valid JSON only.`;
+Analyze this professional's identity within the ${config.displayName} industry and provide comprehensive recommendations tailored to their specific role and niche. Return valid JSON only.`;
 
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",

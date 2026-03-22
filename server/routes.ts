@@ -238,8 +238,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Please provide a description of at least 10 characters" });
       }
       
+      const industrySlug = normalizeIndustryToSlug(selectedIndustry);
       const [analysis, engineSelection] = await Promise.all([
-        analyzeProfessionalIdentity(focusDescription),
+        analyzeProfessionalIdentity(focusDescription, industrySlug),
         selectIndustryEngine(selectedIndustry || "Other", focusDescription),
       ]);
       

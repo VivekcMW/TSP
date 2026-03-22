@@ -161,7 +161,7 @@ export default function ProfileSettingsPage() {
               <Textarea
                 value={focusDescription}
                 onChange={(e) => setFocusDescription(e.target.value)}
-                placeholder="e.g., I focus on programmatic advertising innovation and the future of cookie-less targeting..."
+                placeholder="e.g., I help SaaS companies scale their go-to-market strategy and build product-led growth loops..."
                 className="min-h-[100px]"
                 data-testid="input-focus-description"
               />
