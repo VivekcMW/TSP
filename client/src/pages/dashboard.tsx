@@ -25,6 +25,11 @@ export default function DashboardPage() {
     queryKey: ["/api/inbox"],
     enabled: !!user,
   });
+
+  const { data: enginesData } = useQuery<{ currentEngine: { displayName: string } }>({
+    queryKey: ["/api/engines"],
+    enabled: !!user,
+  });
   
   const openLinkedInShare = (content: string, articleUrl?: string) => {
     navigator.clipboard.writeText(content);
@@ -163,7 +168,9 @@ export default function DashboardPage() {
               <Inbox className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold" data-testid="text-page-title">Your Inbox</h1>
+              <h1 className="text-xl font-semibold" data-testid="text-page-title">
+                Your Inbox{enginesData?.currentEngine?.displayName ? ` for ${enginesData.currentEngine.displayName}` : ""}
+              </h1>
               <p className="text-sm text-muted-foreground">
                 {filteredItems.length} articles curated for you today
               </p>
