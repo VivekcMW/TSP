@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Inbox, RefreshCw, Link2, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -45,25 +45,38 @@ export default function DashboardPage() {
   };
 
   const refreshMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/inbox/refresh");
+    mutationFn: async (autoRefresh = false) => {
+      const res = await apiRequest("POST", "/api/inbox/refresh", { autoRefresh });
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data, autoRefresh) => {
       queryClient.invalidateQueries({ queryKey: ["/api/inbox"] });
-      toast({
-        title: "Inbox refreshed",
-        description: `Found ${data.count} new articles based on your keywords.`,
-      });
+      if (!autoRefresh) {
+        toast({
+          title: "Inbox refreshed",
+          description: `Found ${data.count} new articles based on your keywords.`,
+        });
+      }
     },
-    onError: (error: Error) => {
-      toast({
-        title: "Failed to refresh",
-        description: error.message || "Could not fetch new articles. Please try again.",
-        variant: "destructive",
-      });
+    onError: (error: Error, autoRefresh) => {
+      if (!autoRefresh) {
+        toast({
+          title: "Failed to refresh",
+          description: error.message || "Could not fetch new articles. Please try again.",
+          variant: "destructive",
+        });
+      }
     },
   });
+
+  useEffect(() => {
+    if (!user) return;
+    const sessionKey = `inbox_refreshed_${user.id ?? "session"}`;
+    if (!sessionStorage.getItem(sessionKey)) {
+      sessionStorage.setItem(sessionKey, "1");
+      refreshMutation.mutate(true);
+    }
+  }, [user]);
 
   const saveDraftMutation = useMutation({
     mutationFn: async (data: { inboxItemId?: string; platform: string; tone: string; content: string }) => {

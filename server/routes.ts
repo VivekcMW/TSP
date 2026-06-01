@@ -386,16 +386,26 @@ export async function registerRoutes(
       const engine = engineRegistry.getEngine(industry);
       console.log(`[Inbox Refresh] Using ${engine.config.displayName} engine for user ${userId}`);
       
+      const autoRefresh = req.body?.autoRefresh === true;
+
       const existingItems = await storage.getInboxItems(userId);
-      const activeCount = existingItems.filter(item => item.status === "active").length;
+      const activeItems = existingItems.filter(item => item.status === "active");
+      const activeCount = activeItems.length;
       
       if (activeCount >= 10) {
-        return res.json({ 
-          message: "You have enough articles to review. Save or dismiss some before refreshing.", 
-          count: 0, 
-          items: [],
-          engine: engine.config.displayName,
-        });
+        if (!autoRefresh) {
+          return res.json({ 
+            message: "You have enough articles to review. Save or dismiss some before refreshing.", 
+            count: 0, 
+            items: [],
+            engine: engine.config.displayName,
+          });
+        }
+        // Auto-refresh: dismiss all existing active articles to make room for fresh ones
+        for (const item of activeItems) {
+          await storage.updateInboxItem(item.id, userId, { status: "dismissed" });
+        }
+        console.log(`[Inbox Auto-Refresh] Dismissed ${activeCount} stale articles for user ${userId}`);
       }
       
       const result = await engine.processForUser(userId, profile);
