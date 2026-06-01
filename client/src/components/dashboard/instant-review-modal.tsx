@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Link2, Loader2, Copy, Check, Linkedin } from "lucide-react";
+import { Link2, Loader2, Copy, Check, Linkedin, Send, X } from "lucide-react";
 import { SiX } from "react-icons/si";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -54,25 +54,78 @@ const TONALITIES = [
   { key: "dataDriven", toneValue: "ai-recommended", label: "Data-Driven", description: "Evidence-based analysis" },
 ] as const;
 
-function PostCard({ 
-  content, 
-  tonality, 
+const BRAND_HASHTAG = "#thesocialpundit";
+
+function buildDefaultHashtags(source: string): string[] {
+  const tags: string[] = [BRAND_HASHTAG];
+  const sourceTag = "#" + source.replace(/\s+/g, "").replace(/[^a-zA-Z0-9]/g, "");
+  if (sourceTag.length > 1 && sourceTag !== BRAND_HASHTAG) {
+    tags.push(sourceTag);
+  }
+  return tags;
+}
+
+function PostCard({
+  content,
+  tonality,
   platform,
+  articleUrl,
+  hashtags,
   onSaveDraft,
-  isSaving
-}: { 
-  content: string; 
+  isSaving,
+}: {
+  content: string;
   tonality: typeof TONALITIES[number];
   platform: "linkedin" | "twitter";
+  articleUrl: string;
+  hashtags: string[];
   onSaveDraft: () => void;
   isSaving: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const [localHashtags, setLocalHashtags] = useState<string[]>(hashtags);
+  const { toast } = useToast();
+
+  const getFullContent = () => {
+    const tagLine = localHashtags.join(" ");
+    return tagLine ? `${content}\n\n${tagLine}` : content;
+  };
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(content);
+    await navigator.clipboard.writeText(getFullContent());
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handlePostNow = async () => {
+    const full = getFullContent();
+    try {
+      await navigator.clipboard.writeText(full);
+    } catch {
+      // non-fatal
+    }
+
+    if (platform === "linkedin") {
+      const url = articleUrl
+        ? `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(articleUrl)}`
+        : "https://www.linkedin.com/feed/?shareActive=true";
+      window.open(url, "_blank");
+      toast({
+        title: "Opening LinkedIn",
+        description: "Your post is copied — paste it into the LinkedIn composer and hit Post.",
+      });
+    } else {
+      const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(full.substring(0, 280))}`;
+      window.open(twitterUrl, "_blank");
+      toast({
+        title: "Opening Twitter/X",
+        description: "Your post is pre-filled and ready to send.",
+      });
+    }
+  };
+
+  const removeHashtag = (tag: string) => {
+    setLocalHashtags((prev) => prev.filter((t) => t !== tag));
   };
 
   return (
@@ -86,16 +139,29 @@ function PostCard({
             <span className="text-xs text-muted-foreground">{tonality.description}</span>
           </div>
           <div className="flex items-center gap-1">
-            <Button 
-              size="sm" 
-              variant="ghost" 
+            <Button
+              size="sm"
+              variant="ghost"
               onClick={handleCopy}
               data-testid={`button-copy-${platform}-${tonality.key}`}
             >
               {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             </Button>
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handlePostNow}
+              data-testid={`button-post-${platform}-${tonality.key}`}
+            >
+              {platform === "linkedin" ? (
+                <Linkedin className="w-3.5 h-3.5 mr-1.5" />
+              ) : (
+                <SiX className="w-3.5 h-3.5 mr-1.5" />
+              )}
+              Post Now
+            </Button>
+            <Button
+              size="sm"
               variant="default"
               onClick={onSaveDraft}
               disabled={isSaving}
@@ -105,12 +171,33 @@ function PostCard({
             </Button>
           </div>
         </div>
+
         <div className="bg-muted/50 rounded-md p-3">
           <p className="text-sm whitespace-pre-wrap">{content}</p>
         </div>
+
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {localHashtags.map((tag) => (
+            <Badge
+              key={tag}
+              variant="secondary"
+              className="gap-1 pr-1 text-xs"
+              data-testid={`badge-hashtag-${platform}-${tonality.key}-${tag}`}
+            >
+              {tag}
+              <button
+                onClick={() => removeHashtag(tag)}
+                className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+
         {platform === "twitter" && (
           <div className="mt-2 text-xs text-muted-foreground text-right">
-            {content.length}/280 characters
+            {getFullContent().length}/280 characters
           </div>
         )}
       </CardContent>
@@ -179,11 +266,7 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
 
   const handleSaveDraft = (platform: "linkedin" | "twitter", tonalityKey: string, toneValue: string, content: string) => {
     setSavingDraft(`${platform}-${tonalityKey}`);
-    saveDraftMutation.mutate({
-      platform,
-      tone: toneValue,
-      content,
-    });
+    saveDraftMutation.mutate({ platform, tone: toneValue, content });
   };
 
   const handleClose = () => {
@@ -193,6 +276,7 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
   };
 
   const currentPosts = result?.posts[selectedPlatform];
+  const defaultHashtags = result ? buildDefaultHashtags(result.article.source) : [BRAND_HASHTAG];
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -212,8 +296,8 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
             className="flex-1"
             data-testid="input-article-url"
           />
-          <Button 
-            type="submit" 
+          <Button
+            type="submit"
             disabled={reviewMutation.isPending || !url.trim()}
             data-testid="button-generate-review"
           >
@@ -233,7 +317,7 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
             <div className="flex items-center gap-3 p-4 bg-muted/50 rounded-lg">
               <Loader2 className="w-5 h-5 animate-spin" />
               <div>
-                <p className="font-medium">Analyzing article...</p>
+                <p className="font-medium">Analysing article...</p>
                 <p className="text-sm text-muted-foreground">
                   Generating 8 posts (4 tonalities for each platform)
                 </p>
@@ -263,8 +347,8 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
               </div>
             </div>
 
-            <Tabs 
-              value={selectedPlatform} 
+            <Tabs
+              value={selectedPlatform}
               onValueChange={(v) => setSelectedPlatform(v as "linkedin" | "twitter")}
               className="flex-1 flex flex-col min-h-0"
             >
@@ -287,6 +371,8 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
                       content={currentPosts?.[tonality.key] || ""}
                       tonality={tonality}
                       platform="linkedin"
+                      articleUrl={result.article.url}
+                      hashtags={[...defaultHashtags]}
                       onSaveDraft={() => handleSaveDraft("linkedin", tonality.key, tonality.toneValue, currentPosts?.[tonality.key] || "")}
                       isSaving={savingDraft === `linkedin-${tonality.key}`}
                     />
@@ -300,6 +386,8 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
                       content={currentPosts?.[tonality.key] || ""}
                       tonality={tonality}
                       platform="twitter"
+                      articleUrl={result.article.url}
+                      hashtags={[...defaultHashtags]}
                       onSaveDraft={() => handleSaveDraft("twitter", tonality.key, tonality.toneValue, currentPosts?.[tonality.key] || "")}
                       isSaving={savingDraft === `twitter-${tonality.key}`}
                     />
@@ -317,7 +405,7 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
             </div>
             <h3 className="text-lg font-medium mb-2">Paste any article URL</h3>
             <p className="text-muted-foreground max-w-md">
-              We'll generate 8 unique posts in different tonalities for both LinkedIn and Twitter/X, 
+              We'll generate 8 unique posts in different tonalities for both LinkedIn and Twitter/X,
               and automatically add the publication to your profile.
             </p>
           </div>
