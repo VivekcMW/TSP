@@ -25,7 +25,8 @@ export function Hero() {
             </h1>
             
             <p className="text-lg text-muted-foreground max-w-lg" data-testid="text-hero-subtext">
-              Your expertise is invisible if you're not posting consistently. TheSocialPundit turns industry news into your unique POV in under 5 minutes. No more blank screens. No more wasted hours.
+              Your expertise is invisible if you're not posting consistently. TheSocialPundit reads the news in your industry and writes LinkedIn posts in your voice — ready to publish in 60 seconds.
+              No more blank screens. No more wasted hours.
             </p>
 
             <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
