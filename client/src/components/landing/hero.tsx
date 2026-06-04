@@ -22,10 +22,7 @@ export function Hero() {
               <span className="text-primary">LinkedIn</span>?
             </h1>
             
-            <p className="text-lg text-muted-foreground max-w-lg" data-testid="text-hero-subtext">
-              Your expertise is invisible if you're not posting consistently. TheSocialPundit reads the news in your industry and writes LinkedIn posts in your voice — ready to publish in 60 seconds.
-              No more blank screens. No more wasted hours.
-            </p>
+            <p className="text-lg text-muted-foreground max-w-lg" data-testid="text-hero-subtext">Your expertise is invisible if you're not posting consistently. TheSocialPundit reads the news in your industry and writes LinkedIn posts in your voice — ready to publish in 60 seconds. Project yourself as a thought leader in your industry. No more blank screens. No more wasted hours.</p>
 
             <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-2">
