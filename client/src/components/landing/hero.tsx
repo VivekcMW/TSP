@@ -14,7 +14,7 @@ export function Hero() {
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
           <div className="space-y-8">
             <div className="flex flex-wrap items-center gap-3">
-              <Badge className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 text-xs font-bold tracking-wider uppercase px-3 py-1.5">BUILD  YOUR PERSONAL BRAND ON SOCIAL </Badge>
+              <Badge className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 text-xs font-bold tracking-wider uppercase px-3 py-1.5">BUILD YOUR PROFESSIONAL BRAND ON SOCIAL</Badge>
             </div>
             
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight" data-testid="text-hero-headline">
