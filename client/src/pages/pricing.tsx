@@ -77,7 +77,7 @@ export default function Pricing() {
                     ))}
                   </ul>
                   
-                  <Link href="/register">
+                  <Link href="/sign-up">
                     <Button className="w-full bg-green-500 hover:bg-green-600" data-testid="button-start-free">
                       Start Free Today
                     </Button>

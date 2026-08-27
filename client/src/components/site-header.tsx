@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "wouter";
-import { useAuth } from "@/hooks/use-auth";
+import { useUser } from "@clerk/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Menu, X, Zap } from "lucide-react";
 
 export function SiteHeader() {
-  const { user } = useAuth();
+  const { isSignedIn } = useUser();
   const [location] = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -46,16 +46,16 @@ export function SiteHeader() {
           <div className="flex items-center gap-3">
             <ThemeToggle />
             <div className="hidden md:block">
-              {user ? (
+              {isSignedIn ? (
                 <Link href="/dashboard" data-testid="link-header-dashboard">
                   <Button data-testid="button-header-dashboard">Dashboard</Button>
                 </Link>
               ) : (
                 <div className="flex items-center gap-2">
-                  <Link href="/login" data-testid="link-header-login">
+                  <Link href="/sign-in" data-testid="link-header-login">
                     <Button variant="ghost" data-testid="button-header-login">Sign In</Button>
                   </Link>
-                  <Link href="/register" data-testid="link-header-register">
+                  <Link href="/sign-up" data-testid="link-header-register">
                     <Button data-testid="button-header-register">Start Free</Button>
                   </Link>
                 </div>
@@ -92,16 +92,16 @@ export function SiteHeader() {
               ))}
             </nav>
             <div className="pt-2 border-t">
-              {user ? (
+              {isSignedIn ? (
                 <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-dashboard">
                   <Button className="w-full" data-testid="button-mobile-dashboard">Dashboard</Button>
                 </Link>
               ) : (
                 <div className="flex flex-col gap-2">
-                  <Link href="/login" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-login">
+                  <Link href="/sign-in" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-login">
                     <Button variant="outline" className="w-full" data-testid="button-mobile-login">Sign In</Button>
                   </Link>
-                  <Link href="/register" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-register">
+                  <Link href="/sign-up" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-register">
                     <Button className="w-full" data-testid="button-mobile-register">Start Free</Button>
                   </Link>
                 </div>

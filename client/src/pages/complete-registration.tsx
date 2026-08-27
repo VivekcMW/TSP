@@ -69,8 +69,8 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
       return await apiRequest("POST", "/api/complete-registration", data);
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-      await queryClient.refetchQueries({ queryKey: ["/api/auth/user"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/me"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/me"] });
       toast({
         title: "Welcome!",
         description: "Let's set up your profile.",
@@ -83,12 +83,12 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
       toast({
         title: isUserNotFound ? "Account Not Found" : "Something went wrong",
         description: isUserNotFound 
-          ? "Your account was not found. Please register again." 
+          ? "Your account was not found. Please sign up again." 
           : message,
         variant: "destructive",
       });
       if (isUserNotFound) {
-        setTimeout(() => setLocation("/register"), 2000);
+        setTimeout(() => setLocation("/sign-up"), 2000);
       }
     },
   });

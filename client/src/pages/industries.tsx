@@ -207,7 +207,7 @@ export default function IndustriesPage() {
                       ))}
                     </ul>
 
-                    <Link href="/register">
+                    <Link href="/sign-up">
                       <Button className="w-full" data-testid={`button-get-started-${index}`}>
                         Get Started
                         <ArrowRight className="w-4 h-4 ml-2" />
@@ -228,7 +228,7 @@ export default function IndustriesPage() {
             <p className="text-muted-foreground mb-6">
               Join thousands of professionals using AI to stay visible on LinkedIn and Twitter/X. Start posting thought leadership content in under 5 minutes.
             </p>
-            <Link href="/register">
+            <Link href="/sign-up">
               <Button size="lg" data-testid="button-start-free">
                 <Sparkles className="w-4 h-4 mr-2" />
                 Start Free Today

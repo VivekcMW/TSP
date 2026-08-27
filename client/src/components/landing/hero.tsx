@@ -2,11 +2,11 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Zap, Clock, Sparkles, Brain } from "lucide-react";
-import { useAuth } from "@/hooks/use-auth";
+import { useUser } from "@clerk/react";
 import { Link } from "wouter";
 
 export function Hero() {
-  const { user } = useAuth();
+  const { isSignedIn } = useUser();
 
   return (
     <section className="py-20 lg:py-28" data-testid="section-hero">
@@ -40,7 +40,7 @@ export function Hero() {
             </div>
             
             <div className="flex flex-wrap items-center gap-4">
-              {user ? (
+              {isSignedIn ? (
                 <Link href="/dashboard">
                   <Button size="lg" data-testid="button-dashboard">
                     Go to Dashboard
@@ -48,7 +48,7 @@ export function Hero() {
                 </Link>
               ) : (
                 <>
-                  <Link href="/register">
+                  <Link href="/sign-up">
                     <Button size="lg" data-testid="button-cta-primary">
                       Start Free Today
                     </Button>

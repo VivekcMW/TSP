@@ -30,9 +30,10 @@ Preferred communication style: Simple, everyday language.
 - **Migrations**: Drizzle Kit with migrations output to `/migrations`
 
 ### Authentication
-- **Provider**: Replit Auth using OpenID Connect
-- **Session Storage**: PostgreSQL-backed sessions via connect-pg-simple
-- **Pattern**: Passport.js strategy with session-based authentication
+- **Provider**: Clerk (email/password + Google SSO), replacing the former Replit Auth
+- **Session Storage**: Clerk-managed session cookies (no server-side session store)
+- **Pattern**: `@clerk/express` middleware resolves the Clerk session; a `requireAuth` middleware then finds-or-creates (JIT provisions) the matching row in the local `users` table, keyed by the bridge ID in `sessionClaims.userId`. The local `users`/`sessions` tables remain the source of truth for app-specific data; Clerk owns identity only.
+- **LinkedIn "Connect Account" (Analytics)**: Separate from login — a standalone OAuth "connect" flow (`server/services/linkedinAnalyticsAuth.ts`) that lets an already-signed-in user link their LinkedIn account for analytics. Uses a stateless, HMAC-signed `state` param (no server session) since `express-session` was removed as part of the Clerk migration.
 
 ### Key Data Models
 - **Users**: Core user identity with profile information
@@ -42,7 +43,7 @@ Preferred communication style: Simple, everyday language.
 
 ### Application Flow
 1. Landing page with marketing content
-2. Authentication via Replit Auth
+2. Authentication via Clerk (sign-in/sign-up)
 3. Onboarding wizard to capture user preferences
 4. Dashboard with curated inbox of relevant articles
 5. Post generation modal for creating LinkedIn/Twitter content
@@ -111,8 +112,9 @@ The platform uses a modular engine architecture to deliver industry-specific con
 - PostgreSQL database (connection via `DATABASE_URL` environment variable)
 
 ### Authentication
-- **OAuth Providers**: Google OAuth, LinkedIn OAuth (OIDC)
-- Session secret (`SESSION_SECRET` environment variable)
+- **Clerk**: Login/session identity (`CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `VITE_CLERK_PUBLISHABLE_KEY` environment secrets); Google SSO is configured in the Clerk dashboard, not via app-level OAuth env vars
+- **LinkedIn OAuth (OIDC)**: Used only for the "Connect Account" analytics feature, not login (`LINKEDIN_CLIENT_ID`/`LINKEDIN_CLIENT_SECRET`)
+- `SESSION_SECRET` environment variable: signs the stateless LinkedIn analytics OAuth `state` param (no server-side session store)
 - **Canonical Domain**: `CANONICAL_HOST` environment variable (default: www.thesocialpundit.com)
 
 ### Domain Configuration
@@ -121,18 +123,11 @@ The application is configured to always redirect to the canonical domain:
 - **OAuth Callback URLs**: Dynamically constructed using CANONICAL_HOST
 - **Environment Variables**:
   - `CANONICAL_HOST` - Custom domain (e.g., www.thesocialpundit.com)
-  - `GOOGLE_CALLBACK_URL` - Optional override for Google OAuth callback
-  - `LINKEDIN_CALLBACK_URL` - Optional override for LinkedIn OAuth callback
   - `LINKEDIN_ANALYTICS_CALLBACK_URL` - Optional override for LinkedIn Analytics OAuth callback
 
-**LinkedIn Developer Portal Setup:**
-Add these callback URLs:
-- `https://www.thesocialpundit.com/auth/linkedin/callback`
-- `https://www.thesocialpundit.com/auth/linkedin/analytics/callback`
-
-**Google Cloud Console Setup:**
+**LinkedIn Developer Portal Setup (Analytics "Connect Account" only, not login):**
 Add this callback URL:
-- `https://www.thesocialpundit.com/auth/google/callback`
+- `https://www.thesocialpundit.com/auth/linkedin/analytics/callback`
 
 ### AI Services (Planned)
 - Google Gemini API for content curation and post generation (referenced in design docs)

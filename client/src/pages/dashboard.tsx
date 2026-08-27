@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Inbox, RefreshCw, Link2, Loader2 } from "lucide-react";
-import { useAuth } from "@/hooks/use-auth";
+import { useUser } from "@clerk/react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { InboxCard } from "@/components/dashboard/inbox-card";
@@ -14,7 +14,7 @@ import type { InboxItem } from "@shared/schema";
 type FilterType = "all" | "saved" | "dismissed";
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, isSignedIn } = useUser();
   const { toast } = useToast();
   const [filter, setFilter] = useState<FilterType>("all");
   const [selectedItem, setSelectedItem] = useState<InboxItem | null>(null);
@@ -23,12 +23,12 @@ export default function DashboardPage() {
 
   const { data: inboxItems, isLoading } = useQuery<InboxItem[]>({
     queryKey: ["/api/inbox"],
-    enabled: !!user,
+    enabled: !!isSignedIn,
   });
 
   const { data: enginesData } = useQuery<{ currentEngine: { displayName: string } }>({
     queryKey: ["/api/engines"],
-    enabled: !!user,
+    enabled: !!isSignedIn,
   });
   
   const openLinkedInShare = (content: string, articleUrl?: string) => {
@@ -44,8 +44,8 @@ export default function DashboardPage() {
     window.open(linkedInUrl, "_blank");
   };
 
-  const refreshMutation = useMutation({
-    mutationFn: async (autoRefresh = false) => {
+  const refreshMutation = useMutation<{ count: number }, Error, boolean>({
+    mutationFn: async (autoRefresh: boolean = false) => {
       const res = await apiRequest("POST", "/api/inbox/refresh", { autoRefresh });
       return res.json();
     },
@@ -71,7 +71,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!user) return;
-    const sessionKey = `inbox_refreshed_${user.id ?? "session"}`;
+    const sessionKey = `inbox_refreshed_${user.externalId ?? user.id ?? "session"}`;
     if (!sessionStorage.getItem(sessionKey)) {
       sessionStorage.setItem(sessionKey, "1");
       refreshMutation.mutate(true);
@@ -201,7 +201,7 @@ export default function DashboardPage() {
             </Button>
             <Button
               variant="default"
-              onClick={() => refreshMutation.mutate()}
+              onClick={() => refreshMutation.mutate(false)}
               disabled={refreshMutation.isPending}
               data-testid="button-refresh-inbox"
             >
@@ -247,7 +247,7 @@ export default function DashboardPage() {
             </p>
             {filter === "all" && (
               <Button
-                onClick={() => refreshMutation.mutate()}
+                onClick={() => refreshMutation.mutate(false)}
                 disabled={refreshMutation.isPending}
                 data-testid="button-refresh-empty"
               >

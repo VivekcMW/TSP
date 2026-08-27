@@ -28,7 +28,7 @@ export default function HowItWorks() {
               <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
                 TheSocialPundit is an intelligence layer that sits between global industry news and your professional social presence.
               </p>
-              <Link href="/register" data-testid="link-get-started-how-it-works">
+              <Link href="/sign-up" data-testid="link-get-started-how-it-works">
                 <Button size="lg" data-testid="button-get-started-how-it-works">Get Started Free</Button>
               </Link>
             </div>

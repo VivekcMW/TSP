@@ -1,5 +1,5 @@
 import { Settings, User, Bell, Link2, CreditCard } from "lucide-react";
-import { useAuth } from "@/hooks/use-auth";
+import { useUser } from "@clerk/react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,12 +11,13 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { user } = useUser();
   const { toast } = useToast();
 
-  const initials = user?.firstName && user?.lastName 
-    ? `${user.firstName[0]}${user.lastName[0]}` 
-    : user?.email?.[0]?.toUpperCase() || "U";
+  const primaryEmail = user?.primaryEmailAddress?.emailAddress;
+  const initials = user?.firstName && user?.lastName
+    ? `${user.firstName[0]}${user.lastName[0]}`
+    : primaryEmail?.[0]?.toUpperCase() || "U";
 
   const handleSave = () => {
     toast({
@@ -72,7 +73,7 @@ export default function SettingsPage() {
                 <CardContent className="space-y-6">
                   <div className="flex items-center gap-4">
                     <Avatar className="h-20 w-20">
-                      <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || "User"} />
+                      <AvatarImage src={user?.imageUrl || undefined} alt={user?.firstName || "User"} />
                       <AvatarFallback className="text-2xl">{initials}</AvatarFallback>
                     </Avatar>
                     <div>
@@ -111,7 +112,7 @@ export default function SettingsPage() {
                     <Input 
                       id="email" 
                       type="email" 
-                      defaultValue={user?.email || ""} 
+                      defaultValue={primaryEmail || ""} 
                       disabled
                       data-testid="input-email"
                     />

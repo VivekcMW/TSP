@@ -27,7 +27,7 @@ export default function OnboardingPage() {
   const { toast } = useToast();
 
   const { data: user } = useQuery<User>({
-    queryKey: ["/api/auth/user"],
+    queryKey: ["/api/me"],
   });
 
   const completeOnboardingMutation = useMutation({

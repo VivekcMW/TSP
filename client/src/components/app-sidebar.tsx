@@ -1,7 +1,7 @@
 import { useLocation, Link } from "wouter";
 import { Inbox, FileText, Send, Settings, Zap, LogOut, BarChart3, UserCog, TrendingUp, Flame } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useAuth } from "@/hooks/use-auth";
+import { useClerk, useUser } from "@clerk/react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -40,12 +40,13 @@ interface HotTrend {
 
 export function AppSidebar() {
   const [location] = useLocation();
-  const { user, logout } = useAuth();
+  const { user, isSignedIn } = useUser();
+  const { signOut } = useClerk();
   const { toast } = useToast();
 
   const { data: trends, isLoading: trendsLoading } = useQuery<HotTrend[]>({
     queryKey: ["/api/trends"],
-    enabled: !!user,
+    enabled: !!isSignedIn,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -84,9 +85,10 @@ export function AppSidebar() {
     });
   };
 
-  const initials = user?.firstName && user?.lastName 
-    ? `${user.firstName[0]}${user.lastName[0]}` 
-    : user?.email?.[0]?.toUpperCase() || "U";
+  const primaryEmail = user?.primaryEmailAddress?.emailAddress;
+  const initials = user?.firstName && user?.lastName
+    ? `${user.firstName[0]}${user.lastName[0]}`
+    : primaryEmail?.[0]?.toUpperCase() || "U";
 
   return (
     <Sidebar>
@@ -185,7 +187,7 @@ export function AppSidebar() {
       <SidebarFooter className="p-4">
         <div className="flex items-center gap-3 p-2 rounded-md bg-sidebar-accent">
           <Avatar className="h-8 w-8">
-            <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || "User"} />
+            <AvatarImage src={user?.imageUrl || undefined} alt={user?.firstName || "User"} />
             <AvatarFallback className="text-xs">{initials}</AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
@@ -193,10 +195,10 @@ export function AppSidebar() {
               {user?.firstName} {user?.lastName}
             </p>
             <p className="text-xs text-muted-foreground truncate" data-testid="text-user-email">
-              {user?.email}
+              {primaryEmail}
             </p>
             <button 
-              onClick={() => logout()}
+              onClick={() => signOut({ redirectUrl: "/" })}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors mt-1"
               data-testid="button-logout"
             >
@@ -204,7 +206,7 @@ export function AppSidebar() {
             </button>
           </div>
           <button 
-            onClick={() => logout()}
+            onClick={() => signOut({ redirectUrl: "/" })}
             className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors"
             data-testid="button-logout-icon"
             aria-label="Log out"

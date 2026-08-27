@@ -9,12 +9,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/use-auth";
+import { useUser } from "@clerk/react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Draft } from "@shared/schema";
 
 export default function DraftsPage() {
-  const { user } = useAuth();
+  const { isSignedIn } = useUser();
   const { toast } = useToast();
   const [editingDraft, setEditingDraft] = useState<Draft | null>(null);
   const [editContent, setEditContent] = useState("");
@@ -22,7 +22,7 @@ export default function DraftsPage() {
 
   const { data: drafts, isLoading } = useQuery<Draft[]>({
     queryKey: ["/api/drafts"],
-    enabled: !!user,
+    enabled: !!isSignedIn,
   });
 
   const updateDraftMutation = useMutation({

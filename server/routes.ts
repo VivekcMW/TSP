@@ -1,7 +1,8 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { isAuthenticated, registerAuthRoutes, setupAuth } from "./replit_integrations/auth";
+import { requireAuth } from "./middlewares/requireAuth";
+import { registerLinkedInAnalyticsAuth } from "./services/linkedinAnalyticsAuth";
 import { z } from "zod";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
@@ -63,18 +64,16 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  await setupAuth(app);
-  registerAuthRoutes(app);
+  registerLinkedInAnalyticsAuth(app, requireAuth);
 
-  app.post("/api/complete-registration", isAuthenticated, async (req: any, res) => {
+  app.get("/api/me", requireAuth, (req: any, res) => {
+    res.json(req.dbUser);
+  });
+
+  app.post("/api/complete-registration", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.user?.id;
-      
-      if (!userId) {
-        console.error("No user ID found in request for complete-registration");
-        return res.status(401).json({ message: "User not authenticated" });
-      }
-      
+      const userId = req.dbUser.id;
+
       const validation = completeRegistrationSchema.safeParse(req.body);
       if (!validation.success) {
         return res.status(400).json({ message: "Invalid request data", errors: validation.error.errors });
@@ -117,9 +116,9 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/profile", isAuthenticated, async (req: any, res) => {
+  app.get("/api/profile", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.user?.id;
+      const userId = req.dbUser.id;
       
       if (!userId) {
         console.error("No user ID found in request");
@@ -146,9 +145,9 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/profile", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/profile", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { focusDescription, publications, keywords, influencers, companies } = req.body;
       
       const existingProfile = await storage.getUserProfile(userId);
@@ -172,9 +171,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/profile/complete-onboarding", isAuthenticated, async (req: any, res) => {
+  app.post("/api/profile/complete-onboarding", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       
       // Sanitize data before validation to prevent truncation errors
       const sanitizedBody = sanitizeOnboardingData(req.body);
@@ -230,7 +229,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/ai/analyze-identity", isAuthenticated, async (req: any, res) => {
+  app.post("/api/ai/analyze-identity", requireAuth, async (req: any, res) => {
     try {
       const { focusDescription, selectedIndustry } = req.body;
       
@@ -267,7 +266,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/ai/select-engine", isAuthenticated, async (req: any, res) => {
+  app.post("/api/ai/select-engine", requireAuth, async (req: any, res) => {
     try {
       const { selectedIndustry, focusDescription } = req.body;
       
@@ -294,7 +293,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/ai/generate-post", isAuthenticated, async (req: any, res) => {
+  app.post("/api/ai/generate-post", requireAuth, async (req: any, res) => {
     try {
       const { headline, summary, source, articleUrl, platform, tone } = req.body;
       
@@ -315,9 +314,9 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/inbox", isAuthenticated, async (req: any, res) => {
+  app.get("/api/inbox", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const items = await storage.getInboxItems(userId);
       res.json(items);
     } catch (error) {
@@ -326,9 +325,9 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/engines", isAuthenticated, async (req: any, res) => {
+  app.get("/api/engines", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const [user] = await db.select().from(users).where(eq(users.id, userId));
       const industry = normalizeIndustryToSlug(user?.industry);
       
@@ -356,9 +355,9 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/trends", isAuthenticated, async (req: any, res) => {
+  app.get("/api/trends", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const [user] = await db.select().from(users).where(eq(users.id, userId));
       const industry = normalizeIndustryToSlug(user?.industry);
       
@@ -371,9 +370,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/inbox/refresh", isAuthenticated, async (req: any, res) => {
+  app.post("/api/inbox/refresh", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       
       const profile = await storage.getUserProfile(userId);
       if (!profile) {
@@ -484,9 +483,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/inbox/add-trend", isAuthenticated, async (req: any, res) => {
+  app.post("/api/inbox/add-trend", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { title, source, link, topic } = req.body;
       
       if (!link || !title) {
@@ -525,9 +524,9 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/inbox/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/inbox/:id", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { id } = req.params;
       
       const validation = updateInboxItemSchema.safeParse(req.body);
@@ -548,9 +547,9 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/drafts", isAuthenticated, async (req: any, res) => {
+  app.get("/api/drafts", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const userDrafts = await storage.getDrafts(userId);
       res.json(userDrafts);
     } catch (error) {
@@ -559,9 +558,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/drafts", isAuthenticated, async (req: any, res) => {
+  app.post("/api/drafts", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       
       const validation = createDraftSchema.safeParse(req.body);
       if (!validation.success) {
@@ -586,9 +585,9 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/drafts/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/drafts/:id", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { id } = req.params;
       
       const validation = updateDraftSchema.safeParse(req.body);
@@ -609,9 +608,9 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/drafts/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/drafts/:id", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { id } = req.params;
       await storage.deleteDraft(id, userId);
       res.json({ success: true });
@@ -621,9 +620,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/instant-review", isAuthenticated, async (req: any, res) => {
+  app.post("/api/instant-review", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { url } = req.body;
       
       if (!url || typeof url !== "string") {
@@ -671,9 +670,9 @@ export async function registerRoutes(
   // Social Media Analytics Endpoints
   
   // Get all connected social accounts
-  app.get("/api/social/connections", isAuthenticated, async (req: any, res) => {
+  app.get("/api/social/connections", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const accounts = await storage.getSocialAccounts(userId);
       res.json(accounts);
     } catch (error) {
@@ -683,9 +682,9 @@ export async function registerRoutes(
   });
 
   // Connect a social account (creates with demo data for now)
-  app.post("/api/social/connect/:provider", isAuthenticated, async (req: any, res) => {
+  app.post("/api/social/connect/:provider", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { provider } = req.params;
       
       if (!["linkedin", "twitter"].includes(provider)) {
@@ -742,9 +741,9 @@ export async function registerRoutes(
   });
 
   // Disconnect a social account
-  app.delete("/api/social/disconnect/:provider", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/social/disconnect/:provider", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { provider } = req.params;
       
       const account = await storage.getSocialAccountByProvider(userId, provider);
@@ -761,9 +760,9 @@ export async function registerRoutes(
   });
 
   // Sync analytics data for a provider
-  app.post("/api/social/sync/:provider", isAuthenticated, async (req: any, res) => {
+  app.post("/api/social/sync/:provider", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { provider } = req.params;
       
       const account = await storage.getSocialAccountByProvider(userId, provider);
@@ -797,9 +796,9 @@ export async function registerRoutes(
   });
 
   // Get combined analytics summary
-  app.get("/api/analytics/summary", isAuthenticated, async (req: any, res) => {
+  app.get("/api/analytics/summary", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const accounts = await storage.getSocialAccounts(userId);
       
       const summary: any = {
@@ -874,9 +873,9 @@ export async function registerRoutes(
   });
 
   // Get provider-specific analytics with history
-  app.get("/api/analytics/:provider", isAuthenticated, async (req: any, res) => {
+  app.get("/api/analytics/:provider", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { provider } = req.params;
       const daysBack = parseInt(req.query.days as string) || 30;
       
