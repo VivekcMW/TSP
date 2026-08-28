@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "wouter";
-import { useUser } from "@clerk/react";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { useIsSignedIn } from "@/lib/dev-auth";
+import { AnimatePresence, motion } from "framer-motion";
 import { Menu, X, Zap } from "lucide-react";
 
 export function SiteHeader() {
-  const { isSignedIn } = useUser();
+  const isSignedIn = useIsSignedIn();
   const [location] = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -14,6 +14,8 @@ export function SiteHeader() {
     { href: "/", label: "Home", slug: "home" },
     { href: "/industries", label: "Industries", slug: "industries" },
     { href: "/how-it-works", label: "How it Works", slug: "how-it-works" },
+    { href: "/resources", label: "Resources", slug: "resources" },
+    { href: "/blog", label: "Blog", slug: "blog" },
     { href: "/pricing", label: "Pricing", slug: "pricing" },
   ];
 
@@ -27,7 +29,7 @@ export function SiteHeader() {
               <span className="text-xl font-bold text-primary">TheSocialPundit</span>
             </Link>
             
-            <nav className="hidden md:flex items-center gap-6">
+            <nav className="hidden lg:flex items-center gap-6">
               {navItems.map((item) => (
                 <Link
                   key={item.href}
@@ -44,8 +46,7 @@ export function SiteHeader() {
           </div>
           
           <div className="flex items-center gap-3">
-            <ThemeToggle />
-            <div className="hidden md:block">
+            <div className="hidden lg:block">
               {isSignedIn ? (
                 <Link href="/dashboard" data-testid="link-header-dashboard">
                   <Button data-testid="button-header-dashboard">Dashboard</Button>
@@ -64,7 +65,7 @@ export function SiteHeader() {
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden"
+              className="lg:hidden"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-expanded={mobileMenuOpen}
               data-testid="button-mobile-menu"
@@ -74,41 +75,51 @@ export function SiteHeader() {
           </div>
         </div>
         
-        {mobileMenuOpen && (
-          <div className="md:hidden border-t py-4 space-y-4">
-            <nav className="flex flex-col gap-3">
-              {navItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`text-sm font-medium py-2 transition-colors hover:text-primary ${
-                    location === item.href ? "text-foreground" : "text-muted-foreground"
-                  }`}
-                  data-testid={`link-mobile-nav-${item.slug}`}
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </nav>
-            <div className="pt-2 border-t">
-              {isSignedIn ? (
-                <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-dashboard">
-                  <Button className="w-full" data-testid="button-mobile-dashboard">Dashboard</Button>
-                </Link>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  <Link href="/sign-in" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-login">
-                    <Button variant="outline" className="w-full" data-testid="button-mobile-login">Sign In</Button>
-                  </Link>
-                  <Link href="/sign-up" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-register">
-                    <Button className="w-full" data-testid="button-mobile-register">Start Free</Button>
-                  </Link>
+        <AnimatePresence>
+          {mobileMenuOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className="lg:hidden overflow-hidden"
+            >
+              <div className="border-t py-4 space-y-4">
+                <nav className="flex flex-col gap-3">
+                  {navItems.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`text-sm font-medium py-2 transition-colors hover:text-primary ${
+                        location === item.href ? "text-foreground" : "text-muted-foreground"
+                      }`}
+                      data-testid={`link-mobile-nav-${item.slug}`}
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </nav>
+                <div className="pt-2 border-t">
+                  {isSignedIn ? (
+                    <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-dashboard">
+                      <Button className="w-full" data-testid="button-mobile-dashboard">Dashboard</Button>
+                    </Link>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <Link href="/sign-in" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-login">
+                        <Button variant="outline" className="w-full" data-testid="button-mobile-login">Sign In</Button>
+                      </Link>
+                      <Link href="/sign-up" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-register">
+                        <Button className="w-full" data-testid="button-mobile-register">Start Free</Button>
+                      </Link>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
-        )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </header>
   );

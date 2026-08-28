@@ -2,6 +2,9 @@ import { useLocation, Link } from "wouter";
 import { Inbox, FileText, Send, Settings, Zap, LogOut, BarChart3, UserCog, TrendingUp, Flame } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useClerk, useUser } from "@clerk/react";
+import { useIsSignedIn } from "@/lib/dev-auth";
+import type { User as DbUser } from "@shared/models/auth";
+import { motion } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -40,7 +43,8 @@ interface HotTrend {
 
 export function AppSidebar() {
   const [location] = useLocation();
-  const { user, isSignedIn } = useUser();
+  const { user } = useUser();
+  const isSignedIn = useIsSignedIn();
   const { signOut } = useClerk();
   const { toast } = useToast();
 
@@ -85,9 +89,19 @@ export function AppSidebar() {
     });
   };
 
-  const primaryEmail = user?.primaryEmailAddress?.emailAddress;
-  const initials = user?.firstName && user?.lastName
-    ? `${user.firstName[0]}${user.lastName[0]}`
+  // Falls back to the local users row when Clerk has no loaded user — which is
+  // the case under the dev login bypass. Shares App.tsx's cached "/api/me"
+  // query, so this adds no request.
+  const { data: dbUser } = useQuery<DbUser>({
+    queryKey: ["/api/me"],
+    enabled: isSignedIn,
+  });
+
+  const firstName = user?.firstName ?? dbUser?.firstName ?? "";
+  const lastName = user?.lastName ?? dbUser?.lastName ?? "";
+  const primaryEmail = user?.primaryEmailAddress?.emailAddress ?? dbUser?.email;
+  const initials = firstName && lastName
+    ? `${firstName[0]}${lastName[0]}`
     : primaryEmail?.[0]?.toUpperCase() || "U";
 
   return (
@@ -111,7 +125,14 @@ export function AppSidebar() {
                     isActive={location === item.url}
                     data-testid={`nav-${item.title.toLowerCase()}`}
                   >
-                    <Link href={item.url}>
+                    <Link href={item.url} className="relative">
+                      {location === item.url && (
+                        <motion.div
+                          layoutId="sidebar-active-pill"
+                          className="absolute inset-0 rounded-md bg-sidebar-primary/10 -z-10"
+                          transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                        />
+                      )}
                       <item.icon className="w-4 h-4" />
                       <span>{item.title}</span>
                     </Link>
@@ -133,7 +154,14 @@ export function AppSidebar() {
                     isActive={location === item.url}
                     data-testid={`nav-${item.title.toLowerCase()}`}
                   >
-                    <Link href={item.url}>
+                    <Link href={item.url} className="relative">
+                      {location === item.url && (
+                        <motion.div
+                          layoutId="sidebar-active-pill"
+                          className="absolute inset-0 rounded-md bg-sidebar-primary/10 -z-10"
+                          transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                        />
+                      )}
                       <item.icon className="w-4 h-4" />
                       <span>{item.title}</span>
                     </Link>
@@ -146,7 +174,7 @@ export function AppSidebar() {
 
         <SidebarGroup>
           <SidebarGroupLabel className="flex items-center gap-2">
-            <Flame className="w-3 h-3 text-orange-500" />
+            <Flame className="w-3 h-3 text-secondary" />
             Hot Trends
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -187,12 +215,12 @@ export function AppSidebar() {
       <SidebarFooter className="p-4">
         <div className="flex items-center gap-3 p-2 rounded-md bg-sidebar-accent">
           <Avatar className="h-8 w-8">
-            <AvatarImage src={user?.imageUrl || undefined} alt={user?.firstName || "User"} />
+            <AvatarImage src={user?.imageUrl || undefined} alt={firstName || "User"} />
             <AvatarFallback className="text-xs">{initials}</AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate" data-testid="text-user-name">
-              {user?.firstName} {user?.lastName}
+              {firstName} {lastName}
             </p>
             <p className="text-xs text-muted-foreground truncate" data-testid="text-user-email">
               {primaryEmail}

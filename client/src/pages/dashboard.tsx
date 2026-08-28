@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Inbox, RefreshCw, Link2, Loader2 } from "lucide-react";
 import { useUser } from "@clerk/react";
+import { useIsSignedIn } from "@/lib/dev-auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { InboxCard } from "@/components/dashboard/inbox-card";
@@ -14,7 +15,8 @@ import type { InboxItem } from "@shared/schema";
 type FilterType = "all" | "saved" | "dismissed";
 
 export default function DashboardPage() {
-  const { user, isSignedIn } = useUser();
+  const { user } = useUser();
+  const isSignedIn = useIsSignedIn();
   const { toast } = useToast();
   const [filter, setFilter] = useState<FilterType>("all");
   const [selectedItem, setSelectedItem] = useState<InboxItem | null>(null);

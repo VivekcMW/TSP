@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { FileText, Linkedin, Edit, Trash2, Send, ExternalLink } from "lucide-react";
-import { SiX } from "react-icons/si";
+import { FileText, Edit, Trash2, Send, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,12 +8,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { useUser } from "@clerk/react";
+import { useIsSignedIn } from "@/lib/dev-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getPlatformMeta } from "@/lib/platforms";
 import type { Draft } from "@shared/schema";
 
 export default function DraftsPage() {
-  const { isSignedIn } = useUser();
+  const isSignedIn = useIsSignedIn();
   const { toast } = useToast();
   const [editingDraft, setEditingDraft] = useState<Draft | null>(null);
   const [editContent, setEditContent] = useState("");
@@ -89,15 +89,13 @@ export default function DraftsPage() {
 
   const handleCopyAndPost = (draft: Draft) => {
     navigator.clipboard.writeText(draft.content);
+    const meta = getPlatformMeta(draft.platform);
     toast({
       title: "Content copied!",
-      description: `Paste it into ${draft.platform === "linkedin" ? "LinkedIn" : "Twitter/X"}.`,
+      description: `Paste it into ${meta.label}.`,
     });
     
-    const url = draft.platform === "linkedin" 
-      ? "https://www.linkedin.com/feed/" 
-      : "https://twitter.com/compose/tweet";
-    window.open(url, "_blank");
+    window.open(meta.composeUrl(draft.content), "_blank");
     setPostingDraft(null);
   };
 
@@ -144,12 +142,11 @@ export default function DraftsPage() {
                   <div className="flex items-start justify-between gap-4 mb-3 flex-wrap">
                     <div className="flex items-center gap-2 flex-wrap">
                       <Badge variant="secondary" className="gap-1">
-                        {draft.platform === "linkedin" ? (
-                          <Linkedin className="w-3 h-3" />
-                        ) : (
-                          <SiX className="w-3 h-3" />
-                        )}
-                        {draft.platform}
+                        {(() => {
+                          const Icon = getPlatformMeta(draft.platform).icon;
+                          return <Icon className="w-3 h-3" />;
+                        })()}
+                        {getPlatformMeta(draft.platform).label}
                       </Badge>
                       <Badge variant="outline" className="capitalize">
                         {draft.tone}
@@ -171,7 +168,7 @@ export default function DraftsPage() {
                       data-testid={`button-post-${draft.id}`}
                     >
                       <Send className="w-3.5 h-3.5 mr-1.5" />
-                      Post to {draft.platform === "linkedin" ? "LinkedIn" : "Twitter/X"}
+                      Post to {getPlatformMeta(draft.platform).label}
                     </Button>
                     <Button 
                       variant="ghost" 
@@ -234,15 +231,14 @@ export default function DraftsPage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {postingDraft?.platform === "linkedin" ? (
-                <Linkedin className="w-5 h-5 text-[#0077B5]" />
-              ) : (
-                <SiX className="w-5 h-5" />
-              )}
-              Post to {postingDraft?.platform === "linkedin" ? "LinkedIn" : "Twitter/X"}
+              {postingDraft && (() => {
+                const Icon = getPlatformMeta(postingDraft.platform).icon;
+                return <Icon className="w-5 h-5" />;
+              })()}
+              Post to {postingDraft ? getPlatformMeta(postingDraft.platform).label : ""}
             </DialogTitle>
             <DialogDescription>
-              Your content will be copied to the clipboard and {postingDraft?.platform === "linkedin" ? "LinkedIn" : "Twitter/X"} will open in a new tab.
+              Your content will be copied to the clipboard and {postingDraft ? getPlatformMeta(postingDraft.platform).label : "the platform"} will open in a new tab.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
@@ -259,7 +255,7 @@ export default function DraftsPage() {
               data-testid="button-copy-and-post"
             >
               <ExternalLink className="w-4 h-4 mr-1.5" />
-              Copy & Open {postingDraft?.platform === "linkedin" ? "LinkedIn" : "Twitter/X"}
+              Copy & Open {postingDraft ? getPlatformMeta(postingDraft.platform).label : ""}
             </Button>
           </DialogFooter>
         </DialogContent>
