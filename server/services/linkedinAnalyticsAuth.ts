@@ -27,9 +27,9 @@ interface LinkedInAnalyticsStatePayload {
 }
 
 function getStateSecret(): string {
-  const secret = process.env.SESSION_SECRET;
+  const secret = process.env.OAUTH_STATE_SECRET;
   if (!secret) {
-    throw new Error("SESSION_SECRET must be set to sign LinkedIn Analytics OAuth state");
+    throw new Error("OAUTH_STATE_SECRET must be set to sign LinkedIn Analytics OAuth state");
   }
   return secret;
 }
@@ -61,17 +61,17 @@ function verifyState(state: string): LinkedInAnalyticsStatePayload | null {
   }
 }
 
-// Prioritizes: 1) Explicit env var, 2) CANONICAL_HOST with https, 3) REPLIT_DOMAINS, 4) localhost
+// Prioritises: 1) explicit env override, 2) APP_URL, 3) localhost on the
+// configured port. Previously fell back to CANONICAL_HOST and REPLIT_DOMAINS,
+// both of which went away with the Replit decoupling, and hardcoded port 5000
+// in the localhost case regardless of PORT.
 function getOAuthCallbackUrl(path: string, envOverride?: string): string {
   if (envOverride) return envOverride;
 
-  const canonicalHost = process.env.CANONICAL_HOST;
-  if (canonicalHost) return `https://${canonicalHost}${path}`;
+  const appUrl = process.env.APP_URL?.replace(/\/$/, "");
+  if (appUrl) return `${appUrl}${path}`;
 
-  const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0];
-  if (replitDomain) return `https://${replitDomain}${path}`;
-
-  return `http://localhost:5000${path}`;
+  return `http://localhost:${process.env.PORT || 3000}${path}`;
 }
 
 function generateDemoAnalyticsMetrics(provider: string) {

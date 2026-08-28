@@ -5,36 +5,22 @@ import { rm, readFile } from "fs/promises";
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
 const allowlist = [
+  "nanoid",
   "@clerk/express",
-  "@clerk/shared",
   "@google/genai",
-  "@mailchimp/mailchimp_transactional",
-  "axios",
   "cors",
   "date-fns",
   "drizzle-orm",
   "drizzle-zod",
   "express",
   "express-rate-limit",
-  "http-proxy-middleware",
-  "jsonwebtoken",
-  "multer",
-  "nanoid",
-  "nodemailer",
-  "openai",
   "p-limit",
-  "p-retry",
   "passport",
   "passport-oauth2",
   "pg",
   "resend",
   "rss-parser",
-  "stripe",
-  "uuid",
-  "ws",
-  "xlsx",
   "zod",
-  "zod-validation-error",
 ];
 
 async function buildAll() {

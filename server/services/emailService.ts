@@ -136,50 +136,38 @@ function getIndustryContent(industry?: string): IndustryContent {
   return industryContentMap.other;
 }
 
-// Once thesocialpundit.com is verified in Resend, emails will work automatically
-// The fromEmail comes from the Resend connector settings
+/**
+ * Resend client, built from environment configuration.
+ *
+ * This previously fetched credentials from Replit's connector service using
+ * REPL_IDENTITY / WEB_REPL_RENEWAL tokens, which meant email could not work
+ * anywhere except inside Replit — including local development. It now reads
+ * RESEND_API_KEY and RESEND_FROM_EMAIL directly.
+ *
+ * Sending requires thesocialpundit.com (or whatever domain RESEND_FROM_EMAIL
+ * uses) to be a verified sender in Resend.
+ */
 
-// Resend integration - get credentials from Replit connector
-let connectionSettings: any;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "noreply@thesocialpundit.com";
 
-async function getCredentials() {
-  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  const xReplitToken = process.env.REPL_IDENTITY 
-    ? 'repl ' + process.env.REPL_IDENTITY 
-    : process.env.WEB_REPL_RENEWAL 
-    ? 'depl ' + process.env.WEB_REPL_RENEWAL 
-    : null;
+let cachedClient: Resend | undefined;
 
-  if (!xReplitToken) {
-    throw new Error('X_REPLIT_TOKEN not found for repl/depl');
-  }
+export const emailEnabled = Boolean(RESEND_API_KEY);
 
-  connectionSettings = await fetch(
-    'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=resend',
-    {
-      headers: {
-        'Accept': 'application/json',
-        'X_REPLIT_TOKEN': xReplitToken
-      }
-    }
-  ).then(res => res.json()).then(data => data.items?.[0]);
-
-  if (!connectionSettings || (!connectionSettings.settings.api_key)) {
-    throw new Error('Resend not connected');
-  }
-  return {
-    apiKey: connectionSettings.settings.api_key, 
-    fromEmail: connectionSettings.settings.from_email
-  };
+if (!emailEnabled) {
+  console.warn(
+    "[email] RESEND_API_KEY is not set — transactional email is disabled. " +
+      "Sends will be skipped rather than failing the surrounding request.",
+  );
 }
 
-// Get a fresh Resend client (never cache - tokens can expire)
-async function getResendClient() {
-  const { apiKey, fromEmail } = await getCredentials();
-  return {
-    client: new Resend(apiKey),
-    fromEmail
-  };
+function getResendClient(): { client: Resend; fromEmail: string } {
+  if (!RESEND_API_KEY) {
+    throw new Error("RESEND_API_KEY is not set");
+  }
+  cachedClient ??= new Resend(RESEND_API_KEY);
+  return { client: cachedClient, fromEmail: RESEND_FROM_EMAIL };
 }
 
 interface EmailResult {
@@ -194,7 +182,7 @@ export async function sendWelcomeEmail(
   industry?: string
 ): Promise<EmailResult> {
   try {
-    const { client, fromEmail } = await getResendClient();
+    const { client, fromEmail } = getResendClient();
     const industryContent = getIndustryContent(industry);
 
     const { data, error } = await client.emails.send({
@@ -217,7 +205,7 @@ export async function sendWelcomeEmail(
                   
                   <!-- Header with Logo -->
                   <tr>
-                    <td style="background: linear-gradient(135deg, #7C3BED 0%, #6316E9 100%); padding: 40px 40px 30px 40px; text-align: center;">
+                    <td style="background: linear-gradient(135deg, #1B2A4A 0%, #12203D 100%); padding: 40px 40px 30px 40px; text-align: center;">
                       <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
                         <tr>
                           <td style="text-align: center;">
@@ -248,8 +236,8 @@ export async function sendWelcomeEmail(
                   <!-- What Makes Us Different -->
                   <tr>
                     <td style="padding: 0 40px 30px 40px;">
-                      <div style="background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%); border-radius: 10px; padding: 24px; border-left: 4px solid #7C3BED;">
-                        <p style="color: #6b21a8; font-size: 15px; line-height: 1.6; margin: 0; font-style: italic;">
+                      <div style="background: linear-gradient(135deg, #f2f5fa 0%, #e8edf5 100%); border-radius: 10px; padding: 24px; border-left: 4px solid #1B2A4A;">
+                        <p style="color: #1B2A4A; font-size: 15px; line-height: 1.6; margin: 0; font-style: italic;">
                           "Go from industry news to published thought leadership in under 5 minutes. Our AI learns your voice and perspective to create posts that sound authentically you."
                         </p>
                       </div>
@@ -265,7 +253,7 @@ export async function sendWelcomeEmail(
                       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 16px;">
                         <tr>
                           <td style="width: 48px; vertical-align: top;">
-                            <div style="width: 40px; height: 40px; background: #f3e8ff; border-radius: 10px; text-align: center; line-height: 40px;">
+                            <div style="width: 40px; height: 40px; background: #e8edf5; border-radius: 10px; text-align: center; line-height: 40px;">
                               <span style="font-size: 18px;">&#128218;</span>
                             </div>
                           </td>
@@ -280,7 +268,7 @@ export async function sendWelcomeEmail(
                       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 16px;">
                         <tr>
                           <td style="width: 48px; vertical-align: top;">
-                            <div style="width: 40px; height: 40px; background: #f3e8ff; border-radius: 10px; text-align: center; line-height: 40px;">
+                            <div style="width: 40px; height: 40px; background: #e8edf5; border-radius: 10px; text-align: center; line-height: 40px;">
                               <span style="font-size: 18px;">&#129302;</span>
                             </div>
                           </td>
@@ -295,7 +283,7 @@ export async function sendWelcomeEmail(
                       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 16px;">
                         <tr>
                           <td style="width: 48px; vertical-align: top;">
-                            <div style="width: 40px; height: 40px; background: #f3e8ff; border-radius: 10px; text-align: center; line-height: 40px;">
+                            <div style="width: 40px; height: 40px; background: #e8edf5; border-radius: 10px; text-align: center; line-height: 40px;">
                               <span style="font-size: 18px;">&#127908;</span>
                             </div>
                           </td>
@@ -310,7 +298,7 @@ export async function sendWelcomeEmail(
                       <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
                         <tr>
                           <td style="width: 48px; vertical-align: top;">
-                            <div style="width: 40px; height: 40px; background: #f3e8ff; border-radius: 10px; text-align: center; line-height: 40px;">
+                            <div style="width: 40px; height: 40px; background: #e8edf5; border-radius: 10px; text-align: center; line-height: 40px;">
                               <span style="font-size: 18px;">&#9889;</span>
                             </div>
                           </td>
@@ -327,7 +315,7 @@ export async function sendWelcomeEmail(
                   <tr>
                     <td style="padding: 10px 40px 40px 40px; text-align: center;">
                       <a href="${APP_URL}/dashboard" 
-                         style="display: inline-block; background: linear-gradient(135deg, #7C3BED 0%, #6316E9 100%); color: #ffffff; 
+                         style="display: inline-block; background: linear-gradient(135deg, #1B2A4A 0%, #12203D 100%); color: #ffffff; 
                                 padding: 16px 40px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;
                                 box-shadow: 0 4px 14px rgba(124, 59, 237, 0.4);">
                         Start Building Your Authority
@@ -350,7 +338,7 @@ export async function sendWelcomeEmail(
                         Questions? Just reply to this email - we're here to help.
                       </p>
                       <p style="color: #a1a1aa; font-size: 13px; margin: 0;">
-                        <a href="${APP_URL}" style="color: #7C3BED; text-decoration: none; font-weight: 500;">thesocialpundit.com</a>
+                        <a href="${APP_URL}" style="color: #1B2A4A; text-decoration: none; font-weight: 500;">thesocialpundit.com</a>
                         <span style="margin: 0 8px;">|</span>
                         Build your authority in ${industryContent.label}
                       </p>
@@ -393,86 +381,9 @@ export async function sendWelcomeEmail(
   }
 }
 
-export async function sendPasswordResetEmail(
-  email: string,
-  firstName: string,
-  resetToken: string
-): Promise<EmailResult> {
-  try {
-    const { client, fromEmail } = await getResendClient();
-    const resetUrl = `${APP_URL}/reset-password?token=${resetToken}`;
-
-    const { data, error } = await client.emails.send({
-      from: `${FROM_NAME} <${fromEmail}>`,
-      to: [email],
-      subject: "Reset Your TheSocialPundit Password",
-      html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        </head>
-        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="color: #7C3AED; margin: 0;">TheSocialPundit</h1>
-          </div>
-          
-          <h2 style="color: #1a1a1a;">Password Reset Request</h2>
-          
-          <p>Hi ${firstName},</p>
-          
-          <p>We received a request to reset your password. Click the button below to create a new password:</p>
-          
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${resetUrl}" 
-               style="background: #7C3AED; color: white; padding: 14px 28px; 
-                      text-decoration: none; border-radius: 6px; display: inline-block;
-                      font-weight: 600;">
-              Reset Password
-            </a>
-          </div>
-          
-          <p style="color: #666;">This link will expire in <strong>1 hour</strong>.</p>
-          
-          <div style="background: #FEF3C7; padding: 15px; border-left: 4px solid #F59E0B; margin: 20px 0; border-radius: 4px;">
-            <strong>Security Notice:</strong><br>
-            If you didn't request this password reset, please ignore this email. Your password will remain unchanged.
-          </div>
-          
-          <p style="font-size: 12px; color: #999;">
-            Or copy and paste this URL into your browser:<br>
-            <span style="color: #7C3AED; word-break: break-all;">${resetUrl}</span>
-          </p>
-          
-          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-          
-          <p style="font-size: 12px; color: #999; text-align: center;">
-            TheSocialPundit - Build your authority in Media & Advertising
-            <br>
-            <a href="${APP_URL}" style="color: #7C3AED;">www.thesocialpundit.com</a>
-          </p>
-        </body>
-        </html>
-      `,
-    });
-
-    if (error) {
-      console.error("Error sending password reset email:", error);
-      return { success: false, error: error.message };
-    }
-
-    console.log("Password reset email sent to:", email);
-    return { success: true, messageId: data?.id };
-  } catch (error: any) {
-    console.error("Error sending password reset email:", error);
-    return { success: false, error: error.message };
-  }
-}
-
 export async function testEmailConnection(): Promise<boolean> {
   try {
-    const { client } = await getResendClient();
+    const { client } = getResendClient();
     // Resend doesn't have a ping endpoint, but getting credentials validates the connection
     console.log("Resend connection test: connected successfully");
     return true;

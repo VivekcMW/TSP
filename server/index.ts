@@ -1,15 +1,11 @@
+import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { clerkMiddleware } from "@clerk/express";
-import { publishableKeyFromHost } from "@clerk/shared/keys";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import {
-  CLERK_PROXY_PATH,
-  clerkProxyMiddleware,
-  getClerkProxyHost,
-} from "./middlewares/clerkProxyMiddleware";
+import { pool } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -20,10 +16,38 @@ declare module "http" {
   }
 }
 
-// Must be mounted before body parsers — the proxy streams raw bytes.
-app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
+// Origin allowlist instead of reflecting any origin — credentials:true +
+// origin:true would otherwise let any site make authenticated requests.
+const extraAllowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
 
-app.use(cors({ credentials: true, origin: true }));
+const allowedOriginPatterns: (string | RegExp)[] = [...extraAllowedOrigins];
+
+if (process.env.APP_URL) {
+  allowedOriginPatterns.push(process.env.APP_URL.replace(/\/$/, ""));
+}
+if (process.env.NODE_ENV !== "production") {
+  allowedOriginPatterns.push(/^http:\/\/localhost:\d+$/);
+}
+
+app.use(
+  cors({
+    credentials: true,
+    origin(origin, callback) {
+      // No Origin header = same-origin or non-browser request (curl, server-to-server).
+      if (!origin) return callback(null, true);
+      const allowed = allowedOriginPatterns.some((pattern) =>
+        typeof pattern === "string" ? pattern === origin : pattern.test(origin),
+      );
+      callback(allowed ? null : new Error(`Origin ${origin} not allowed by CORS`), allowed);
+    },
+  }),
+);
+
+// Reads CLERK_PUBLISHABLE_KEY / CLERK_SECRET_KEY from the environment.
+app.use(clerkMiddleware());
 
 app.use(
   express.json({
@@ -35,39 +59,16 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
-// Resolve the publishable key from the incoming request host so the same
-// server can serve multiple Clerk custom domains. Falls back to
-// CLERK_PUBLISHABLE_KEY when the host doesn't map to a custom domain.
-app.use(
-  clerkMiddleware((req) => ({
-    publishableKey: publishableKeyFromHost(
-      getClerkProxyHost(req) ?? "",
-      process.env.CLERK_PUBLISHABLE_KEY,
-    ),
-  })),
-);
-
-// Canonical domain redirect middleware - forces custom domain and blocks Replit URLs
-// Only active when CANONICAL_HOST is explicitly set (production)
-const CANONICAL_HOST = process.env.CANONICAL_HOST;
-
-if (CANONICAL_HOST) {
-  app.use((req, res, next) => {
-    const host = req.headers.host || "";
-    
-    // If accessing via replit.app, redirect to canonical domain
-    if (host.includes("replit.app") && host !== CANONICAL_HOST) {
-      const protocol = req.headers["x-forwarded-proto"] || "https";
-      console.log(`[Domain Redirect] Redirecting from ${host} to ${CANONICAL_HOST}`);
-      return res.redirect(301, `${protocol}://${CANONICAL_HOST}${req.originalUrl}`);
-    }
-    
-    next();
-  });
-  console.log(`[Domain Config] Canonical domain redirect active: ${CANONICAL_HOST}`);
-} else {
-  console.log("[Domain Config] No CANONICAL_HOST set, replit.app redirect disabled (dev mode)");
-}
+// Liveness/readiness probe for the deploy platform — no auth, no Clerk dependency.
+app.get("/healthz", async (_req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    res.status(200).json({ status: "ok" });
+  } catch (error) {
+    console.error("[healthz] DB check failed:", error);
+    res.status(503).json({ status: "error" });
+  }
+});
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -127,16 +128,12 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
+  // Serves both the API and the client from one port.
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
     {
       port,
       host: "0.0.0.0",
-      reusePort: true,
     },
     () => {
       log(`serving on port ${port}`);
