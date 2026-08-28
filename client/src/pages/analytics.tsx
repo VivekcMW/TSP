@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SiLinkedin, SiX } from "react-icons/si";
+import { SiX } from "react-icons/si";
+import { FaLinkedin } from "react-icons/fa";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -88,9 +89,9 @@ function TopPostCard({ post, platform }: { post: any; platform: 'linkedin' | 'tw
     <Card className="overflow-visible" data-testid={`card-top-post-${post.postId}`}>
       <CardContent className="pt-4">
         <div className="flex items-start gap-3 mb-3">
-          <div className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${platform === 'linkedin' ? 'bg-[#0A66C2]/10' : 'bg-foreground/10'}`}>
+          <div className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${platform === 'linkedin' ? 'bg-brand-linkedin/10' : 'bg-foreground/10'}`}>
             {platform === 'linkedin' ? (
-              <SiLinkedin className="w-4 h-4 text-[#0A66C2]" />
+              <FaLinkedin className="w-4 h-4 text-brand-linkedin" />
             ) : (
               <SiX className="w-4 h-4" />
             )}
@@ -149,9 +150,9 @@ function ConnectionCard({
       <CardContent className="pt-4">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-md flex items-center justify-center ${isLinkedIn ? 'bg-[#0A66C2]/10' : 'bg-foreground/10'}`}>
+            <div className={`w-10 h-10 rounded-md flex items-center justify-center ${isLinkedIn ? 'bg-brand-linkedin/10' : 'bg-foreground/10'}`}>
               {isLinkedIn ? (
-                <SiLinkedin className="w-5 h-5 text-[#0A66C2]" />
+                <FaLinkedin className="w-5 h-5 text-brand-linkedin" />
               ) : (
                 <SiX className="w-5 h-5" />
               )}

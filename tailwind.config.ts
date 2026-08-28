@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import { platformBrand } from "./client/src/design/tokens";
 
 export default {
   darkMode: ["class"],
@@ -51,7 +52,17 @@ export default {
           foreground: "hsl(var(--destructive-foreground) / <alpha-value>)",
           border: "var(--destructive-border)",
         },
+        success: {
+          DEFAULT: "hsl(var(--success) / <alpha-value>)",
+          foreground: "hsl(var(--success-foreground) / <alpha-value>)",
+        },
         ring: "hsl(var(--ring) / <alpha-value>)",
+        "surface-ink": {
+          DEFAULT: "hsl(var(--surface-ink) / <alpha-value>)",
+          foreground: "hsl(var(--surface-ink-foreground) / <alpha-value>)",
+        },
+        // External brand colours — deliberately not themeable.
+        brand: platformBrand,
         chart: {
           "1": "hsl(var(--chart-1) / <alpha-value>)",
           "2": "hsl(var(--chart-2) / <alpha-value>)",
