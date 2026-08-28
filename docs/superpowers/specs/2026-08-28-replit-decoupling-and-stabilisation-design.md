@@ -11,7 +11,7 @@
 | 2 — Decouple from Replit | **Done and verified by clean `npm ci`.** Zero `@replit` packages; boots in dev and production with no Replit env vars. |
 | 3 — Test the gate | **Done.** 22 tests, Vitest + Supertest, real test database. Both critical assertions mutation-checked. |
 | 4 — Split | **Done.** `routes.ts` (977 lines) → 7 resource modules + a composer. `App.tsx` 391 → 296 lines: gate extracted, `PublicRoutes` de-duplicated, `clerk-appearance.ts` extracted, render-time `setState` removed, signed-out `/dashboard` redirect, 404 symmetry. Verified against the pre-split compiled bundle: 26 routes, identical registration order and middleware chains. |
-| 5 — Production readiness | **Not started.** Vercel serverless migration, env validation, versioned migrations, README. Blocked on §7.3 (Postgres host). |
+| 5 — Production readiness | **Partly done.** Versioned migrations implemented (`db:migrate`, checksum-tracked, `drizzle-kit push` prohibited). Remaining: Vercel serverless migration, boot-time env validation, README. Blocked on §7.3 (Postgres host). |
 **Context:** Follows commit `ec66ac9` "Migrate authentication from Replit Auth to Clerk"
 
 ---

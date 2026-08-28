@@ -362,7 +362,9 @@ Every list endpoint uses **keyset pagination** (`WHERE (created_at, id) < (:curs
 
 ### 8.4 Migration discipline
 
-Versioned, forward-only, reviewed SQL — `drizzle-kit generate` committed, `drizzle-kit migrate` on deploy. `push` is a local-development tool only. Every migration touching a large table must be online (`CREATE INDEX CONCURRENTLY`, additive-then-backfill-then-constrain), never a blocking `ALTER`.
+**Implemented.** `npm run db:migrate` applies `migrations/*.sql` in order, one transaction each, tracked in `schema_migrations` with checksums so an edited applied migration is a hard error. A custom migrator rather than drizzle-kit's, because the schema needs a database role, GRANTs and RLS policies that drizzle-kit cannot generate.
+
+`drizzle-kit push` is **prohibited**: it was observed dropping the `tenant_isolation` policies, which would leave the isolation tests passing against an unprotected schema. `npm run db:push` now refuses. See `migrations/README.md`. Every migration touching a large table must be online (`CREATE INDEX CONCURRENTLY`, additive-then-backfill-then-constrain), never a blocking `ALTER`.
 
 ---
 

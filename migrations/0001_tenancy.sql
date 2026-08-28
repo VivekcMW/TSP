@@ -114,7 +114,12 @@ ALTER TABLE engine_run_logs  ALTER COLUMN tenant_id SET NOT NULL;
 -- 6. a profile is now per (tenant, user), not per user ----------------------
 
 ALTER TABLE user_profiles DROP CONSTRAINT IF EXISTS user_profiles_user_id_unique;
-ALTER TABLE user_profiles ADD CONSTRAINT uniq_user_profiles_tenant_user UNIQUE (tenant_id, user_id);
+-- 0000 already declares this constraint inline for a fresh database, so the
+-- duplicate is expected here and must not abort the migration.
+DO $$ BEGIN
+  ALTER TABLE user_profiles ADD CONSTRAINT uniq_user_profiles_tenant_user UNIQUE (tenant_id, user_id);
+EXCEPTION WHEN duplicate_table OR duplicate_object THEN NULL;
+END $$;
 
 -- 7. tenant-scoped indexes --------------------------------------------------
 

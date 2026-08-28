@@ -8,11 +8,13 @@
     "build": "tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
-    "db:push": "drizzle-kit push",
+    "db:push": "echo 'db:push can DROP RLS policies (see migrations/README.md). Use db:migrate. To override: npx drizzle-kit push' && exit 1",
     "test": "vitest run",
     "test:watch": "vitest",
     "design:tokens": "tsx script/generate-design-css.ts",
-    "design:check": "tsx script/generate-design-css.ts --check"
+    "design:check": "tsx script/generate-design-css.ts --check",
+    "db:migrate": "tsx script/migrate.ts",
+    "db:migrate:dry": "tsx script/migrate.ts --dry"
   },
   "dependencies": {
     "@clerk/express": "^2.1.63",

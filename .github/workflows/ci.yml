@@ -63,13 +63,14 @@ jobs:
       - name: Design tokens are in sync
         run: npm run design:check
 
-      - name: Apply schema to the test database
-        run: npx drizzle-kit push --force
-
-      # Creates the tsp_app role and the tenant_isolation policies. drizzle-kit
-      # manages tables only, so roles and RLS come from a SQL migration.
-      - name: Apply Row-Level Security
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0002_rls.sql
+      # Migrations, not `drizzle-kit push`. push diffs against the live
+      # database and was observed dropping the RLS policies, which would make
+      # the isolation tests pass against an unprotected schema — the worst
+      # possible failure mode for this suite.
+      - name: Migrate the test database
+        run: npm run db:migrate
+        env:
+          OWNER_DATABASE_URL: ${{ env.DATABASE_URL }}
 
       # Includes the cross-tenant isolation contract tests. A failure here is a
       # data-leak risk, not a flaky test — do not skip or retry this step.
