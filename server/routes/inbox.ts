@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { inboxRefreshRateLimit } from "../middlewares/rateLimit";
 import { requireDbUser } from "../middlewares/requireDbUser";
+import { requirePermission } from "../middlewares/requirePermission";
 import { engineRegistry } from "../services/engines/index.js";
 import { normalizeIndustryToSlug } from "../services/metaEngine";
 import { generateArticleMatches } from "../services/punditBrain";
@@ -14,7 +15,7 @@ const updateInboxItemSchema = z.object({
 });
 
 export function registerInboxRoutes(app: Express) {
-  app.get("/api/inbox", requireDbUser, async (req: any, res) => {
+  app.get("/api/inbox", requireDbUser, requirePermission("inbox:read:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;
@@ -26,7 +27,7 @@ export function registerInboxRoutes(app: Express) {
     }
   });
 
-  app.get("/api/engines", requireDbUser, async (req: any, res) => {
+  app.get("/api/engines", requireDbUser, requirePermission("inbox:read:own"), async (req: any, res) => {
     try {
       const industry = normalizeIndustryToSlug(req.dbUser.industry);
       
@@ -54,7 +55,7 @@ export function registerInboxRoutes(app: Express) {
     }
   });
 
-  app.get("/api/trends", requireDbUser, async (req: any, res) => {
+  app.get("/api/trends", requireDbUser, requirePermission("inbox:read:own"), async (req: any, res) => {
     try {
       const industry = normalizeIndustryToSlug(req.dbUser.industry);
       
@@ -67,7 +68,7 @@ export function registerInboxRoutes(app: Express) {
     }
   });
 
-  app.post("/api/inbox/refresh", requireDbUser, inboxRefreshRateLimit, async (req: any, res) => {
+  app.post("/api/inbox/refresh", requireDbUser, requirePermission("inbox:write:own"), inboxRefreshRateLimit, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;
@@ -179,7 +180,7 @@ export function registerInboxRoutes(app: Express) {
     }
   });
 
-  app.post("/api/inbox/add-trend", requireDbUser, async (req: any, res) => {
+  app.post("/api/inbox/add-trend", requireDbUser, requirePermission("inbox:write:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;
@@ -220,7 +221,7 @@ export function registerInboxRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/inbox/:id", requireDbUser, async (req: any, res) => {
+  app.patch("/api/inbox/:id", requireDbUser, requirePermission("inbox:write:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;

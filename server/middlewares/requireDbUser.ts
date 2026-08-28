@@ -2,14 +2,22 @@ import type { NextFunction, Request, Response } from "express";
 import { clerkClient, getAuth } from "@clerk/express";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
-import { users, type User } from "@shared/models/auth";
+import { users, type User as UserRow } from "@shared/models/auth";
 import { devAuthEnabled, resolveDevUser } from "./devAuth";
 import { resolveTenantContext, type TenantContext } from "../services/tenancy";
 
 declare global {
   namespace Express {
     interface Request {
-      dbUser?: User;
+      /**
+       * The local users row.
+       *
+       * Aliased as UserRow deliberately: @types/passport declares an empty
+       * `Express.User`, so a bare `User` inside this augmentation resolves to
+       * that instead of the imported row type — which silently typed dbUser as
+       * `{}` and disabled checking on every field.
+       */
+      dbUser?: UserRow;
       /**
        * The tenant this request acts in. Present on every authenticated
        * request; repositories refuse to run without it.

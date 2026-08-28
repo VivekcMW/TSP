@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { db } from "../db";
 import { requireDbUser } from "../middlewares/requireDbUser";
+import { requirePermission } from "../middlewares/requirePermission";
 import { engineRegistry } from "../services/engines/index.js";
 import { storage } from "../storage";
 import { users } from "@shared/models/auth";
@@ -30,7 +31,7 @@ function sanitizeOnboardingData(data: any) {
 }
 
 export function registerProfileRoutes(app: Express) {
-  app.get("/api/profile", requireDbUser, async (req: any, res) => {
+  app.get("/api/profile", requireDbUser, requirePermission("profile:read:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;
@@ -59,7 +60,7 @@ export function registerProfileRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/profile", requireDbUser, async (req: any, res) => {
+  app.patch("/api/profile", requireDbUser, requirePermission("profile:write:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;
@@ -86,7 +87,7 @@ export function registerProfileRoutes(app: Express) {
     }
   });
 
-  app.post("/api/profile/complete-onboarding", requireDbUser, async (req: any, res) => {
+  app.post("/api/profile/complete-onboarding", requireDbUser, requirePermission("profile:write:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;

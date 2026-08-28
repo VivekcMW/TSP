@@ -1,12 +1,13 @@
 import type { Express } from "express";
 import { aiGenerationRateLimit } from "../middlewares/rateLimit";
 import { requireDbUser } from "../middlewares/requireDbUser";
+import { requirePermission } from "../middlewares/requirePermission";
 import { getAvailableVerticals, normalizeIndustryToSlug, selectIndustryEngine } from "../services/metaEngine";
 import { analyzeProfessionalIdentity, generatePostContent } from "../services/punditBrain";
 import { type PlatformKey } from "../services/punditBrain";
 
 export function registerAiRoutes(app: Express) {
-  app.post("/api/ai/analyze-identity", requireDbUser, aiGenerationRateLimit, async (req: any, res) => {
+  app.post("/api/ai/analyze-identity", requireDbUser, requirePermission("generation:create:own"), aiGenerationRateLimit, async (req: any, res) => {
     try {
       const { focusDescription, selectedIndustry } = req.body;
       
@@ -43,7 +44,7 @@ export function registerAiRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ai/select-engine", requireDbUser, aiGenerationRateLimit, async (req: any, res) => {
+  app.post("/api/ai/select-engine", requireDbUser, requirePermission("generation:create:own"), aiGenerationRateLimit, async (req: any, res) => {
     try {
       const { selectedIndustry, focusDescription } = req.body;
       
@@ -70,7 +71,7 @@ export function registerAiRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ai/generate-post", requireDbUser, aiGenerationRateLimit, async (req: any, res) => {
+  app.post("/api/ai/generate-post", requireDbUser, requirePermission("generation:create:own"), aiGenerationRateLimit, async (req: any, res) => {
     try {
       const { headline, summary, source, articleUrl, platform, tone } = req.body;
       

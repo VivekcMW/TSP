@@ -1,9 +1,10 @@
 import type { Express } from "express";
 import { requireDbUser } from "../middlewares/requireDbUser";
+import { requirePermission } from "../middlewares/requirePermission";
 import { storage } from "../storage";
 
 export function registerAnalyticsRoutes(app: Express) {
-  app.get("/api/analytics/summary", requireDbUser, async (req: any, res) => {
+  app.get("/api/analytics/summary", requireDbUser, requirePermission("analytics:read:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;
@@ -82,7 +83,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
   // Get provider-specific analytics with history
 
-  app.get("/api/analytics/:provider", requireDbUser, async (req: any, res) => {
+  app.get("/api/analytics/:provider", requireDbUser, requirePermission("analytics:read:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;

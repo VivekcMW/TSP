@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push supersedes an in-flight run on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: thesocialpundit_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/thesocialpundit_test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/thesocialpundit_test
+      # The suite fakes Clerk at the module boundary, so these only need to
+      # exist for modules that read them at import time.
+      CLERK_SECRET_KEY: sk_test_ci_placeholder
+      CLERK_PUBLISHABLE_KEY: pk_test_ci_placeholder
+      VITE_CLERK_PUBLISHABLE_KEY: pk_test_ci_placeholder
+      OAUTH_STATE_SECRET: ci_placeholder_state_secret
+      APP_URL: http://localhost:3000
+      # Must never be true here: the tests assert real authorization behaviour.
+      DEV_AUTH_BYPASS: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # `npm ci` rather than `npm install`, so a dependency that is imported
+      # but not declared fails here rather than in production. That is exactly
+      # how the undeclared `nanoid` import was found.
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Design tokens are in sync
+        run: npm run design:check
+
+      - name: Apply schema to the test database
+        run: npx drizzle-kit push --force
+
+      # Includes the cross-tenant isolation contract tests. A failure here is a
+      # data-leak risk, not a flaky test — do not skip or retry this step.
+      - name: Tests
+        run: npm test
+
+      - name: Build
+        run: npm run build

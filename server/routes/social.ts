@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { toSafeSocialAccount } from "../lib/sanitize";
 import { requireDbUser } from "../middlewares/requireDbUser";
+import { requirePermission } from "../middlewares/requirePermission";
 import { storage } from "../storage";
 import { users } from "@shared/models/auth";
 
@@ -66,7 +67,7 @@ function generateDemoMetrics(provider: string) {
 }
 
 export function registerSocialRoutes(app: Express) {
-  app.get("/api/social/connections", requireDbUser, async (req: any, res) => {
+  app.get("/api/social/connections", requireDbUser, requirePermission("social:read:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;
@@ -80,7 +81,7 @@ export function registerSocialRoutes(app: Express) {
 
   // Connect a social account (creates with demo data for now)
 
-  app.post("/api/social/connect/:provider", requireDbUser, async (req: any, res) => {
+  app.post("/api/social/connect/:provider", requireDbUser, requirePermission("social:connect:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;
@@ -139,7 +140,7 @@ export function registerSocialRoutes(app: Express) {
 
   // Disconnect a social account
 
-  app.delete("/api/social/disconnect/:provider", requireDbUser, async (req: any, res) => {
+  app.delete("/api/social/disconnect/:provider", requireDbUser, requirePermission("social:connect:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;
@@ -160,7 +161,7 @@ export function registerSocialRoutes(app: Express) {
 
   // Sync analytics data for a provider
 
-  app.post("/api/social/sync/:provider", requireDbUser, async (req: any, res) => {
+  app.post("/api/social/sync/:provider", requireDbUser, requirePermission("social:connect:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;

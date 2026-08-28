@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { instantReviewRateLimit } from "../middlewares/rateLimit";
 import { requireDbUser } from "../middlewares/requireDbUser";
+import { requirePermission } from "../middlewares/requirePermission";
 import { generateInstantReview } from "../services/punditBrain";
 import { fetchArticleFromUrl } from "../services/urlFetcher";
 import { storage } from "../storage";
@@ -19,7 +20,7 @@ const updateDraftSchema = z.object({
 });
 
 export function registerDraftsRoutes(app: Express) {
-  app.get("/api/drafts", requireDbUser, async (req: any, res) => {
+  app.get("/api/drafts", requireDbUser, requirePermission("draft:read:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;
@@ -31,7 +32,7 @@ export function registerDraftsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/drafts", requireDbUser, async (req: any, res) => {
+  app.post("/api/drafts", requireDbUser, requirePermission("draft:write:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;
@@ -58,7 +59,7 @@ export function registerDraftsRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/drafts/:id", requireDbUser, async (req: any, res) => {
+  app.patch("/api/drafts/:id", requireDbUser, requirePermission("draft:write:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;
@@ -82,7 +83,7 @@ export function registerDraftsRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/drafts/:id", requireDbUser, async (req: any, res) => {
+  app.delete("/api/drafts/:id", requireDbUser, requirePermission("draft:write:own"), async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;
@@ -95,7 +96,7 @@ export function registerDraftsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/instant-review", requireDbUser, instantReviewRateLimit, async (req: any, res) => {
+  app.post("/api/instant-review", requireDbUser, requirePermission("generation:create:own"), instantReviewRateLimit, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
       const scope = req.tenant;
