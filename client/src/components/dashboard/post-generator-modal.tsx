@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { Linkedin, RefreshCw, Send, Save, Copy, Check, ExternalLink, X, Plus, Hash } from "lucide-react";
-import { SiX } from "react-icons/si";
+import { RefreshCw, Send, Save, Copy, Check, ExternalLink, X, Plus, Hash } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { PLATFORMS, getPlatformMeta } from "@/lib/platforms";
 import type { InboxItem } from "@shared/schema";
 
 interface PostGeneratorModalProps {
@@ -143,29 +143,19 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
       // clipboard failure non-fatal — proceed to open platform
     }
 
-    if (platform === "linkedin") {
-      const linkedInUrl = item?.articleUrl
-        ? `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(item.articleUrl)}`
-        : "https://www.linkedin.com/feed/?shareActive=true";
-      window.open(linkedInUrl, "_blank");
-      toast({
-        title: "Opening LinkedIn",
-        description: "Your post is copied — paste it into the LinkedIn composer and hit Post.",
-      });
-    } else {
-      const twitterText = full.substring(0, 280);
-      const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(twitterText)}`;
-      window.open(twitterUrl, "_blank");
-      toast({
-        title: "Opening Twitter/X",
-        description: "Your post is pre-filled and ready to send.",
-      });
-    }
+    const meta = getPlatformMeta(platform);
+    window.open(meta.composeUrl(full, item?.articleUrl), "_blank");
+    toast({
+      title: `Opening ${meta.label}`,
+      description: platform === "twitter"
+        ? "Your post is pre-filled and ready to send."
+        : `Your post is copied — paste it into the ${meta.label} composer and hit Post.`,
+    });
 
     onPost(platform, tone, full);
   };
 
-  const characterLimit = platform === "twitter" ? 280 : 3000;
+  const characterLimit = getPlatformMeta(platform).charLimit;
   const fullContent = getFullContent();
   const characterCount = fullContent.length;
 
@@ -192,24 +182,18 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
               <div className="space-y-3">
                 <Label className="text-sm font-medium">Platform</Label>
                 <div className="flex flex-col gap-2">
-                  <Button
-                    variant={platform === "linkedin" ? "default" : "outline"}
-                    className="justify-start w-full"
-                    onClick={() => handlePlatformChange("linkedin")}
-                    data-testid="toggle-linkedin"
-                  >
-                    <Linkedin className="w-4 h-4 mr-2" />
-                    LinkedIn
-                  </Button>
-                  <Button
-                    variant={platform === "twitter" ? "default" : "outline"}
-                    className="justify-start w-full"
-                    onClick={() => handlePlatformChange("twitter")}
-                    data-testid="toggle-twitter"
-                  >
-                    <SiX className="w-4 h-4 mr-2" />
-                    Twitter/X
-                  </Button>
+                  {PLATFORMS.map((p) => (
+                    <Button
+                      key={p.value}
+                      variant={platform === p.value ? "default" : "outline"}
+                      className="justify-start w-full"
+                      onClick={() => handlePlatformChange(p.value)}
+                      data-testid={`toggle-${p.value}`}
+                    >
+                      <p.icon className="w-4 h-4 mr-2" />
+                      {p.label}
+                    </Button>
+                  ))}
                 </div>
               </div>
 

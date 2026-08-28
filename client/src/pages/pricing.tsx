@@ -6,12 +6,14 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { SEO } from "@/components/seo";
 import { Link } from "wouter";
+import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
+import { fadeUp } from "@/lib/motion";
 
 const earlyAdopterFeatures = [
   { text: "10 Curated articles per day", included: true },
   { text: "Unlimited AI post generations", included: true },
   { text: "All 4 tonality styles", included: true },
-  { text: "LinkedIn + Twitter/X support", included: true },
+  { text: "23 platforms — LinkedIn to Reddit, Weibo, Mastodon & developer blogs", included: true },
   { text: "Hot Trends analysis", included: true },
   { text: "Instant Review (any URL)", included: true },
 ];
@@ -36,21 +38,22 @@ export default function Pricing() {
       <main className="flex-1">
         <section className="py-20 lg:py-28" data-testid="section-pricing">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-16">
-              <Badge className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 text-sm font-bold tracking-wider uppercase px-4 py-2 mb-6">
+            <Reveal variants={fadeUp} className="text-center mb-16">
+              <Badge className="bg-success/10 text-success border-success/20 text-sm font-bold tracking-wider uppercase px-4 py-2 mb-6">
                 Free for the First 1,000 Subscribers
               </Badge>
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-6" data-testid="text-pricing-headline">
+              <h1 className="heading-display mb-6" data-testid="text-pricing-headline">
                 Start building authority today.
               </h1>
               <p className="text-lg text-muted-foreground max-w-xl mx-auto">
                 We're opening TheSocialPundit to early adopters for free. Get full access while we grow together.
               </p>
-            </div>
+            </Reveal>
             
-            <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-              <Card className="p-8 relative bg-slate-900 dark:bg-slate-950 text-white border-slate-800" data-testid="card-pricing-early-adopter">
-                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-green-500 text-white">
+            <StaggerGroup className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+              <StaggerItem>
+              <Card className="p-8 relative bg-slate-900 dark:bg-slate-950 text-white border-slate-800 h-full" data-testid="card-pricing-early-adopter">
+                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-success text-success-foreground">
                   EARLY ADOPTER
                 </Badge>
                 
@@ -69,8 +72,8 @@ export default function Pricing() {
                   <ul className="space-y-3">
                     {earlyAdopterFeatures.map((feature, index) => (
                       <li key={index} className="flex items-center gap-3 text-sm">
-                        <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center">
-                          <Check className="w-3 h-3 text-white" />
+                        <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
+                          <Check className="w-3 h-3 text-success-foreground" />
                         </div>
                         <span>{feature.text}</span>
                       </li>
@@ -78,14 +81,16 @@ export default function Pricing() {
                   </ul>
                   
                   <Link href="/sign-up">
-                    <Button className="w-full bg-green-500 hover:bg-green-600" data-testid="button-start-free">
+                    <Button className="w-full bg-success hover:bg-success/90 text-success-foreground" data-testid="button-start-free">
                       Start Free Today
                     </Button>
                   </Link>
                 </div>
               </Card>
+              </StaggerItem>
               
-              <Card className="p-8 relative" data-testid="card-pricing-coming-soon">
+              <StaggerItem>
+              <Card className="p-8 relative h-full" data-testid="card-pricing-coming-soon">
                 <Badge variant="outline" className="absolute -top-3 left-1/2 -translate-x-1/2">
                   COMING SOON
                 </Badge>
@@ -114,14 +119,16 @@ export default function Pricing() {
                   </p>
                 </div>
               </Card>
-            </div>
+              </StaggerItem>
+            </StaggerGroup>
           </div>
         </section>
         
         <section className="py-16 lg:py-20" data-testid="section-enterprise">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <Reveal>
             <Card className="p-12 text-center bg-muted/30">
-              <h2 className="text-2xl sm:text-3xl font-bold mb-4" data-testid="text-enterprise-headline">
+              <h2 className="heading-section mb-4" data-testid="text-enterprise-headline">
                 Enterprise & Custom Solutions
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto mb-6">
@@ -131,6 +138,7 @@ export default function Pricing() {
                 Speak with our Founding Team <ArrowRight className="w-4 h-4" />
               </a>
             </Card>
+            </Reveal>
           </div>
         </section>
       </main>

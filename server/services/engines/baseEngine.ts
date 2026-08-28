@@ -2,6 +2,7 @@ import Parser from "rss-parser";
 import { GoogleGenAI } from "@google/genai";
 import { validateUrlSync } from "../urlValidator.js";
 import { resolvePublications } from "../publicationResolver.js";
+import { getCachedArticles } from "./articleCache.js";
 import type { 
   IIndustryEngine, 
   EngineConfig, 
@@ -66,19 +67,29 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
         }))
       : this.config.defaultFeeds;
 
-    const feedPromises = feeds.map((feed) => this.fetchFeed(feed));
-    const results = await Promise.allSettled(feedPromises);
-    
-    const articles: FetchedArticle[] = [];
-    results.forEach((result) => {
-      if (result.status === "fulfilled") {
-        articles.push(...result.value);
-      }
-    });
-    
-    articles.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
-    
-    return articles;
+    const doFetch = async (): Promise<FetchedArticle[]> => {
+      const feedPromises = feeds.map((feed) => this.fetchFeed(feed));
+      const results = await Promise.allSettled(feedPromises);
+
+      const articles: FetchedArticle[] = [];
+      results.forEach((result) => {
+        if (result.status === "fulfilled") {
+          articles.push(...result.value);
+        }
+      });
+
+      articles.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
+
+      return articles;
+    };
+
+    // Only cache the default-feeds path (the common case): custom per-user
+    // `sources` overrides are rare enough not to warrant their own cache key.
+    if (!sources?.length) {
+      return getCachedArticles(`industry:${this.config.industry}`, doFetch);
+    }
+
+    return doFetch();
   }
 
   async scoreArticles(

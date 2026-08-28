@@ -1,5 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { X, Check, Zap, AlertCircle } from "lucide-react";
+import { Reveal } from "@/components/motion/reveal";
+import { slideFromLeft, slideFromRight } from "@/lib/motion";
 
 const problemItems = [
   "You know you should post, but who has 2 hours?",
@@ -19,15 +21,18 @@ export function Comparison() {
   return (
     <section className="py-20 lg:py-28" data-testid="section-comparison">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-center mb-4">
-          Your expertise is invisible.
-        </h2>
-        <p className="text-lg text-muted-foreground text-center mb-16 max-w-2xl mx-auto">
-          You're great at what you do. But if you're not posting, no one knows. Here's how we fix that.
-        </p>
+        <Reveal>
+          <h2 className="heading-section text-center mb-4">
+            Your expertise is invisible.
+          </h2>
+          <p className="text-lg text-muted-foreground text-center mb-16 max-w-2xl mx-auto">
+            You're great at what you do. But if you're not posting, no one knows. Here's how we fix that.
+          </p>
+        </Reveal>
         
         <div className="grid md:grid-cols-2 gap-6 lg:gap-8">
-          <Card className="border-0 bg-muted/30">
+          <Reveal variants={slideFromLeft}>
+            <Card className="border-0 bg-muted/30 h-full">
             <CardContent className="p-6 lg:p-8">
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center">
@@ -44,9 +49,11 @@ export function Comparison() {
                 ))}
               </ul>
             </CardContent>
-          </Card>
+            </Card>
+          </Reveal>
           
-          <Card className="border-2 border-primary/30 bg-background">
+          <Reveal variants={slideFromRight} delay={0.1}>
+            <Card className="border-2 border-primary/30 bg-background h-full hover-lift">
             <CardContent className="p-6 lg:p-8">
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center">
@@ -63,7 +70,8 @@ export function Comparison() {
                 ))}
               </ul>
             </CardContent>
-          </Card>
+            </Card>
+          </Reveal>
         </div>
       </div>
     </section>

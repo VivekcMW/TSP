@@ -499,11 +499,177 @@ interface PostValidation {
   errors: string[];
 }
 
+export type PlatformKey = "linkedin" | "twitter" | "threads" | "bluesky" | "substack" | "medium" | "reddit" | "mastodon" | "devto" | "hashnode" | "quora" | "facebook" | "telegram" | "discord" | "farcaster" | "xiaohongshu" | "weibo" | "wechat" | "maimai" | "vk" | "line" | "naver" | "xing";
+
+interface PlatformSpec {
+  name: string;
+  charLimit: number;
+  maxHashtags: number;
+  voiceNotes: string;
+}
+
+// Specs for platforms generated via the shared prompt builder (LinkedIn and
+// Twitter keep their own bespoke, battle-tested prompt functions below).
+const PLATFORM_SPECS: Record<"threads" | "bluesky" | "substack" | "medium" | "reddit" | "mastodon" | "devto" | "hashnode" | "quora" | "facebook" | "telegram" | "discord" | "farcaster" | "xiaohongshu" | "weibo" | "wechat" | "maimai" | "vk" | "line" | "naver" | "xing", PlatformSpec> = {
+  threads: {
+    name: "Threads",
+    charLimit: 500,
+    maxHashtags: 2,
+    voiceNotes: "Conversational and direct, more casual than LinkedIn but still professional. Threads culture rewards a strong hook in the first line and short paragraphs.",
+  },
+  bluesky: {
+    name: "Bluesky",
+    charLimit: 300,
+    maxHashtags: 1,
+    voiceNotes: "Bluesky's audience is tech-savvy and skeptical of hype or marketing-speak. Hashtags are rare here; use at most one, only if it adds real discoverability.",
+  },
+  substack: {
+    name: "Substack Notes",
+    charLimit: 600,
+    maxHashtags: 0,
+    voiceNotes: "Substack Notes rewards a personal, writerly voice, like a short reflection from a newsletter worth subscribing to. No hashtags.",
+  },
+  medium: {
+    name: "Medium",
+    charLimit: 3000,
+    maxHashtags: 0,
+    voiceNotes: "This is a short-form Medium post, closer to a brief essay than a social post. Open with a strong first line that could stand alone as a hook, develop one clear argument across a few short paragraphs, and close with a considered final thought. No hashtags.",
+  },
+  reddit: {
+    name: "Reddit",
+    charLimit: 3000,
+    maxHashtags: 0,
+    voiceNotes: "Reddit actively punishes anything that reads as corporate, promotional, or LinkedIn-style thought leadership — it must sound like a genuine person posting to a community, not a brand. Be direct, specific, a little informal, comfortable with uncertainty or disagreement. No hashtags — Reddit doesn't use them. Open with a clear, concrete hook that could work as a post title on its own (Reddit text posts are titled), then develop the point in the body.",
+  },
+  mastodon: {
+    name: "Mastodon",
+    charLimit: 500,
+    maxHashtags: 3,
+    voiceNotes: "Mastodon's federated, tech-savvy audience is even more skeptical of corporate marketing tone than Bluesky's. Hashtags are actually used here for cross-instance discoverability (unlike Twitter), so 2-3 relevant ones at the end are normal and expected, not spammy.",
+  },
+  devto: {
+    name: "Dev.to",
+    charLimit: 3000,
+    maxHashtags: 0,
+    voiceNotes: "Dev.to is a developer blogging community. Write like an engineer sharing a real lesson learned, not a marketer. First-person, specific, comfortable admitting what didn't work. No inline hashtags — Dev.to uses a separate tagging system, not hashtags in the body.",
+  },
+  hashnode: {
+    name: "Hashnode",
+    charLimit: 3000,
+    maxHashtags: 0,
+    voiceNotes: "Hashnode is a developer blogging platform, similar culture to Dev.to: technical, personal, and practical rather than promotional. No inline hashtags — Hashnode uses a separate tagging system.",
+  },
+  quora: {
+    name: "Quora",
+    charLimit: 5000,
+    maxHashtags: 0,
+    voiceNotes: "This is a Quora answer, not a social post — write it as a genuinely useful, first-person answer to an implied question about this news, with real reasoning, not a teaser. Thoughtful and a little more formal than a social post, but still opinionated. No hashtags — Quora uses topic tags, not hashtags.",
+  },
+  facebook: {
+    name: "Facebook",
+    charLimit: 3000,
+    maxHashtags: 2,
+    voiceNotes: "Facebook Page audiences skew broader and less industry-insider than LinkedIn — write with the same opinion but slightly warmer, more conversational phrasing, and less jargon. At most 1-2 hashtags.",
+  },
+  telegram: {
+    name: "Telegram",
+    charLimit: 4000,
+    maxHashtags: 3,
+    voiceNotes: "This is a channel post — direct and information-dense, like a briefing to subscribers who chose to follow this specific topic. Hashtags are commonly used for in-channel topic discovery, 2-3 is normal.",
+  },
+  discord: {
+    name: "Discord",
+    charLimit: 2000,
+    maxHashtags: 0,
+    voiceNotes: "This is a community server announcement/update, not a broadcast post — casual, direct, written like talking to a community you're part of, not an audience. No hashtags — Discord doesn't use them.",
+  },
+  farcaster: {
+    name: "Farcaster",
+    charLimit: 320,
+    maxHashtags: 1,
+    voiceNotes: "Farcaster's audience is crypto/web3-native and highly allergic to corporate marketing tone — terse, technical, and confident, closer to Bluesky's skepticism of hype than LinkedIn's polish. At most one hashtag, only if it adds real discovery value.",
+  },
+  xiaohongshu: {
+    name: "Xiaohongshu (RedNote)",
+    charLimit: 1000,
+    maxHashtags: 5,
+    voiceNotes: "Xiaohongshu blends lifestyle and professional content — write it like a personal, practical share (a tip, a takeaway, a real reaction), not a corporate announcement. This platform's culture uses generous topic tags for discovery, so 3-5 relevant tags at the end is normal here (unlike most other platforms).",
+  },
+  weibo: {
+    name: "Weibo",
+    charLimit: 2000,
+    maxHashtags: 3,
+    voiceNotes: "Weibo is a fast-moving microblogging platform — punchy and immediate, similar energy to Twitter/X but with more room to develop a point. Topic hashtags (2-3) are commonly used for discovery here.",
+  },
+  wechat: {
+    name: "WeChat",
+    charLimit: 3000,
+    maxHashtags: 0,
+    voiceNotes: "This is a WeChat Official Account article/update — longer-form and more considered than a social post, written for a business audience that already follows this account. No hashtags — WeChat doesn't use them.",
+  },
+  maimai: {
+    name: "Maimai",
+    charLimit: 2000,
+    maxHashtags: 2,
+    voiceNotes: "Maimai is a workplace/career-focused professional network — candid, first-person takes on industry and career topics are rewarded here more than polished corporate messaging. At most 1-2 hashtags.",
+  },
+  vk: {
+    name: "VK",
+    charLimit: 3000,
+    maxHashtags: 3,
+    voiceNotes: "VK's audience is broad and general-purpose, similar to Facebook — conversational, accessible language rather than industry jargon. 2-3 hashtags is normal for discovery.",
+  },
+  line: {
+    name: "LINE",
+    charLimit: 1000,
+    maxHashtags: 0,
+    voiceNotes: "This is a LINE timeline/official account update — short, friendly, and mobile-first, written for a quick read. No hashtags — LINE doesn't use them.",
+  },
+  naver: {
+    name: "Naver Blog",
+    charLimit: 3000,
+    maxHashtags: 5,
+    voiceNotes: "Naver Blog rewards detailed, personal long-form posts — closer to a considered blog entry than a quick social update, with room to fully develop the argument. Naver's culture uses generous tags for search discovery, so 3-5 relevant tags at the end is normal.",
+  },
+  xing: {
+    name: "Xing",
+    charLimit: 2000,
+    maxHashtags: 3,
+    voiceNotes: "Xing serves the DACH region's professional network — similar audience to LinkedIn but skews slightly more formal and direct, in keeping with German-speaking business culture. 2-3 hashtags is normal.",
+  },
+};
+
+const PLATFORM_LIMITS: Record<PlatformKey, { charLimit: number; maxHashtags: number }> = {
+  linkedin: { charLimit: 3000, maxHashtags: 5 },
+  twitter: { charLimit: 280, maxHashtags: 2 },
+  threads: { charLimit: PLATFORM_SPECS.threads.charLimit, maxHashtags: PLATFORM_SPECS.threads.maxHashtags },
+  bluesky: { charLimit: PLATFORM_SPECS.bluesky.charLimit, maxHashtags: PLATFORM_SPECS.bluesky.maxHashtags },
+  substack: { charLimit: PLATFORM_SPECS.substack.charLimit, maxHashtags: PLATFORM_SPECS.substack.maxHashtags },
+  medium: { charLimit: PLATFORM_SPECS.medium.charLimit, maxHashtags: PLATFORM_SPECS.medium.maxHashtags },
+  reddit: { charLimit: PLATFORM_SPECS.reddit.charLimit, maxHashtags: PLATFORM_SPECS.reddit.maxHashtags },
+  mastodon: { charLimit: PLATFORM_SPECS.mastodon.charLimit, maxHashtags: PLATFORM_SPECS.mastodon.maxHashtags },
+  devto: { charLimit: PLATFORM_SPECS.devto.charLimit, maxHashtags: PLATFORM_SPECS.devto.maxHashtags },
+  hashnode: { charLimit: PLATFORM_SPECS.hashnode.charLimit, maxHashtags: PLATFORM_SPECS.hashnode.maxHashtags },
+  quora: { charLimit: PLATFORM_SPECS.quora.charLimit, maxHashtags: PLATFORM_SPECS.quora.maxHashtags },
+  facebook: { charLimit: PLATFORM_SPECS.facebook.charLimit, maxHashtags: PLATFORM_SPECS.facebook.maxHashtags },
+  telegram: { charLimit: PLATFORM_SPECS.telegram.charLimit, maxHashtags: PLATFORM_SPECS.telegram.maxHashtags },
+  discord: { charLimit: PLATFORM_SPECS.discord.charLimit, maxHashtags: PLATFORM_SPECS.discord.maxHashtags },
+  farcaster: { charLimit: PLATFORM_SPECS.farcaster.charLimit, maxHashtags: PLATFORM_SPECS.farcaster.maxHashtags },
+  xiaohongshu: { charLimit: PLATFORM_SPECS.xiaohongshu.charLimit, maxHashtags: PLATFORM_SPECS.xiaohongshu.maxHashtags },
+  weibo: { charLimit: PLATFORM_SPECS.weibo.charLimit, maxHashtags: PLATFORM_SPECS.weibo.maxHashtags },
+  wechat: { charLimit: PLATFORM_SPECS.wechat.charLimit, maxHashtags: PLATFORM_SPECS.wechat.maxHashtags },
+  maimai: { charLimit: PLATFORM_SPECS.maimai.charLimit, maxHashtags: PLATFORM_SPECS.maimai.maxHashtags },
+  vk: { charLimit: PLATFORM_SPECS.vk.charLimit, maxHashtags: PLATFORM_SPECS.vk.maxHashtags },
+  line: { charLimit: PLATFORM_SPECS.line.charLimit, maxHashtags: PLATFORM_SPECS.line.maxHashtags },
+  naver: { charLimit: PLATFORM_SPECS.naver.charLimit, maxHashtags: PLATFORM_SPECS.naver.maxHashtags },
+  xing: { charLimit: PLATFORM_SPECS.xing.charLimit, maxHashtags: PLATFORM_SPECS.xing.maxHashtags },
+};
+
 // Validate generated post content
 function validatePostContent(
   content: string,
   article: { headline: string; summary: string; source: string; articleUrl?: string },
-  platform: "linkedin" | "twitter"
+  platform: PlatformKey
 ): PostValidation {
   const errors: string[] = [];
   
@@ -523,17 +689,16 @@ function validatePostContent(
     errors.push(`Publication "${article.source}" not mentioned`);
   }
   
-  // Check character limits for Twitter
-  if (platform === "twitter" && content.length > 280) {
-    errors.push(`Tweet exceeds 280 characters (${content.length} chars)`);
+  // Check character limit for the target platform
+  const limits = PLATFORM_LIMITS[platform];
+  if (content.length > limits.charLimit) {
+    errors.push(`Post exceeds ${limits.charLimit} characters (${content.length} chars)`);
   }
   
-  // Check hashtag count for Twitter (max 2)
-  if (platform === "twitter") {
-    const hashtagCount = (content.match(/#\w+/g) || []).length;
-    if (hashtagCount > 2) {
-      errors.push(`Too many hashtags (${hashtagCount}, max 2)`);
-    }
+  // Check hashtag count for the target platform
+  const hashtagCount = (content.match(/#\w+/g) || []).length;
+  if (hashtagCount > limits.maxHashtags) {
+    errors.push(`Too many hashtags (${hashtagCount}, max ${limits.maxHashtags})`);
   }
   
   // Check for URL shorteners (not allowed)
@@ -704,19 +869,20 @@ Return ONLY the tweet. No explanation. No quotes.`;
 // Generate compliant fallback post
 function generateFallbackPost(
   article: { headline: string; summary: string; source: string; articleUrl?: string },
-  platform: "linkedin" | "twitter",
+  platform: PlatformKey,
   tone: string
 ): string {
   const url = article.articleUrl || "";
   const source = article.source;
+  const limit = PLATFORM_LIMITS[platform].charLimit;
 
-  if (platform === "twitter") {
+  if (limit <= 600) {
     const baseText = `Worth reading. ${source} covers this well.`;
-    const tweet = url ? `${baseText}\n\n${url}` : baseText;
-    return tweet.substring(0, 280);
+    const short = url ? `${baseText}\n\n${url}` : baseText;
+    return short.substring(0, limit);
   }
 
-  return `This keeps coming up in every serious conversation I have right now.
+  const long = `This keeps coming up in every serious conversation I have right now.
 
 ${source} put out a piece worth your time. Not because it breaks new ground. Because it names something most people are dancing around.
 
@@ -725,6 +891,51 @@ The gap between teams that get this and teams that don't is widening fast. And i
 Read it, then think about where you stand.
 
 ${url}`.trim();
+  return long.substring(0, limit);
+}
+
+// Generate a prompt for any platform not covered by the bespoke LinkedIn/Twitter functions above.
+function getGenericPlatformPrompt(
+  article: { headline: string; summary: string; source: string; articleUrl?: string },
+  tone: string,
+  userContext: string | undefined,
+  spec: PlatformSpec,
+): string {
+  return `You are writing a ${spec.name} post in the voice of a confident industry professional who just read this article and has a specific reaction to share.
+${VOICE_STYLE_GUIDE}
+PLATFORM VOICE: ${spec.voiceNotes}
+
+ARTICLE REFERENCE:
+Headline: ${article.headline}
+Source: ${article.source}
+${article.articleUrl ? `URL: ${article.articleUrl}` : ""}
+Summary (context only — do NOT summarize this): ${article.summary}
+
+TONE: ${tone}
+${userContext ? `USER CONTEXT: ${userContext}` : ""}
+
+WHAT TO WRITE:
+- React to the article with a specific opinion. Don't summarize it.
+- Mention "${article.source}" by name naturally somewhere in the body.
+${article.articleUrl ? `- Include the URL once, at the end: ${article.articleUrl}` : "- No URL available. Don't include placeholder text like [URL]."}
+- Keep it under ${spec.charLimit} characters total, including the URL.
+- Use at most ${spec.maxHashtags} hashtag${spec.maxHashtags === 1 ? "" : "s"}${spec.maxHashtags === 0 ? " — do not use any hashtags." : "."}
+
+HOW TO OPEN:
+Don't open with the article headline. Don't start with "I just read..." or "This article says..."
+Open with your reaction: a specific fact, a number, a blunt take, or a direct contradiction of conventional wisdom.
+
+HOW TO CLOSE:
+End with a statement or sharp observation. Not a question. Not "What do you think?"
+
+HARD RULES:
+- Never copy article language verbatim.
+- Mention "${article.source}" by name.
+${article.articleUrl ? `- Include this URL exactly once: ${article.articleUrl}` : "- No placeholder URLs."}
+- One link only. No tracking parameters. No shortened URLs.
+- Never exceed ${spec.charLimit} characters.
+
+Return ONLY the post content. No explanation. No quotes around it. No markdown.`;
 }
 
 export interface InstantReviewResult {
@@ -788,7 +999,7 @@ export async function generateInstantReview(
 
 export async function generatePostContent(
   article: { headline: string; summary: string; source: string; articleUrl?: string },
-  platform: "linkedin" | "twitter",
+  platform: PlatformKey,
   tone: string,
   userContext?: string
 ): Promise<string> {
@@ -799,9 +1010,14 @@ export async function generatePostContent(
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       // Build platform-specific prompt
-      let prompt = platform === "linkedin" 
-        ? getLinkedInPrompt(article, tone, userContext)
-        : getTwitterPrompt(article, tone, userContext);
+      let prompt: string;
+      if (platform === "linkedin") {
+        prompt = getLinkedInPrompt(article, tone, userContext);
+      } else if (platform === "twitter") {
+        prompt = getTwitterPrompt(article, tone, userContext);
+      } else {
+        prompt = getGenericPlatformPrompt(article, tone, userContext, PLATFORM_SPECS[platform]);
+      }
       
       // Add retry feedback if this is a retry
       if (attempt > 0 && lastErrors.length > 0) {

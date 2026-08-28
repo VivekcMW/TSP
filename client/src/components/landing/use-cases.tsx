@@ -1,5 +1,6 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Rocket, TrendingUp, Users, Briefcase } from "lucide-react";
+import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
 
 const roles = [
   {
@@ -28,26 +29,30 @@ export function UseCases() {
   return (
     <section className="py-20 lg:py-28" data-testid="section-use-cases">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-center mb-4">
-          Built for busy professionals.
-        </h2>
-        <p className="text-lg text-muted-foreground text-center mb-16 max-w-2xl mx-auto">
-          You're the expert in your field. Let's make sure everyone knows it.
-        </p>
+        <Reveal>
+          <h2 className="heading-section text-center mb-4">
+            Built for busy professionals.
+          </h2>
+          <p className="text-lg text-muted-foreground text-center mb-16 max-w-2xl mx-auto">
+            You're the expert in your field. Let's make sure everyone knows it.
+          </p>
+        </Reveal>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <StaggerGroup className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {roles.map((role, index) => (
-            <Card key={index} className="border-0 bg-muted/30 hover-elevate" data-testid={`card-role-${index}`}>
-              <CardContent className="p-6">
-                <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center mb-4">
-                  <role.icon className="w-6 h-6 text-muted-foreground" />
-                </div>
-                <h3 className="text-lg font-semibold mb-2">{role.title}</h3>
-                <p className="text-sm text-muted-foreground">{role.description}</p>
-              </CardContent>
-            </Card>
+            <StaggerItem key={index}>
+              <Card className="border-0 bg-muted/30 hover-elevate hover-lift h-full" data-testid={`card-role-${index}`}>
+                <CardContent className="p-6">
+                  <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center mb-4">
+                    <role.icon className="w-6 h-6 text-muted-foreground" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">{role.title}</h3>
+                  <p className="text-sm text-muted-foreground">{role.description}</p>
+                </CardContent>
+              </Card>
+            </StaggerItem>
           ))}
-        </div>
+        </StaggerGroup>
       </div>
     </section>
   );

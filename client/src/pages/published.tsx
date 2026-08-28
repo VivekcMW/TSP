@@ -1,7 +1,7 @@
-import { Send, Linkedin, ExternalLink, Heart, MessageCircle, Repeat2 } from "lucide-react";
-import { SiX } from "react-icons/si";
+import { Send, ExternalLink, Heart, MessageCircle, Repeat2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { getPlatformMeta } from "@/lib/platforms";
 
 const samplePublished = [
   {
@@ -60,12 +60,11 @@ export default function PublishedPage() {
                   <div className="flex items-start justify-between gap-4 mb-3">
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="gap-1">
-                        {post.platform === "linkedin" ? (
-                          <Linkedin className="w-3 h-3" />
-                        ) : (
-                          <SiX className="w-3 h-3" />
-                        )}
-                        {post.platform}
+                        {(() => {
+                          const Icon = getPlatformMeta(post.platform).icon;
+                          return <Icon className="w-3 h-3" />;
+                        })()}
+                        {getPlatformMeta(post.platform).label}
                       </Badge>
                     </div>
                     <div className="flex items-center gap-2">
