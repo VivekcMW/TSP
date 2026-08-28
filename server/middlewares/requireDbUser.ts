@@ -126,6 +126,33 @@ export async function requireDbUser(req: Request, res: Response, next: NextFunct
   }
 }
 
+export interface AuthedContext {
+  dbUser: UserRow;
+  tenant: TenantContext;
+}
+
+/**
+ * Narrows a request that has already passed requireDbUser.
+ *
+ * The Express augmentation must declare dbUser and tenant as optional, since
+ * they are absent before this middleware runs — but every handler mounted
+ * behind it needs them as definite. This is the one place that assertion is
+ * made, so handlers can be typed instead of falling back to `req: any`, which
+ * silently disabled checking on both fields.
+ *
+ * Throws rather than returning undefined: arriving here without them is a
+ * middleware wiring error, not a runtime condition worth branching on.
+ */
+export function authedOf(req: Request): AuthedContext {
+  const { dbUser, tenant } = req;
+  if (!dbUser || !tenant) {
+    throw new Error(
+      "authedOf() called on a request that did not pass requireDbUser — check middleware order",
+    );
+  }
+  return { dbUser, tenant };
+}
+
 function tenantHeader(req: Request): string | undefined {
   const raw = req.headers[TENANT_HEADER];
   const value = Array.isArray(raw) ? raw[0] : raw;

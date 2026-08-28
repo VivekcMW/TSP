@@ -227,7 +227,11 @@ describe("tenant isolation: analytics", () => {
       socialAccountId: created.id,
       provider: "linkedin",
       snapshotDate: new Date(),
-      metrics: { followers: 100 },
+      metrics: {
+        followers: 100, following: 10, posts: 5, impressions: 1000,
+        engagements: 50, engagementRate: 5, likes: 40, comments: 8,
+        shares: 2, clicks: 12,
+      },
     });
 
     expect(await storage.getSocialAnalytics(a)).toHaveLength(0);

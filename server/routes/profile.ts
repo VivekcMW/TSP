@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { db } from "../db";
-import { requireDbUser } from "../middlewares/requireDbUser";
+import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
 import { engineRegistry } from "../services/engines/index.js";
 import { storage } from "../storage";
@@ -31,10 +31,10 @@ function sanitizeOnboardingData(data: any) {
 }
 
 export function registerProfileRoutes(app: Express) {
-  app.get("/api/profile", requireDbUser, requirePermission("profile:read:own"), async (req: any, res) => {
+  app.get("/api/profile", requireDbUser, requirePermission("profile:read:own"), async (req, res) => {
     try {
-      const userId = req.dbUser.id;
-      const scope = req.tenant;
+      const { dbUser, tenant: scope } = authedOf(req);
+      const userId = dbUser.id;
       
       if (!userId) {
         console.error("No user ID found in request");
@@ -60,10 +60,10 @@ export function registerProfileRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/profile", requireDbUser, requirePermission("profile:write:own"), async (req: any, res) => {
+  app.patch("/api/profile", requireDbUser, requirePermission("profile:write:own"), async (req, res) => {
     try {
-      const userId = req.dbUser.id;
-      const scope = req.tenant;
+      const { dbUser, tenant: scope } = authedOf(req);
+      const userId = dbUser.id;
       const { focusDescription, publications, keywords, influencers, companies } = req.body;
       
       const existingProfile = await storage.getUserProfile(scope);
@@ -87,10 +87,10 @@ export function registerProfileRoutes(app: Express) {
     }
   });
 
-  app.post("/api/profile/complete-onboarding", requireDbUser, requirePermission("profile:write:own"), async (req: any, res) => {
+  app.post("/api/profile/complete-onboarding", requireDbUser, requirePermission("profile:write:own"), async (req, res) => {
     try {
-      const userId = req.dbUser.id;
-      const scope = req.tenant;
+      const { dbUser, tenant: scope } = authedOf(req);
+      const userId = dbUser.id;
       
       // Sanitize data before validation to prevent truncation errors
       const sanitizedBody = sanitizeOnboardingData(req.body);

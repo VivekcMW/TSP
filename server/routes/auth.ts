@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { db } from "../db";
 import { toSafeUser } from "../lib/sanitize";
-import { requireDbUser } from "../middlewares/requireDbUser";
+import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
 import { sendWelcomeEmail } from "../services/emailService";
 import { users } from "@shared/models/auth";
 import { eq } from "drizzle-orm";
@@ -15,13 +15,14 @@ const completeRegistrationSchema = z.object({
 });
 
 export function registerAuthRoutes(app: Express) {
-  app.get("/api/me", requireDbUser, (req: any, res) => {
-    res.json(toSafeUser(req.dbUser));
+  app.get("/api/me", requireDbUser, (req, res) => {
+    res.json(toSafeUser(authedOf(req).dbUser));
   });
 
-  app.post("/api/complete-registration", requireDbUser, async (req: any, res) => {
+  app.post("/api/complete-registration", requireDbUser, async (req, res) => {
     try {
-      const userId = req.dbUser.id;
+      const { dbUser } = authedOf(req);
+      const userId = dbUser.id;
 
       const validation = completeRegistrationSchema.safeParse(req.body);
       if (!validation.success) {

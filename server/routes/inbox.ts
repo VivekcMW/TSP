@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { inboxRefreshRateLimit } from "../middlewares/rateLimit";
-import { requireDbUser } from "../middlewares/requireDbUser";
+import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
 import { engineRegistry } from "../services/engines/index.js";
 import { normalizeIndustryToSlug } from "../services/metaEngine";
@@ -15,10 +15,10 @@ const updateInboxItemSchema = z.object({
 });
 
 export function registerInboxRoutes(app: Express) {
-  app.get("/api/inbox", requireDbUser, requirePermission("inbox:read:own"), async (req: any, res) => {
+  app.get("/api/inbox", requireDbUser, requirePermission("inbox:read:own"), async (req, res) => {
     try {
-      const userId = req.dbUser.id;
-      const scope = req.tenant;
+      const { dbUser, tenant: scope } = authedOf(req);
+      const userId = dbUser.id;
       const items = await storage.getInboxItems(scope);
       res.json(items);
     } catch (error) {
@@ -27,9 +27,9 @@ export function registerInboxRoutes(app: Express) {
     }
   });
 
-  app.get("/api/engines", requireDbUser, requirePermission("inbox:read:own"), async (req: any, res) => {
+  app.get("/api/engines", requireDbUser, requirePermission("inbox:read:own"), async (req, res) => {
     try {
-      const industry = normalizeIndustryToSlug(req.dbUser.industry);
+      const industry = normalizeIndustryToSlug(authedOf(req).dbUser.industry);
       
       const currentEngine = engineRegistry.getEngine(industry);
       const allEngines = Array.from(engineRegistry.getAllEngines().entries()).map(([slug, engine]) => ({
@@ -55,9 +55,9 @@ export function registerInboxRoutes(app: Express) {
     }
   });
 
-  app.get("/api/trends", requireDbUser, requirePermission("inbox:read:own"), async (req: any, res) => {
+  app.get("/api/trends", requireDbUser, requirePermission("inbox:read:own"), async (req, res) => {
     try {
-      const industry = normalizeIndustryToSlug(req.dbUser.industry);
+      const industry = normalizeIndustryToSlug(authedOf(req).dbUser.industry);
       
       const engine = engineRegistry.getEngine(industry);
       const trends = await engine.getHotTrends(5);
@@ -68,17 +68,17 @@ export function registerInboxRoutes(app: Express) {
     }
   });
 
-  app.post("/api/inbox/refresh", requireDbUser, requirePermission("inbox:write:own"), inboxRefreshRateLimit, async (req: any, res) => {
+  app.post("/api/inbox/refresh", requireDbUser, requirePermission("inbox:write:own"), inboxRefreshRateLimit, async (req, res) => {
     try {
-      const userId = req.dbUser.id;
-      const scope = req.tenant;
+      const { dbUser, tenant: scope } = authedOf(req);
+      const userId = dbUser.id;
       
       const profile = await storage.getUserProfile(scope);
       if (!profile) {
         return res.status(400).json({ message: "Profile not found. Please complete onboarding first." });
       }
       
-      const industry = normalizeIndustryToSlug(req.dbUser.industry);
+      const industry = normalizeIndustryToSlug(authedOf(req).dbUser.industry);
       
       const engine = engineRegistry.getEngine(industry);
       console.log(`[Inbox Refresh] Using ${engine.config.displayName} engine for user ${userId}`);
@@ -180,10 +180,10 @@ export function registerInboxRoutes(app: Express) {
     }
   });
 
-  app.post("/api/inbox/add-trend", requireDbUser, requirePermission("inbox:write:own"), async (req: any, res) => {
+  app.post("/api/inbox/add-trend", requireDbUser, requirePermission("inbox:write:own"), async (req, res) => {
     try {
-      const userId = req.dbUser.id;
-      const scope = req.tenant;
+      const { dbUser, tenant: scope } = authedOf(req);
+      const userId = dbUser.id;
       const { title, source, link, topic } = req.body;
       
       if (!link || !title) {
@@ -221,10 +221,10 @@ export function registerInboxRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/inbox/:id", requireDbUser, requirePermission("inbox:write:own"), async (req: any, res) => {
+  app.patch("/api/inbox/:id", requireDbUser, requirePermission("inbox:write:own"), async (req, res) => {
     try {
-      const userId = req.dbUser.id;
-      const scope = req.tenant;
+      const { dbUser, tenant: scope } = authedOf(req);
+      const userId = dbUser.id;
       const { id } = req.params;
       
       const validation = updateInboxItemSchema.safeParse(req.body);

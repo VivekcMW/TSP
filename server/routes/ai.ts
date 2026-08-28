@@ -7,7 +7,7 @@ import { analyzeProfessionalIdentity, generatePostContent } from "../services/pu
 import { type PlatformKey } from "../services/punditBrain";
 
 export function registerAiRoutes(app: Express) {
-  app.post("/api/ai/analyze-identity", requireDbUser, requirePermission("generation:create:own"), aiGenerationRateLimit, async (req: any, res) => {
+  app.post("/api/ai/analyze-identity", requireDbUser, requirePermission("generation:create:own"), aiGenerationRateLimit, async (req, res) => {
     try {
       const { focusDescription, selectedIndustry } = req.body;
       
@@ -44,7 +44,7 @@ export function registerAiRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ai/select-engine", requireDbUser, requirePermission("generation:create:own"), aiGenerationRateLimit, async (req: any, res) => {
+  app.post("/api/ai/select-engine", requireDbUser, requirePermission("generation:create:own"), aiGenerationRateLimit, async (req, res) => {
     try {
       const { selectedIndustry, focusDescription } = req.body;
       
@@ -71,7 +71,7 @@ export function registerAiRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ai/generate-post", requireDbUser, requirePermission("generation:create:own"), aiGenerationRateLimit, async (req: any, res) => {
+  app.post("/api/ai/generate-post", requireDbUser, requirePermission("generation:create:own"), aiGenerationRateLimit, async (req, res) => {
     try {
       const { headline, summary, source, articleUrl, platform, tone } = req.body;
       

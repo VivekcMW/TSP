@@ -1,13 +1,13 @@
 import type { Express } from "express";
-import { requireDbUser } from "../middlewares/requireDbUser";
+import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
 import { storage } from "../storage";
 
 export function registerAnalyticsRoutes(app: Express) {
-  app.get("/api/analytics/summary", requireDbUser, requirePermission("analytics:read:own"), async (req: any, res) => {
+  app.get("/api/analytics/summary", requireDbUser, requirePermission("analytics:read:own"), async (req, res) => {
     try {
-      const userId = req.dbUser.id;
-      const scope = req.tenant;
+      const { dbUser, tenant: scope } = authedOf(req);
+      const userId = dbUser.id;
       const accounts = await storage.getSocialAccounts(scope);
       
       const summary: any = {
@@ -83,10 +83,10 @@ export function registerAnalyticsRoutes(app: Express) {
 
   // Get provider-specific analytics with history
 
-  app.get("/api/analytics/:provider", requireDbUser, requirePermission("analytics:read:own"), async (req: any, res) => {
+  app.get("/api/analytics/:provider", requireDbUser, requirePermission("analytics:read:own"), async (req, res) => {
     try {
-      const userId = req.dbUser.id;
-      const scope = req.tenant;
+      const { dbUser, tenant: scope } = authedOf(req);
+      const userId = dbUser.id;
       const { provider } = req.params;
       const daysBack = parseInt(req.query.days as string) || 30;
       

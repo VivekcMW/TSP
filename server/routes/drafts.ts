@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { instantReviewRateLimit } from "../middlewares/rateLimit";
-import { requireDbUser } from "../middlewares/requireDbUser";
+import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
 import { generateInstantReview } from "../services/punditBrain";
 import { fetchArticleFromUrl } from "../services/urlFetcher";
@@ -20,10 +20,10 @@ const updateDraftSchema = z.object({
 });
 
 export function registerDraftsRoutes(app: Express) {
-  app.get("/api/drafts", requireDbUser, requirePermission("draft:read:own"), async (req: any, res) => {
+  app.get("/api/drafts", requireDbUser, requirePermission("draft:read:own"), async (req, res) => {
     try {
-      const userId = req.dbUser.id;
-      const scope = req.tenant;
+      const { dbUser, tenant: scope } = authedOf(req);
+      const userId = dbUser.id;
       const userDrafts = await storage.getDrafts(scope);
       res.json(userDrafts);
     } catch (error) {
@@ -32,10 +32,10 @@ export function registerDraftsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/drafts", requireDbUser, requirePermission("draft:write:own"), async (req: any, res) => {
+  app.post("/api/drafts", requireDbUser, requirePermission("draft:write:own"), async (req, res) => {
     try {
-      const userId = req.dbUser.id;
-      const scope = req.tenant;
+      const { dbUser, tenant: scope } = authedOf(req);
+      const userId = dbUser.id;
       
       const validation = createDraftSchema.safeParse(req.body);
       if (!validation.success) {
@@ -59,10 +59,10 @@ export function registerDraftsRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/drafts/:id", requireDbUser, requirePermission("draft:write:own"), async (req: any, res) => {
+  app.patch("/api/drafts/:id", requireDbUser, requirePermission("draft:write:own"), async (req, res) => {
     try {
-      const userId = req.dbUser.id;
-      const scope = req.tenant;
+      const { dbUser, tenant: scope } = authedOf(req);
+      const userId = dbUser.id;
       const { id } = req.params;
       
       const validation = updateDraftSchema.safeParse(req.body);
@@ -83,10 +83,10 @@ export function registerDraftsRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/drafts/:id", requireDbUser, requirePermission("draft:write:own"), async (req: any, res) => {
+  app.delete("/api/drafts/:id", requireDbUser, requirePermission("draft:write:own"), async (req, res) => {
     try {
-      const userId = req.dbUser.id;
-      const scope = req.tenant;
+      const { dbUser, tenant: scope } = authedOf(req);
+      const userId = dbUser.id;
       const { id } = req.params;
       await storage.deleteDraft(scope, id);
       res.json({ success: true });
@@ -96,10 +96,10 @@ export function registerDraftsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/instant-review", requireDbUser, requirePermission("generation:create:own"), instantReviewRateLimit, async (req: any, res) => {
+  app.post("/api/instant-review", requireDbUser, requirePermission("generation:create:own"), instantReviewRateLimit, async (req, res) => {
     try {
-      const userId = req.dbUser.id;
-      const scope = req.tenant;
+      const { dbUser, tenant: scope } = authedOf(req);
+      const userId = dbUser.id;
       const { url } = req.body;
       
       if (!url || typeof url !== "string") {
