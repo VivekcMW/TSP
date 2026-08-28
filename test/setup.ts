@@ -5,6 +5,11 @@
  */
 process.env.DATABASE_URL =
   process.env.TEST_DATABASE_URL ??
+  // As the restricted role, so tests exercise the same RLS the app does.
+  "postgresql://tsp_app:tsp_app_local@localhost:5433/thesocialpundit_test";
+
+// Fixtures and raw assertions need to bypass RLS. See test/db-owner.ts.
+process.env.OWNER_TEST_DATABASE_URL ??=
   "postgresql://localhost:5433/thesocialpundit_test";
 
 // Never let a stray .env value turn authentication off inside the suite.

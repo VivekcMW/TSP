@@ -10,7 +10,8 @@ vi.mock("@clerk/express", () => ({
 }));
 
 import { clerkClient, getAuth } from "@clerk/express";
-import { db, pool } from "../db";
+import { pool } from "../db";
+import { ownerDb, ownerPool } from "../../test/db-owner";
 import { users } from "@shared/models/auth";
 import { requireDbUser } from "./requireDbUser";
 
@@ -42,11 +43,12 @@ function clerkUser(overrides: Record<string, unknown> = {}) {
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  await db.delete(users);
+  await ownerDb.delete(users);
 });
 
 afterAll(async () => {
   await pool.end();
+  await ownerPool.end();
 });
 
 describe("requireDbUser", () => {
@@ -60,7 +62,7 @@ describe("requireDbUser", () => {
   });
 
   it("resolves an existing row without calling the Clerk Backend API", async () => {
-    await db.insert(users).values({ id: "user_existing", email: "existing@example.test" });
+    await ownerDb.insert(users).values({ id: "user_existing", email: "existing@example.test" });
     signedInAs("user_existing");
 
     const res = await request(appWithProbe()).get("/probe");
@@ -82,7 +84,7 @@ describe("requireDbUser", () => {
     expect(res.body).toEqual({ id: "user_new", email: "ada@example.test" });
     expect(mockGetUser).toHaveBeenCalledWith("user_new");
 
-    const [row] = await db.select().from(users);
+    const [row] = await ownerDb.select().from(users);
     expect(row).toMatchObject({
       id: "user_new",
       email: "ada@example.test",
@@ -103,7 +105,7 @@ describe("requireDbUser", () => {
     // it cannot fix. This is a data problem, so it must be terminal.
     expect(res.status).toBe(422);
     expect(res.body.message).toMatch(/primary email/i);
-    expect(await db.select().from(users)).toHaveLength(0);
+    expect(await ownerDb.select().from(users)).toHaveLength(0);
   });
 
   it("survives two concurrent first requests without erroring or duplicating", async () => {
@@ -117,7 +119,7 @@ describe("requireDbUser", () => {
     ]);
 
     expect([a.status, b.status]).toEqual([200, 200]);
-    expect(await db.select().from(users)).toHaveLength(1);
+    expect(await ownerDb.select().from(users)).toHaveLength(1);
   });
 
   it("returns 500 when the Clerk Backend API fails", async () => {

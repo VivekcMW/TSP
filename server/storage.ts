@@ -9,7 +9,10 @@ import {
   type SocialAnalyticsSnapshot, type InsertSocialAnalytics
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, gte } from "drizzle-orm";
+import { eq, and, desc, gte, sql } from "drizzle-orm";
+
+/** A transaction handle, as drizzle hands it to the transaction callback. */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * Tenant-scoped data access.
@@ -70,6 +73,25 @@ export interface IStorage {
   createSocialAnalytics(scope: TenantScope, analytics: Scoped<InsertSocialAnalytics>): Promise<SocialAnalyticsSnapshot>;
 }
 
+/**
+ * Runs a query inside a transaction with app.tenant_id set transaction-locally,
+ * which is what activates the Row-Level Security policies (migration 0002).
+ *
+ * Transaction-local (`set_config(..., true)`) is essential: a session-level
+ * setting would leak to the next request that borrowed the same pooled
+ * connection, which is worse than having no policy at all.
+ *
+ * This costs a BEGIN/SET/COMMIT per repository call. Acceptable at current
+ * scale; the architecture spec's request-scoped transaction is the fix when it
+ * stops being.
+ */
+async function scoped<T>(scope: TenantScope, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select set_config('app.tenant_id', ${scope.tenantId}, true)`);
+    return fn(tx);
+  });
+}
+
 export class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -79,73 +101,85 @@ export class DatabaseStorage implements IStorage {
   // ---------------------------------------------------------------- profiles
 
   async getUserProfile(scope: TenantScope): Promise<UserProfile | undefined> {
-    const [profile] = await db
-      .select()
-      .from(userProfiles)
-      .where(and(eq(userProfiles.tenantId, scope.tenantId), eq(userProfiles.userId, scope.userId)));
-    return profile || undefined;
+    return scoped(scope, async (tx) => {
+      const [profile] = await tx
+        .select()
+        .from(userProfiles)
+        .where(and(eq(userProfiles.tenantId, scope.tenantId), eq(userProfiles.userId, scope.userId)));
+      return profile || undefined;
+    });
   }
 
   async createUserProfile(scope: TenantScope, profile: Scoped<InsertUserProfile>): Promise<UserProfile> {
-    const [newProfile] = await db
-      .insert(userProfiles)
-      .values({ ...profile, tenantId: scope.tenantId, userId: scope.userId })
-      .returning();
-    return newProfile;
+    return scoped(scope, async (tx) => {
+      const [newProfile] = await tx
+        .insert(userProfiles)
+        .values({ ...profile, tenantId: scope.tenantId, userId: scope.userId })
+        .returning();
+      return newProfile;
+    });
   }
 
   async updateUserProfile(
     scope: TenantScope,
     data: Partial<Scoped<InsertUserProfile>>,
   ): Promise<UserProfile | undefined> {
-    // Allowlisted rather than spread, so an unexpected key cannot reach the
-    // update — including tenantId or userId.
-    const safeData: Record<string, unknown> = { updatedAt: new Date() };
-    if (data.focusDescription !== undefined) safeData.focusDescription = data.focusDescription;
-    if (data.onboardingStatus !== undefined) safeData.onboardingStatus = data.onboardingStatus;
-    if (data.publications !== undefined) safeData.publications = data.publications;
-    if (data.keywords !== undefined) safeData.keywords = data.keywords;
-    if (data.influencers !== undefined) safeData.influencers = data.influencers;
-    if (data.companies !== undefined) safeData.companies = data.companies;
+    return scoped(scope, async (tx) => {
+      // Allowlisted rather than spread, so an unexpected key cannot reach the
+      // update — including tenantId or userId.
+      const safeData: Record<string, unknown> = { updatedAt: new Date() };
+      if (data.focusDescription !== undefined) safeData.focusDescription = data.focusDescription;
+      if (data.onboardingStatus !== undefined) safeData.onboardingStatus = data.onboardingStatus;
+      if (data.publications !== undefined) safeData.publications = data.publications;
+      if (data.keywords !== undefined) safeData.keywords = data.keywords;
+      if (data.influencers !== undefined) safeData.influencers = data.influencers;
+      if (data.companies !== undefined) safeData.companies = data.companies;
 
-    const [updated] = await db
-      .update(userProfiles)
-      .set(safeData)
-      .where(and(eq(userProfiles.tenantId, scope.tenantId), eq(userProfiles.userId, scope.userId)))
-      .returning();
-    return updated || undefined;
+      const [updated] = await tx
+        .update(userProfiles)
+        .set(safeData)
+        .where(and(eq(userProfiles.tenantId, scope.tenantId), eq(userProfiles.userId, scope.userId)))
+        .returning();
+      return updated || undefined;
+    });
   }
 
   // ------------------------------------------------------------------- inbox
 
   async getInboxItems(scope: TenantScope): Promise<InboxItem[]> {
-    return db
-      .select()
-      .from(inboxItems)
-      .where(and(eq(inboxItems.tenantId, scope.tenantId), eq(inboxItems.userId, scope.userId)))
-      .orderBy(desc(inboxItems.createdAt));
+    return scoped(scope, async (tx) => {
+      return tx
+        .select()
+        .from(inboxItems)
+        .where(and(eq(inboxItems.tenantId, scope.tenantId), eq(inboxItems.userId, scope.userId)))
+        .orderBy(desc(inboxItems.createdAt));
+    });
   }
 
   async getInboxItemByUrl(scope: TenantScope, articleUrl: string): Promise<InboxItem | undefined> {
-    const [item] = await db
-      .select()
-      .from(inboxItems)
-      .where(
-        and(
-          eq(inboxItems.tenantId, scope.tenantId),
-          eq(inboxItems.userId, scope.userId),
-          eq(inboxItems.articleUrl, articleUrl),
-        ),
-      );
-    return item || undefined;
+    return scoped(scope, async (tx) => {
+      const [item] = await tx
+        .select()
+        .from(inboxItems)
+        .where(
+          and(
+            eq(inboxItems.tenantId, scope.tenantId),
+            eq(inboxItems.userId, scope.userId),
+            eq(inboxItems.articleUrl, articleUrl),
+          ),
+        );
+      return item || undefined;
+    });
   }
 
   async createInboxItem(scope: TenantScope, item: Scoped<InsertInboxItem>): Promise<InboxItem> {
-    const [newItem] = await db
-      .insert(inboxItems)
-      .values({ ...item, tenantId: scope.tenantId, userId: scope.userId })
-      .returning();
-    return newItem;
+    return scoped(scope, async (tx) => {
+      const [newItem] = await tx
+        .insert(inboxItems)
+        .values({ ...item, tenantId: scope.tenantId, userId: scope.userId })
+        .returning();
+      return newItem;
+    });
   }
 
   async updateInboxItem(
@@ -153,42 +187,50 @@ export class DatabaseStorage implements IStorage {
     id: string,
     data: { status: string },
   ): Promise<InboxItem | undefined> {
-    const [updated] = await db
-      .update(inboxItems)
-      .set({ status: data.status })
-      .where(
-        and(
-          eq(inboxItems.id, id),
-          eq(inboxItems.tenantId, scope.tenantId),
-          eq(inboxItems.userId, scope.userId),
-        ),
-      )
-      .returning();
-    return updated || undefined;
+    return scoped(scope, async (tx) => {
+      const [updated] = await tx
+        .update(inboxItems)
+        .set({ status: data.status })
+        .where(
+          and(
+            eq(inboxItems.id, id),
+            eq(inboxItems.tenantId, scope.tenantId),
+            eq(inboxItems.userId, scope.userId),
+          ),
+        )
+        .returning();
+      return updated || undefined;
+    });
   }
 
   async clearUserInboxItems(scope: TenantScope): Promise<void> {
-    await db
-      .delete(inboxItems)
-      .where(and(eq(inboxItems.tenantId, scope.tenantId), eq(inboxItems.userId, scope.userId)));
+    return scoped(scope, async (tx) => {
+      await tx
+        .delete(inboxItems)
+        .where(and(eq(inboxItems.tenantId, scope.tenantId), eq(inboxItems.userId, scope.userId)));
+    });
   }
 
   // ------------------------------------------------------------------ drafts
 
   async getDrafts(scope: TenantScope): Promise<Draft[]> {
-    return db
-      .select()
-      .from(drafts)
-      .where(and(eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId)))
-      .orderBy(desc(drafts.updatedAt));
+    return scoped(scope, async (tx) => {
+      return tx
+        .select()
+        .from(drafts)
+        .where(and(eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId)))
+        .orderBy(desc(drafts.updatedAt));
+    });
   }
 
   async createDraft(scope: TenantScope, draft: Scoped<InsertDraft>): Promise<Draft> {
-    const [newDraft] = await db
-      .insert(drafts)
-      .values({ ...draft, tenantId: scope.tenantId, userId: scope.userId })
-      .returning();
-    return newDraft;
+    return scoped(scope, async (tx) => {
+      const [newDraft] = await tx
+        .insert(drafts)
+        .values({ ...draft, tenantId: scope.tenantId, userId: scope.userId })
+        .returning();
+      return newDraft;
+    });
   }
 
   async updateDraft(
@@ -196,40 +238,46 @@ export class DatabaseStorage implements IStorage {
     id: string,
     data: { content?: string; status?: string },
   ): Promise<Draft | undefined> {
-    const safeData: Record<string, unknown> = { updatedAt: new Date() };
-    if (data.content !== undefined) safeData.content = data.content;
-    if (data.status !== undefined) safeData.status = data.status;
+    return scoped(scope, async (tx) => {
+      const safeData: Record<string, unknown> = { updatedAt: new Date() };
+      if (data.content !== undefined) safeData.content = data.content;
+      if (data.status !== undefined) safeData.status = data.status;
 
-    const [updated] = await db
-      .update(drafts)
-      .set(safeData)
-      .where(
-        and(
-          eq(drafts.id, id),
-          eq(drafts.tenantId, scope.tenantId),
-          eq(drafts.userId, scope.userId),
-        ),
-      )
-      .returning();
-    return updated || undefined;
+      const [updated] = await tx
+        .update(drafts)
+        .set(safeData)
+        .where(
+          and(
+            eq(drafts.id, id),
+            eq(drafts.tenantId, scope.tenantId),
+            eq(drafts.userId, scope.userId),
+          ),
+        )
+        .returning();
+      return updated || undefined;
+    });
   }
 
   async deleteDraft(scope: TenantScope, id: string): Promise<void> {
-    await db
-      .delete(drafts)
-      .where(
-        and(
-          eq(drafts.id, id),
-          eq(drafts.tenantId, scope.tenantId),
-          eq(drafts.userId, scope.userId),
-        ),
-      );
+    return scoped(scope, async (tx) => {
+      await tx
+        .delete(drafts)
+        .where(
+          and(
+            eq(drafts.id, id),
+            eq(drafts.tenantId, scope.tenantId),
+            eq(drafts.userId, scope.userId),
+          ),
+        );
+    });
   }
 
   async clearUserDrafts(scope: TenantScope): Promise<void> {
-    await db
-      .delete(drafts)
-      .where(and(eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId)));
+    return scoped(scope, async (tx) => {
+      await tx
+        .delete(drafts)
+        .where(and(eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId)));
+    });
   }
 
   // --------------------------------------------------- global reference data
@@ -250,11 +298,13 @@ export class DatabaseStorage implements IStorage {
   // ------------------------------------------------------------ engine runs
 
   async createEngineRunLog(scope: TenantScope, log: Scoped<InsertEngineRunLog>): Promise<EngineRunLog> {
-    const [created] = await db
-      .insert(engineRunLogs)
-      .values({ ...log, tenantId: scope.tenantId, userId: scope.userId })
-      .returning();
-    return created;
+    return scoped(scope, async (tx) => {
+      const [created] = await tx
+        .insert(engineRunLogs)
+        .values({ ...log, tenantId: scope.tenantId, userId: scope.userId })
+        .returning();
+      return created;
+    });
   }
 
   async updateEngineRunLog(
@@ -262,50 +312,58 @@ export class DatabaseStorage implements IStorage {
     id: string,
     data: Partial<Scoped<InsertEngineRunLog>>,
   ): Promise<EngineRunLog | undefined> {
-    const [updated] = await db
-      .update(engineRunLogs)
-      .set(data)
-      .where(and(eq(engineRunLogs.id, id), eq(engineRunLogs.tenantId, scope.tenantId)))
-      .returning();
-    return updated || undefined;
+    return scoped(scope, async (tx) => {
+      const [updated] = await tx
+        .update(engineRunLogs)
+        .set(data)
+        .where(and(eq(engineRunLogs.id, id), eq(engineRunLogs.tenantId, scope.tenantId)))
+        .returning();
+      return updated || undefined;
+    });
   }
 
   // --------------------------------------------------------- social accounts
 
   async getSocialAccounts(scope: TenantScope): Promise<SocialAccount[]> {
-    return db
-      .select()
-      .from(socialAccounts)
-      .where(and(eq(socialAccounts.tenantId, scope.tenantId), eq(socialAccounts.userId, scope.userId)))
-      .orderBy(desc(socialAccounts.createdAt));
+    return scoped(scope, async (tx) => {
+      return tx
+        .select()
+        .from(socialAccounts)
+        .where(and(eq(socialAccounts.tenantId, scope.tenantId), eq(socialAccounts.userId, scope.userId)))
+        .orderBy(desc(socialAccounts.createdAt));
+    });
   }
 
   async getSocialAccountByProvider(
     scope: TenantScope,
     provider: string,
   ): Promise<SocialAccount | undefined> {
-    const [account] = await db
-      .select()
-      .from(socialAccounts)
-      .where(
-        and(
-          eq(socialAccounts.tenantId, scope.tenantId),
-          eq(socialAccounts.userId, scope.userId),
-          eq(socialAccounts.provider, provider),
-        ),
-      );
-    return account || undefined;
+    return scoped(scope, async (tx) => {
+      const [account] = await tx
+        .select()
+        .from(socialAccounts)
+        .where(
+          and(
+            eq(socialAccounts.tenantId, scope.tenantId),
+            eq(socialAccounts.userId, scope.userId),
+            eq(socialAccounts.provider, provider),
+          ),
+        );
+      return account || undefined;
+    });
   }
 
   async createSocialAccount(
     scope: TenantScope,
     account: Scoped<InsertSocialAccount>,
   ): Promise<SocialAccount> {
-    const [newAccount] = await db
-      .insert(socialAccounts)
-      .values({ ...account, tenantId: scope.tenantId, userId: scope.userId })
-      .returning();
-    return newAccount;
+    return scoped(scope, async (tx) => {
+      const [newAccount] = await tx
+        .insert(socialAccounts)
+        .values({ ...account, tenantId: scope.tenantId, userId: scope.userId })
+        .returning();
+      return newAccount;
+    });
   }
 
   /**
@@ -318,30 +376,34 @@ export class DatabaseStorage implements IStorage {
     id: string,
     data: Partial<Scoped<InsertSocialAccount>>,
   ): Promise<SocialAccount | undefined> {
-    const [updated] = await db
-      .update(socialAccounts)
-      .set({ ...data, updatedAt: new Date() })
-      .where(
-        and(
-          eq(socialAccounts.id, id),
-          eq(socialAccounts.tenantId, scope.tenantId),
-          eq(socialAccounts.userId, scope.userId),
-        ),
-      )
-      .returning();
-    return updated || undefined;
+    return scoped(scope, async (tx) => {
+      const [updated] = await tx
+        .update(socialAccounts)
+        .set({ ...data, updatedAt: new Date() })
+        .where(
+          and(
+            eq(socialAccounts.id, id),
+            eq(socialAccounts.tenantId, scope.tenantId),
+            eq(socialAccounts.userId, scope.userId),
+          ),
+        )
+        .returning();
+      return updated || undefined;
+    });
   }
 
   async deleteSocialAccount(scope: TenantScope, id: string): Promise<void> {
-    await db
-      .delete(socialAccounts)
-      .where(
-        and(
-          eq(socialAccounts.id, id),
-          eq(socialAccounts.tenantId, scope.tenantId),
-          eq(socialAccounts.userId, scope.userId),
-        ),
-      );
+    return scoped(scope, async (tx) => {
+      await tx
+        .delete(socialAccounts)
+        .where(
+          and(
+            eq(socialAccounts.id, id),
+            eq(socialAccounts.tenantId, scope.tenantId),
+            eq(socialAccounts.userId, scope.userId),
+          ),
+        );
+    });
   }
 
   // -------------------------------------------------------- social analytics
@@ -351,51 +413,57 @@ export class DatabaseStorage implements IStorage {
     provider?: string,
     daysBack: number = 30,
   ): Promise<SocialAnalyticsSnapshot[]> {
-    const sinceDate = new Date();
-    sinceDate.setDate(sinceDate.getDate() - daysBack);
+    return scoped(scope, async (tx) => {
+      const sinceDate = new Date();
+      sinceDate.setDate(sinceDate.getDate() - daysBack);
 
-    const predicates = [
-      eq(socialAnalytics.tenantId, scope.tenantId),
-      eq(socialAnalytics.userId, scope.userId),
-      gte(socialAnalytics.snapshotDate, sinceDate),
-    ];
-    if (provider) predicates.push(eq(socialAnalytics.provider, provider));
+      const predicates = [
+        eq(socialAnalytics.tenantId, scope.tenantId),
+        eq(socialAnalytics.userId, scope.userId),
+        gte(socialAnalytics.snapshotDate, sinceDate),
+      ];
+      if (provider) predicates.push(eq(socialAnalytics.provider, provider));
 
-    return db
-      .select()
-      .from(socialAnalytics)
-      .where(and(...predicates))
-      .orderBy(desc(socialAnalytics.snapshotDate));
+      return tx
+        .select()
+        .from(socialAnalytics)
+        .where(and(...predicates))
+        .orderBy(desc(socialAnalytics.snapshotDate));
+    });
   }
 
   async getLatestSocialAnalytics(
     scope: TenantScope,
     provider: string,
   ): Promise<SocialAnalyticsSnapshot | undefined> {
-    const [latest] = await db
-      .select()
-      .from(socialAnalytics)
-      .where(
-        and(
-          eq(socialAnalytics.tenantId, scope.tenantId),
-          eq(socialAnalytics.userId, scope.userId),
-          eq(socialAnalytics.provider, provider),
-        ),
-      )
-      .orderBy(desc(socialAnalytics.snapshotDate))
-      .limit(1);
-    return latest || undefined;
+    return scoped(scope, async (tx) => {
+      const [latest] = await tx
+        .select()
+        .from(socialAnalytics)
+        .where(
+          and(
+            eq(socialAnalytics.tenantId, scope.tenantId),
+            eq(socialAnalytics.userId, scope.userId),
+            eq(socialAnalytics.provider, provider),
+          ),
+        )
+        .orderBy(desc(socialAnalytics.snapshotDate))
+        .limit(1);
+      return latest || undefined;
+    });
   }
 
   async createSocialAnalytics(
     scope: TenantScope,
     analytics: Scoped<InsertSocialAnalytics>,
   ): Promise<SocialAnalyticsSnapshot> {
-    const [created] = await db
-      .insert(socialAnalytics)
-      .values({ ...analytics, tenantId: scope.tenantId, userId: scope.userId })
-      .returning();
-    return created;
+    return scoped(scope, async (tx) => {
+      const [created] = await tx
+        .insert(socialAnalytics)
+        .values({ ...analytics, tenantId: scope.tenantId, userId: scope.userId })
+        .returning();
+      return created;
+    });
   }
 }
 

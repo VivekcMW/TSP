@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { users, type User } from "@shared/models/auth";
-import { userProfiles } from "@shared/schema";
 import { ensurePersonalTenant } from "../services/tenancy";
+import { storage } from "../storage";
 
 /**
  * Local-development authentication bypass.
@@ -74,19 +74,21 @@ export async function resolveDevUser(): Promise<User> {
 
   const tenantId = await ensurePersonalTenant(DEV_USER_ID, "Local Developer");
 
-  await db
-    .insert(userProfiles)
-    .values({
-      tenantId,
-      userId: DEV_USER_ID,
+  // Through the repository, not a raw insert. The repository sets
+  // app.tenant_id transaction-locally, which the Row-Level Security policy on
+  // user_profiles requires; a direct insert is rejected by WITH CHECK. RLS
+  // caught this exact bypass the first time the app ran as the restricted role.
+  const scope = { tenantId, userId: DEV_USER_ID };
+  if (!(await storage.getUserProfile(scope))) {
+    await storage.createUserProfile(scope, {
       onboardingStatus: "completed",
       focusDescription: "Seeded local development profile.",
       publications: [],
       keywords: ["advertising", "media", "marketing"],
       influencers: [],
       companies: [],
-    })
-    .onConflictDoNothing();
+    });
+  }
 
   const [user] = await db.select().from(users).where(eq(users.id, DEV_USER_ID)).limit(1);
 

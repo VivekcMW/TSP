@@ -8,7 +8,8 @@ vi.mock("@clerk/express", () => ({
   clerkClient: { users: { getUser: vi.fn() } },
 }));
 
-import { db, pool } from "../db";
+import { pool } from "../db";
+import { ownerDb, ownerPool } from "../../test/db-owner";
 import { users } from "@shared/models/auth";
 import { auditLog, tenantMembers, tenants } from "@shared/models/tenancy";
 import { userProfiles, inboxItems, drafts, socialAccounts, socialAnalytics } from "@shared/schema";
@@ -37,27 +38,28 @@ function appWith(ctx: TenantContext, permission: Permission): Express {
 let tenantId: string;
 
 beforeEach(async () => {
-  await db.delete(auditLog);
-  await db.delete(socialAnalytics);
-  await db.delete(socialAccounts);
-  await db.delete(drafts);
-  await db.delete(inboxItems);
-  await db.delete(userProfiles);
-  await db.delete(tenantMembers);
-  await db.delete(tenants);
-  await db.delete(users);
+  await ownerDb.delete(auditLog);
+  await ownerDb.delete(socialAnalytics);
+  await ownerDb.delete(socialAccounts);
+  await ownerDb.delete(drafts);
+  await ownerDb.delete(inboxItems);
+  await ownerDb.delete(userProfiles);
+  await ownerDb.delete(tenantMembers);
+  await ownerDb.delete(tenants);
+  await ownerDb.delete(users);
 
-  await db.insert(users).values({ id: "actor", email: "actor@perm.test" });
-  const [tenant] = await db
+  await ownerDb.insert(users).values({ id: "actor", email: "actor@perm.test" });
+  const [tenant] = await ownerDb
     .insert(tenants)
     .values({ kind: "corporate", name: "Acme" })
     .returning();
   tenantId = tenant.id;
-  await db.insert(tenantMembers).values({ tenantId, userId: "actor", role: "member" });
+  await ownerDb.insert(tenantMembers).values({ tenantId, userId: "actor", role: "member" });
 });
 
 afterAll(async () => {
   await pool.end();
+  await ownerPool.end();
 });
 
 function memberCtx(role: TenantContext["role"] = "member"): TenantContext {
@@ -110,7 +112,7 @@ describe("cross-tenant access by platform staff", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.code).toBe("justification_required");
-    expect(await db.select().from(auditLog)).toHaveLength(0);
+    expect(await ownerDb.select().from(auditLog)).toHaveLength(0);
   });
 
   it("allows the read once a reason is given, and records it", async () => {
@@ -121,7 +123,7 @@ describe("cross-tenant access by platform staff", () => {
 
     expect(res.status).toBe(200);
 
-    const entries = await db.select().from(auditLog);
+    const entries = await ownerDb.select().from(auditLog);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
       actorUserId: "actor",
@@ -144,7 +146,7 @@ describe("cross-tenant access by platform staff", () => {
 
 describe("auditing", () => {
   it("audits a privileged action even for a legitimate tenant owner", async () => {
-    await db
+    await ownerDb
       .update(tenantMembers)
       .set({ role: "owner" })
       .where(eq(tenantMembers.userId, "actor"));
@@ -152,13 +154,13 @@ describe("auditing", () => {
     const res = await request(appWith(memberCtx("owner"), "tenant:delete")).get("/probe");
 
     expect(res.status).toBe(200);
-    const entries = await db.select().from(auditLog);
+    const entries = await ownerDb.select().from(auditLog);
     expect(entries).toHaveLength(1);
     expect(entries[0].action).toBe("tenant:delete");
   });
 
   it("does not audit a member acting on their own content", async () => {
     await request(appWith(memberCtx(), "draft:write:own")).get("/probe").expect(200);
-    expect(await db.select().from(auditLog)).toHaveLength(0);
+    expect(await ownerDb.select().from(auditLog)).toHaveLength(0);
   });
 });

@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { db, pool } from "./db";
+import { pool } from "./db";
+import { ownerDb, ownerPool } from "../test/db-owner";
 import { users } from "@shared/models/auth";
 import { tenantMembers, tenants } from "@shared/models/tenancy";
 import { drafts, inboxItems, socialAccounts, socialAnalytics, userProfiles } from "@shared/schema";
@@ -19,15 +20,15 @@ import { storage, type TenantScope } from "./storage";
  */
 
 async function makeTenant(label: string): Promise<TenantScope> {
-  const [user] = await db
+  const [user] = await ownerDb
     .insert(users)
     .values({ id: `user_${label}`, email: `${label}@isolation.test` })
     .returning();
-  const [tenant] = await db
+  const [tenant] = await ownerDb
     .insert(tenants)
     .values({ kind: "personal", name: `${label} workspace` })
     .returning();
-  await db.insert(tenantMembers).values({
+  await ownerDb.insert(tenantMembers).values({
     tenantId: tenant.id,
     userId: user.id,
     role: "owner",
@@ -44,11 +45,11 @@ async function makeTenant(label: string): Promise<TenantScope> {
  * left the two-user tests entirely green.) Only a shared user exposes it.
  */
 async function joinCorporateTenant(userId: string, name: string): Promise<TenantScope> {
-  const [tenant] = await db
+  const [tenant] = await ownerDb
     .insert(tenants)
     .values({ kind: "corporate", name })
     .returning();
-  await db.insert(tenantMembers).values({ tenantId: tenant.id, userId, role: "member" });
+  await ownerDb.insert(tenantMembers).values({ tenantId: tenant.id, userId, role: "member" });
   return { tenantId: tenant.id, userId };
 }
 
@@ -57,14 +58,14 @@ let b: TenantScope;
 
 beforeEach(async () => {
   // Order matters: children before parents.
-  await db.delete(socialAnalytics);
-  await db.delete(socialAccounts);
-  await db.delete(drafts);
-  await db.delete(inboxItems);
-  await db.delete(userProfiles);
-  await db.delete(tenantMembers);
-  await db.delete(tenants);
-  await db.delete(users);
+  await ownerDb.delete(socialAnalytics);
+  await ownerDb.delete(socialAccounts);
+  await ownerDb.delete(drafts);
+  await ownerDb.delete(inboxItems);
+  await ownerDb.delete(userProfiles);
+  await ownerDb.delete(tenantMembers);
+  await ownerDb.delete(tenants);
+  await ownerDb.delete(users);
 
   a = await makeTenant("alpha");
   b = await makeTenant("bravo");
@@ -72,6 +73,7 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await pool.end();
+  await ownerPool.end();
 });
 
 describe("tenant isolation: profiles", () => {
@@ -95,11 +97,11 @@ describe("tenant isolation: profiles", () => {
   it("lets the same user hold a separate profile per tenant", async () => {
     // The reason the unique key is (tenant_id, user_id) rather than user_id:
     // a user in a corporate tenant needs a different voice there.
-    const corporate = await db
+    const corporate = await ownerDb
       .insert(tenants)
       .values({ kind: "corporate", name: "Acme" })
       .returning();
-    await db.insert(tenantMembers).values({
+    await ownerDb.insert(tenantMembers).values({
       tenantId: corporate[0].id,
       userId: a.userId,
       role: "member",
@@ -139,7 +141,7 @@ describe("tenant isolation: inbox", () => {
     const result = await storage.updateInboxItem(a, created.id, { status: "dismissed" });
 
     expect(result).toBeUndefined();
-    const [reloaded] = await db.select().from(inboxItems).where(eq(inboxItems.id, created.id));
+    const [reloaded] = await ownerDb.select().from(inboxItems).where(eq(inboxItems.id, created.id));
     expect(reloaded.status).toBe("active");
   });
 
@@ -168,7 +170,7 @@ describe("tenant isolation: drafts", () => {
     const result = await storage.updateDraft(a, created.id, { content: "overwritten" });
 
     expect(result).toBeUndefined();
-    const [reloaded] = await db.select().from(drafts).where(eq(drafts.id, created.id));
+    const [reloaded] = await ownerDb.select().from(drafts).where(eq(drafts.id, created.id));
     expect(reloaded.content).toBe("hello");
   });
 
@@ -201,7 +203,7 @@ describe("tenant isolation: social accounts", () => {
     const result = await storage.updateSocialAccount(a, created.id, { accountName: "hijacked" });
 
     expect(result).toBeUndefined();
-    const [reloaded] = await db
+    const [reloaded] = await ownerDb
       .select()
       .from(socialAccounts)
       .where(eq(socialAccounts.id, created.id));
