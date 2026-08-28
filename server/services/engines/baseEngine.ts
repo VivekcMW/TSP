@@ -11,8 +11,8 @@ import type {
   EngineRunResult,
   RSSFeedConfig 
 } from "./types.js";
-import type { IndustrySource, UserProfile, InsertInboxItem } from "@shared/schema";
-import { storage } from "../../storage.js";
+import type { IndustrySource, UserProfile } from "@shared/schema";
+import { storage, type TenantScope } from "../../storage.js";
 
 const parser = new Parser({
   timeout: 10000,
@@ -176,7 +176,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
   }
 
   async processForUser(
-    userId: string,
+    scope: TenantScope,
     userProfile: UserProfile
   ): Promise<EngineRunResult> {
     const startTime = Date.now();
@@ -219,10 +219,9 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       
       let newItems = 0;
       for (const article of topArticles) {
-        const existing = await storage.getInboxItemByUrl(userId, article.link);
+        const existing = await storage.getInboxItemByUrl(scope, article.link);
         if (!existing) {
-          const inboxItem: InsertInboxItem = {
-            userId,
+          const inboxItem = {
             headline: article.title,
             source: article.source,
             articleUrl: article.link,
@@ -230,7 +229,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
             matchedKeywords: article.matchedKeywords,
             status: "active",
           };
-          await storage.createInboxItem(inboxItem);
+          await storage.createInboxItem(scope, inboxItem);
           newItems++;
         }
       }
@@ -245,7 +244,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       errors.push(errorMsg);
-      console.error(`[${this.config.industry}] Engine error for user ${userId}:`, error);
+      console.error(`[${this.config.industry}] Engine error for user ${scope.userId}:`, error);
       
       return {
         success: false,

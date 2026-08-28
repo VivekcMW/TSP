@@ -6,7 +6,8 @@ export function registerAnalyticsRoutes(app: Express) {
   app.get("/api/analytics/summary", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
-      const accounts = await storage.getSocialAccounts(userId);
+      const scope = req.tenant;
+      const accounts = await storage.getSocialAccounts(scope);
       
       const summary: any = {
         connected: {
@@ -34,7 +35,7 @@ export function registerAnalyticsRoutes(app: Express) {
         if (account.provider === 'linkedin' || account.provider === 'twitter') {
           summary.connected[account.provider] = true;
           
-          const latest = await storage.getLatestSocialAnalytics(userId, account.provider);
+          const latest = await storage.getLatestSocialAnalytics(scope, account.provider);
           if (latest) {
             summary[account.provider] = {
               account: {
@@ -84,6 +85,7 @@ export function registerAnalyticsRoutes(app: Express) {
   app.get("/api/analytics/:provider", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
+      const scope = req.tenant;
       const { provider } = req.params;
       const daysBack = parseInt(req.query.days as string) || 30;
       
@@ -91,12 +93,12 @@ export function registerAnalyticsRoutes(app: Express) {
         return res.status(400).json({ message: "Invalid provider" });
       }
       
-      const account = await storage.getSocialAccountByProvider(userId, provider);
+      const account = await storage.getSocialAccountByProvider(scope, provider);
       if (!account) {
         return res.status(404).json({ message: `No ${provider} account connected` });
       }
       
-      const analytics = await storage.getSocialAnalytics(userId, provider, daysBack);
+      const analytics = await storage.getSocialAnalytics(scope, provider, daysBack);
       const latest = analytics[0] || null;
       
       res.json({

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { users, type User } from "@shared/models/auth";
 import { userProfiles } from "@shared/schema";
+import { ensurePersonalTenant } from "../services/tenancy";
 
 /**
  * Local-development authentication bypass.
@@ -71,9 +72,12 @@ export async function resolveDevUser(): Promise<User> {
     })
     .onConflictDoNothing();
 
+  const tenantId = await ensurePersonalTenant(DEV_USER_ID, "Local Developer");
+
   await db
     .insert(userProfiles)
     .values({
+      tenantId,
       userId: DEV_USER_ID,
       onboardingStatus: "completed",
       focusDescription: "Seeded local development profile.",

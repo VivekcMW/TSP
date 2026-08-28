@@ -1,13 +1,16 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, jsonb, index, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, jsonb, index, integer, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export * from "./models/auth";
+export * from "./models/tenancy";
 
 export const userProfiles = pgTable("user_profiles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().unique(),
+  userId: varchar("user_id").notNull(),
+  /** Owning tenant. Every query must be scoped by this. */
+  tenantId: varchar("tenant_id").notNull(),
   focusDescription: text("focus_description"),
   onboardingStatus: varchar("onboarding_status").default("pending").notNull(),
   publications: jsonb("publications").$type<string[]>().default([]),
@@ -16,9 +19,14 @@ export const userProfiles = pgTable("user_profiles", {
   companies: jsonb("companies").$type<string[]>().default([]),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  unique("uniq_user_profiles_tenant_user").on(table.tenantId, table.userId),
+  index("idx_user_profiles_tenant").on(table.tenantId),
+]);
 
 export const inboxItems = pgTable("inbox_items", {
+  /** Owning tenant. Every query must be scoped by this. */
+  tenantId: varchar("tenant_id").notNull(),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   headline: text("headline").notNull(),
@@ -28,9 +36,14 @@ export const inboxItems = pgTable("inbox_items", {
   summary: text("summary"),
   status: varchar("status").default("active").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
-}, (table) => [index("idx_inbox_user").on(table.userId)]);
+}, (table) => [
+  index("idx_inbox_user").on(table.userId),
+  index("idx_inbox_tenant_status").on(table.tenantId, table.status, table.createdAt),
+]);
 
 export const drafts = pgTable("drafts", {
+  /** Owning tenant. Every query must be scoped by this. */
+  tenantId: varchar("tenant_id").notNull(),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   inboxItemId: varchar("inbox_item_id"),
@@ -40,7 +53,10 @@ export const drafts = pgTable("drafts", {
   status: varchar("status").default("draft").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-}, (table) => [index("idx_drafts_user").on(table.userId)]);
+}, (table) => [
+  index("idx_drafts_user").on(table.userId),
+  index("idx_drafts_tenant_status").on(table.tenantId, table.status, table.updatedAt),
+]);
 
 export const INDUSTRY_SLUGS = [
   "media_advertising",
@@ -79,6 +95,8 @@ export const industrySources = pgTable("industry_sources", {
 }, (table) => [index("idx_industry_sources_industry").on(table.industry)]);
 
 export const engineRunLogs = pgTable("engine_run_logs", {
+  /** Owning tenant. Every query must be scoped by this. */
+  tenantId: varchar("tenant_id").notNull(),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   industry: varchar("industry").notNull(),
   userId: varchar("user_id"),
@@ -92,6 +110,7 @@ export const engineRunLogs = pgTable("engine_run_logs", {
 }, (table) => [
   index("idx_engine_runs_industry").on(table.industry),
   index("idx_engine_runs_user").on(table.userId),
+  index("idx_engine_runs_tenant").on(table.tenantId),
 ]);
 
 export const insertIndustrySourceSchema = createInsertSchema(industrySources).omit({
@@ -138,6 +157,8 @@ export type EngineRunLog = typeof engineRunLogs.$inferSelect;
 
 // Social media accounts for analytics integration
 export const socialAccounts = pgTable("social_accounts", {
+  /** Owning tenant. Every query must be scoped by this. */
+  tenantId: varchar("tenant_id").notNull(),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   provider: varchar("provider").notNull(), // 'linkedin' | 'twitter'
@@ -155,6 +176,7 @@ export const socialAccounts = pgTable("social_accounts", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_social_accounts_user").on(table.userId),
+  index("idx_social_accounts_tenant").on(table.tenantId),
   index("idx_social_accounts_provider").on(table.provider),
 ]);
 
@@ -175,6 +197,8 @@ export interface SocialMetrics {
 
 // Social analytics snapshots
 export const socialAnalytics = pgTable("social_analytics", {
+  /** Owning tenant. Every query must be scoped by this. */
+  tenantId: varchar("tenant_id").notNull(),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   socialAccountId: varchar("social_account_id").notNull(),
@@ -194,6 +218,7 @@ export const socialAnalytics = pgTable("social_analytics", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_social_analytics_user").on(table.userId),
+  index("idx_social_analytics_tenant_provider").on(table.tenantId, table.provider, table.snapshotDate),
   index("idx_social_analytics_account").on(table.socialAccountId),
   index("idx_social_analytics_date").on(table.snapshotDate),
 ]);

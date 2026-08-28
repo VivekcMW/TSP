@@ -69,7 +69,8 @@ export function registerSocialRoutes(app: Express) {
   app.get("/api/social/connections", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
-      const accounts = await storage.getSocialAccounts(userId);
+      const scope = req.tenant;
+      const accounts = await storage.getSocialAccounts(scope);
       res.json(accounts.map(toSafeSocialAccount));
     } catch (error) {
       console.error("Error fetching social connections:", error);
@@ -82,6 +83,7 @@ export function registerSocialRoutes(app: Express) {
   app.post("/api/social/connect/:provider", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
+      const scope = req.tenant;
       const { provider } = req.params;
       
       if (!["linkedin", "twitter"].includes(provider)) {
@@ -89,7 +91,7 @@ export function registerSocialRoutes(app: Express) {
       }
       
       // Check if already connected
-      const existing = await storage.getSocialAccountByProvider(userId, provider);
+      const existing = await storage.getSocialAccountByProvider(scope, provider);
       if (existing) {
         return res.status(400).json({ message: `${provider} account already connected` });
       }
@@ -102,8 +104,7 @@ export function registerSocialRoutes(app: Express) {
         : `@${(user?.firstName || 'demo').toLowerCase()}${Math.floor(Math.random() * 1000)}`;
       
       // Create social account with demo data
-      const account = await storage.createSocialAccount({
-        userId,
+      const account = await storage.createSocialAccount(scope, {
         provider,
         providerAccountId: `demo_${provider}_${Date.now()}`,
         accountName,
@@ -117,8 +118,7 @@ export function registerSocialRoutes(app: Express) {
       
       // Generate initial analytics snapshot with demo data
       const demoMetrics = generateDemoMetrics(provider);
-      await storage.createSocialAnalytics({
-        userId,
+      await storage.createSocialAnalytics(scope, {
         socialAccountId: account.id,
         provider,
         snapshotDate: new Date(),
@@ -142,14 +142,15 @@ export function registerSocialRoutes(app: Express) {
   app.delete("/api/social/disconnect/:provider", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
+      const scope = req.tenant;
       const { provider } = req.params;
       
-      const account = await storage.getSocialAccountByProvider(userId, provider);
+      const account = await storage.getSocialAccountByProvider(scope, provider);
       if (!account) {
         return res.status(404).json({ message: `No ${provider} account connected` });
       }
       
-      await storage.deleteSocialAccount(account.id, userId);
+      await storage.deleteSocialAccount(scope, account.id);
       res.json({ success: true, message: `${provider} account disconnected` });
     } catch (error) {
       console.error("Error disconnecting social account:", error);
@@ -162,17 +163,17 @@ export function registerSocialRoutes(app: Express) {
   app.post("/api/social/sync/:provider", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
+      const scope = req.tenant;
       const { provider } = req.params;
       
-      const account = await storage.getSocialAccountByProvider(userId, provider);
+      const account = await storage.getSocialAccountByProvider(scope, provider);
       if (!account) {
         return res.status(404).json({ message: `No ${provider} account connected` });
       }
       
       // Generate new demo analytics data
       const demoMetrics = generateDemoMetrics(provider);
-      const analytics = await storage.createSocialAnalytics({
-        userId,
+      const analytics = await storage.createSocialAnalytics(scope, {
         socialAccountId: account.id,
         provider,
         snapshotDate: new Date(),
@@ -181,7 +182,7 @@ export function registerSocialRoutes(app: Express) {
       });
       
       // Update last sync time
-      await storage.updateSocialAccount(account.id, { lastSyncAt: new Date() });
+      await storage.updateSocialAccount(scope, account.id, { lastSyncAt: new Date() });
       
       res.json({ 
         success: true, 

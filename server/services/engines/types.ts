@@ -1,3 +1,4 @@
+import type { TenantScope } from "../../storage.js";
 import type { IndustrySlug, InboxItem, UserProfile, IndustrySource } from "@shared/schema";
 
 export interface RSSFeedConfig {
@@ -51,7 +52,7 @@ export interface IIndustryEngine {
   ): Promise<ScoredArticle[]>;
   
   processForUser(
-    userId: string,
+    scope: TenantScope,
     userProfile: UserProfile
   ): Promise<EngineRunResult>;
   

@@ -21,6 +21,12 @@ const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 interface LinkedInAnalyticsStatePayload {
   userId: string;
+  /**
+   * The tenant the user was acting in when the flow started. Carried through
+   * the signed state so the resulting connection lands in the right tenant
+   * rather than defaulting to the personal one.
+   */
+  tenantId: string;
   returnTo: string;
   nonce: string;
   exp: number;
@@ -224,6 +230,7 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
 
     const state = signState({
       userId,
+      tenantId: req.tenant.tenantId,
       returnTo,
       nonce: crypto.randomUUID(),
       exp: Date.now() + STATE_TTL_MS,
@@ -273,17 +280,20 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
     async (req: Request, res: Response) => {
       const statePayload = (req as any).linkedInAnalyticsState as LinkedInAnalyticsStatePayload | undefined;
       const userId = statePayload?.userId;
+      const tenantId = statePayload?.tenantId;
       const returnTo = statePayload?.returnTo || "/analytics";
       const oauthData = (req as any).user;
 
-      if (!userId || !oauthData?.profile) {
+      if (!userId || !tenantId || !oauthData?.profile) {
         return res.redirect(`${returnTo}?error=linkedin_connect_failed`);
       }
 
+      const scope = { tenantId, userId };
+
       try {
-        const existing = await storage.getSocialAccountByProvider(userId, "linkedin");
+        const existing = await storage.getSocialAccountByProvider(scope, "linkedin");
         if (existing) {
-          await storage.updateSocialAccount(existing.id, {
+          await storage.updateSocialAccount(scope, existing.id, {
             accessToken: oauthData.accessToken,
             refreshToken: oauthData.refreshToken || null,
             lastSyncAt: new Date(),
@@ -294,8 +304,7 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
             `${oauthData.profile.name?.givenName || ""} ${oauthData.profile.name?.familyName || ""}`.trim() ||
             "LinkedIn User";
 
-          const account = await storage.createSocialAccount({
-            userId,
+          const account = await storage.createSocialAccount(scope, {
             provider: "linkedin",
             providerAccountId: oauthData.profile.id,
             accountName: displayName,
@@ -308,8 +317,7 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
           });
 
           const demoMetrics = generateDemoAnalyticsMetrics("linkedin");
-          await storage.createSocialAnalytics({
-            userId,
+          await storage.createSocialAnalytics(scope, {
             socialAccountId: account.id,
             provider: "linkedin",
             snapshotDate: new Date(),

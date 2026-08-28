@@ -11,6 +11,11 @@ export const users = pgTable("users", {
   country: varchar("country"),
   industry: varchar("industry"),
   registrationCompleted: timestamp("registration_completed"),
+  /**
+   * Platform staff role, or null for ordinary users. Separate from tenant
+   * roles because it crosses tenant boundaries; see models/tenancy.ts.
+   */
+  platformRole: varchar("platform_role"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

@@ -22,7 +22,8 @@ export function registerDraftsRoutes(app: Express) {
   app.get("/api/drafts", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
-      const userDrafts = await storage.getDrafts(userId);
+      const scope = req.tenant;
+      const userDrafts = await storage.getDrafts(scope);
       res.json(userDrafts);
     } catch (error) {
       console.error("Error fetching drafts:", error);
@@ -33,6 +34,7 @@ export function registerDraftsRoutes(app: Express) {
   app.post("/api/drafts", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
+      const scope = req.tenant;
       
       const validation = createDraftSchema.safeParse(req.body);
       if (!validation.success) {
@@ -41,8 +43,7 @@ export function registerDraftsRoutes(app: Express) {
       
       const { inboxItemId, platform, tone, content } = validation.data;
       
-      const draft = await storage.createDraft({
-        userId,
+      const draft = await storage.createDraft(scope, {
         inboxItemId,
         platform,
         tone,
@@ -60,6 +61,7 @@ export function registerDraftsRoutes(app: Express) {
   app.patch("/api/drafts/:id", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
+      const scope = req.tenant;
       const { id } = req.params;
       
       const validation = updateDraftSchema.safeParse(req.body);
@@ -67,7 +69,7 @@ export function registerDraftsRoutes(app: Express) {
         return res.status(400).json({ message: "Invalid request data" });
       }
       
-      const updated = await storage.updateDraft(id, userId, validation.data);
+      const updated = await storage.updateDraft(scope, id, validation.data);
       
       if (!updated) {
         return res.status(404).json({ message: "Draft not found" });
@@ -83,8 +85,9 @@ export function registerDraftsRoutes(app: Express) {
   app.delete("/api/drafts/:id", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
+      const scope = req.tenant;
       const { id } = req.params;
-      await storage.deleteDraft(id, userId);
+      await storage.deleteDraft(scope, id);
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting draft:", error);
@@ -95,6 +98,7 @@ export function registerDraftsRoutes(app: Express) {
   app.post("/api/instant-review", requireDbUser, instantReviewRateLimit, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
+      const scope = req.tenant;
       const { url } = req.body;
       
       if (!url || typeof url !== "string") {
@@ -113,12 +117,12 @@ export function registerDraftsRoutes(app: Express) {
       console.log(`Generating instant review for: ${article.title}`);
       const posts = await generateInstantReview(article);
       
-      const profile = await storage.getUserProfile(userId);
+      const profile = await storage.getUserProfile(scope);
       if (profile) {
         const publications = profile.publications || [];
         if (!publications.includes(article.source) && !publications.includes(article.domain)) {
           const updatedPublications = [...publications, article.source].slice(0, 20);
-          await storage.updateUserProfile(userId, { publications: updatedPublications });
+          await storage.updateUserProfile(scope, { publications: updatedPublications });
           console.log(`Added ${article.source} to user publications`);
         }
       }

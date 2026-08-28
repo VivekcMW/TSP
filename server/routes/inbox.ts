@@ -17,7 +17,8 @@ export function registerInboxRoutes(app: Express) {
   app.get("/api/inbox", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
-      const items = await storage.getInboxItems(userId);
+      const scope = req.tenant;
+      const items = await storage.getInboxItems(scope);
       res.json(items);
     } catch (error) {
       console.error("Error fetching inbox:", error);
@@ -69,8 +70,9 @@ export function registerInboxRoutes(app: Express) {
   app.post("/api/inbox/refresh", requireDbUser, inboxRefreshRateLimit, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
+      const scope = req.tenant;
       
-      const profile = await storage.getUserProfile(userId);
+      const profile = await storage.getUserProfile(scope);
       if (!profile) {
         return res.status(400).json({ message: "Profile not found. Please complete onboarding first." });
       }
@@ -82,7 +84,7 @@ export function registerInboxRoutes(app: Express) {
       
       const autoRefresh = req.body?.autoRefresh === true;
 
-      const existingItems = await storage.getInboxItems(userId);
+      const existingItems = await storage.getInboxItems(scope);
       const activeItems = existingItems.filter(item => item.status === "active");
       const activeCount = activeItems.length;
       
@@ -97,12 +99,12 @@ export function registerInboxRoutes(app: Express) {
         }
         // Auto-refresh: dismiss all existing active articles to make room for fresh ones
         for (const item of activeItems) {
-          await storage.updateInboxItem(item.id, userId, { status: "dismissed" });
+          await storage.updateInboxItem(scope, item.id, { status: "dismissed" });
         }
         console.log(`[Inbox Auto-Refresh] Dismissed ${activeCount} stale articles for user ${userId}`);
       }
       
-      const result = await engine.processForUser(userId, profile);
+      const result = await engine.processForUser(scope, profile);
       
       if (!result.success) {
         console.error(`Engine processing failed for user ${userId}:`, result.errors);
@@ -138,8 +140,7 @@ export function registerInboxRoutes(app: Express) {
         
         const createdItems = [];
         for (const article of validatedArticles) {
-          const item = await storage.createInboxItem({
-            userId,
+          const item = await storage.createInboxItem(scope, {
             headline: article.headline,
             source: article.source,
             articleUrl: article.articleUrl,
@@ -158,7 +159,7 @@ export function registerInboxRoutes(app: Express) {
         });
       }
       
-      const updatedItems = await storage.getInboxItems(userId);
+      const updatedItems = await storage.getInboxItems(scope);
       const newItems = updatedItems.filter(item => 
         !existingItems.some(existing => existing.id === item.id)
       );
@@ -181,6 +182,7 @@ export function registerInboxRoutes(app: Express) {
   app.post("/api/inbox/add-trend", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
+      const scope = req.tenant;
       const { title, source, link, topic } = req.body;
       
       if (!link || !title) {
@@ -196,14 +198,13 @@ export function registerInboxRoutes(app: Express) {
         return res.status(400).json({ message: urlResult.reason || "URL validation failed" });
       }
       
-      const existingItems = await storage.getInboxItems(userId);
+      const existingItems = await storage.getInboxItems(scope);
       const alreadyExists = existingItems.some(item => item.articleUrl === link);
       if (alreadyExists) {
         return res.json({ message: "Article already in inbox", alreadyExists: true });
       }
       
-      const item = await storage.createInboxItem({
-        userId,
+      const item = await storage.createInboxItem(scope, {
         headline: title,
         source: source || "Hot Trends",
         articleUrl: link,
@@ -222,6 +223,7 @@ export function registerInboxRoutes(app: Express) {
   app.patch("/api/inbox/:id", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
+      const scope = req.tenant;
       const { id } = req.params;
       
       const validation = updateInboxItemSchema.safeParse(req.body);
@@ -229,7 +231,7 @@ export function registerInboxRoutes(app: Express) {
         return res.status(400).json({ message: "Invalid request data" });
       }
       
-      const updated = await storage.updateInboxItem(id, userId, { status: validation.data.status });
+      const updated = await storage.updateInboxItem(scope, id, { status: validation.data.status });
       
       if (!updated) {
         return res.status(404).json({ message: "Item not found" });

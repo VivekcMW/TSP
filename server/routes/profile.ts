@@ -33,17 +33,17 @@ export function registerProfileRoutes(app: Express) {
   app.get("/api/profile", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
+      const scope = req.tenant;
       
       if (!userId) {
         console.error("No user ID found in request");
         return res.status(401).json({ message: "User not authenticated" });
       }
       
-      let profile = await storage.getUserProfile(userId);
+      let profile = await storage.getUserProfile(scope);
       
       if (!profile) {
-        profile = await storage.createUserProfile({
-          userId,
+        profile = await storage.createUserProfile(scope, {
           onboardingStatus: "pending",
           publications: [],
           keywords: [],
@@ -62,9 +62,10 @@ export function registerProfileRoutes(app: Express) {
   app.patch("/api/profile", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
+      const scope = req.tenant;
       const { focusDescription, publications, keywords, influencers, companies } = req.body;
       
-      const existingProfile = await storage.getUserProfile(userId);
+      const existingProfile = await storage.getUserProfile(scope);
       if (!existingProfile) {
         return res.status(404).json({ message: "Profile not found" });
       }
@@ -76,7 +77,7 @@ export function registerProfileRoutes(app: Express) {
       if (influencers !== undefined) updateData.influencers = influencers;
       if (companies !== undefined) updateData.companies = companies;
       
-      const profile = await storage.updateUserProfile(userId, updateData);
+      const profile = await storage.updateUserProfile(scope, updateData);
       
       res.json(profile);
     } catch (error) {
@@ -88,6 +89,7 @@ export function registerProfileRoutes(app: Express) {
   app.post("/api/profile/complete-onboarding", requireDbUser, async (req: any, res) => {
     try {
       const userId = req.dbUser.id;
+      const scope = req.tenant;
       
       // Sanitize data before validation to prevent truncation errors
       const sanitizedBody = sanitizeOnboardingData(req.body);
@@ -104,11 +106,10 @@ export function registerProfileRoutes(app: Express) {
         console.log(`[Onboarding] Updated user ${userId} industry to: ${recommendedIndustry}`);
       }
 
-      let profile = await storage.getUserProfile(userId);
+      let profile = await storage.getUserProfile(scope);
       
       if (!profile) {
-        profile = await storage.createUserProfile({
-          userId,
+        profile = await storage.createUserProfile(scope, {
           focusDescription,
           onboardingStatus: "completed",
           publications: publications || [],
@@ -117,7 +118,7 @@ export function registerProfileRoutes(app: Express) {
           companies: companies || [],
         });
       } else {
-        profile = await storage.updateUserProfile(userId, {
+        profile = await storage.updateUserProfile(scope, {
           focusDescription,
           onboardingStatus: "completed",
           publications: publications || [],

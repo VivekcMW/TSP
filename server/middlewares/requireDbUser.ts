@@ -4,14 +4,26 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { users, type User } from "@shared/models/auth";
 import { devAuthEnabled, resolveDevUser } from "./devAuth";
+import { resolveTenantContext, type TenantContext } from "../services/tenancy";
 
 declare global {
   namespace Express {
     interface Request {
       dbUser?: User;
+      /**
+       * The tenant this request acts in. Present on every authenticated
+       * request; repositories refuse to run without it.
+       */
+      tenant?: TenantContext;
     }
   }
 }
+
+/**
+ * Header naming the tenant to act in. Absent means the user's personal tenant,
+ * which is the only tenant most users ever have.
+ */
+const TENANT_HEADER = "x-tenant-id";
 
 /**
  * Requires a valid Clerk session and resolves — or just-in-time provisions —
@@ -30,7 +42,13 @@ export async function requireDbUser(req: Request, res: Response, next: NextFunct
   // production build; that combination refuses to boot.
   if (devAuthEnabled) {
     try {
-      req.dbUser = await resolveDevUser();
+      const devUser = await resolveDevUser();
+      const devTenant = await resolveTenantContext(devUser.id, tenantHeader(req));
+      if (!devTenant) {
+        return res.status(404).json({ message: "Tenant not found" });
+      }
+      req.dbUser = devUser;
+      req.tenant = devTenant;
       return next();
     } catch (error) {
       console.error("DEV_AUTH_BYPASS: failed to resolve the seeded user:", error);
@@ -84,10 +102,24 @@ export async function requireDbUser(req: Request, res: Response, next: NextFunct
       return res.status(500).json({ message: "Failed to resolve user" });
     }
 
+    const tenant = await resolveTenantContext(dbUser.id, tenantHeader(req));
+    if (!tenant) {
+      // Unknown tenant and inaccessible tenant are reported identically, so a
+      // response cannot be used to probe which tenant ids exist.
+      return res.status(404).json({ message: "Tenant not found" });
+    }
+
     req.dbUser = dbUser;
+    req.tenant = tenant;
     next();
   } catch (error) {
     console.error("Error resolving authenticated user:", error);
     res.status(500).json({ message: "Failed to resolve user" });
   }
+}
+
+function tenantHeader(req: Request): string | undefined {
+  const raw = req.headers[TENANT_HEADER];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return value?.trim() || undefined;
 }
