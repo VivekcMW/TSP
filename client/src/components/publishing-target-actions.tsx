@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PLATFORMS } from "@/lib/platforms";
-import { invalidatePublishingQueries, type PublishingSchedule, type ScheduleTarget } from "@/lib/publishing";
+import { invalidatePublishingQueries, recheckPublishingRecovery, type PublishingSchedule, type ScheduleTarget } from "@/lib/publishing";
 
 export function ScheduleTargetActions({ item }: Readonly<{ item: PublishingSchedule }>) {
   const [busy, setBusy] = useState(false);
@@ -22,9 +22,15 @@ export function ScheduleTargetActions({ item }: Readonly<{ item: PublishingSched
       setError(`${failure instanceof Error ? failure.message : "Unable to update this target"}. Refresh status before trying again; the request may have been saved.`);
     } finally {
       // Even a 503 may have saved a retry generation for the scheduler.
-      await invalidatePublishingQueries();
-      lock.current = false;
-      setBusy(false);
+      recheckPublishingRecovery(item.draftId);
+      try {
+        await invalidatePublishingQueries();
+      } catch {
+        setError("Status could not be refreshed. Check status before trying again; the request may have been saved.");
+      } finally {
+        lock.current = false;
+        setBusy(false);
+      }
     }
   };
   return <div className="mt-2 space-y-2" aria-live="polite">
@@ -43,6 +49,10 @@ export function ScheduleTargetActions({ item }: Readonly<{ item: PublishingSched
         {target.status === "publishing" && <p className="text-xs text-muted-foreground">Delivery is in flight. Cancellation is no longer safe.</p>}
       </div>;
     })}
-    {error && <div role="alert" className="text-xs text-destructive">{error}<Button variant="outline" size="sm" disabled={busy} onClick={async () => { await invalidatePublishingQueries(); setError(""); }}>Refresh target status</Button></div>}
+    {error && <div role="alert" className="text-xs text-destructive">{error}<Button variant="outline" size="sm" disabled={busy} onClick={async () => {
+      recheckPublishingRecovery(item.draftId);
+      try { await invalidatePublishingQueries(); setError(""); }
+      catch { setError("Status could not be refreshed. Check the provider before trying again."); }
+    }}>Refresh target status</Button></div>}
   </div>;
 }

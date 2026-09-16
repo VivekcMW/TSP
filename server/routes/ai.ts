@@ -5,7 +5,7 @@ import { aiGenerationRateLimit } from "../middlewares/rateLimit";
 import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
 import { getAvailableVerticals, normalizeIndustryToSlug, selectIndustryEngine } from "../services/metaEngine";
-import { analyzeProfessionalIdentity, generatePostContentDetailed, generatePostSchema } from "../services/punditBrain";
+import { analyzeProfessionalIdentity, generatePostContentDetailed, generatePostSchema, onboardingIdentitySchema } from "../services/punditBrain";
 import { getAIErrorResponse } from "../services/openRouter";
 import { platformIntegrations } from "@shared/schema";
 import { z } from "zod";
@@ -24,17 +24,17 @@ const detailedPostSchema = generatePostSchema.extend({
 export function registerAiRoutes(app: Express) {
   app.post("/api/ai/analyze-identity", requireDbUser, requirePermission("generation:create:own"), aiGenerationRateLimit, async (req, res) => {
     try {
-      const { focusDescription, selectedIndustry } = req.body;
-      
-      if (!focusDescription || focusDescription.length < 10) {
-        return res.status(400).json({ message: "Please provide a description of at least 10 characters" });
+      const validation = onboardingIdentitySchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ code: "ai_invalid_input", message: "Provide a description of 10–500 characters and, if supplied, an industry of 1–100 characters.", errors: validation.error.flatten().fieldErrors });
       }
+      const { focusDescription, selectedIndustry } = validation.data;
       
       const industrySlug = normalizeIndustryToSlug(selectedIndustry);
       const scope = authedOf(req).tenant;
       const [analysis, engineSelection] = await Promise.all([
         analyzeProfessionalIdentity(focusDescription, industrySlug, scope),
-        selectIndustryEngine(selectedIndustry || "Other", focusDescription, scope),
+        selectIndustryEngine(selectedIndustry, focusDescription, scope),
       ]);
       
       res.json({
@@ -64,13 +64,13 @@ export function registerAiRoutes(app: Express) {
 
   app.post("/api/ai/select-engine", requireDbUser, requirePermission("generation:create:own"), aiGenerationRateLimit, async (req, res) => {
     try {
-      const { selectedIndustry, focusDescription } = req.body;
-      
-      if (!focusDescription || focusDescription.length < 10) {
-        return res.status(400).json({ message: "Please provide a description of at least 10 characters" });
+      const validation = onboardingIdentitySchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ code: "ai_invalid_input", message: "Provide a description of 10–500 characters and, if supplied, an industry of 1–100 characters.", errors: validation.error.flatten().fieldErrors });
       }
-      
-      const result = await selectIndustryEngine(selectedIndustry || "Other", focusDescription, authedOf(req).tenant);
+      const { selectedIndustry, focusDescription } = validation.data;
+
+      const result = await selectIndustryEngine(selectedIndustry, focusDescription, authedOf(req).tenant);
       
       res.json(result);
     } catch (error) {

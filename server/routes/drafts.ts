@@ -282,6 +282,18 @@ export function registerDraftsRoutes(app: Express) {
 
   // Draft Scheduling Endpoints
 
+  app.get("/api/drafts/:id/publish-status", requireDbUser, requirePermission("draft:read:own"), async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      const result = await storage.getDraftPublishStatus(authedOf(req).tenant, req.params.id);
+      if (!result) return res.status(404).json({ message: "Draft not found" });
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching publication status:", error);
+      res.status(503).json({ message: "Delivery status could not be verified. Check status before retrying." });
+    }
+  });
+
   app.post("/api/drafts/:id/schedule", requireDbUser, requirePermission("draft:write:own"), async (req, res) => {
     try {
       const { dbUser, tenant: scope } = authedOf(req);

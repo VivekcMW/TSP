@@ -1,6 +1,8 @@
 import type { IndustrySlug } from "@shared/schema";
+import { z } from "zod";
 import { engineRegistry } from "./engines/index.js";
 import { AIGenerationError, generateText } from "./openRouter";
+import { onboardingIdentitySchema } from "./punditBrain";
 
 const SUPPORTED_VERTICALS: Array<{ slug: IndustrySlug; name: string; signals: string[] }> = [
   {
@@ -141,70 +143,50 @@ export interface MetaEngineResult {
   engineDisplayName: string;
 }
 
+const metaEngineOutputSchema = z.object({
+  recommendedIndustry: z.string().trim().min(1),
+  confidence: z.number().min(0).max(1),
+  reasoning: z.string().trim().min(1),
+  matchedSignals: z.array(z.string().trim().min(1)),
+  dropdownAligned: z.boolean(),
+});
+
 export async function selectIndustryEngine(
   selectedIndustry: string,
   focusDescription: string,
   scope: { tenantId: string }
 ): Promise<MetaEngineResult> {
-  const userPrompt = `DROPDOWN SELECTION: "${selectedIndustry}"
-PROFESSIONAL FOCUS: "${focusDescription}"
+  const input = onboardingIdentitySchema.safeParse({ selectedIndustry, focusDescription });
+  if (!input.success) throw new AIGenerationError("ai_invalid_input");
+  const userPrompt = `DROPDOWN SELECTION: "${input.data.selectedIndustry}"
+PROFESSIONAL FOCUS: "${input.data.focusDescription}"
 
 Analyze this input and determine the best industry vertical match. Return valid JSON only.`;
 
+  // Provider failures propagate; malformed output never becomes canned success
+  // and never triggers a repair call or an implicit second provider attempt.
+  const text = await generateText(`${META_ENGINE_PROMPT}\n\n${userPrompt}`, { scope });
+  let output: unknown;
   try {
-    const text = await generateText(`${META_ENGINE_PROMPT}\n\n${userPrompt}`, { scope });
-    
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error("[MetaEngine] Failed to parse JSON from response:", text);
-      return createFallbackResult(selectedIndustry);
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    
-    const validSlugs = SUPPORTED_VERTICALS.map(v => v.slug);
-    let recommendedIndustry: IndustrySlug = parsed.recommendedIndustry;
-    
-    if (!validSlugs.includes(recommendedIndustry) && recommendedIndustry !== "other") {
-      const matchedVertical = SUPPORTED_VERTICALS.find(v => 
-        v.name.toLowerCase() === recommendedIndustry.toLowerCase() ||
-        v.slug === recommendedIndustry.toLowerCase().replace(/[^a-z]/g, "_")
-      );
-      recommendedIndustry = matchedVertical?.slug || "other";
-    }
-    
-    const engine = engineRegistry.getEngine(recommendedIndustry);
-    
-    return {
-      recommendedIndustry,
-      confidence: parsed.confidence || 0.7,
-      reasoning: parsed.reasoning || "Matched based on professional focus analysis",
-      matchedSignals: parsed.matchedSignals || [],
-      dropdownAligned: parsed.dropdownAligned ?? (selectedIndustry.toLowerCase().includes(recommendedIndustry.replace("_", " "))),
-      engineDisplayName: engine.config.displayName,
-    };
-  } catch (error) {
-    // A tenant budget rejection must not be disguised as successful selection.
-    if (error instanceof AIGenerationError && error.code === "ai_budget") throw error;
-    console.error("[MetaEngine] Error selecting industry:", error);
-    return createFallbackResult(selectedIndustry);
+    output = JSON.parse(text);
+  } catch {
+    throw new AIGenerationError("ai_invalid_output");
   }
-}
+  const parsed = metaEngineOutputSchema.safeParse(output);
+  if (!parsed.success) throw new AIGenerationError("ai_invalid_output");
 
-function createFallbackResult(selectedIndustry: string): MetaEngineResult {
+  const recommendation = parsed.data.recommendedIndustry.toLowerCase();
   const matchedVertical = SUPPORTED_VERTICALS.find(v => 
-    selectedIndustry.toLowerCase().includes(v.name.toLowerCase().split(" ")[0].toLowerCase())
+    v.slug === recommendation || v.name.toLowerCase() === recommendation ||
+    v.slug === recommendation.replace(/[^a-z]/g, "_")
   );
-  
-  const recommendedIndustry: IndustrySlug = matchedVertical?.slug || "other";
+  if (!matchedVertical && recommendation !== "other") throw new AIGenerationError("ai_invalid_output");
+  const recommendedIndustry = matchedVertical?.slug ?? "other";
   const engine = engineRegistry.getEngine(recommendedIndustry);
-  
+
   return {
+    ...parsed.data,
     recommendedIndustry,
-    confidence: 0.5,
-    reasoning: "Fallback: Using dropdown selection as primary signal",
-    matchedSignals: [],
-    dropdownAligned: true,
     engineDisplayName: engine.config.displayName,
   };
 }

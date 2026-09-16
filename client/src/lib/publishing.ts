@@ -27,7 +27,13 @@ export function publicationOutcome(schedule?: PublishingSchedule | null): "pendi
   if (states.some((state) => !["scheduled", "queued", "publishing", "published", "failed", "cancelled"].includes(state))) return "unknown";
   if (states.every((state) => state === "published") && schedule.status === "published") return "published";
   if (states.some((state) => ["scheduled", "queued", "publishing"].includes(state))) return "pending";
-  return "attention";
+  // A mixed-time read is not a terminal failure (or evidence of success).
+  // Reconcile until parent and targets agree; never synthesize a delivered parent.
+  if (schedule.status === "failed" && states.includes("failed")) return "attention";
+  // Older servers also used partial for a mixture of delivered and failed.
+  if (schedule.status === "partial" && states.includes("published") && states.some((state) => state !== "published")) return "attention";
+  if (schedule.status === "cancelled" && states.every((state) => state === "cancelled")) return "attention";
+  return "unknown";
 }
 
 export function canChangeSchedule(schedule?: PublishingSchedule) {
@@ -35,8 +41,7 @@ export function canChangeSchedule(schedule?: PublishingSchedule) {
     schedule.targets.every((target) => ["scheduled", "queued", "failed", "cancelled"].includes(target.status));
 }
 
-// No per-draft schedule GET exists. Paginate the existing endpoint so older
-// partial/unknown schedules do not lose recovery controls at the first page cap.
+// Paginate list views so older partial/unknown schedules retain recovery controls.
 export async function fetchPublishingSchedules(signal?: AbortSignal): Promise<{ items: PublishingSchedule[] }> {
   const items: PublishingSchedule[] = [];
   for (let offset = 0; ; offset += 200) {
@@ -50,6 +55,25 @@ export async function fetchPublishingSchedules(signal?: AbortSignal): Promise<{ 
 
 export function invalidatePublishingQueries() {
   return queryClient.invalidateQueries({ predicate: (query) => String(query.queryKey[0]).startsWith("/api/drafts") });
+}
+
+export async function fetchDraftPublishStatus(draftId: string, signal?: AbortSignal): Promise<PublishingSchedule | undefined> {
+  const response = await apiRequest("GET", `/api/drafts/${encodeURIComponent(draftId)}/publish-status`, undefined, { signal });
+  const body = await response.json() as { schedule: PublishingSchedule | null };
+  if (body.schedule === null) return undefined;
+  if (body.schedule?.draftId !== draftId || !Array.isArray(body.schedule.targets)) throw new Error("Schedule status is unavailable.");
+  return body.schedule;
+}
+
+// Recovery is separate from query invalidation: monitor outcomes themselves
+// invalidate list queries, so subscribing to every invalidation would loop.
+const recoveryListeners = new Set<(draftId: string) => void>();
+export function subscribePublishingRecovery(listener: (draftId: string) => void) {
+  recoveryListeners.add(listener);
+  return () => { recoveryListeners.delete(listener); };
+}
+export function recheckPublishingRecovery(draftId: string) {
+  for (const listener of recoveryListeners) listener(draftId);
 }
 
 // Actual implemented live adapters in server/services/publishers/index.ts,

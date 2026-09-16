@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UserProfile } from "@shared/schema";
-import { canChangeSchedule, defaultSchedulePlatforms, draftStatusGroup, fetchPublishingSchedules, publicationOutcome, publishingBlocker, selectionBlockers, type PublishingSchedule, type ReadinessData } from "./publishing";
+import { canChangeSchedule, defaultSchedulePlatforms, draftStatusGroup, fetchDraftPublishStatus, fetchPublishingSchedules, publicationOutcome, publishingBlocker, recheckPublishingRecovery, selectionBlockers, subscribePublishingRecovery, type PublishingSchedule, type ReadinessData } from "./publishing";
 
 const draft = { platform: "linkedin", content: "A post to review.", platformPublishRules: {} };
 const ready = (): ReadinessData => ({
@@ -26,6 +26,44 @@ describe("publishing outcome safety", () => {
   it("does not replay delivered or in-flight targets when rescheduling", () => {
     expect(canChangeSchedule(schedule(["scheduled", "queued"]))).toBe(true);
     for (const state of ["unknown", "publishing", "published", "skipped"]) expect(canChangeSchedule(schedule(["scheduled", state]))).toBe(false);
+  });
+  it.each([
+    [["published", "published"], "scheduled"], [["published"], "failed"],
+    [["failed", "cancelled"], "publishing"], [["failed"], "published"],
+    [["published", "failed"], "cancelled"], [["cancelled"], "future-state"],
+    [["cancelled"], "failed"], [["cancelled"], "partial"], [["failed"], "partial"],
+  ])("keeps mixed-time %j / %s snapshots unconfirmed", (states, parent) => {
+    expect(publicationOutcome(schedule(states as string[], parent as string))).toBe("unknown");
+  });
+  it.each([
+    [["failed", "cancelled"], "failed"], [["published", "cancelled"], "partial"],
+    [["cancelled"], "cancelled"],
+  ])("still terminates reconciled recovery outcomes %j / %s", (states, parent) => {
+    expect(publicationOutcome(schedule(states as string[], parent as string))).toBe("attention");
+  });
+  it("only notifies active recovery subscribers, not query invalidation consumers", () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribePublishingRecovery(listener);
+    recheckPublishingRecovery("d");
+    expect(listener).toHaveBeenCalledExactlyOnceWith("d");
+    unsubscribe();
+    recheckPublishingRecovery("d");
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+  it("fetches one draft with cancellation and rejects mismatched/malformed snapshots", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ schedule: schedule(["published"], "published") })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ schedule: null })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ schedule: { ...schedule(["published"], "published"), draftId: "other" } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({})));
+    vi.stubGlobal("fetch", fetch);
+    const controller = new AbortController();
+    expect((await fetchDraftPublishStatus("d", controller.signal))?.status).toBe("published");
+    expect(fetch.mock.calls[0][0]).toBe("/api/drafts/d/publish-status");
+    controller.abort();
+    expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+    expect(await fetchDraftPublishStatus("d")).toBeUndefined();
+    await expect(fetchDraftPublishStatus("d")).rejects.toThrow("unavailable");
+    await expect(fetchDraftPublishStatus("d")).rejects.toThrow("unavailable");
   });
   it("loads beyond the first page to preserve older target recovery", async () => {
     const first = Array.from({ length: 200 }, () => schedule(["published"], "published"));

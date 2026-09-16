@@ -57,6 +57,31 @@ describe("aggregate schedule outcomes", () => {
 });
 
 describe("transactional scheduling and RLS", () => {
+  it("returns an owned schedule snapshot and distinguishes no schedule from no access", async () => {
+    const draft = await storage.createDraft(a, { platform: "linkedin", tone: "professional", content: "Unscheduled" });
+    expect(await storage.getDraftPublishStatus(a, draft.id)).toEqual({ schedule: null });
+    const f = await fixture();
+    const snapshot = await storage.getDraftPublishStatus(a, f.draft.id);
+    expect(snapshot?.schedule).toMatchObject({ id: f.schedule.id, status: "scheduled" });
+    expect(snapshot?.schedule?.targets.map(target => target.id).sort()).toEqual(f.targets.map(target => target.id).sort());
+    for (const scope of [coworker, other]) expect(await storage.getDraftPublishStatus(scope, f.draft.id)).toBeUndefined();
+    expect(await storage.getDraftPublishStatus(a, randomUUID())).toBeUndefined();
+  });
+  it("never mixes parent and targets while sibling outcomes commit concurrently", async () => {
+    const f = await fixture();
+    await Promise.all([storage.claimPublishTarget(a, f.data(0)), storage.claimPublishTarget(a, f.data(1))]);
+    const snapshots = await Promise.all([
+      storage.getDraftPublishStatus(a, f.draft.id),
+      f.finish(0, "published").then(() => storage.getDraftPublishStatus(a, f.draft.id)),
+      f.finish(1, "published").then(() => storage.getDraftPublishStatus(a, f.draft.id)),
+      ...Array.from({ length: 12 }, () => storage.getDraftPublishStatus(a, f.draft.id)),
+    ]);
+    for (const snapshot of snapshots) {
+      expect(snapshot?.schedule).toBeDefined();
+      expect(snapshot!.schedule!.status).toBe(aggregateScheduleStatus(snapshot!.schedule!.targets.map(target => target.status)));
+    }
+    expect((await storage.getDraftPublishStatus(a, f.draft.id))?.schedule?.status).toBe("published");
+  });
   it("allows unscheduled draft edits and does not leak other users' records", async () => {
     const draft = await storage.createDraft(a, { platform: "linkedin", tone: "professional", content: "Original" });
     expect((await storage.updateDraft(a, draft.id, { content: "Edited" }))?.content).toBe("Edited");

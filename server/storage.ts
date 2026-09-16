@@ -116,6 +116,7 @@ export interface IStorage {
   getScheduledDraftsByStatus(scope: TenantScope, status: string, pagination?: Pagination, platform?: string): Promise<DraftSchedule[]>;
   countScheduledDrafts(scope: TenantScope, status?: string, platform?: string): Promise<number>;
   getDraftSchedule(scope: TenantScope, draftId: string): Promise<DraftSchedule | undefined>;
+  getDraftPublishStatus(scope: TenantScope, draftId: string): Promise<{ schedule: (DraftSchedule & { targets: DraftScheduleTarget[] }) | null } | undefined>;
   getScheduledDraftsForPublishing(scope: TenantScope, limit?: number): Promise<DraftSchedule[]>;
   updateDraftScheduleStatus(scope: TenantScope, scheduleId: string, status: string, lastError?: string): Promise<DraftSchedule | undefined>;
   cancelDraftSchedule(scope: TenantScope, draftId: string): Promise<void>;
@@ -866,6 +867,21 @@ export class DatabaseStorage implements IStorage {
           ),
         );
       return schedule || undefined;
+    });
+  }
+
+  async getDraftPublishStatus(scope: TenantScope, draftId: string): Promise<{ schedule: (DraftSchedule & { targets: DraftScheduleTarget[] }) | null } | undefined> {
+    return scoped(scope, async (tx) => {
+      // One SELECT uses one MVCC snapshot even at READ COMMITTED. Separate
+      // repository calls (or SELECTs in a default transaction) can mix times.
+      const rows = await tx.select({ draftId: drafts.id, schedule: draftSchedules, target: draftScheduleTargets })
+        .from(drafts)
+        .leftJoin(draftSchedules, and(eq(draftSchedules.draftId, drafts.id), eq(draftSchedules.tenantId, scope.tenantId)))
+        .leftJoin(draftScheduleTargets, and(eq(draftScheduleTargets.draftScheduleId, draftSchedules.id), eq(draftScheduleTargets.tenantId, scope.tenantId)))
+        .where(and(eq(drafts.id, draftId), eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId)));
+      if (!rows.length) return undefined;
+      const schedule = rows[0].schedule;
+      return { schedule: schedule ? { ...schedule, targets: rows.flatMap(({ target }) => target ? [target] : []) } : null };
     });
   }
 

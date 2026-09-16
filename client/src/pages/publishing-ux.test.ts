@@ -35,7 +35,8 @@ beforeAll(async () => {
       import Drafts from "@/pages/drafts";
       import Calendar from "@/pages/calendar";
       import { ScheduleArticleModal } from "@/components/schedule-article-modal";
-      import { usePublishStatus } from "@/hooks/use-publish-status";
+      import { usePublishStatus, useDraftPublishStatus } from "@/hooks/use-publish-status";
+      import { recheckPublishingRecovery } from "@/lib/publishing";
       import { Link, useLocation } from "wouter";
       window.__calls = []; window.__toasts = []; window.__copies = []; window.__opens = []; window.__pending = [];
       window.__refresh = () => queryClient.invalidateQueries();
@@ -46,6 +47,12 @@ beforeAll(async () => {
       window.fetch = async (url, options = {}) => {
         window.__calls.push({ url, method: options.method || "GET", body: options.body ? JSON.parse(options.body) : null, signal: options.signal });
         const s = window.__state;
+        if (String(url).endsWith("/publish-status")) {
+          const draftId = decodeURIComponent(String(url).split("/")[3]);
+          const snapshot = JSON.stringify({ schedule: s.schedules.find(item => item.draftId === draftId) || null });
+          if (s.deferStatus) await new Promise(resolve => window.__pending.push(resolve));
+          return new Response(s.scheduleError ? JSON.stringify({ message: "Temporarily unavailable" }) : snapshot, { status: s.scheduleError ? 503 : 200 });
+        }
         if (String(url).includes("/publish-logs")) {
           if (s.deferLogs) await new Promise(resolve => window.__pending.push(resolve));
           return new Response(JSON.stringify(s.logs || []), { status: s.logError ? 503 : 200 });
@@ -67,7 +74,11 @@ beforeAll(async () => {
           if (s.publishError) throw new TypeError("Failed to fetch");
           return new Response(JSON.stringify({ jobId: "first", jobIds: ["first", "second"], status: "queued" }));
         }
-        if (String(url).includes("/targets/")) return new Response(JSON.stringify({ message: "Request processed" }));
+        if (String(url).includes("/targets/")) {
+          if (s.recoverySchedules) s.schedules = s.recoverySchedules;
+          if (s.recoveryError === "network") throw new TypeError("Failed to fetch");
+          return new Response(JSON.stringify({ message: "Request processed" }), { status: s.recoveryError ? 503 : 200 });
+        }
         if ((options.method || "GET") !== "GET") return new Response(JSON.stringify({ id: "saved", scheduled: ["d"], failed: [], message: "Saved" }));
         if (String(url).startsWith("/api/drafts/scheduled")) {
           if (s.scheduleError) return new Response(JSON.stringify({ message: "Temporarily unavailable" }), { status: 503 });
@@ -84,11 +95,15 @@ beforeAll(async () => {
         const [id, setId] = useState("old"); const result = usePublishStatus(id, 100);
         return <><button onClick={() => setId("new")}>Switch job</button><output>{JSON.stringify(result.status)}</output></>;
       }
+      function MonitorHarness() {
+        const [id, setId] = useState("d"); const result = useDraftPublishStatus(id, 100);
+        return <><button onClick={() => setId("other")}>Switch draft</button><button onClick={() => recheckPublishingRecovery("d")}>Recover draft</button><button onClick={() => recheckPublishingRecovery("unrelated")}>Recover unrelated</button><output>{JSON.stringify({ schedule: result.schedule, outcome: result.outcome, error: result.error })}</output></>;
+      }
       function App() {
         const [open, setOpen] = useState(true);
         const [location, navigate] = useLocation();
         window.__navigate = navigate;
-        return <QueryClientProvider client={queryClient}><Link id="leave-content" href="/elsewhere">Leave Content</Link>{location === "/elsewhere" ? <Link href="/">Return to Content</Link> : window.__surface === "calendar" ? <Calendar /> : window.__surface === "modal" ? <><button onClick={() => setOpen(true)}>Reopen modal</button><ScheduleArticleModal draftId="d" open={open} onOpenChange={setOpen} /></> : window.__surface === "jobs" ? <JobHarness /> : <Drafts />}</QueryClientProvider>;
+        return <QueryClientProvider client={queryClient}><Link id="leave-content" href="/elsewhere">Leave Content</Link>{location === "/elsewhere" ? <Link href="/">Return to Content</Link> : window.__surface === "calendar" ? <Calendar /> : window.__surface === "modal" ? <><button onClick={() => setOpen(true)}>Reopen modal</button><ScheduleArticleModal draftId="d" open={open} onOpenChange={setOpen} /></> : window.__surface === "jobs" ? <JobHarness /> : window.__surface === "monitor" ? <MonitorHarness /> : <Drafts />}</QueryClientProvider>;
       }
       createRoot(document.getElementById("root")).render(<App />);
     ` },
@@ -273,6 +288,116 @@ describe("audited publishing UX (isolated browser)", () => {
     await browserExpect(page.getByTestId("button-copy-and-post")).toBeDisabled();
     await page.getByRole("button", { name: "Check delivery status" }).click();
     expect((await calls()).filter((call: any) => call.method === "POST")).toHaveLength(1);
+  });
+  it.each(["retry", "cancel"])("refreshes terminal dialog targets after %s without a manual status check", async (action) => {
+    await mount("drafts", { postSchedules: [schedule(["published", "failed"], "failed")] });
+    await openPublish(); await page.getByTestId("button-publish-now").click();
+    const dialog = page.getByRole("dialog");
+    await browserExpect(dialog).toContainText("Not all targets published");
+    const next = schedule(["published", action === "retry" ? "queued" : "cancelled"], action === "retry" ? "queued" : "partial");
+    if (action === "retry") next.targets[1].id = "replacement";
+    await change({ recoverySchedules: [next] });
+    await dialog.getByRole("button", { name: `${action === "retry" ? "Retry" : "Cancel"} twitter`, exact: true }).dblclick();
+    await browserExpect(dialog).toContainText(`Twitter/X: ${action === "retry" ? "queued" : "cancelled"}`);
+    expect(await dialog.getByRole("button", { name: "Retry twitter", exact: true }).count()).toBe(0);
+    expect(await dialog.getByRole("button", { name: "Retry linkedin", exact: true }).count()).toBe(0);
+    expect(await dialog.getByRole("button", { name: "Cancel linkedin", exact: true }).count()).toBe(0);
+    await browserExpect(page.getByTestId("button-publish-now")).toBeDisabled();
+    if (action === "retry") {
+      await change({ schedules: [schedule(["published", "published"], "published")] });
+      await page.clock.runFor(1100);
+      await browserExpect(dialog).toContainText("All targets are recorded as published");
+    } else expect(await dialog.getByText(/All targets are recorded as published/).count()).toBe(0);
+    const writes = (await calls()).filter((call: any) => call.method !== "GET");
+    expect(writes.map((call: any) => [call.method, call.url])).toEqual([
+      ["POST", "/api/drafts/d/publish-now"],
+      [action === "retry" ? "POST" : "DELETE", `/api/drafts/d/schedule/targets/t1${action === "retry" ? "/retry" : ""}`],
+    ]);
+    const reads = (await calls()).filter((call: any) => call.url.endsWith("/publish-status")).length;
+    await page.clock.runFor(5000);
+    expect((await calls()).filter((call: any) => call.url.endsWith("/publish-status"))).toHaveLength(reads);
+  });
+  it.each(["network", "503"])("reconciles a saved retry after a %s response without replaying it", async (recoveryError) => {
+    await mount("drafts", { postSchedules: [schedule(["published", "failed"], "failed")] });
+    await openPublish(); await page.getByTestId("button-publish-now").click();
+    const dialog = page.getByRole("dialog");
+    await browserExpect(dialog).toContainText("Twitter/X: failed");
+    await change({ recoveryError, recoverySchedules: [schedule(["published", "unknown"], "unknown")] });
+    await dialog.getByRole("button", { name: "Retry twitter", exact: true }).click();
+    await browserExpect(dialog).toContainText("Twitter/X: unknown");
+    await browserExpect(dialog).toContainText("Automatic retry is blocked");
+    expect(await dialog.getByRole("button", { name: /^Retry / }).count()).toBe(0);
+    expect((await calls()).filter((call: any) => call.method === "POST")).toHaveLength(2);
+  });
+  it("reconciles mixed-time all-published targets before announcing success", async () => {
+    await mount("drafts", { postSchedules: [schedule(["published", "published"], "scheduled")] });
+    await openPublish(); await page.getByTestId("button-publish-now").click();
+    const dialog = page.getByRole("dialog");
+    await browserExpect(dialog).toContainText("Delivery is uncertain");
+    expect(await dialog.getByText(/All targets are recorded as published/).count()).toBe(0);
+    await change({ schedules: [schedule(["published", "published"], "published")] });
+    await page.clock.runFor(1100);
+    await browserExpect(dialog).toContainText("All targets are recorded as published");
+    expect((await calls()).filter((call: any) => call.method !== "GET")).toHaveLength(1);
+  });
+  it("keeps reading a missing schedule until actual target evidence arrives", async () => {
+    await mount("monitor");
+    await browserExpect.poll(async () => (await calls()).length).toBeGreaterThan(0);
+    await browserExpect(page.locator("output")).toContainText('"outcome":"unknown"');
+    await change({ schedules: [schedule(["published"], "published")] });
+    await page.clock.runFor(200);
+    await browserExpect(page.locator("output")).toContainText('"outcome":"published"');
+    const count = (await calls()).length;
+    await change({}, true);
+    await page.clock.runFor(130_000);
+    expect(await calls()).toHaveLength(count);
+    expect(await page.locator("output").textContent()).not.toContain("Still awaiting");
+  });
+  it("stops after three failed status reads and resumes only on explicit recovery", async () => {
+    await mount("monitor", { scheduleError: true });
+    await browserExpect(page.locator("output")).toContainText("could not be verified");
+    await browserExpect.poll(async () => {
+      await page.clock.runFor(200);
+      return (await calls()).length;
+    }).toBe(3);
+    await change({ scheduleError: false, schedules: [schedule(["cancelled"], "cancelled")] });
+    await page.clock.runFor(130_000);
+    expect(await calls()).toHaveLength(3);
+    await page.getByRole("button", { name: "Recover draft", exact: true }).click();
+    await browserExpect(page.locator("output")).toContainText('"outcome":"attention"');
+    expect(await calls()).toHaveLength(4);
+    expect((await calls()).every((call: any) => call.method === "GET")).toBe(true);
+  });
+  it.each([false, true])("bounds unconfirmed reconciliation, including hung reads (%s)", async (deferStatus) => {
+    await mount("monitor", { schedules: [schedule(["published"], "scheduled")], deferStatus });
+    await browserExpect.poll(async () => (await calls()).length).toBeGreaterThan(0);
+    await page.clock.runFor(121_000);
+    await browserExpect(page.locator("output")).toContainText("Still awaiting delivery confirmation");
+    expect(await page.locator("output").textContent()).not.toContain('"outcome":"published"');
+    const count = (await calls()).length;
+    await page.clock.runFor(10_000);
+    expect(await calls()).toHaveLength(count);
+    if (deferStatus) {
+      await page.evaluate(() => (window as any).__pending.shift()());
+      await browserExpect(page.locator("output")).toContainText("Still awaiting delivery confirmation");
+    }
+  });
+  it.each(["Recover draft", "Switch draft"])("aborts and ignores an old status response on %s", async (action) => {
+    await mount("monitor", { schedules: [schedule(["published"], "published")], deferStatus: true });
+    await browserExpect.poll(async () => (await calls()).length).toBe(1);
+    await page.getByRole("button", { name: "Recover unrelated", exact: true }).click();
+    expect(await calls()).toHaveLength(1);
+    await change({ deferStatus: false, schedules: [schedule(["unknown"], "unknown", action === "Switch draft" ? "other" : "d")] });
+    await page.getByRole("button", { name: action, exact: true }).click();
+    await browserExpect(page.locator("output")).toContainText('"outcome":"unknown"');
+    await browserExpect.poll(async () => (await calls()).length).toBeGreaterThan(1);
+    await page.evaluate(() => (window as any).__pending.shift()());
+    await browserExpect(page.locator("output")).toContainText('"status":"unknown"');
+    expect((await calls())[0].aborted).toBe(true);
+    await page.locator("#leave-content").click();
+    const count = (await calls()).length;
+    await page.clock.runFor(150_000);
+    expect(await calls()).toHaveLength(count);
   });
   it("shows polling failure without exposing a second publish action", async () => {
     await mount(); await openPublish();

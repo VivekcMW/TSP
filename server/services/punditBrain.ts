@@ -23,49 +23,34 @@ export const generatePostSchema = z.object({
   userContext: z.string().trim().max(4000).optional(),
 });
 
-export interface PunditAnalysis {
-  primaryIndustry: string;
-  confidence: number;
-  subDomains: string[];
-  keywords: string[];
-  publications: Array<{
-    name: string;
-    url: string;
-    focus: string;
-    relevance: string;
-  }>;
-  topics: Array<{
-    phrase: string;
-    subDomain: string;
-    whyItMatters: string;
-  }>;
-  personalities: Array<{
-    name: string;
-    role: string;
-    areaOfInfluence: string;
-    whyTheyMatter: string;
-  }>;
-  companies: Array<{
-    name: string;
-    industry: string;
-    whyToTrack: string;
-    newsToWatch: string;
-  }>;
-}
+// Match the profile's 500-character focus limit; never coerce arbitrary JSON
+// into a prompt. Both HTTP routes and direct service callers use this contract.
+export const onboardingIdentitySchema = z.object({
+  focusDescription: z.string().trim().min(10).max(500),
+  selectedIndustry: z.string().trim().min(1).max(100).default("Other"),
+});
 
-function fallbackPunditAnalysis(config: { displayName: string; subDomains: string[]; keywords: string; publications: string; personalities: string; companies: string }): PunditAnalysis {
-  const values = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean);
-  return {
-    primaryIndustry: config.displayName,
-    confidence: 0.6,
-    subDomains: config.subDomains,
-    keywords: values(config.keywords),
-    publications: values(config.publications).map((name) => ({ name, url: "", focus: config.displayName, relevance: "Curated industry source" })),
-    topics: config.subDomains.map((phrase) => ({ phrase, subDomain: phrase, whyItMatters: `Relevant to ${config.displayName} professionals` })),
-    personalities: values(config.personalities).map((name) => ({ name, role: "Industry leader", areaOfInfluence: config.displayName, whyTheyMatter: "Relevant industry perspective" })),
-    companies: values(config.companies).map((name) => ({ name, industry: config.displayName, whyToTrack: "Industry relevance", newsToWatch: "Product and market updates" })),
-  };
-}
+const identityText = z.string().trim().min(1);
+const punditAnalysisSchema = z.object({
+  primaryIndustry: identityText,
+  confidence: z.number().min(0).max(1),
+  subDomains: z.array(identityText),
+  keywords: z.array(identityText),
+  publications: z.array(z.object({
+    name: identityText, url: identityText, focus: identityText, relevance: identityText,
+  })),
+  topics: z.array(z.object({
+    phrase: identityText, subDomain: identityText, whyItMatters: identityText,
+  })),
+  personalities: z.array(z.object({
+    name: identityText, role: identityText, areaOfInfluence: identityText, whyTheyMatter: identityText,
+  })),
+  companies: z.array(z.object({
+    name: identityText, industry: identityText, whyToTrack: identityText, newsToWatch: identityText,
+  })),
+});
+
+export type PunditAnalysis = z.infer<typeof punditAnalysisSchema>;
 
 const INDUSTRY_CONFIG: Record<IndustrySlug | "default", { displayName: string; subDomains: string[]; keywords: string; publications: string; personalities: string; companies: string }> = {
   media_advertising: {
@@ -368,27 +353,28 @@ You must respond with valid JSON only, no markdown or explanation. Use this exac
 }
 
 export async function analyzeProfessionalIdentity(userInput: string, industry: string | undefined, scope: { tenantId: string }): Promise<PunditAnalysis> {
-  const masterPrompt = getMasterPrompt(industry || "other");
-  const config = INDUSTRY_CONFIG[(industry as IndustrySlug) ?? "other"] ?? INDUSTRY_CONFIG["other"];
+  const input = onboardingIdentitySchema.safeParse({ focusDescription: userInput, selectedIndustry: industry });
+  if (!input.success) throw new AIGenerationError("ai_invalid_input");
+  const masterPrompt = getMasterPrompt(input.data.selectedIndustry);
+  const config = INDUSTRY_CONFIG[input.data.selectedIndustry as IndustrySlug] ?? INDUSTRY_CONFIG["other"];
 
   const prompt = `${masterPrompt}
 
-USER INPUT: "${userInput}"
+USER INPUT: "${input.data.focusDescription}"
 
 Analyze this professional's identity within the ${config.displayName} industry and provide comprehensive recommendations tailored to their specific role and niche. Return valid JSON only.`;
 
   const text = await generateText(prompt, { scope });
   
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return fallbackPunditAnalysis(config);
+  let output: unknown;
   try {
-    const parsed = JSON.parse(jsonMatch[0]) as PunditAnalysis;
-    if (!parsed.primaryIndustry || !Array.isArray(parsed.keywords) || !Array.isArray(parsed.publications)) return fallbackPunditAnalysis(config);
-    return parsed;
-  } catch (error) {
-    console.warn("[punditBrain] Malformed identity-analysis JSON; using curated fallback", error instanceof Error ? error.message : "unknown error");
-    return fallbackPunditAnalysis(config);
+    output = JSON.parse(text);
+  } catch {
+    throw new AIGenerationError("ai_invalid_output");
   }
+  const parsed = punditAnalysisSchema.safeParse(output);
+  if (!parsed.success) throw new AIGenerationError("ai_invalid_output");
+  return parsed.data;
 }
 
 // Validation interface for post content

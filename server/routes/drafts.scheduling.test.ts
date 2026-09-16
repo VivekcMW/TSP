@@ -2,7 +2,7 @@ import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const { storage, enqueue, handle, instant, selected, pass, scope } = vi.hoisted(() => ({
-  storage: { updateDraft: vi.fn(), getDraft: vi.fn(), getDraftSchedule: vi.fn(), getDraftScheduleTargetsForPublishing: vi.fn(), retryDraftScheduleTargets: vi.fn(), cancelDraftScheduleTarget: vi.fn(), scheduleDraftPublish: vi.fn(), getUserProfile: vi.fn() },
+  storage: { getDraftPublishStatus: vi.fn(), updateDraft: vi.fn(), getDraft: vi.fn(), getDraftSchedule: vi.fn(), getDraftScheduleTargetsForPublishing: vi.fn(), retryDraftScheduleTargets: vi.fn(), cancelDraftScheduleTarget: vi.fn(), scheduleDraftPublish: vi.fn(), getUserProfile: vi.fn() },
   enqueue: vi.fn(), handle: vi.fn(), instant: vi.fn(), selected: vi.fn(),
   pass: (_req: unknown, _res: unknown, next: () => void) => next(), scope: { tenantId: "t", userId: "u" },
 }));
@@ -33,6 +33,28 @@ beforeEach(() => {
 });
 
 describe("draft scheduling routes", () => {
+  it("reads an uncached scoped publication snapshot without separate parent/target reads", async () => {
+    const snapshot = { schedule: { id: "s", draftId: "d", status: "published", targets: [{ id: "li", status: "published" }] } };
+    storage.getDraftPublishStatus.mockResolvedValue(snapshot);
+    const response = await request(app).get("/api/drafts/d/publish-status?tenantId=attacker");
+    expect(response.status).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toEqual(snapshot);
+    expect(storage.getDraftPublishStatus).toHaveBeenCalledWith(scope, "d");
+    expect(storage.getDraft).not.toHaveBeenCalled();
+    expect(storage.getDraftSchedule).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+  it("distinguishes absent schedules, inaccessible drafts and unavailable status", async () => {
+    storage.getDraftPublishStatus.mockResolvedValueOnce({ schedule: null }).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("database unavailable"));
+    const absent = await request(app).get("/api/drafts/d/publish-status");
+    expect(absent.status).toBe(200); expect(absent.body).toEqual({ schedule: null });
+    expect((await request(app).get("/api/drafts/missing/publish-status")).status).toBe(404);
+    const unavailable = await request(app).get("/api/drafts/d/publish-status");
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.body.message).toContain("could not be verified");
+    expect(unavailable.body).not.toHaveProperty("schedule");
+  });
   it("returns an actionable 409 for immutable PATCH without dispatching", async () => {
     storage.updateDraft.mockRejectedValue(new ScheduleConflictError("Published drafts are immutable. Copy to a new draft."));
     const response = await request(app).patch("/api/drafts/d").send({ content: "Changed", status: "draft", tenantId: "attacker" });
