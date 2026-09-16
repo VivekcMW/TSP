@@ -1,5 +1,6 @@
-import { validateUrlSync, assertPublicHttpUrl } from "../urlValidator.js";
-import { discoverFeed } from "../feedDiscovery.js";
+import { validateUrlSync } from "../urlValidator.js";
+import { discoverFeed, normalizeToUrl } from "../feedDiscovery.js";
+import { CrawlError, crawlErrorMessage, fetchPublicText, mapCrawlSettled } from "../crawlerFetch.js";
 import { fetchArticlesForQuery } from "../keywordSearch.js";
 import { parseFeedContent, normalizeTitleForDedup } from "../universalFeedParser.js";
 import { scrapeWebpageArticles } from "../webpageScraper.js";
@@ -22,23 +23,10 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
   abstract readonly config: EngineConfig;
 
   /** Fetches and parses RSS, Atom, or JSON Feed alike (whichever the source actually is) via one shared parser, so content is consistently HTML-free. */
-  protected async fetchFeed(feed: RSSFeedConfig): Promise<FetchedArticle[]> {
-    try {
-      const guard = await assertPublicHttpUrl(feed.url);
-      if (!guard.ok) {
-        console.error(`[${this.config.industry}] Refusing to fetch ${feed.name}: ${guard.reason}`);
-        return [];
-      }
-
-      const res = await fetch(feed.url, {
-        headers: { "User-Agent": "TheSocialPundit/1.0 (Industry Content Curator)" },
-        signal: AbortSignal.timeout(10000),
-        redirect: "follow",
-      });
-      if (!res.ok) return [];
-
-      const parsedItems = await parseFeedContent(await res.text());
-      if (!parsedItems) return [];
+  protected async fetchFeed(feed: RSSFeedConfig, signal?: AbortSignal): Promise<FetchedArticle[]> {
+      const res = await fetchPublicText(feed.url, { signal });
+      const parsedItems = await parseFeedContent(res.text);
+      if (!parsedItems) throw new CrawlError("feed", "The source did not return a readable RSS, Atom, or JSON feed.");
 
       const items = parsedItems.slice(0, 15).map((item) => ({
         title: item.title,
@@ -55,17 +43,11 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       });
 
       return validItems.slice(0, 10);
-    } catch (error) {
-      console.error(`[${this.config.industry}] Failed to fetch feed from ${feed.name}:`,
-        error instanceof Error ? error.message : error);
-      return [];
-    }
   }
 
   /** Same contract as fetchFeed, but for a source with no RSS/Atom/JSON feed — scrapes the page directly instead. */
-  protected async fetchWebpage(source: RSSFeedConfig): Promise<FetchedArticle[]> {
-    try {
-      const items = await scrapeWebpageArticles(source.url);
+  protected async fetchWebpage(source: RSSFeedConfig, signal?: AbortSignal): Promise<FetchedArticle[]> {
+      const items = await scrapeWebpageArticles(source.url, signal);
       const withCategories = items.slice(0, 15).map((item) => ({
         title: item.title,
         link: item.link,
@@ -75,21 +57,12 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
         categories: item.categories.length ? item.categories : [source.category],
       }));
       return withCategories.filter((item) => item.link && validateUrlSync(item.link)).slice(0, 10);
-    } catch (error) {
-      console.error(`[${this.config.industry}] Failed to scrape webpage ${source.name}:`,
-        error instanceof Error ? error.message : error);
-      return [];
-    }
   }
 
   /**
-   * Ensures every entry in the user's free-text `publications` list has a
-   * matching `user_sources` row, resolving new ones via live feed
-   * autodiscovery (never a static per-site dictionary). Idempotent —
-   * already-resolved publications are skipped by name match. Discovery runs
-   * in parallel with an overall time budget, so a handful of slow or
-   * unresolvable publications never stall a refresh for long; anything left
-   * unresolved is simply retried on the next refresh.
+  * Only explicit publication URLs can be materialized. Plain names remain
+  * interest signals until the user adds their correct URL in Manage Sources.
+  * Cancellation stops probes AND prevents late writes after the budget expires.
    */
   private async materializePublicationsAsSources(
     scope: TenantScope,
@@ -100,64 +73,73 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
     if (!publications.length) return;
 
     const existingNames = new Set(existing.map((s) => s.name.toLowerCase()));
-    const unresolved = publications.filter((name) => !existingNames.has(name.toLowerCase()));
+    const unresolved = [...new Set(publications.map((name) => name.trim()))]
+      .filter((name) => normalizeToUrl(name) && !existingNames.has(name.toLowerCase())).slice(0, 4);
     if (!unresolved.length) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
 
     const materializeOne = async (name: string): Promise<void> => {
-      const result = await discoverFeed(name);
-      if ("feedUrl" in result) {
+      if (controller.signal.aborted) return;
+      const result = await discoverFeed(name, controller.signal);
+      if ("feedUrl" in result && !controller.signal.aborted) {
         try {
           await storage.createUserSource(scope, {
-            name: result.name,
+            // Keep the explicit input as the idempotency name; don't relabel a guessed brand.
+            name,
             feedUrl: result.feedUrl,
             sourceType: result.sourceType,
             addedVia: "publication",
             isActive: true,
           });
-        } catch (error) {
+        } catch {
           // Likely a unique-constraint hit from a concurrent request resolving the same feed URL — safe to ignore.
-          console.log(`[${this.config.industry}] Skipped materializing "${name}":`, error instanceof Error ? error.message : error);
         }
-      } else {
-        console.log(`[${this.config.industry}] Could not auto-discover a feed for publication "${name}": ${result.error}`);
       }
     };
 
-    const MATERIALIZE_BUDGET_MS = 6000;
-    await Promise.race([
-      Promise.allSettled(unresolved.map(materializeOne)),
-      new Promise<void>((resolve) => setTimeout(resolve, MATERIALIZE_BUDGET_MS)),
-    ]);
+    try {
+      await mapCrawlSettled(unresolved, 2, materializeOne);
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
+    }
   }
 
   protected async fetchUserSources(scope: TenantScope): Promise<FetchedArticle[]> {
-    const sources = (await storage.getUserSources(scope)).filter((s) => s.isActive);
+    // Oldest-first rotation keeps a large source list from starving later rows.
+    const sources = (await storage.getUserSources(scope)).filter((s) => s.isActive)
+      .sort((a, b) => new Date(a.lastFetchedAt ?? 0).getTime() - new Date(b.lastFetchedAt ?? 0).getTime())
+      .slice(0, 30);
     if (!sources.length) return [];
-
-    const results = await Promise.allSettled(
-      sources.map((source) =>
-        source.sourceType === "webpage"
-          ? this.fetchWebpage({ name: source.name, url: source.feedUrl, category: "user-source" })
-          : this.fetchFeed({ name: source.name, url: source.feedUrl, category: "user-source" }),
-      ),
-    );
-
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
     const articles: FetchedArticle[] = [];
-    results.forEach((result, index) => {
-      const source = sources[index];
-      const ok = result.status === "fulfilled";
-      if (ok) articles.push(...result.value);
-      storage
-        .updateUserSource(scope, source.id, {
-          lastFetchedAt: new Date(),
-          lastFetchStatus: ok ? "ok" : "error",
-          lastFetchError: ok ? null : "Fetch failed",
-        })
-        .catch(() => {
-          // Best-effort status tracking only.
-        });
-    });
-
+    let succeeded = 0;
+    try {
+      await mapCrawlSettled(sources, 3, async (source) => {
+        // Leave unattempted sources untouched so the next refresh picks them first.
+        if (controller.signal.aborted) return;
+        let errorMessage: string | null = null;
+        try {
+          const config = { name: source.name, url: source.feedUrl, category: "user-source" };
+          const items = source.sourceType === "webpage"
+            ? await this.fetchWebpage(config, controller.signal)
+            : await this.fetchFeed(config, controller.signal);
+          articles.push(...items);
+          succeeded++;
+        } catch (error) {
+          errorMessage = crawlErrorMessage(error);
+        }
+        await storage.updateUserSource(scope, source.id, {
+          lastFetchedAt: new Date(), lastFetchStatus: errorMessage ? "error" : "ok", lastFetchError: errorMessage,
+        }).catch(() => { /* Best-effort status tracking, but never detached work. */ });
+      });
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
+    }
+    if (!succeeded) throw new CrawlError("sources", "None of your sources could be read. Check their fetch errors in Manage Sources.");
     return articles;
   }
 
@@ -176,7 +158,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
 
     const cacheKey = `keywords:${queries.slice().sort((a, b) => a.localeCompare(b)).join("|").toLowerCase()}`;
     return getCachedArticles(cacheKey, async () => {
-      const results = await Promise.allSettled(queries.map((q) => fetchArticlesForQuery(q)));
+      const results = await mapCrawlSettled(queries, 2, (q) => fetchArticlesForQuery(q));
       const articles: FetchedArticle[] = [];
       results.forEach((result) => {
         if (result.status === "fulfilled") articles.push(...result.value);
@@ -246,7 +228,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       await this.materializePublicationsAsSources(scope, userProfile, existingSources);
 
       const [userSourceArticles, keywordArticles] = await Promise.all([
-        this.fetchUserSources(scope),
+        this.fetchUserSources(scope).catch((error) => { errors.push(crawlErrorMessage(error)); return []; }),
         this.fetchKeywordSearchArticles(userProfile),
       ]);
 
@@ -274,12 +256,13 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
 
       if (articles.length === 0) {
         return {
-          success: true,
+          success: errors.length === 0,
           articlesProcessed: 0,
           articlesMatched: 0,
           newInboxItems: 0,
           durationMs: Date.now() - startTime,
           needsSetup: !hasAnyInterestSignal,
+          ...(errors.length ? { errors } : {}),
         };
       }
 
@@ -315,6 +298,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
         articlesMatched: rankedArticles.length,
         newInboxItems: newItems,
         durationMs: Date.now() - startTime,
+        ...(errors.length ? { errors } : {}),
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);

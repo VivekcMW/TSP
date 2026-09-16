@@ -4,18 +4,28 @@ import { Button } from "@/components/ui/button";
 import { SiX } from "react-icons/si";
 import { FaLinkedin } from "react-icons/fa";
 import { useToast } from "@/hooks/use-toast";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent as BaseDialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { Input } from "@/components/ui/input";
+import { Input as BaseInput } from "@/components/ui/input";
 import { formatDistanceToNow } from "date-fns";
-import { useEffect, useState } from "react";
-import type { ComponentType } from "react";
-import { useSearch } from "wouter";
+import { useEffect, useState, useId } from "react";
+import type { ComponentType, ComponentProps } from "react";
+import { useLocation, useSearch } from "wouter";
 import { PageHeader } from "@/components/dashboard/page-header";
+import type { SettingsPageProps } from "@/components/settings/settings-page-props";
 import { getPlatformMeta, PLATFORMS } from "@/lib/platforms";
+
+function Input(props: Readonly<ComponentProps<typeof BaseInput>>) {
+  const id = useId();
+  return <label htmlFor={id} className="space-y-2 text-sm font-medium"><span className="block">{props["aria-label"] ?? props.placeholder}</span><BaseInput {...props} id={id} className={`min-h-11 ${props.className ?? ""}`} /></label>;
+}
+
+function DialogContent(props: Readonly<ComponentProps<typeof BaseDialogContent>>) {
+  return <BaseDialogContent {...props} className={`[&_button]:min-h-11 [&_button]:min-w-11 ${props.className ?? ""}`} />;
+}
 
 interface AnalyticsSummary {
   connected: {
@@ -68,6 +78,7 @@ interface AnalyticsSummary {
 interface IntegrationStatus {
   connected: boolean;
   assessment?: { status: string; reason?: string; requiresRefresh?: boolean };
+  instance?: { accountName?: string; accountHandle?: string } | null;
 }
 
 interface PlatformGuide {
@@ -294,6 +305,7 @@ function PlatformRow({
   isConnecting,
   isDisconnecting,
   isSyncing,
+  statusKnown = true,
   testId,
 }: {
   label: string;
@@ -308,11 +320,12 @@ function PlatformRow({
   isConnecting?: boolean;
   isDisconnecting?: boolean;
   isSyncing?: boolean;
+  statusKnown?: boolean;
   testId: string;
 }) {
   return (
     <Card className="border-border/70 shadow-sm hover-elevate" data-testid={`card-connection-${testId}`}>
-      <CardContent className="flex items-center gap-4 p-4">
+      <CardContent className="flex flex-wrap items-center gap-4 p-4">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary/15">
           <Icon className="h-5 w-5 text-secondary" />
         </div>
@@ -321,10 +334,10 @@ function PlatformRow({
             <p className="font-medium">{label}</p>
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${needsAttention ? "bg-destructive" : connected ? "bg-success" : "bg-muted-foreground/40"}`} />
           </div>
-          <p className="truncate text-sm text-muted-foreground">{description}</p>
+          <p className="break-words text-sm text-muted-foreground">{statusKnown ? description : "Connection status unavailable"}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onGuide} aria-label={`${label} guide`} title={`${label} guide`}>
+        <div className="flex shrink-0 items-center gap-2 [&_button]:min-h-11 [&_button]:min-w-11">
+          <Button variant="ghost" size="icon" className="h-11 w-11" onClick={onGuide} aria-label={`${label} guide`} title={`${label} guide`}>
             <HelpCircle className="h-4 w-4" />
           </Button>
           {connected && onSync && (
@@ -338,9 +351,9 @@ function PlatformRow({
               Disconnect
             </Button>
           ) : (
-            <Button size="sm" onClick={onConnect} disabled={isConnecting} data-testid={`button-connect-${testId}`}>
+            <Button size="sm" onClick={onConnect} disabled={isConnecting || !statusKnown} data-testid={`button-connect-${testId}`}>
               <Link2 className="mr-2 h-4 w-4" />
-              {needsAttention ? "Reconnect" : "Connect"}
+              {!statusKnown ? "Unavailable" : needsAttention ? "Reconnect" : "Connect"}
             </Button>
           )}
         </div>
@@ -361,7 +374,7 @@ function ManualPlatformRow({ platform, onGuide }: { platform: ReturnType<typeof 
 
   return (
     <Card className="border-border/70 shadow-sm hover-elevate" data-testid={`card-connection-${platform.value}`}>
-      <CardContent className="flex items-center gap-4 p-4">
+      <CardContent className="flex flex-wrap items-center gap-4 p-4 [&_button]:min-h-11 [&_button]:min-w-11">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary/15">
           <Icon className="h-5 w-5 text-secondary" />
         </div>
@@ -380,8 +393,11 @@ function ManualPlatformRow({ platform, onGuide }: { platform: ReturnType<typeof 
   );
 }
 
-export default function AnalyticsPage() {
+export default function AnalyticsPage({ embedded = false }: SettingsPageProps = {}) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [location, navigate] = useLocation();
+  const Body = embedded ? "div" : "main";
   const searchString = useSearch();
   const [discordOpen, setDiscordOpen] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState("");
@@ -404,24 +420,18 @@ export default function AnalyticsPage() {
   const [showManualPlatforms, setShowManualPlatforms] = useState(false);
   const [guideKey, setGuideKey] = useState<string | null>(null);
 
-  const { data: summary, isLoading, refetch } = useQuery<AnalyticsSummary>({
+  const { data: summary, isLoading, isError, refetch } = useQuery<AnalyticsSummary>({
     queryKey: ['/api/analytics/summary'],
   });
-  const { data: linkedinStatus } = useQuery<IntegrationStatus>({ queryKey: ["/api/integrations/linkedin/status"] });
-  const { data: discordStatus, refetch: refetchDiscord } = useQuery<IntegrationStatus>({
-    queryKey: ["/api/integrations/discord/status"],
-  });
-  const { data: slackStatus } = useQuery<IntegrationStatus>({ queryKey: ["/api/integrations/slack/status"] });
-  const { data: devToStatus, refetch: refetchDevTo } = useQuery<IntegrationStatus>({
-    queryKey: ["/api/integrations/devto/status"],
-  });
-  const { data: hashnodeStatus, refetch: refetchHashnode } = useQuery<IntegrationStatus>({
-    queryKey: ["/api/integrations/hashnode/status"],
-  });
-  const { data: blueskyStatus, refetch: refetchBluesky } = useQuery<IntegrationStatus>({ queryKey: ["/api/integrations/bluesky/status"] });
-  const { data: mastodonStatus, refetch: refetchMastodon } = useQuery<IntegrationStatus>({ queryKey: ["/api/integrations/mastodon/status"] });
-  const { data: telegramStatus, refetch: refetchTelegram } = useQuery<IntegrationStatus & { instance: { accountName?: string } | null }>({ queryKey: ["/api/integrations/telegram/status"] });
-  const { data: redditStatus } = useQuery<IntegrationStatus & { instance: { accountHandle?: string } | null }>({ queryKey: ["/api/integrations/reddit/status"] });
+  const providers = ["linkedin", "discord", "slack", "devto", "hashnode", "bluesky", "mastodon", "telegram", "reddit"];
+  const statusQueries = useQueries({ queries: providers.map((provider) => ({ queryKey: [`/api/integrations/${provider}/status`], queryFn: async (): Promise<IntegrationStatus> => (await apiRequest("GET", `/api/integrations/${provider}/status`)).json() })) });
+  const [linkedinStatus, discordStatus, slackStatus, devToStatus, hashnodeStatus, blueskyStatus, mastodonStatus, telegramStatus, redditStatus] = statusQueries.map((query) => query.data);
+  const refetchProvider = (provider: string) => queryClient.invalidateQueries({ queryKey: [`/api/integrations/${provider}/status`] });
+  const refetchDevTo = () => refetchProvider("devto");
+  const refetchHashnode = () => refetchProvider("hashnode");
+  const refetchBluesky = () => refetchProvider("bluesky");
+  const refetchMastodon = () => refetchProvider("mastodon");
+  const refetchTelegram = () => refetchProvider("telegram");
 
   // Handle OAuth callback URL parameters
   useEffect(() => {
@@ -431,11 +441,11 @@ export default function AnalyticsPage() {
     
     if (connected) {
       refetch();
+      void queryClient.invalidateQueries({ predicate: (query) => String(query.queryKey[0]).startsWith("/api/integrations/") });
       toast({
         title: "Account Connected",
         description: `Your ${connected} account has been connected successfully.`,
       });
-      window.history.replaceState({}, '', '/dashboard/connections');
     }
     
     if (error) {
@@ -444,9 +454,13 @@ export default function AnalyticsPage() {
         description: "Failed to connect account. Please try again.",
         variant: "destructive",
       });
-      window.history.replaceState({}, '', '/dashboard/connections');
     }
-  }, [searchString, toast, refetch]);
+    if (connected || error) {
+      params.delete("connected");
+      params.delete("error");
+      navigate(`${location}${params.size ? `?${params.toString()}` : ""}`, { replace: true });
+    }
+  }, [searchString, toast, refetch, queryClient, location, navigate]);
 
   // Connect LinkedIn via OAuth redirect
   const handleLinkedInConnect = () => {
@@ -464,6 +478,7 @@ export default function AnalyticsPage() {
     },
     onSuccess: (_, provider) => {
       queryClient.invalidateQueries({ queryKey: ['/api/analytics/summary'] });
+      void refetchProvider(provider);
       toast({
         title: "Account Disconnected",
         description: `Your ${provider} account has been disconnected.`,
@@ -503,10 +518,10 @@ export default function AnalyticsPage() {
     onSuccess: () => {
       setWebhookUrl("");
       setDiscordOpen(false);
-      refetchDiscord();
+      void refetchProvider(webhookProvider);
       toast({ title: "Webhook connected", description: "A test message was delivered to your channel." });
     },
-    onError: (error: Error) => toast({ title: "Discord connection failed", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Webhook connection failed", description: error.message, variant: "destructive" }),
   });
   const devToMutation = useMutation({
     mutationFn: async () => (await apiRequest("POST", "/api/integrations/devto/api-key", { apiKey: devToKey })).json(),
@@ -544,12 +559,11 @@ export default function AnalyticsPage() {
     onError: (error: Error) => toast({ title: "Telegram connection failed", description: error.message, variant: "destructive" }),
   });
 
-  const hasAnyConnection = summary?.connected.linkedin || summary?.connected.twitter;
   // Platforms with a real, fully-configured connect + publish flow in this environment.
   // Reddit's OAuth code is real but REDDIT_CLIENT_ID/SECRET aren't configured yet, so it
   // stays hidden here (not deleted) until those credentials are added.
   const READY_FOR_STAGING = new Set(["linkedin", "twitter", "bluesky", "mastodon", "telegram", "slack", "discord", "devto", "hashnode"]);
-  const connectedAccountPlatforms = new Set(["linkedin", "twitter", "bluesky", "mastodon", "telegram", "discord", "devto", "hashnode", "reddit"]);
+  const connectedAccountPlatforms = new Set(["linkedin", "twitter", "bluesky", "mastodon", "telegram", "slack", "discord", "devto", "hashnode", "reddit"]);
   const manualPublishingPlatforms = PLATFORMS.filter((platform) => !connectedAccountPlatforms.has(platform.value));
   const manualPlatformCategories = MANUAL_PLATFORM_CATEGORIES.map((category) => ({
     label: category.label,
@@ -565,7 +579,7 @@ export default function AnalyticsPage() {
       key: "linkedin",
       label: "LinkedIn",
       icon: FaLinkedin,
-      connected: Boolean(summary?.connected.linkedin),
+      connected: Boolean(linkedinStatus?.connected),
       needsAttention: needsAttention(linkedinStatus),
       description: summary?.connected.linkedin && summary.linkedin?.account ? `${summary.linkedin.account.name} (${summary.linkedin.account.handle})` : "OAuth connection for direct publishing",
       onConnect: handleLinkedInConnect,
@@ -673,12 +687,14 @@ export default function AnalyticsPage() {
       isDisconnecting: disconnectMutation.isPending && disconnectMutation.variables === "reddit",
     }] : []),
   ];
-  const connectedRows = platformRows.filter((row) => row.connected);
-  const availableRows = platformRows.filter((row) => !row.connected);
+  const rows = platformRows.map((row) => ({ ...row, statusKnown: row.key === "twitter" ? Boolean(summary) && !isError : Boolean(statusQueries[providers.indexOf(row.key)]?.data) && !statusQueries[providers.indexOf(row.key)]?.isError }));
+  const connectedRows = rows.filter((row) => row.connected && row.statusKnown);
+  const availableRows = rows.filter((row) => !row.connected || !row.statusKnown).map((row) => ({ ...row, connected: false }));
+  const statusesUnavailable = rows.some((row) => !row.statusKnown);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <PageHeader
+    <div className={embedded ? "" : "flex flex-col h-full overflow-hidden"}>
+      {!embedded && <PageHeader
         title="Connections"
         subtitle="Choose where TheSocialPundit can publish for you"
         actions={
@@ -688,9 +704,9 @@ export default function AnalyticsPage() {
             </p>
           )
         }
-      />
+      />}
       
-      <main className="flex-1 p-6 overflow-y-auto">
+      <Body className={embedded ? "" : "flex-1 p-4 sm:p-6 overflow-y-auto"}>
         {isLoading ? (
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
@@ -705,8 +721,9 @@ export default function AnalyticsPage() {
             </div>
           </div>
         ) : (
-          <div className="mx-auto max-w-3xl space-y-6">
-            {connectedRows.length === 0 && <div className="rounded-lg border border-secondary/30 bg-secondary/5 p-4"><p className="font-medium">Start with LinkedIn</p><p className="mt-1 text-sm text-muted-foreground">Connect LinkedIn to publish directly, then connect any others you use.</p></div>}
+          <div className="mx-auto w-full max-w-5xl space-y-6">
+            {statusesUnavailable && <div role="status" className="rounded-md border p-4"><p>Some connection statuses are still loading or unavailable. They are not assumed to be disconnected.</p><Button variant="outline" className="mt-3 min-h-11" onClick={() => { void refetch(); statusQueries.forEach((query) => { void query.refetch(); }); }}>Retry connection statuses</Button></div>}
+            {!statusesUnavailable && connectedRows.length === 0 && <div className="rounded-lg border border-secondary/30 bg-secondary/5 p-4"><p className="font-medium">Start with LinkedIn</p><p className="mt-1 text-sm text-muted-foreground">Connect LinkedIn to publish directly, then connect any others you use.</p></div>}
 
             {connectedRows.length > 0 && <section>
               <h2 className="mb-3 text-sm font-medium text-muted-foreground">Connected</h2>
@@ -723,7 +740,7 @@ export default function AnalyticsPage() {
             </section>
 
             <section className="border-t pt-4">
-              <button type="button" className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground" onClick={() => setShowManualPlatforms((value) => !value)}>
+              <button type="button" aria-expanded={showManualPlatforms} className="min-h-11 text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground" onClick={() => setShowManualPlatforms((value) => !value)}>
                 {showManualPlatforms ? "Hide manual platforms" : `Show ${manualPublishingPlatforms.length} more platforms (manual copy & paste)`}
               </button>
               {showManualPlatforms && <div className="mt-4 space-y-6">
@@ -737,7 +754,7 @@ export default function AnalyticsPage() {
             </section>
           </div>
         )}
-      </main>
+      </Body>
       <Dialog open={discordOpen} onOpenChange={setDiscordOpen}>
         <DialogContent><DialogHeader><DialogTitle>Connect {webhookProvider[0].toUpperCase() + webhookProvider.slice(1)}</DialogTitle><DialogDescription>Paste your {webhookProvider === "slack" ? "Slack incoming" : "incoming"} webhook URL. It is encrypted at rest, and a test message validates it before saving.</DialogDescription></DialogHeader><div className="rounded-md border bg-muted/30 px-3 py-2 text-sm font-medium" data-testid="text-selected-webhook-provider">{webhookProvider[0].toUpperCase() + webhookProvider.slice(1)}</div><Input type="url" value={webhookUrl} onChange={(event) => setWebhookUrl(event.target.value)} placeholder="Paste incoming webhook URL" data-testid="input-discord-webhook" /><DialogFooter><Button variant="outline" onClick={() => setDiscordOpen(false)}>Cancel</Button><Button disabled={!webhookUrl || discordMutation.isPending} onClick={() => discordMutation.mutate()} data-testid="button-test-connect-discord">{discordMutation.isPending ? "Testing…" : "Test & connect"}</Button></DialogFooter></DialogContent>
       </Dialog>

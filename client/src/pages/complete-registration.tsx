@@ -114,10 +114,10 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-secondary/15">
             <Sparkles className="h-7 w-7 text-secondary" />
           </div>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-secondary">One last step</p>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-secondary">Workspace basics</p>
           <CardTitle className="heading-dashboard text-2xl" data-testid="text-registration-title">Personalize your workspace</CardTitle>
           <CardDescription>
-            Tell us what to watch so your recommendations feel relevant from day one.
+            Choose one industry and country to start. Next, describe your focus; other preferences can wait.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -129,13 +129,13 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
             </div>
             
             <div className="space-y-2">
-              <Label>Industries</Label>
+              <Label>Industries (at least one required)</Label>
               <MultiSelect label="Select industries" options={industries} selected={industriesSelected} onChange={setIndustriesSelected} testId="industries" />
               <p className="text-xs text-muted-foreground">Select up to 10 industries. Your first selection is used for initial recommendations.</p>
             </div>
             
             <div className="space-y-2">
-              <Label>Countries</Label>
+              <Label>Countries (at least one required)</Label>
               <MultiSelect label="Select countries" options={countries.map((country) => ({ value: country, label: country }))} selected={countriesSelected} onChange={setCountriesSelected} testId="countries" />
               <p className="text-xs text-muted-foreground">Select up to 10 countries to tailor regional recommendations.</p>
             </div>

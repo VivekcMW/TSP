@@ -35,12 +35,42 @@ export function formatCalendarTime(value: Date | string, timeZone: string) {
 }
 
 export function zonedTimeToUtc(dateKey: string, time: string, timeZone: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || !/^\d{2}:\d{2}$/.test(time)) throw new Error("Choose a valid date and time.");
   const [year, month, day] = dateKey.split("-").map(Number);
   const [hour, minute] = time.split(":").map(Number);
   const desired = Date.UTC(year, month - 1, day, hour, minute, 0);
-  const actual = partsFor(new Date(desired), timeZone);
-  const offset = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute, actual.second) - desired;
-  return new Date(desired - offset);
+  if (hour > 23 || minute > 59 || new Date(desired).toISOString().slice(0, 10) !== dateKey) throw new Error("Choose a valid date and time.");
+  // Sample both sides of a possible transition, then round-trip every candidate.
+  // A one-pass offset correction is wrong on DST transition days. Never silently
+  // shift a nonexistent time or choose one of two repeated wall-clock times.
+  const offsets = new Set<number>();
+  for (const hours of [-48, -24, 0, 24, 48]) {
+    const instant = desired + hours * 3_600_000;
+    const p = partsFor(new Date(instant), timeZone);
+    offsets.add(Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - instant);
+  }
+  const candidates = [...offsets].map((offset) => new Date(desired - offset)).filter((candidate) =>
+    dateKeyInTimeZone(candidate, timeZone) === dateKey && timeKeyInTimeZone(candidate, timeZone) === time);
+  if (!candidates.length) throw new Error(`This time does not exist in ${timeZone} because the clocks change. Choose another time.`);
+  if (candidates.length > 1) throw new Error(`This time occurs twice in ${timeZone} because the clocks change. Choose an unambiguous time.`);
+  return candidates[0];
+}
+
+export function scheduleTimeValidation(date: string, time: string, timeZone: string, now = Date.now()) {
+  try {
+    const publishAt = zonedTimeToUtc(date, time, timeZone);
+    return publishAt.getTime() > now ? { publishAt, error: null } : { publishAt: null, error: "Choose a future date and time." };
+  } catch (error) {
+    return { publishAt: null, error: error instanceof Error ? error.message : "Choose a valid timezone, date and time." };
+  }
+}
+
+export function publishingDefaults(profile?: { timezone?: string | null; preferredPublishTime?: string | null } | null) {
+  const requested = profile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  let timeZone = requested;
+  try { new Intl.DateTimeFormat(undefined, { timeZone }).format(); } catch { timeZone = "UTC"; }
+  const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(profile?.preferredPublishTime ?? "") ? profile!.preferredPublishTime! : "09:00";
+  return { timeZone, time };
 }
 
 export function dateKeyInTimeZone(value: Date | string, timeZone: string) {

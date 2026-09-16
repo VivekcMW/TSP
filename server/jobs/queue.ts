@@ -1,5 +1,7 @@
 import Bull from "bull";
-import { redis } from "../lib/redis";
+import Redis from "ioredis";
+import { randomUUID } from "node:crypto";
+import { redis, redisOptions } from "../lib/redis";
 import type { PublishDraftJobData } from "./handlers/publish-draft";
 
 /**
@@ -13,6 +15,7 @@ export interface InboxRefreshJobConfig {
   priority?: "high" | "normal" | "low";
   autoRefresh?: boolean;
   triggeredBy?: "manual" | "cron";
+  dedupeKey?: string;
 }
 
 /**
@@ -34,9 +37,52 @@ export interface InboxRefreshJobProgress {
 
 let inboxRefreshQueue: Bull.Queue<InboxRefreshJobData> | undefined;
 let publishDraftQueue: Bull.Queue<PublishDraftJobData> | undefined;
+const queueClients = new Set<Redis>();
+
+export class QueueUnavailableError extends Error {
+  constructor() {
+    super("Background queue unavailable. Scheduled work remains saved; please try again later.");
+    this.name = "QueueUnavailableError";
+  }
+}
+
+function disabledQueue(): null {
+  // Null means deliberately disabled local development, never a failed enqueue.
+  if (process.env.NODE_ENV === "production" || redis) throw new QueueUnavailableError();
+  return null;
+}
+
+export function queueOptions(redisUrl: string): Bull.QueueOptions {
+  return {
+    createClient: (type) => {
+      // Keep the complete URL: parsing only host/port drops credentials and rediss TLS.
+      const client = new Redis(redisUrl, redisOptions(type !== "client"));
+      queueClients.add(client);
+      // Bull carries ioredis v5 types; the app uses v6's compatible legacy API.
+      return client as unknown as ReturnType<NonNullable<Bull.QueueOptions["createClient"]>>;
+    },
+    defaultJobOptions: {
+      attempts: 3,
+      backoff: { type: "exponential", delay: 2000 },
+      removeOnComplete: { age: 3600, count: 1000 },
+      removeOnFail: { age: 7 * 24 * 3600, count: 1000 },
+    },
+  };
+}
 
 export function backgroundJobsRequired(): boolean {
   return process.env.NODE_ENV === "production" && process.env.BACKGROUND_JOBS_ENABLED === "true";
+}
+
+async function enqueueWithDeadline<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([operation, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new QueueUnavailableError()), 8_000);
+    })]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -44,6 +90,7 @@ export function backgroundJobsRequired(): boolean {
  * Returns undefined if Redis is not configured (local dev fallback).
  */
 export function initializeQueues(): Bull.Queue<InboxRefreshJobData> | undefined {
+  if (inboxRefreshQueue && publishDraftQueue) return inboxRefreshQueue;
   if (!redis) {
     if (backgroundJobsRequired()) {
       throw new Error("REDIS_URL must be configured when BACKGROUND_JOBS_ENABLED=true in production");
@@ -58,33 +105,11 @@ export function initializeQueues(): Bull.Queue<InboxRefreshJobData> | undefined 
     // extracted {host, port} object silently drops both, which breaks any
     // Redis provider that requires a password or TLS (e.g. Render Key Value).
     const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-    inboxRefreshQueue = new Bull<InboxRefreshJobData>("inbox_refresh", {
-      redis: redisUrl,
-      defaultJobOptions: {
-        attempts: 3,
-        backoff: {
-          type: "exponential",
-          delay: 2000,
-        },
-        removeOnComplete: {
-          age: 3600, // Keep completed jobs for 1 hour
-        },
-      },
-    });
-
-    publishDraftQueue = new Bull<PublishDraftJobData>("publish_draft", {
-      redis: redisUrl,
-      defaultJobOptions: {
-        attempts: 3,
-        backoff: {
-          type: "exponential",
-          delay: 2000,
-        },
-        removeOnComplete: {
-          age: 3600, // Keep completed jobs for 1 hour
-        },
-      },
-    });
+    inboxRefreshQueue = new Bull<InboxRefreshJobData>("inbox_refresh", queueOptions(redisUrl));
+    publishDraftQueue = new Bull<PublishDraftJobData>("publish_draft", queueOptions(redisUrl));
+    for (const queue of [inboxRefreshQueue, publishDraftQueue]) {
+      queue.on("error", (error) => console.error("[queue] Redis error:", error.message));
+    }
 
     console.log("[queue] Inbox refresh queue initialized");
     console.log("[queue] Publish draft queue initialized");
@@ -120,8 +145,7 @@ export function getInboxRefreshQueue(): Bull.Queue<InboxRefreshJobData> | undefi
 export async function enqueueInboxRefresh(config: InboxRefreshJobConfig): Promise<string | null> {
   const queue = getInboxRefreshQueue();
   if (!queue) {
-    console.log("[queue] Queue disabled, returning null (caller should fall back to sync)");
-    return null;
+    return disabledQueue();
   }
 
   const jobData: InboxRefreshJobData = {
@@ -136,16 +160,16 @@ export async function enqueueInboxRefresh(config: InboxRefreshJobConfig): Promis
   };
 
   try {
-    const job = await queue.add(jobData, {
+    const job = await enqueueWithDeadline(queue.add(jobData, {
       priority: priorityMap[config.priority || "normal"],
-      jobId: `${config.tenantId}:${Date.now()}`,
-    });
+      jobId: config.dedupeKey ?? `${config.tenantId}:${config.userId ?? "tenant"}:${randomUUID()}`,
+    }));
 
     console.log(`[queue] Enqueued inbox_refresh job ${job.id} for tenant ${config.tenantId}`);
     return String(job.id);
   } catch (error) {
     console.error("[queue] Failed to enqueue job:", error);
-    return null;
+    throw new QueueUnavailableError();
   }
 }
 
@@ -193,22 +217,21 @@ export function getPublishDraftQueue(): Bull.Queue<PublishDraftJobData> | undefi
 export async function enqueuePublishDraft(config: PublishDraftJobData): Promise<string | null> {
   const queue = getPublishDraftQueue();
   if (!queue) {
-    console.log("[queue] Publish queue disabled, returning null (caller should fall back to sync)");
-    return null;
+    return disabledQueue();
   }
 
   try {
     const jobId = `${config.tenantId}:${config.draftId}:${config.draftScheduleTargetId ?? config.draftScheduleId}:${config.attemptNumber ?? 1}`;
-    const job = await queue.add(config, {
+    const job = await enqueueWithDeadline(queue.add(config, {
       priority: 5, // Normal priority for publications
       jobId,
-    });
+    }));
 
     console.log(`[queue] Enqueued publish_draft job ${job.id} for draft ${config.draftId}`);
     return String(job.id);
   } catch (error) {
     console.error("[queue] Failed to enqueue publish job:", error);
-    return null;
+    throw new QueueUnavailableError();
   }
 }
 
@@ -216,12 +239,12 @@ export async function enqueuePublishDraft(config: PublishDraftJobData): Promise<
  * Cleanup function for graceful shutdown.
  */
 export async function closeQueues(): Promise<void> {
-  if (inboxRefreshQueue) {
-    await inboxRefreshQueue.close();
-    console.log("[queue] Inbox refresh queue closed");
-  }
-  if (publishDraftQueue) {
-    await publishDraftQueue.close();
-    console.log("[queue] Publish draft queue closed");
+  try {
+    await Promise.all([inboxRefreshQueue?.close(), publishDraftQueue?.close()]);
+  } finally {
+    for (const client of queueClients) client.disconnect();
+    queueClients.clear();
+    inboxRefreshQueue = undefined;
+    publishDraftQueue = undefined;
   }
 }

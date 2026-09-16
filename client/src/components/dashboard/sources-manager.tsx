@@ -49,7 +49,7 @@ export function SourcesManagerContent() {
       {sourcesLoading ? (
         <Skeleton className="h-10 w-full" />
       ) : sources.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No sources added yet. Add as many as you want below.</p>
+        <p className="text-sm text-muted-foreground">No sources added yet. Add a website or feed URL below.</p>
       ) : (
         <div className="space-y-2">
           {sources.map((source) => (
@@ -60,6 +60,9 @@ export function SourcesManagerContent() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{source.name}</p>
                 <p className="truncate text-xs text-muted-foreground">{source.feedUrl}</p>
+                {source.lastFetchStatus === "error" && (
+                  <p className="break-words text-xs text-destructive">{source.lastFetchError || "This source could not be read. Try again later or check its URL."}</p>
+                )}
               </div>
               {source.lastFetchStatus === "ok" && <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-label="Last fetch succeeded" />}
               {source.lastFetchStatus === "error" && <XCircle className="h-4 w-4 shrink-0 text-destructive" aria-label="Last fetch failed" />}
@@ -79,14 +82,21 @@ export function SourcesManagerContent() {
         <Input
           value={newSourceInput}
           onChange={(event) => setNewSourceInput(event.target.value)}
-          placeholder="e.g., a blog name or https://example.com"
+          placeholder="https://publication.com/blog"
           aria-label="Add a source"
-          onKeyDown={(event) => { if (event.key === "Enter" && newSourceInput.trim()) addSourceMutation.mutate(newSourceInput.trim()); }}
+          maxLength={300}
+          disabled={addSourceMutation.isPending || addSuggestedSourceMutation.isPending}
+          onKeyDown={(event) => { if (event.key === "Enter" && newSourceInput.trim() && !addSourceMutation.isPending && !addSuggestedSourceMutation.isPending) addSourceMutation.mutate(newSourceInput.trim()); }}
         />
-        <Button type="button" onClick={() => addSourceMutation.mutate(newSourceInput.trim())} disabled={!newSourceInput.trim() || addSourceMutation.isPending}>
+        <Button type="button" onClick={() => addSourceMutation.mutate(newSourceInput.trim())} disabled={!newSourceInput.trim() || addSourceMutation.isPending || addSuggestedSourceMutation.isPending}>
           <Plus className="mr-2 h-4 w-4" />{addSourceMutation.isPending ? "Adding..." : "Add"}
         </Button>
       </div>
+      <p className="text-xs text-muted-foreground">
+        Paste the publication's actual URL; names alone are not matched to guessed domains.
+        Public feeds and readable webpages are supported. Login, paywall, bot-protected, and JavaScript-only pages may not be accessible.
+        Refreshes process up to 30 sources at a time, oldest fetched first.
+      </p>
       {sourceSuggestions.length > 0 && (
         <div className="space-y-2 border-t pt-4">
           <p className="text-xs font-medium text-muted-foreground">Suggested for your industry</p>
@@ -99,7 +109,8 @@ export function SourcesManagerContent() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={addSuggestedSourceMutation.isPending}
+                  disabled={addSuggestedSourceMutation.isPending || addSourceMutation.isPending}
+                  title={suggestion.feedUrl}
                   onClick={() => addSuggestedSourceMutation.mutate(suggestion)}
                 >
                   <Plus className="mr-1.5 h-3 w-3" />{suggestion.name}

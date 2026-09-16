@@ -1,4 +1,6 @@
-import { assertPublicHttpUrl } from "./urlValidator.js";
+import { CrawlError, fetchPublicText, mapCrawlSettled } from "./crawlerFetch.js";
+import { cleanPageHtml, isSingleArticle, requireReadableHtml } from "./crawlerHtml.js";
+import { extractArticleFromHtml, fetchArticleFromUrl, type FetchedArticle } from "./urlFetcher.js";
 import type { ParsedFeedItem } from "./universalFeedParser.js";
 import { stripHtml } from "./universalFeedParser.js";
 
@@ -9,8 +11,8 @@ import { stripHtml } from "./universalFeedParser.js";
  *
  *   1. Listing mode — the page links to several distinct sub-pages that look
  *      like content (e.g. a blog index, or a help-center collection listing
- *      its articles). Each linked page becomes its own "article" (title =
- *      link text, no body content since we don't fetch every linked page).
+ *      its articles). Fetch a bounded set of linked article bodies; failed
+ *      links are skipped, never represented as title-only articles.
  *   2. Single-page mode — too few listing-like links were found, so the page
  *      itself is treated as one article, using its <title> and meta
  *      description as the headline/summary.
@@ -19,51 +21,9 @@ import { stripHtml } from "./universalFeedParser.js";
  * downstream by URL, same as real feeds.
  */
 
-const FETCH_TIMEOUT_MS = 6000;
 const MIN_LISTING_LINKS = 3;
-const MAX_ARTICLES = 15;
+const MAX_ARTICLES = 10;
 const MIN_LINK_TEXT_LENGTH = 12;
-
-async function fetchPage(url: string): Promise<{ finalUrl: string; html: string } | null> {
-  const guard = await assertPublicHttpUrl(url);
-  if (!guard.ok) return null;
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "TheSocialPundit/1.0 (Webpage Reader)" },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      redirect: "follow",
-    });
-    if (!res.ok) return null;
-    return { finalUrl: res.url, html: await res.text() };
-  } catch {
-    return null;
-  }
-}
-
-function extractTitle(html: string): string | null {
-  const match = /<title[^>]*>([^<]{1,300})<\/title>/i.exec(html);
-  return match ? stripHtml(match[1]).trim() || null : null;
-}
-
-function extractMetaContent(html: string, names: string[]): string | null {
-  for (const name of names) {
-    const re = new RegExp(
-      String.raw`<meta\b[^>]{0,300}\b(?:name|property)=["']${name}["'][^>]{0,300}\bcontent=["']([^"']{1,500})["']`,
-      "i",
-    );
-    const match = re.exec(html);
-    if (match) return stripHtml(match[1]).trim() || null;
-  }
-  return null;
-}
-
-function bareHost(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./i, "").toLowerCase();
-  } catch {
-    return url;
-  }
-}
 
 const JUNK_HREF_RE = /^(#|javascript:|mailto:|tel:|sms:)/i;
 const JUNK_PATH_RE = /^\/?(login|signin|sign-in|signup|sign-up|logout|sign-out|register|cart|checkout|privacy|terms|cookies?)\/?$/i;
@@ -81,16 +41,19 @@ function resolveQualifyingLink(href: string, innerHtml: string, baseUrl: string,
   } catch {
     return null;
   }
-  if (bareHost(resolved.toString()) !== pageHost) return null;
+  if (resolved.origin !== pageHost || !/^https?:$/.test(resolved.protocol)) return null;
+  if (resolved.username || resolved.password) return null;
+  resolved.hash = "";
   if (JUNK_PATH_RE.test(resolved.pathname)) return null;
-  if (resolved.toString() === baseUrl) return null;
+  if (resolved.toString() === baseUrl.split("#")[0]) return null;
 
   return { title: text, link: resolved.toString() };
 }
 
 /** Same-origin anchors with enough visible text to plausibly be content, not nav/footer chrome. */
-function extractListingLinks(html: string, baseUrl: string): Array<{ title: string; link: string }> {
-  const pageHost = bareHost(baseUrl);
+export function extractListingLinks(html: string, baseUrl: string): Array<{ title: string; link: string }> {
+  const pageHost = new URL(baseUrl).origin;
+  html = cleanPageHtml(html);
   const found: Array<{ title: string; link: string }> = [];
   const seen = new Set<string>();
   const anchorRe = /<a\b[^>]{0,300}\bhref=["']([^"']+)["'][^>]*>([\s\S]{0,300}?)<\/a>/gi;
@@ -107,27 +70,39 @@ function extractListingLinks(html: string, baseUrl: string): Array<{ title: stri
 
 /**
  * Scrapes a webpage (no feed available) into feed-item-shaped entries.
- * Never throws — returns an empty array if the page can't be fetched, same
- * failure contract as a feed fetch failing.
+ * Throws on inaccessible/unreadable sources so status tracking stays honest.
+ * Individual failed listing links are skipped if other articles were readable.
  */
-export async function scrapeWebpageArticles(url: string): Promise<ParsedFeedItem[]> {
-  const page = await fetchPage(url);
-  if (!page) return [];
-
-  const listingLinks = extractListingLinks(page.html, page.finalUrl);
-  const now = new Date().toISOString();
-
-  if (listingLinks.length >= MIN_LISTING_LINKS) {
-    return listingLinks.map((item) => ({
-      title: item.title,
-      link: item.link,
-      pubDate: now,
-      content: "",
-      categories: [],
-    }));
+export async function scrapeWebpageArticles(url: string, parentSignal?: AbortSignal): Promise<ParsedFeedItem[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  const signal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal;
+  const toItem = (article: FetchedArticle): ParsedFeedItem => ({
+    title: article.title, link: article.url, content: article.content,
+    pubDate: new Date().toISOString(), categories: [],
+  });
+  try {
+    const page = await fetchPublicText(url, { signal, timeoutMs: 6000 });
+    requireReadableHtml(page);
+    const listingLinks = extractListingLinks(page.text, page.url);
+    if (isSingleArticle(page.text) || listingLinks.length < MIN_LISTING_LINKS) {
+      return [toItem(extractArticleFromHtml(page.text, page.url))];
+    }
+    const results = await mapCrawlSettled(listingLinks, 2, async (item) => {
+      signal.throwIfAborted();
+      return toItem(await fetchArticleFromUrl(item.link, signal));
+    });
+    const seen = new Set<string>();
+    const articles: ParsedFeedItem[] = [];
+    for (const result of results) {
+      if (result.status === "fulfilled" && !seen.has(result.value.link)) {
+        seen.add(result.value.link);
+        articles.push(result.value);
+      }
+    }
+    if (!articles.length) throw new CrawlError("content", "No linked articles could be read. The source may restrict automated access.");
+    return articles;
+  } finally {
+    clearTimeout(timer);
   }
-
-  const title = extractTitle(page.html) || bareHost(page.finalUrl);
-  const description = extractMetaContent(page.html, ["og:description", "description", "twitter:description"]) || "";
-  return [{ title, link: page.finalUrl, pubDate: now, content: description, categories: [] }];
 }

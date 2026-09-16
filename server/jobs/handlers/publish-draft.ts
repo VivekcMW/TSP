@@ -1,213 +1,102 @@
 import type Bull from "bull";
 import { storage, type TenantScope } from "../../storage";
 import { publishToPlatform } from "../../services/publishers";
-import { assessProviderConnection, buildPublishSafetyKey } from "../../services/publishers/providerLifecycle";
+import { assessProviderConnection } from "../../services/publishers/providerLifecycle";
 import { emailTemplates, sendAppEmail } from "../../services/email";
 
-/**
- * Job configuration for publishing a draft to social platforms.
- */
 export interface PublishDraftJobConfig {
   tenantId: string;
   userId: string;
   draftId: string;
   draftScheduleId: string;
   draftScheduleTargetId?: string;
-  publishAt: Date;
+  publishAt: Date | string;
 }
 
-/**
- * Job data structure persisted in queue.
- */
 export interface PublishDraftJobData extends PublishDraftJobConfig {
   platform: string;
   attemptNumber: number;
 }
 
-/**
- * Job progress for publishing.
- */
 export interface PublishDraftJobProgress {
   platform: string;
-  status: "publishing" | "published" | "failed";
+  status: "publishing" | "published" | "failed" | "skipped" | "unknown";
   postId?: string;
   error?: string;
 }
 
-const MAX_RETRIES = 3;
+class PublishValidationError extends Error {}
 
 /**
- * Publishes a draft to a social media platform.
- * Handles retries with exponential backoff and audit logging.
+ * The DB claim fences concurrent/stale deliveries, not the external provider.
+ * A crash after sending leaves the target publishing (reconciliation required).
+ * Never automatically replay an ambiguous external side effect.
  */
 export async function handlePublishDraft(job: Bull.Job<PublishDraftJobData>): Promise<PublishDraftJobProgress> {
-  const { tenantId, userId, draftId, draftScheduleId, draftScheduleTargetId, platform, attemptNumber = 1 } = job.data;
-
+  const { tenantId, userId, draftId, draftScheduleId, draftScheduleTargetId, platform } = job.data;
+  if (!tenantId || !userId) throw new Error("Job missing tenant/user scope");
   const scope: TenantScope = { tenantId, userId };
+  const attempt = (job.attemptsMade ?? 0) + 1;
+  const maxAttempts = job.opts?.attempts ?? 3;
+  const draft = await storage.claimPublishTarget(scope, job.data);
+  if (!draft || !draftScheduleTargetId) return { platform, status: "skipped" };
 
-  const jobId = job.id;
-  console.log(`[job:publish_draft] ${jobId} started for draft ${draftId} on ${platform} (attempt ${attemptNumber}/${MAX_RETRIES})`);
-
-  const progress: PublishDraftJobProgress = {
-    platform,
-    status: "publishing",
+  let sent = false;
+  let postId: string | undefined;
+  const finish = async (status: "published" | "failed" | "scheduled" | "unknown", error?: string) => {
+    const saved = await storage.finishPublishTarget(scope, draftScheduleTargetId, status, {
+      draftId, draftScheduleId, platform,
+      status: status === "scheduled" ? "retrying" : status,
+      publishedPostId: postId ?? null, errorMessage: error ?? null,
+      attempt, maxAttempts,
+    });
+    if (!saved) throw new Error("Publication claim no longer current");
   };
 
   try {
-    // Validate job data
-    if (!userId) {
-      throw new Error("Job missing userId - cannot determine owner");
-    }
-
-    // Get draft
-    const allDrafts = await storage.getDrafts(scope);
-    const draft = allDrafts.find((d) => d.id === draftId);
-
-    if (!draft) {
-      throw new Error(`Draft ${draftId} not found`);
-    }
-
     const rule = await storage.getPublishingRule(scope, platform);
     if (draft.platformPublishRules?.[platform] === false || rule?.enabled === false) {
-      const reason = draft.platformPublishRules?.[platform] === false ? "Publication skipped by draft preference" : "Publication skipped by publishing rule";
-      await storage.createPublishLog(scope, { draftId, platform, status: "failed", publishedPostId: null, errorMessage: reason, attempt: attemptNumber, maxAttempts: MAX_RETRIES });
-      await storage.updateDraftScheduleStatus(scope, draftScheduleId, "failed", reason);
-      return { platform, status: "failed", error: reason };
+      throw new PublishValidationError("Publication disabled by draft preference or publishing rule");
     }
     if ((rule?.minCharacters != null && draft.content.length < rule.minCharacters) || (rule?.maxCharacters != null && draft.content.length > rule.maxCharacters)) {
-      throw new Error(`Draft does not meet the ${platform} publishing character rule`);
+      throw new PublishValidationError(`Draft does not meet the ${platform} publishing character rule`);
     }
+    const connection = await storage.getSocialAccountByProvider(scope, platform);
+    const assessment = assessProviderConnection(platform, connection ?? null);
+    if (!assessment.canPublish) throw new PublishValidationError(assessment.reason || "Provider is not ready for publishing");
 
-    const target = draftScheduleTargetId && !draftScheduleTargetId.includes(":legacy")
-      ? (await storage.getDraftScheduleTargets(scope, draftScheduleId)).find((item) => item.id === draftScheduleTargetId)
-      : undefined;
-
-    // A multi-platform draft can be marked published after its first target succeeds;
-    // skip only the target that is already complete, not every later target.
-    if ((target && target.status === "published") || (!draftScheduleTargetId && draft.publishStatus === "published")) {
-      console.log(`[job:publish_draft] Draft ${draftId} already published, skipping`);
-      return {
-        platform,
-        status: "published",
-      };
+    await storage.createPublishLog(scope, { draftId, draftScheduleId, platform, status: "pending", publishedPostId: null, errorMessage: null, attempt, maxAttempts });
+    sent = true;
+    const result = await publishToPlatform(scope, draftId, draft.content, platform, draft.media ?? []);
+    if (!result.success || !result.postId) {
+      // Existing adapters conflate rejection and transport errors. In live mode
+      // do not pretend we can distinguish "not sent" from "response lost".
+      if (process.env.PUBLISHING_MODE !== "live") sent = false;
+      throw new PublishValidationError(result.error || "Provider returned no publication ID");
     }
-
-    if (draftScheduleTargetId && !draftScheduleTargetId.includes(":legacy")) await storage.updateDraftScheduleTargetStatus(scope, draftScheduleTargetId, "publishing");
-    await storage.updateDraftScheduleStatus(scope, draftScheduleId, "publishing");
-
-    const providerConnection = await storage.getSocialAccountByProvider(scope, platform);
-    const assessment = assessProviderConnection(platform, providerConnection ?? null);
-
-    if (!assessment.canPublish) {
-      const errorMessage = assessment.reason || `${platform} provider is not ready for publishing`;
-      await storage.createPublishLog(scope, {
-        draftId,
-        platform,
-        status: "failed",
-        publishedPostId: null,
-        errorMessage,
-        attempt: attemptNumber,
-        maxAttempts: MAX_RETRIES,
-      });
-      if (draftScheduleTargetId && !draftScheduleTargetId.includes(":legacy")) await storage.updateDraftScheduleTargetStatus(scope, draftScheduleTargetId, "published");
-      await storage.updateDraftScheduleStatus(scope, draftScheduleId, "failed", errorMessage);
-      throw new Error(errorMessage);
-    }
-
-    const safetyKey = buildPublishSafetyKey(draftId, platform, tenantId);
-    console.log(`[job:publish_draft] Publish safety key: ${safetyKey}`);
-
-    // Create publish log entry
-    await storage.createPublishLog(scope, {
-      draftId,
-      platform,
-      status: "pending",
-      publishedPostId: null,
-      errorMessage: null,
-      attempt: attemptNumber,
-      maxAttempts: MAX_RETRIES,
-    });
-
-    // Update progress
-    job.progress({ ...progress, status: "publishing" });
-
-    // Publish to platform
-    console.log(`[job:publish_draft] Calling publishToPlatform for ${platform}...`);
-    const publishResult = await publishToPlatform(scope, draftId, draft.content, platform, draft.media ?? []);
-
-    if (publishResult.success && publishResult.postId) {
-      // Success: mark draft as published
-      console.log(`[job:publish_draft] Successfully published to ${platform}: ${publishResult.postId}`);
-
-      // Mark draft as published
-      await storage.markDraftAsPublished(scope, draftId);
-
-      // Update publish log with success
-      await storage.createPublishLog(scope, {
-        draftId,
-        platform,
-        status: "published",
-        publishedPostId: publishResult.postId,
-        errorMessage: null,
-        attempt: attemptNumber,
-        maxAttempts: MAX_RETRIES,
-      });
-
-      progress.status = "published";
-      progress.postId = publishResult.postId;
-      job.progress(progress);
-
-      const publishedUser = await storage.getUser(userId);
-      if (publishedUser?.email) sendAppEmail({ type: "post_published", recipient: publishedUser.email, recipientName: publishedUser.name, userId, ...emailTemplates.postPublished(platform), dedupeKey: `post-published:${draftId}:${platform}` }).catch((error) => console.error("Failed to send publish email:", error));
-
-      return progress;
-    } else {
-      // Failure: log error and decide if we should retry
-      const errorMessage = publishResult.error || "Unknown error";
-      console.error(`[job:publish_draft] Failed to publish to ${platform}: ${errorMessage}`);
-
-      // Update publish log with failure
-      await storage.createPublishLog(scope, {
-        draftId,
-        platform,
-        status: "failed",
-        publishedPostId: null,
-        errorMessage,
-        attempt: attemptNumber,
-        maxAttempts: MAX_RETRIES,
-      });
-
-      // Update draft schedule status if this was the last attempt
-      if (attemptNumber >= MAX_RETRIES) {
-        if (draftScheduleTargetId && !draftScheduleTargetId.includes(":legacy")) await storage.updateDraftScheduleTargetStatus(scope, draftScheduleTargetId, "failed", errorMessage);
-        await storage.updateDraftScheduleStatus(scope, draftScheduleId, "failed", errorMessage);
-        console.log(`[job:publish_draft] Max retries reached for draft ${draftId}, marking schedule as failed`);
-        const failedUser = await storage.getUser(userId);
-        if (failedUser?.email) sendAppEmail({ type: "post_failed", recipient: failedUser.email, recipientName: failedUser.name, userId, ...emailTemplates.postFailed(platform, errorMessage), dedupeKey: `post-failed:${draftId}:${platform}` }).catch((emailError) => console.error("Failed to send publishing failure email:", emailError));
-      }
-
-      progress.status = "failed";
-      progress.error = errorMessage;
-      job.progress(progress);
-
-      // Throw error to trigger queue retry mechanism
-      throw new Error(`Failed to publish to ${platform}: ${errorMessage}`);
-    }
+    postId = result.postId;
+    await finish("published");
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error(`[job:publish_draft] Job failed for draft ${draftId}:`, message);
-
-    try {
-      if (draftScheduleTargetId && !draftScheduleTargetId.includes(":legacy")) await storage.updateDraftScheduleTargetStatus(scope, draftScheduleTargetId, "failed", message);
-      await storage.updateDraftScheduleStatus(scope, draftScheduleId, "failed", message);
-    } catch {
-      // Ignore schedule update failures to avoid masking the true job error.
+    const message = error instanceof Error ? error.message : "Publication failed";
+    if (sent) {
+      const reason = `Delivery outcome requires provider reconciliation; automatic retry blocked. ${message}`;
+      // Retain a known post ID if the database recovers after a commit failure.
+      try { await finish("unknown", reason); } catch { /* keep publishing: still blocks replay */ }
+      job.discard?.();
+      throw new Error(reason);
     }
-
-    progress.status = "failed";
-    progress.error = message;
-    job.progress(progress);
-
-    throw error; // Re-throw to trigger queue retry
+    const retry = !(error instanceof PublishValidationError) && attempt < maxAttempts;
+    await finish(retry ? "scheduled" : "failed", message);
+    if (!retry) job.discard?.();
+    throw error;
   }
+
+  const progress: PublishDraftJobProgress = { platform, status: "published", postId };
+  // Auxiliary failures must never downgrade a committed publication or resend it.
+  try { await job.progress(progress); } catch (error) { console.error("[publish] Progress reporting failed:", error); }
+  try {
+    const user = await storage.getUser(userId);
+    if (user?.email) await sendAppEmail({ type: "post_published", recipient: user.email, recipientName: user.name, userId, ...emailTemplates.postPublished(platform), dedupeKey: `post-published:${draftScheduleTargetId}` });
+  } catch (error) { console.error("[publish] Notification failed:", error); }
+  return progress;
 }

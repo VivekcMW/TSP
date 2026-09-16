@@ -1,5 +1,7 @@
 import { Link, useLocation } from "wouter";
-import { ChevronDown, CreditCard, LogOut, Puzzle, Settings, Zap } from "lucide-react";
+import { ChevronDown, CreditCard, LogOut, Plus, Settings, Zap } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useCreatePost } from "./create-post-provider";
 import { useQuery } from "@tanstack/react-query";
 import { signOut, useAuth, useIsSignedIn } from "@/lib/auth";
 import type { User as DbUser } from "@shared/models/auth";
@@ -17,6 +19,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard": "Home",
   "/dashboard/discover": "Discover",
   "/dashboard/inbox": "Discover",
+  "/dashboard/content": "Content",
+  "/dashboard/calendar": "Calendar",
   "/dashboard/drafts": "Drafts",
   "/dashboard/published": "Published",
   "/dashboard/performance": "Performance",
@@ -33,6 +37,7 @@ const PAGE_TITLES: Record<string, string> = {
 // location-derived breadcrumb, and account actions that were previously only
 // reachable by opening the sidebar (useful once it's collapsed on mobile).
 export function DashboardNavbar() {
+  const { openCreate } = useCreatePost();
   const [location] = useLocation();
   const { user } = useAuth();
   const isSignedIn = useIsSignedIn();
@@ -49,7 +54,7 @@ export function DashboardNavbar() {
     ? `${firstName[0]}${lastName[0]}`
     : primaryEmail?.[0]?.toUpperCase() || "U";
 
-  const pageTitle = PAGE_TITLES[location] ?? "Dashboard";
+  const pageTitle = PAGE_TITLES[location] ?? "Workspace";
 
   return (
     <header className="flex items-center justify-between gap-4 px-3 py-2.5 border-b bg-background sticky top-0 z-10">
@@ -64,10 +69,13 @@ export function DashboardNavbar() {
         </span>
       </div>
 
+      <div className="flex items-center gap-2">
+      <Button onClick={() => openCreate()} data-testid="button-global-create"><Plus className="mr-1.5 h-4 w-4" />Create</Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 hover-elevate"
+            className="flex min-h-11 items-center gap-2 rounded-md px-2 py-1.5 hover-elevate"
+            aria-label="Account menu"
             data-testid="button-navbar-account"
           >
             <Avatar className="h-7 w-7">
@@ -84,25 +92,13 @@ export function DashboardNavbar() {
           </div>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
-            <Link href="/dashboard/settings?tab=content" data-testid="link-navbar-profile">
-              <Settings className="w-4 h-4 mr-2" />
-              Content Preferences
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link href="/dashboard/preferences" data-testid="link-navbar-plugins">
-              <Puzzle className="w-4 h-4 mr-2" />
-              Preferences
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
             <Link href="/dashboard/settings" data-testid="link-navbar-settings">
               <Settings className="w-4 h-4 mr-2" />
-              Account Settings
+              Settings
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
-            <Link href="/dashboard/billing" data-testid="link-navbar-billing">
+            <Link href="/dashboard/settings?tab=billing" data-testid="link-navbar-billing">
               <CreditCard className="w-4 h-4 mr-2" />
               Billing
             </Link>
@@ -114,6 +110,7 @@ export function DashboardNavbar() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      </div>
     </header>
   );
 }

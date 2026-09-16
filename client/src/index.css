@@ -13,7 +13,29 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    font-variant-numeric: tabular-nums;
     overflow-x: clip;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+  }
+
+  /* These surfaces stay dark even when the page uses the light theme.
+     Scope only gold ink, never the fill or gold-button foreground. */
+  [data-sidebar="sidebar"], .bg-surface-ink {
+    --secondary-text: var(--secondary-on-dark);
+  }
+
+  [data-sidebar="sidebar"] :focus-visible {
+    outline: 2px solid hsl(var(--sidebar-ring));
+    outline-offset: 2px;
+  }
+
+  @media (min-width: 640px) {
+    :root {
+      --page-gutter: var(--page-gutter-wide);
+    }
   }
 
   /* Worldwide audience, many on lower-power devices — respecting this is a
@@ -28,11 +50,31 @@
   }
 }
 
+@layer components {
+  /* Share these between PageHeader and page bodies; width can be overridden
+     with max-w-* on the container when a reading view needs a narrower measure. */
+  .dashboard-gutter {
+    padding-inline: var(--page-gutter);
+  }
+
+  .dashboard-container {
+    width: 100%;
+    min-width: 0;
+    max-width: var(--page-content-width);
+    margin-inline: auto;
+  }
+
+  .dashboard-touch-targets :is(button, a, [role="tab"], [role="combobox"]) {
+    min-height: var(--touch-target);
+    min-width: var(--touch-target);
+  }
+}
+
 @layer utilities {
   /* Editorial display type for headlines — fluid clamp() sizing instead of
      snapping between fixed breakpoint sizes. Opt-in via className. */
   .heading-display {
-    font-family: var(--font-serif);
+    font-family: var(--font-heading);
     font-optical-sizing: auto;
     letter-spacing: -0.02em;
     line-height: 1.05;
@@ -41,7 +83,7 @@
   }
 
   .heading-section {
-    font-family: var(--font-serif);
+    font-family: var(--font-heading);
     font-optical-sizing: auto;
     letter-spacing: -0.015em;
     line-height: 1.1;
@@ -49,10 +91,10 @@
     font-size: clamp(1.875rem, 2vw + 1.25rem, 2.75rem);
   }
 
-  /* Same serif treatment as heading-section, sized for app chrome (page
+  /* Same heading family as heading-section, sized for app chrome (page
      titles inside the dashboard) rather than marketing display type. */
   .heading-dashboard {
-    font-family: var(--font-serif);
+    font-family: var(--font-heading);
     font-optical-sizing: auto;
     letter-spacing: -0.01em;
     line-height: 1.2;
@@ -98,12 +140,6 @@
     border-radius: 4px;
   }
 
-  /* Keep the Calendar composer wide enough for complete editorial review. */
-  body:has(main [data-calendar-day]) [role="dialog"] {
-    max-width: min(90vw, 1152px);
-    max-height: 92vh;
-    overflow-y: auto;
-  }
 }
 
 /**

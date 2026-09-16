@@ -1,134 +1,112 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, ChevronDown, ChevronUp, Copy, ExternalLink, Link2, Loader2, PenLine, Send } from "lucide-react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { getPlatformMeta, PLATFORMS } from "@/lib/platforms";
-import { useToast } from "@/hooks/use-toast";
+import { Link } from "wouter";
+import { ExternalLink, PenLine } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RichArticleEditor, type ArticleMedia } from "@/components/dashboard/rich-article-editor";
-import type { InboxItem } from "@shared/schema";
+import { Textarea } from "@/components/ui/textarea";
+import { getPlatformMeta } from "@/lib/platforms";
+import { EditorialDetails, EditorialFormatSelect, EditorialProgress } from "./editorial-details";
+import { RichArticleEditor } from "./rich-article-editor";
+import { CREATE_TONES, isEdited, publicSourceUrl, type CreateTone } from "./create-post-state";
+import type { CreatePostComposer } from "./use-create-post-composer";
 
-interface InstantReviewResult {
-  article: { title: string; source: string; url: string; domain: string; content: string; media?: ArticleMedia[] };
-  posts: Record<string, Record<string, string>>;
+interface InstantReviewPanelProps {
+  isOpen: boolean;
+  onClose: () => boolean;
+  composer: CreatePostComposer;
 }
 
-interface InstantReviewPanelProps { isOpen: boolean; onClose: () => void; }
-
-const TONES = [
-  ["thoughtLeader", "Thought Leader", "professional"],
-  ["industryInsider", "Industry Insider", "authoritative"],
-  ["provocateur", "Provocateur", "contrarian"],
-  ["dataDriven", "Data-Driven", "ai-recommended"],
-] as const;
-
-const PLATFORM_KEYWORDS: Record<string, string[]> = {
-  linkedin: ["business", "leadership", "enterprise", "strategy", "work", "company"],
-  twitter: ["news", "launch", "ai", "tech", "trend", "update"],
-  reddit: ["discussion", "community", "question", "guide", "opensource"],
-  devto: ["developer", "engineering", "code", "api", "software", "open source"],
-  hashnode: ["developer", "engineering", "code", "api", "software", "open source"],
-  medium: ["insight", "guide", "analysis", "opinion", "story"],
-  substack: ["analysis", "newsletter", "opinion", "industry"],
-};
-
-function relevance(item: InboxItem, platform: string): number {
-  const text = `${item.headline} ${item.summary ?? ""} ${item.source}`.toLowerCase();
-  const keywords = PLATFORM_KEYWORDS[platform] ?? ["news", "industry", "business", "technology"];
-  return keywords.reduce((score, keyword) => score + (text.includes(keyword) ? 1 : 0), 0);
-}
-
-function PostOption({ content, platform, tone, onSave, saving }: { content: string; platform: string; tone: readonly [string, string, string]; onSave: () => void; saving: boolean }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => { await navigator.clipboard.writeText(content); setCopied(true); window.setTimeout(() => setCopied(false), 1600); };
-  return <Card className="mb-3"><CardContent className="p-4 space-y-3"><div className="flex items-center justify-between gap-2"><p className="text-sm font-medium">{tone[1]}</p><div className="flex gap-1"><Button size="sm" variant="ghost" onClick={copy}>{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}</Button><Button size="sm" onClick={onSave} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save draft"}</Button></div></div><p className="whitespace-pre-wrap text-sm leading-relaxed">{content}</p></CardContent></Card>;
-}
-
-export function InstantReviewPanel({ isOpen, onClose }: InstantReviewPanelProps) {
-  const { toast } = useToast();
-  const [selectedPlatform, setSelectedPlatform] = useState("linkedin");
-  const [result, setResult] = useState<InstantReviewResult | null>(null);
-  const [resultPlatform, setResultPlatform] = useState("linkedin");
-  const [url, setUrl] = useState("");
-  const [writingArticle, setWritingArticle] = useState(false);
-  const [width, setWidth] = useState(760);
-  const resizing = useRef(false);
-  const { data: inbox = [] } = useQuery<InboxItem[]>({ queryKey: ["/api/inbox"], enabled: isOpen });
-  // Discovery remains available across every platform, even when a user has
-  // hidden a platform from their normal post-generator preferences.
-  const platforms = PLATFORMS;
-  const articles = useMemo(() => inbox.slice().sort((a, b) => relevance(b, selectedPlatform) - relevance(a, selectedPlatform)), [inbox, selectedPlatform]);
-
-  useEffect(() => {
-    const move = (event: PointerEvent) => { if (resizing.current) setWidth(Math.max(460, Math.min(1100, window.innerWidth - event.clientX))); };
-    const stop = () => { resizing.current = false; };
-    window.addEventListener("pointermove", move); window.addEventListener("pointerup", stop);
-    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); };
-  }, []);
-
-  const reviewMutation = useMutation({
-    mutationFn: async (url: string) => (await apiRequest("POST", "/api/instant-review/selected", { url, selectedPlatforms: [selectedPlatform] })).json() as Promise<InstantReviewResult>,
-    onSuccess: (data) => { setResult(data); setResultPlatform(selectedPlatform); queryClient.invalidateQueries({ queryKey: ["/api/profile"] }); toast({ title: "Posts generated", description: `Your ${getPlatformMeta(selectedPlatform).label} options are ready.` }); },
-    onError: (error: Error) => toast({ title: "Failed to generate review", description: error.message, variant: "destructive" }),
-  });
-  const manualReviewMutation = useMutation({
-    mutationFn: async (article: { title: string; content: string; media: ArticleMedia[] }) => (await apiRequest("POST", "/api/instant-review/manual", { ...article, selectedPlatforms: [selectedPlatform] })).json() as Promise<InstantReviewResult>,
-    onSuccess: (data) => { setResult(data); setWritingArticle(false); toast({ title: "Posts generated", description: "Choose a post option to save as a draft." }); },
-    onError: (error: Error) => toast({ title: "Failed to analyze article", description: error.message, variant: "destructive" }),
-  });
-  const saveDraftMutation = useMutation({
-    mutationFn: async (data: { platform: string; tone: string; content: string; media?: ArticleMedia[] }) => (await apiRequest("POST", "/api/drafts", data)).json(),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/drafts"] }); toast({ title: "Draft saved" }); },
-    onError: () => toast({ title: "Could not save draft", variant: "destructive" }),
-  });
-
-  useEffect(() => { if (!platforms.some((platform) => platform.value === selectedPlatform)) setSelectedPlatform(platforms[0]?.value ?? "linkedin"); }, [platforms, selectedPlatform]);
-  const close = () => { setResult(null); setWritingArticle(false); setUrl(""); onClose(); };
-  const submitUrl = (event: React.FormEvent) => { event.preventDefault(); if (url.trim()) reviewMutation.mutate(url.trim()); };
-
-  return <Sheet open={isOpen} onOpenChange={(open) => !open && close()}>
-    <SheetContent side="right" className="flex h-dvh w-full !max-w-none flex-col gap-0 overflow-hidden p-0" style={{ width, maxWidth: "100vw" }}>
-      <div className="absolute inset-y-0 left-0 z-20 hidden w-3 cursor-ew-resize bg-border/0 hover:bg-secondary/70 md:block" onPointerDown={(event) => { resizing.current = true; event.currentTarget.setPointerCapture(event.pointerId); }} data-testid="instant-review-resize-handle" />
-      <SheetHeader className="border-b px-6 py-4 pr-14 text-left"><SheetTitle className="flex items-center gap-2"><Link2 className="h-5 w-5 text-secondary" />Instant Review</SheetTitle><SheetDescription>Select a platform, paste an article URL, or write your own article.</SheetDescription></SheetHeader>
-      <form onSubmit={submitUrl} className="flex gap-2 border-b bg-muted/20 px-5 py-3"><Input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Paste an article URL…" type="url" data-testid="input-instant-review-url" /><Button type="submit" size="sm" disabled={!url.trim() || reviewMutation.isPending}>{reviewMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Review URL"}</Button><Button type="button" size="sm" variant="outline" onClick={() => { setWritingArticle(true); setResult(null); }}><PenLine className="mr-1.5 h-4 w-4" />Write article</Button></form>
-      <div className="flex min-h-0 flex-1">
-        <aside className="w-44 shrink-0 border-r bg-muted/30"><ScrollArea className="h-full"><nav className="space-y-1 p-2" aria-label="Platforms">{platforms.map((platform) => { const Icon = platform.icon; const count = inbox.filter((item) => relevance(item, platform.value) > 0).length; return <button key={platform.value} onClick={() => { setSelectedPlatform(platform.value); setResult(null); }} className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm ${selectedPlatform === platform.value ? "bg-secondary/15 text-foreground font-medium" : "text-muted-foreground hover:bg-muted"}`} data-testid={`instant-review-platform-${platform.value}`}><Icon className="h-4 w-4 shrink-0" /><span className="min-w-0 flex-1 truncate">{platform.label}</span><span className="text-xs">{count}</span></button>; })}</nav></ScrollArea></aside>
-        <main className="min-w-0 flex-1">{writingArticle ? <RichArticleEditor onAnalyze={manualReviewMutation.mutate} isPending={manualReviewMutation.isPending} /> : result ? <ReviewResults result={result} platform={resultPlatform} onPlatform={setResultPlatform} onBack={() => setResult(null)} saveDraft={saveDraftMutation.mutate} saving={saveDraftMutation.isPending} /> : <ArticleList platform={selectedPlatform} articles={articles} onReview={(article) => reviewMutation.mutate(article.articleUrl)} pending={reviewMutation.isPending} />}</main>
+/** Presentation only: the provider owns the single persistent creation session. */
+export function InstantReviewPanel({ isOpen, onClose, composer: c }: Readonly<InstantReviewPanelProps>) {
+  const version = c.version;
+  const article = version?.review.article;
+  const originalUrl = article?.url ? publicSourceUrl(article.url) : undefined;
+  const meta = getPlatformMeta(c.platform);
+  const saved = version?.status === "saved" && Boolean(version.savedId);
+  let saveLabel = version?.savedId ? "Save changes" : "Save draft";
+  if (saved) saveLabel = "Saved";
+  if (version?.status === "saving") saveLabel = "Saving…";
+  return <Sheet open={isOpen} onOpenChange={open => !open && onClose()}>
+    <SheetContent side="right" className="flex h-dvh w-full max-w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl [&>button]:min-h-11 [&>button]:min-w-11">
+      <SheetHeader className="shrink-0 border-b px-4 py-5 pr-16 text-left sm:px-6 sm:pr-16">
+        <SheetTitle className="flex items-center gap-2"><PenLine className="h-5 w-5" />Create draft</SheetTitle>
+        <SheetDescription>Choose a source, generate explicitly, then review and save. Nothing is published or scheduled automatically.</SheetDescription>
+      </SheetHeader>
+      <div className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-6 [&_button]:min-h-11 [&_select]:min-h-11 [&_input]:min-h-11 [&_summary]:min-h-11">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="min-w-0 space-y-1 text-sm"><span>Platform</span>
+            <select aria-label="Platform" className="block w-full min-w-0 rounded-md border bg-background px-3" value={c.platform} disabled={c.busy || !c.platforms.length} onChange={event => c.setPlatform(event.target.value)}>
+              {!c.platforms.length && <option value="">{c.preferencesReady ? "No available platforms" : "Loading preferences…"}</option>}
+              {c.platforms.map(platform => <option key={platform.value} value={platform.value}>{platform.label}</option>)}
+            </select>
+          </label>
+          <label className="min-w-0 space-y-1 text-sm"><span>Tone</span>
+            <select aria-label="Tone" className="block w-full rounded-md border bg-background px-3" value={c.tone} disabled={c.busy} onChange={event => c.setTone(event.target.value as CreateTone)}>
+              {CREATE_TONES.map(tone => <option key={tone.key} value={tone.key}>{tone.label}</option>)}
+            </select>
+          </label>
+        </div>
+        {c.preferencesError && <div role="alert" className="text-sm">Could not load platform preferences. Generation and saving are disabled.<Button variant="outline" onClick={c.retryPreferences}>Retry preferences</Button></div>}
+        {c.preferencesReady && !c.platforms.length && <output className="block text-sm">No enabled platforms are available. Update your publishing preferences in Settings.</output>}
+        <EditorialFormatSelect platform={c.platform} value={c.format} onChange={c.setFormat} disabled={c.busy} />
+        <label className="block space-y-1 text-sm"><span>Source type</span>
+          <select aria-label="Source type" className="block w-full rounded-md border bg-background px-3" value={c.mode} disabled={c.busy} onChange={event => c.setMode(event.target.value as typeof c.mode)}>
+            <option value="url">Article URL</option><option value="article">Discover story</option><option value="manual">Write article</option>
+          </select>
+        </label>
+        {c.mode === "article" && <section aria-label="Choose a story" className="space-y-2">
+          <label className="block space-y-1 text-sm"><span>Story</span>
+            <select aria-label="Story" className="block w-full min-w-0 rounded-md border bg-background px-3" disabled={c.busy} value={c.item?.id ?? ""} onChange={event => { const item = c.inbox.find(value => value.id === event.target.value); if (item) c.prefill(item); }}>
+              <option value="">Choose a story (no generation yet)</option>
+              {c.item && !c.inbox.some(value => value.id === c.item!.id) && <option value={c.item.id}>{c.item.headline}</option>}
+              {c.inbox.map(item => <option key={item.id} value={item.id}>{item.headline}</option>)}
+            </select>
+          </label>
+          {c.inboxLoading && <p className="text-sm">Loading stories…</p>}
+          {c.inboxError && <Button variant="outline" onClick={() => void c.retryInbox()}>Retry stories</Button>}
+          {!c.inboxLoading && !c.inboxError && !c.inbox.length && <p className="text-sm text-muted-foreground">No stories yet. Paste a URL or write an article instead.</p>}
+          {c.item && <div className="rounded-md border p-3 text-sm"><p className="font-medium">{c.item.headline}</p><p className="text-muted-foreground">{c.item.source}</p><p className="mt-2 whitespace-pre-wrap">{c.item.summary}</p><p className="mt-2 text-xs text-muted-foreground">Inbox summary only — the full source is fetched after you click Generate.</p></div>}
+        </section>}
+        {c.mode === "manual" ? <RichArticleEditor value={c.manual} onChange={c.setManual} isPending={c.busy} onUploadingChange={c.setUploading} /> :
+          <label className="block space-y-1 text-sm">Article URL<Input aria-label="Article URL" type="url" value={c.url} disabled={c.busy} onChange={event => c.setUrl(event.target.value)} placeholder="https://…" data-testid="input-instant-review-url" /></label>}
+        <Button className="w-full sm:w-auto" disabled={!c.canGenerate} onClick={() => void c.generate()} data-testid="button-regenerate">
+          {version ? "Regenerate" : "Generate"} {c.platform ? meta.label : "posts"} only
+        </Button>
+        <p className="text-xs text-muted-foreground">One platform, four tones per request. Switching platform or tone never generates automatically. Existing versions keep their own source evidence.</p>
+        <EditorialProgress {...c.generation} />
+        {c.generation.error && !c.generation.pending && <div className="flex flex-wrap gap-2">
+          <Button variant="outline" disabled={c.saving} onClick={() => void c.generate(true)}>Retry same request</Button>
+          {c.generation.recoverable && <Button variant="outline" onClick={() => void c.generation.cancel()}>Cancel generation</Button>}
+        </div>}
+        {c.notice && <output className="block text-sm">{c.notice}</output>}
+        {version ? <section className="min-w-0 space-y-4 border-t pt-5" aria-label="Draft review">
+          <div className="space-y-2 text-sm">
+            <h3 className="font-medium">Source: {article?.title}</h3>
+            <p className="text-muted-foreground">{article?.source} · Generated format: {version.review.format}</p>
+            {originalUrl && <a href={originalUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-2 underline">Open original<ExternalLink className="h-4 w-4" /></a>}
+            <details><summary className="cursor-pointer font-medium">{article?.domain === "manual" ? "Your supplied article content" : "Fetched article content"}</summary><p className="max-h-64 overflow-auto whitespace-pre-wrap break-words" data-testid="text-source-content">{article?.content}</p></details>
+            {!!article?.media?.length && <p>{article.media.length} attachment(s) included. Media is not inspected as evidence.</p>}
+          </div>
+          <EditorialDetails evidence={version.review.evidence} detail={version.review.details?.[version.platform]?.[version.tone]} edited={isEdited(version)} />
+          <label className="block space-y-2 text-sm">Post content {isEdited(version) && <span className="font-medium">· Edited</span>}
+            <Textarea aria-label="Post content" value={version.content} disabled={c.busy} onChange={event => c.edit(event.target.value)} className="min-h-60 resize-y" data-testid="textarea-post-content" />
+          </label>
+          <p className="text-xs text-muted-foreground">{version.content.length} / {Math.min(5000, meta.charLimit)} characters. Hashtags may be edited directly in the text.</p>
+          {!c.canUse && !c.busy && <p role="alert" className="text-sm text-destructive">Enter non-empty text within the platform limit before saving or copying.</p>}
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={!c.canUse || saved} onClick={() => void c.save()} data-testid="button-save-draft">{saveLabel}</Button>
+            <Button variant="outline" disabled={!c.canUse} onClick={() => void c.copy()} data-testid="button-copy-content">Copy text</Button>
+            {c.canUse && <a className="inline-flex min-h-11 items-center rounded-md border px-3 text-sm" href={meta.composeUrl(version.content, originalUrl)} target="_blank" rel="noopener noreferrer" data-testid="button-post-now">Open {meta.label}</a>}
+          </div>
+          <p className="text-xs text-muted-foreground">Copy text, then open the platform to paste manually. Opening a platform does not copy or confirm publication.</p>
+          {c.copyStatus && <output className="block text-sm">{c.copyStatus}</output>}
+          {version.status === "failed" && <p role="alert" className="text-sm text-destructive">Could not save draft. {version.error}</p>}
+          {saved && <div className="space-y-2 rounded-md border p-3 text-sm">
+            <output>Draft saved. Review publishing readiness in Content for direct posting, or choose a time in Calendar.</output>
+            <div className="flex flex-wrap gap-3"><Link className="inline-flex min-h-11 items-center underline" href="/dashboard/content" onClick={event => { if (!onClose()) event.preventDefault(); }}>Go to Content</Link><Link className="inline-flex min-h-11 items-center underline" href="/dashboard/calendar" onClick={event => { if (!onClose()) event.preventDefault(); }}>Go to Calendar</Link></div>
+          </div>}
+        </section> : <p className="text-sm text-muted-foreground">No version for this platform yet. Choose a source and click Generate when ready.</p>}
       </div>
     </SheetContent>
   </Sheet>;
-}
-
-function ArticleList({ platform, articles, onReview, pending }: { platform: string; articles: InboxItem[]; onReview: (article: InboxItem) => void; pending: boolean }) {
-  const meta = getPlatformMeta(platform);
-  return <div className="flex h-full min-h-0 flex-col"><div className="border-b px-5 py-4"><h3 className="font-medium">Articles for {meta.label}</h3><p className="text-sm text-muted-foreground">Ranked by relevance for this platform’s audience.</p></div><ScrollArea className="min-h-0 flex-1"><div className="space-y-3 p-5">{pending ? <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Generating review…</div> : articles.length ? articles.map((article) => <Card key={article.id}><CardContent className="p-4"><p className="text-xs text-muted-foreground">{article.source}</p><h4 className="mt-1 font-medium leading-snug">{article.headline}</h4>{article.summary && <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{article.summary}</p>}<Button className="mt-3" size="sm" onClick={() => onReview(article)}><Send className="mr-1.5 h-3.5 w-3.5" />Review article</Button></CardContent></Card>) : <p className="py-10 text-center text-sm text-muted-foreground">No inbox articles yet. Refresh your Inbox to find relevant articles.</p>}</div></ScrollArea></div>;
-}
-
-function ReviewResults({ result, platform, onPlatform, onBack, saveDraft, saving }: { result: InstantReviewResult; platform: string; onPlatform: (platform: string) => void; onBack: () => void; saveDraft: (data: { platform: string; tone: string; content: string; media?: ArticleMedia[] }) => void; saving: boolean }) {
-  return <div className="flex h-full min-h-0 flex-col"><div className="border-b p-5"><Button variant="ghost" size="sm" onClick={onBack}>← All articles</Button><h3 className="mt-2 font-medium">{result.article.title}</h3><SourceContent article={result.article} /><Tabs value={platform} onValueChange={onPlatform}><TabsList className="mt-3">{Object.keys(result.posts).map((key) => <TabsTrigger key={key} value={key}>{getPlatformMeta(key).label}</TabsTrigger>)}</TabsList></Tabs></div><ScrollArea className="min-h-0 flex-1"><div className="p-5">{TONES.map((tone) => <PostOption key={tone[0]} content={result.posts[platform]?.[tone[0]] ?? ""} platform={platform} tone={tone} saving={saving} onSave={() => saveDraft({ platform, tone: tone[2], content: result.posts[platform]?.[tone[0]] ?? "", media: result.article.media })} />)}</div></ScrollArea></div>;
-}
-
-/** Shows exactly what was crawled from the URL (or written manually) — the real basis for the AI's posts, not just the headline, so a user can verify the source content the moment something looks off. */
-function SourceContent({ article }: { article: InstantReviewResult["article"] }) {
-  const [expanded, setExpanded] = useState(false);
-  const hasContent = Boolean(article.content?.trim());
-  return <div className="mt-2 space-y-2">
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-      {article.source && <span>{article.source}</span>}
-      {article.domain && article.domain !== "manual" && <span>· {article.domain}</span>}
-      {article.url && <a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-secondary hover:underline">Open original<ExternalLink className="h-3 w-3" /></a>}
-    </div>
-    {hasContent && <div className="rounded-md border bg-muted/20 p-3">
-      <button type="button" onClick={() => setExpanded((current) => !current)} className="flex w-full items-center justify-between text-xs font-medium text-muted-foreground" data-testid="button-toggle-source-content">
-        <span>Fetched article content</span>
-        {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-      </button>
-      <p className={`mt-2 whitespace-pre-wrap text-sm leading-relaxed ${expanded ? "" : "line-clamp-3"}`} data-testid="text-source-content">{article.content}</p>
-    </div>}
-  </div>;
 }

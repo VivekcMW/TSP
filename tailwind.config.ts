@@ -34,6 +34,8 @@ export default {
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary) / <alpha-value>)",
+          text: "hsl(var(--secondary-text) / <alpha-value>)",
+          "on-dark": "hsl(var(--secondary-on-dark) / <alpha-value>)",
           foreground: "hsl(var(--secondary-foreground) / <alpha-value>)",
           border: "var(--secondary-border)",
         },
@@ -93,8 +95,18 @@ export default {
           offline: "rgb(156 163 175)",
         },
       },
+      // Separate ink from fill without rewriting existing text-secondary callers.
+      textColor: {
+        secondary: {
+          DEFAULT: "hsl(var(--secondary-text) / <alpha-value>)",
+          text: "hsl(var(--secondary-text) / <alpha-value>)",
+          "on-dark": "hsl(var(--secondary-on-dark) / <alpha-value>)",
+          foreground: "hsl(var(--secondary-foreground) / <alpha-value>)",
+        },
+      },
       fontFamily: {
         sans: ["var(--font-sans)"],
+        heading: ["var(--font-heading)"],
         serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
       },

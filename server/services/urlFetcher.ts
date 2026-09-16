@@ -1,4 +1,6 @@
-import { assertPublicHttpUrl } from "./urlValidator.js";
+import { CrawlError, fetchPublicText } from "./crawlerFetch.js";
+import { cleanPageHtml, metaContent, requireReadableHtml, requireUngatedHtml } from "./crawlerHtml.js";
+import { MAX_SOURCE_CHARACTERS, type SourceContentMetadata } from "./editorialEvidence.js";
 
 export interface FetchedArticle {
   title: string;
@@ -6,6 +8,7 @@ export interface FetchedArticle {
   source: string;
   url: string;
   domain: string;
+  contentMetadata?: SourceContentMetadata;
 }
 
 /** Real article paragraphs cluster together in the HTML; nav/footer/promo <p> tags are scattered singles separated by large gaps of unrelated markup. Picking the densest cluster (not just "the first N <p> tags on the page") is what actually finds the article body on pages with no semantic <article>/<main> wrapper. */
@@ -54,10 +57,17 @@ function densestParagraphCluster(paragraphs: ParagraphMatch[]): string {
     return candidateLength > largestLength ? candidate : largest;
   }, clusters[0]);
 
-  return best.map((p) => p.text).join(" ");
+  return best.map((p) => p.text).join("\n\n");
 }
 
-export async function fetchArticleFromUrl(url: string): Promise<FetchedArticle> {
+export async function fetchArticleFromUrl(url: string, signal?: AbortSignal): Promise<FetchedArticle> {
+  const page = await fetchPublicText(url, { signal });
+  requireReadableHtml(page);
+  return extractArticleFromHtml(page.text, page.url);
+}
+
+export function extractArticleFromHtml(rawHtml: string, url: string): FetchedArticle {
+  requireUngatedHtml(rawHtml);
   const urlObj = new URL(url);
   const domain = urlObj.hostname.replace(/^www\./, "");
   
@@ -67,82 +77,52 @@ export async function fetchArticleFromUrl(url: string): Promise<FetchedArticle> 
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 
-  try {
-    const guard = await assertPublicHttpUrl(url);
-    if (!guard.ok) {
-      throw new Error(`Refused to fetch ${url}: ${guard.reason}`);
-    }
-
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; TheSocialPundit/1.0)",
-        "Accept": "text/html,application/xhtml+xml",
-      },
-      signal: AbortSignal.timeout(10000),
-      redirect: "follow",
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch URL: ${response.status}`);
-    }
-
-    const html = await response.text();
-    
-    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    const title = titleMatch 
-      ? decodeHtmlEntities(titleMatch[1].trim())
-      : "Untitled Article";
-
-    const ogTitleMatch = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
-    const ogTitle = ogTitleMatch ? decodeHtmlEntities(ogTitleMatch[1]) : null;
-
-    const ogDescMatch = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i);
-    const metaDescMatch = html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
-    const description = ogDescMatch?.[1] || metaDescMatch?.[1] || "";
-
-    let content = "";
-
-    const articleMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
-    const mainMatch = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
-    if (articleMatch) {
-      content = stripHtml(articleMatch[1]);
-    } else if (mainMatch) {
-      content = stripHtml(mainMatch[1]);
-    } else {
-      content = densestParagraphCluster(extractQualifyingParagraphs(html));
-    }
-
-    if (!content && description) {
-      content = decodeHtmlEntities(description);
-    }
-
-    content = content.slice(0, 3000);
-
-    return {
-      title: ogTitle || title,
-      content: content || description || "Article content could not be extracted.",
-      source: sourceName,
-      url,
-      domain,
-    };
-  } catch (error) {
-    console.error("Error fetching article:", error);
-    return {
-      title: "Article from " + sourceName,
-      content: "Unable to extract article content. Please provide context manually.",
-      source: sourceName,
-      url,
-      domain,
-    };
+  const html = cleanPageHtml(rawHtml);
+  const titleMatch = /<title[^>]*>([^<]+)<\/title>/i.exec(html);
+  const title = titleMatch?.[1]?.trim() || "Untitled Article";
+  const ogTitle = metaContent(html, "og:title");
+  const articleMatch = /<article\b[^>]*>([\s\S]*?)<\/article>/i.exec(html);
+  const mainMatch = /<main\b[^>]*>([\s\S]*?)<\/main>/i.exec(html);
+  const bodyHtml = articleMatch?.[1] ?? mainMatch?.[1] ?? html;
+  // Headings, links and controls alone are not an article, even inside <main>.
+  // Count actual body prose, not metadata teasers or navigation labels.
+  const prose = decodeHtmlEntities(stripHtml(bodyHtml
+    .replace(/<(a|h[1-6]|title)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ")
+    .replace(/<input\b[^>]*>/gi, " "))).trim();
+  if (prose.length < 80 || (!articleMatch && mainMatch && extractQualifyingParagraphs(bodyHtml).length === 0) ||
+    /^(?:please\s+)?(?:sign[ -]?in|log[ -]?in|subscribe)\s+to\s+(?:read|continue|access|unlock)/i.test(prose)) {
+    throw new CrawlError("quality", "No readable article body was found; this page contains only a teaser, login prompt, navigation, or insufficient public content.");
   }
+  let extractionMethod: SourceContentMetadata["extractionMethod"] = "paragraph_cluster";
+  let content: string;
+  if (articleMatch) {
+    extractionMethod = "article";
+    content = stripHtml(articleMatch[1]);
+  } else if (mainMatch) {
+    extractionMethod = "main";
+    content = stripHtml(mainMatch[1]);
+  } else {
+    content = densestParagraphCluster(extractQualifyingParagraphs(html));
+  }
+  content = decodeHtmlEntities(content).trim();
+  const originalLength = content.length;
+  content = content.slice(0, MAX_SOURCE_CHARACTERS);
+  if (!content.trim() || /^(?:loading[.\s…]*|please enable javascript[.\s]*)$/i.test(content)) {
+    throw new CrawlError("content", "No readable article content was found. The page may require JavaScript, login, or a subscription.");
+  }
+  return {
+    title: decodeHtmlEntities(ogTitle || title), content, source: sourceName, url, domain,
+    contentMetadata: { extractionMethod, originalLength, retainedLength: content.length, truncated: originalLength > content.length },
+  };
 }
 
 function stripHtml(html: string): string {
   return html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(/<\/(?:p|div|h[1-6]|li|blockquote)>|<br\b[^>]{0,100}>/gi, "\n\n")
+    .replace(/<[^>]{0,2000}>/g, " ")
+    .split(/\n+/).map(line => line.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n\n")
     .trim();
 }
 

@@ -1,6 +1,9 @@
 import { betterAuth } from "better-auth";
 import { pool } from "./db";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./services/email";
+import { redis } from "./lib/redis";
+import { CLIENT_IP_HEADER } from "./lib/proxy";
+import { createAuthRateLimitStorage } from "./lib/proxy-rate-limit";
 
 const baseURL = process.env.BETTER_AUTH_URL ?? process.env.APP_URL ?? "http://localhost:4300";
 const trustedOrigins = [baseURL];
@@ -31,8 +34,12 @@ const socialProviders = {
     : {}),
 };
 
-if (!process.env.BETTER_AUTH_SECRET) {
+if (!process.env.BETTER_AUTH_SECRET || process.env.BETTER_AUTH_SECRET.trim().length < 32) {
   throw new Error("BETTER_AUTH_SECRET must be set to a secure value of at least 32 characters.");
+}
+
+if (process.env.NODE_ENV === "production" && !redis) {
+  throw new Error("REDIS_URL is required for shared authentication rate limiting in production");
 }
 
 export const auth = betterAuth({
@@ -41,6 +48,17 @@ export const auth = betterAuth({
   baseURL,
   trustedOrigins,
   socialProviders,
+  advanced: {
+    trustedProxyHeaders: false,
+    ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
+  },
+  rateLimit: {
+    enabled: true,
+    storage: "memory",
+    // customStorage overrides storage. Do NOT use secondaryStorage here:
+    // that would also move sessions/verification data out of PostgreSQL.
+    ...(redis ? { customStorage: createAuthRateLimitStorage(redis) } : {}),
+  },
   databaseHooks: {
     user: {
       create: {

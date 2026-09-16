@@ -1,14 +1,14 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Sparkles, ArrowLeft, ArrowRight, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { Progress } from "@/components/ui/progress";
+import { normalizeOnboardingChoices, visibleOnboardingChoices } from "@/lib/onboarding-choices";
 
 interface OnboardingWizardProps {
   onComplete: (data: OnboardingData) => void;
@@ -589,7 +589,7 @@ type Step = "identity" | "publications" | "topics" | "connections";
 
 const STEPS: Step[] = ["identity", "publications", "topics", "connections"];
 
-export function OnboardingWizard({ onComplete, isPending = false, userIndustry, userCountry }: OnboardingWizardProps) {
+export function OnboardingWizard({ onComplete, isPending = false, userIndustry, userCountry }: Readonly<OnboardingWizardProps>) {
   const [currentStep, setCurrentStep] = useState<Step>("identity");
   const [focusDescription, setFocusDescription] = useState("");
   const [selectedPublications, setSelectedPublications] = useState<string[]>([]);
@@ -600,9 +600,12 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
   const [customInfluencer, setCustomInfluencer] = useState("");
   const [customCompany, setCustomCompany] = useState("");
   const [isGeneratingRecommendations, setIsGeneratingRecommendations] = useState(false);
-  const [hasGeneratedRecommendations, setHasGeneratedRecommendations] = useState(false);
   const [recommendedIndustry, setRecommendedIndustry] = useState<string | undefined>();
-  const [engineDisplayName, setEngineDisplayName] = useState<string>("");
+  const recommendationRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => {
+    recommendationRequest.current?.abort();
+    recommendationRequest.current = null;
+  }, []);
   const { toast } = useToast();
 
   const industryData = getIndustryData(userIndustry, userCountry);
@@ -610,59 +613,57 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
   const progress = ((currentStepIndex + 1) / STEPS.length) * 100;
 
   const generateRecommendations = async () => {
-    if (focusDescription.length < 20) return;
-    
+    if (focusDescription.trim().length < 10 || recommendationRequest.current || isPending) return;
+    const controller = new AbortController();
+    recommendationRequest.current = controller;
     setIsGeneratingRecommendations(true);
-    
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("timeout")), 15000)
-    );
-    
+    const timeout = setTimeout(() => {
+      controller.abort();
+      if (recommendationRequest.current !== controller) return;
+      recommendationRequest.current = null;
+      setIsGeneratingRecommendations(false);
+      toast({ title: "Suggestions took too long", description: "Continue without AI or try again when you're ready." });
+    }, 15000);
     try {
-      const fetchPromise = apiRequest("POST", "/api/ai/analyze-identity", {
-        focusDescription,
+      const response = await apiRequest("POST", "/api/ai/analyze-identity", {
+        focusDescription: focusDescription.trim(),
         selectedIndustry: userIndustry,
-      }).then(res => res.json());
-      
-      const data = await Promise.race([fetchPromise, timeoutPromise]) as any;
-      
-      setSelectedPublications(data.publications || industryData.publications.slice(0, 6));
-      setSelectedKeywords(data.keywords || industryData.keywords.slice(0, 6));
-      setSelectedInfluencers(data.personalities || industryData.influencers.slice(0, 6));
-      setSelectedCompanies(data.companies || industryData.companies.slice(0, 6));
-      setHasGeneratedRecommendations(true);
-      
-      if (data.recommendedEngine) {
-        setRecommendedIndustry(data.recommendedEngine.industry);
-        setEngineDisplayName(data.recommendedEngine.displayName);
-      }
-      
+      }, { signal: controller.signal });
+      const data = await response.json();
+      if (controller.signal.aborted) return;
+      setSelectedPublications((items) => normalizeOnboardingChoices([...items, ...normalizeOnboardingChoices(data.publications)]));
+      setSelectedKeywords((items) => normalizeOnboardingChoices([...items, ...normalizeOnboardingChoices(data.keywords)]));
+      setSelectedInfluencers((items) => normalizeOnboardingChoices([...items, ...normalizeOnboardingChoices(data.personalities)]));
+      setSelectedCompanies((items) => normalizeOnboardingChoices([...items, ...normalizeOnboardingChoices(data.companies)]));
+      setRecommendedIndustry(typeof data.recommendedEngine?.industry === "string" ? data.recommendedEngine.industry : undefined);
       toast({
-        title: "Recommendations generated",
-        description: data.recommendedEngine 
-          ? `Matched to: ${data.recommendedEngine.displayName}` 
-          : `Identified industry: ${data.primaryIndustry || "General"}`,
+        title: "Suggestions ready to review",
+        description: "Keep or remove any selection. These preferences are optional.",
       });
-    } catch (error) {
-      console.error("Error generating recommendations:", error);
-      
-      setSelectedPublications(industryData.publications.slice(0, 6));
-      setSelectedKeywords(industryData.keywords.slice(0, 6));
-      setSelectedInfluencers(industryData.influencers.slice(0, 6));
-      setSelectedCompanies(industryData.companies.slice(0, 6));
-      setHasGeneratedRecommendations(true);
-      
+      setCurrentStep("publications");
+    } catch {
+      if (controller.signal.aborted) return;
       toast({
-        title: "Using default recommendations",
-        description: "We pre-selected some popular choices to get you started.",
+        title: "Suggestions unavailable",
+        description: "Your choices haven't changed. Continue without AI or try again.",
       });
     } finally {
-      setIsGeneratingRecommendations(false);
-      setCurrentStep("publications");
+      clearTimeout(timeout);
+      if (recommendationRequest.current === controller) {
+        recommendationRequest.current = null;
+        setIsGeneratingRecommendations(false);
+      }
     }
   };
 
+  const cancelRecommendations = () => {
+    recommendationRequest.current?.abort();
+    recommendationRequest.current = null;
+    setIsGeneratingRecommendations(false);
+  };
+
   const goToNextStep = () => {
+    cancelRecommendations();
     const nextIndex = currentStepIndex + 1;
     if (nextIndex < STEPS.length) {
       setCurrentStep(STEPS[nextIndex]);
@@ -679,22 +680,25 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
   const toggleItem = (item: string, list: string[], setList: (items: string[]) => void) => {
     if (list.includes(item)) {
       setList(list.filter(i => i !== item));
-    } else {
+    } else if (list.length < 20) {
       setList([...list, item]);
     }
   };
 
   const addCustomItem = (value: string, list: string[], setList: (items: string[]) => void, setValue: (v: string) => void) => {
+    if (isPending) return;
     const trimmed = value.trim();
-    if (trimmed && !list.includes(trimmed)) {
-      setList([...list, trimmed]);
+    if (trimmed && !list.includes(trimmed) && list.length < 20) {
+      setList(normalizeOnboardingChoices([...list, trimmed]));
       setValue("");
     }
   };
 
   const handleComplete = () => {
+    if (focusDescription.trim().length < 10 || isPending) return;
+    cancelRecommendations();
     onComplete({
-      focusDescription,
+      focusDescription: focusDescription.trim(),
       publications: selectedPublications,
       keywords: selectedKeywords,
       influencers: selectedInfluencers,
@@ -703,10 +707,7 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
     });
   };
 
-  const canProceedFromIdentity = focusDescription.length >= 20;
-  const canProceedFromPublications = selectedPublications.length > 0;
-  const canProceedFromTopics = selectedKeywords.length > 0;
-  const canComplete = selectedInfluencers.length > 0 || selectedCompanies.length > 0;
+  const canProceedFromIdentity = focusDescription.trim().length >= 10;
 
   const stepTitles: Record<Step, string> = {
     identity: "About You",
@@ -717,7 +718,7 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-2xl mx-auto px-4 py-8 sm:py-12 space-y-6">
+      <div className="max-w-2xl mx-auto px-4 py-8 sm:py-12 space-y-6 [&_button]:max-w-full [&_button]:whitespace-normal [&_button]:[overflow-wrap:anywhere]">
         <div className="text-center mb-8 space-y-6">
           <Link href="/">
             <div className="flex items-center justify-center gap-2 cursor-pointer" data-testid="link-logo-onboarding">
@@ -730,7 +731,7 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
               Set up your profile
             </h1>
             <p className="text-muted-foreground">
-              Tell us about your professional focus so we can curate the perfect content for you.
+              Start with your professional focus. Sources, topics, and inspiration are optional and can be added later.
             </p>
           </div>
         </div>
@@ -755,6 +756,10 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
             </CardHeader>
             <CardContent className="space-y-4">
               <Textarea
+                aria-label="Professional focus"
+                aria-describedby="focus-hint"
+                required
+                disabled={isGeneratingRecommendations || isPending}
                 value={focusDescription}
                 onChange={(e) => setFocusDescription(e.target.value)}
                 placeholder="e.g., I'm a product leader at a fintech startup. I focus on product strategy, growth metrics, and building user-centric teams."
@@ -763,10 +768,17 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
                 data-testid="textarea-focus-description"
               />
               <div className="flex items-center justify-between gap-4 flex-wrap">
-                <span className="text-xs text-muted-foreground">
-                  {focusDescription.length} / 200 {focusDescription.length < 20 && "(min 20 characters)"}
+                <span id="focus-hint" className="text-xs text-muted-foreground">
+                  {focusDescription.length} / 200 {focusDescription.trim().length < 10 && "(min 10 characters)"}
                 </span>
               </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={generateRecommendations} disabled={!canProceedFromIdentity || isGeneratingRecommendations || isPending}>
+                  <Sparkles className="mr-2 h-4 w-4" />{isGeneratingRecommendations ? "Generating suggestions…" : "Suggest preferences with AI"}
+                </Button>
+                {isGeneratingRecommendations && <Button variant="ghost" onClick={cancelRecommendations}>Cancel suggestions</Button>}
+              </div>
+              <p className="text-xs text-muted-foreground">AI runs only when requested. Cancel stops waiting and discards late results; server processing may already have started.</p>
             </CardContent>
           </Card>
         )}
@@ -777,23 +789,27 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
               <div>
                 <CardTitle className="text-lg">Which industry publications do you follow?</CardTitle>
                 <CardDescription className="mt-1">
-                  Select trade publications and news sources you trust.
+                  Optional — select up to 20 sources, or skip for now. Suggestions are not verified feeds.
                 </CardDescription>
               </div>
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-2">
-                {industryData.publications.map((pub) => (
-                  <Badge
+                {visibleOnboardingChoices(industryData.publications, selectedPublications).map((pub) => (
+                  <Button
+                    type="button"
+                    aria-pressed={selectedPublications.includes(pub)}
+                    aria-label={`${selectedPublications.includes(pub) ? "Remove" : "Select"} source ${pub}`}
+                    disabled={isPending || (!selectedPublications.includes(pub) && selectedPublications.length >= 20)}
                     key={pub}
                     variant={selectedPublications.includes(pub) ? "default" : "outline"}
-                    className="cursor-pointer"
+                    className="h-auto min-h-11 whitespace-normal text-left"
                     onClick={() => toggleItem(pub, selectedPublications, setSelectedPublications)}
                     data-testid={`badge-pub-${pub.toLowerCase().replace(/\s+/g, '-')}`}
                   >
                     {selectedPublications.includes(pub) && <Check className="w-3 h-3 mr-1" />}
                     {pub}
-                  </Badge>
+                  </Button>
                 ))}
               </div>
               <p className="text-xs text-muted-foreground mt-4">
@@ -809,28 +825,34 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
               <div>
                 <CardTitle className="text-lg">What topics interest you?</CardTitle>
                 <CardDescription className="mt-1">
-                  Pick the themes and subjects you want to post about.
+                  Optional — pick up to 20 topics or add your own. You can do this later.
                 </CardDescription>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
-                {industryData.keywords.map((keyword) => (
-                  <Badge
+                {visibleOnboardingChoices(industryData.keywords, selectedKeywords).map((keyword) => (
+                  <Button
+                    type="button"
+                    aria-pressed={selectedKeywords.includes(keyword)}
+                    aria-label={`${selectedKeywords.includes(keyword) ? "Remove" : "Select"} topic ${keyword}`}
+                    disabled={isPending || (!selectedKeywords.includes(keyword) && selectedKeywords.length >= 20)}
                     key={keyword}
                     variant={selectedKeywords.includes(keyword) ? "default" : "outline"}
-                    className="cursor-pointer"
+                    className="h-auto min-h-11 whitespace-normal text-left"
                     onClick={() => toggleItem(keyword, selectedKeywords, setSelectedKeywords)}
                     data-testid={`badge-keyword-${keyword.toLowerCase().replace(/\s+/g, '-')}`}
                   >
                     {selectedKeywords.includes(keyword) && <Check className="w-3 h-3 mr-1" />}
                     {keyword}
-                  </Badge>
+                  </Button>
                 ))}
               </div>
               <div className="flex gap-2">
                 <Input
                   value={customKeyword}
+                  aria-label="Custom topic"
+                  maxLength={100}
                   onChange={(e) => setCustomKeyword(e.target.value)}
                   placeholder="Add custom topic..."
                   className="flex-1"
@@ -840,7 +862,7 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
                 <Button
                   variant="outline"
                   onClick={() => addCustomItem(customKeyword, selectedKeywords, setSelectedKeywords, setCustomKeyword)}
-                  disabled={!customKeyword.trim()}
+                  disabled={!customKeyword.trim() || selectedKeywords.length >= 20 || isPending}
                   data-testid="button-add-keyword"
                 >
                   Add
@@ -859,7 +881,7 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
               <div>
                 <CardTitle className="text-lg">Who do you follow in the {industryData.industryLabel}?</CardTitle>
                 <CardDescription className="mt-1">
-                  Select leaders and companies whose perspectives you admire.
+                  Optional — select up to 20 leaders and 20 companies, or finish without any.
                 </CardDescription>
               </div>
             </CardHeader>
@@ -867,22 +889,28 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
               <div>
                 <p className="text-sm font-medium mb-3">Industry Leaders</p>
                 <div className="flex flex-wrap gap-2 mb-3">
-                  {industryData.influencers.map((influencer) => (
-                    <Badge
+                  {visibleOnboardingChoices(industryData.influencers, selectedInfluencers).map((influencer) => (
+                    <Button
+                      type="button"
+                      aria-pressed={selectedInfluencers.includes(influencer)}
+                      aria-label={`${selectedInfluencers.includes(influencer) ? "Remove" : "Select"} leader ${influencer}`}
+                      disabled={isPending || (!selectedInfluencers.includes(influencer) && selectedInfluencers.length >= 20)}
                       key={influencer}
                       variant={selectedInfluencers.includes(influencer) ? "default" : "outline"}
-                      className="cursor-pointer"
+                      className="h-auto min-h-11 whitespace-normal text-left"
                       onClick={() => toggleItem(influencer, selectedInfluencers, setSelectedInfluencers)}
                       data-testid={`badge-influencer-${influencer.toLowerCase().replace(/\s+/g, '-')}`}
                     >
                       {selectedInfluencers.includes(influencer) && <Check className="w-3 h-3 mr-1" />}
                       {influencer}
-                    </Badge>
+                    </Button>
                   ))}
                 </div>
                 <div className="flex gap-2">
                   <Input
                     value={customInfluencer}
+                    aria-label="Custom leader"
+                    maxLength={100}
                     onChange={(e) => setCustomInfluencer(e.target.value)}
                     placeholder="Add someone else..."
                     className="flex-1"
@@ -892,7 +920,7 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
                   <Button
                     variant="outline"
                     onClick={() => addCustomItem(customInfluencer, selectedInfluencers, setSelectedInfluencers, setCustomInfluencer)}
-                    disabled={!customInfluencer.trim()}
+                    disabled={!customInfluencer.trim() || selectedInfluencers.length >= 20 || isPending}
                     data-testid="button-add-influencer"
                   >
                     Add
@@ -903,22 +931,28 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
               <div>
                 <p className="text-sm font-medium mb-3">Companies & Organizations</p>
                 <div className="flex flex-wrap gap-2 mb-3">
-                  {industryData.companies.map((company) => (
-                    <Badge
+                  {visibleOnboardingChoices(industryData.companies, selectedCompanies).map((company) => (
+                    <Button
+                      type="button"
+                      aria-pressed={selectedCompanies.includes(company)}
+                      aria-label={`${selectedCompanies.includes(company) ? "Remove" : "Select"} company ${company}`}
+                      disabled={isPending || (!selectedCompanies.includes(company) && selectedCompanies.length >= 20)}
                       key={company}
                       variant={selectedCompanies.includes(company) ? "default" : "outline"}
-                      className="cursor-pointer"
+                      className="h-auto min-h-11 whitespace-normal text-left"
                       onClick={() => toggleItem(company, selectedCompanies, setSelectedCompanies)}
                       data-testid={`badge-company-${company.toLowerCase().replace(/\s+/g, '-')}`}
                     >
                       {selectedCompanies.includes(company) && <Check className="w-3 h-3 mr-1" />}
                       {company}
-                    </Badge>
+                    </Button>
                   ))}
                 </div>
                 <div className="flex gap-2">
                   <Input
                     value={customCompany}
+                    aria-label="Custom company"
+                    maxLength={100}
                     onChange={(e) => setCustomCompany(e.target.value)}
                     placeholder="Add a company..."
                     className="flex-1"
@@ -928,7 +962,7 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
                   <Button
                     variant="outline"
                     onClick={() => addCustomItem(customCompany, selectedCompanies, setSelectedCompanies, setCustomCompany)}
-                    disabled={!customCompany.trim()}
+                    disabled={!customCompany.trim() || selectedCompanies.length >= 20 || isPending}
                     data-testid="button-add-company"
                   >
                     Add
@@ -942,13 +976,14 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
           </Card>
         )}
 
-        <div className="sticky bottom-0 bg-background/95 backdrop-blur py-4 border-t -mx-4 px-4">
-          <div className="flex gap-3">
+        <div className="sticky bottom-0 bg-background/95 backdrop-blur py-4 border-t -mx-4 px-4 [&_button]:h-auto [&_button]:min-h-11">
+          <div className="flex flex-col gap-3 sm:flex-row">
             {currentStep !== "identity" && (
               <Button
                 variant="outline"
                 size="lg"
                 onClick={goToPreviousStep}
+                disabled={isPending}
                 className="flex-1"
                 data-testid="button-back"
               >
@@ -961,21 +996,12 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
               <Button
                 size="lg"
                 className="flex-1"
-                onClick={generateRecommendations}
-                disabled={!canProceedFromIdentity || isGeneratingRecommendations}
+                onClick={goToNextStep}
+                disabled={!canProceedFromIdentity || isPending}
                 data-testid="button-continue"
               >
-                {isGeneratingRecommendations ? (
-                  <>
-                    <Sparkles className="w-4 h-4 mr-2 animate-pulse" />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    Continue
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </>
-                )}
+                Continue without AI
+                <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             )}
 
@@ -984,10 +1010,10 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
                 size="lg"
                 className="flex-1"
                 onClick={goToNextStep}
-                disabled={!canProceedFromPublications}
+                disabled={isPending}
                 data-testid="button-continue"
               >
-                Continue
+                {selectedPublications.length ? "Continue" : "Skip sources"}
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             )}
@@ -997,10 +1023,10 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
                 size="lg"
                 className="flex-1"
                 onClick={goToNextStep}
-                disabled={!canProceedFromTopics}
+                disabled={isPending}
                 data-testid="button-continue"
               >
-                Continue
+                {selectedKeywords.length ? "Continue" : "Skip topics"}
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             )}
@@ -1010,23 +1036,24 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
                 size="lg"
                 className="flex-1"
                 onClick={handleComplete}
-                disabled={!canComplete || isPending}
+                disabled={!canProceedFromIdentity || isPending}
                 data-testid="button-complete-onboarding"
               >
                 {isPending ? (
                   <>
                     <Sparkles className="w-4 h-4 mr-2 animate-pulse" />
-                    Creating your inbox...
+                    Saving preferences...
                   </>
                 ) : (
                   <>
                     <Check className="w-4 h-4 mr-2" />
-                    Complete Setup
+                    {selectedInfluencers.length || selectedCompanies.length ? "Complete setup" : "Skip inspiration and finish"}
                   </>
                 )}
               </Button>
             )}
           </div>
+          {currentStep === "identity" && <Button variant="ghost" className="mt-2 w-full" onClick={handleComplete} disabled={!canProceedFromIdentity || isPending}>{isPending ? "Saving preferences…" : "Skip optional preferences and finish"}</Button>}
           <p className="text-xs text-muted-foreground text-center mt-3">
             You can update these preferences anytime in settings.
           </p>

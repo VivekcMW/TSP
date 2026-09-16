@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { authClient } from "./auth-client";
+import { accountCache } from "./queryClient";
 
 export interface AuthUser {
   id: string;
@@ -34,6 +35,12 @@ export function useIsSignedIn(): boolean {
 }
 
 export async function signOut(redirectUrl = "/") {
-  await authClient.signOut();
+  await accountCache.beginSignOut();
+  try {
+    const result = await authClient.signOut();
+    if (result.error) throw new Error(result.error.message || "Sign out failed. Please try again.");
+  } finally {
+    await accountCache.finishSignOut();
+  }
   window.location.assign(redirectUrl);
 }

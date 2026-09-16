@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { Compass, FileText, Send, BarChart3, LayoutDashboard, SlidersHorizontal, CalendarDays, Link2 } from "lucide-react";
+import { Compass, FileText, BarChart3, LayoutDashboard, CalendarDays, Settings } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth, useIsSignedIn } from "@/lib/auth";
 import type { User as DbUser } from "@shared/models/auth";
@@ -19,12 +19,9 @@ import {
 const mainNav = [
   { title: "Home", url: "/dashboard", icon: LayoutDashboard },
   { title: "Discover", url: "/dashboard/discover", icon: Compass },
-  { title: "Drafts", url: "/dashboard/drafts", icon: FileText },
+  { title: "Content", url: "/dashboard/content", icon: FileText },
   { title: "Calendar", url: "/dashboard/calendar", icon: CalendarDays },
-  { title: "Published", url: "/dashboard/published", icon: Send },
   { title: "Performance", url: "/dashboard/performance", icon: BarChart3 },
-  { title: "Connections", url: "/dashboard/connections", icon: Link2 },
-  { title: "Preferences", url: "/dashboard/preferences", icon: SlidersHorizontal },
 ];
 
 export function AppSidebar() {
@@ -60,9 +57,10 @@ export function AppSidebar() {
                     <SidebarMenuButton
                       asChild
                       isActive={isActive}
+                      tooltip={item.title}
                       data-testid={`nav-${item.title.toLowerCase()}`}
                     >
-                      <Link href={item.url} className="relative">
+                      <Link href={item.url} className="relative" aria-current={isActive ? "page" : undefined}>
                         {isActive && (
                           <motion.div
                             layoutId="sidebar-active-pill"
@@ -80,7 +78,9 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        
+        <SidebarGroup className="mt-auto">
+          <SidebarMenu><SidebarMenuItem><SidebarMenuButton asChild tooltip="Settings" isActive={location === "/dashboard/settings"} data-testid="nav-settings"><Link href="/dashboard/settings" aria-current={location === "/dashboard/settings" ? "page" : undefined}><Settings className="h-4 w-4" /><span>Settings</span></Link></SidebarMenuButton></SidebarMenuItem></SidebarMenu>
+        </SidebarGroup>
       </SidebarContent>
       
       <SidebarFooter className="p-4 group-data-[collapsible=icon]:p-2">

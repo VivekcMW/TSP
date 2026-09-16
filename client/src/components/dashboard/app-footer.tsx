@@ -1,29 +1,47 @@
 import { Link } from "wouter";
+import { ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+
+const legalLinks = [
+  { href: "/privacy", label: "Privacy", testId: "link-app-footer-privacy" },
+  { href: "/terms", label: "Terms", testId: "link-app-footer-terms" },
+  { href: "/refund-policy", label: "Refunds" },
+  { href: "/cookies", label: "Cookies" },
+  { href: "/data-retention", label: "Retention" },
+  { href: "/ai-data-processing", label: "AI Data" },
+];
 
 // Slim app-chrome footer for the authenticated dashboard shell — distinct
 // from the full marketing SiteFooter, which would be too heavy for a
 // data-dense app layout. Pinned below the scrollable page content.
 export function AppFooter() {
   return (
-    <footer className="shrink-0 border-t bg-background px-4 py-2 flex flex-col sm:flex-row items-center justify-between gap-1 text-xs text-muted-foreground">
-      <p data-testid="text-app-footer-copyright">
+    <footer className="dashboard-gutter shrink-0 border-t bg-background py-1 text-xs text-muted-foreground">
+      <div className="dashboard-container flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+      <p className="min-w-0" data-testid="text-app-footer-copyright">
         &copy; {new Date().getFullYear()} TheSocialPundit. All rights reserved.
       </p>
-      <nav className="flex items-center gap-4">
-        <Link href="/privacy" className="hover:text-foreground transition-colors" data-testid="link-app-footer-privacy">
-          Privacy
-        </Link>
-        <Link href="/terms" className="hover:text-foreground transition-colors" data-testid="link-app-footer-terms">
-          Terms
-        </Link>
-        <Link href="/refund-policy" className="hover:text-foreground transition-colors">Refunds</Link>
-        <Link href="/cookies" className="hover:text-foreground transition-colors">Cookies</Link>
-        <Link href="/data-retention" className="hover:text-foreground transition-colors">Retention</Link>
-        <Link href="/ai-data-processing" className="hover:text-foreground transition-colors">AI Data</Link>
-        <Link href="/contact" className="hover:text-foreground transition-colors" data-testid="link-app-footer-contact">
+      <nav aria-label="Legal and support" className="flex items-center gap-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="min-h-11 min-w-11 px-2 text-xs" data-testid="button-app-footer-legal">
+              Legal <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="end" className="max-w-[calc(100vw-2rem)]">
+            {legalLinks.map(({ href, label, testId }) => (
+              <DropdownMenuItem key={href} asChild className="min-h-11">
+                <Link href={href} data-testid={testId}>{label}</Link>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Link href="/contact" className="inline-flex min-h-11 min-w-11 items-center rounded-md px-2 hover:text-foreground transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2" data-testid="link-app-footer-contact">
           Contact
         </Link>
       </nav>
+      </div>
     </footer>
   );
 }

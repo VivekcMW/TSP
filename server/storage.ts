@@ -13,7 +13,10 @@ import {
   type MediaAsset, type PublishingRule,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, gte, sql, count, inArray, not } from "drizzle-orm";
+import { eq, and, desc, gte, sql, count, inArray, gt, or } from "drizzle-orm";
+import { tenantMembers, tenants } from "@shared/models/tenancy";
+import { randomUUID } from "node:crypto";
+import { aggregateScheduleStatus } from "./jobs/schedule-state";
 
 /** A transaction handle, as drizzle hands it to the transaction callback. */
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -107,13 +110,13 @@ export interface IStorage {
   // Draft scheduling
   scheduleDraftPublish(scope: TenantScope, draftId: string, publishAt: Date, platforms?: string[]): Promise<DraftSchedule>;
   getDraftScheduleTargets(scope: TenantScope, scheduleId: string): Promise<DraftScheduleTarget[]>;
-  getDraftScheduleTargetsForPublishing(scheduleId: string): Promise<DraftScheduleTarget[]>;
+  getDraftScheduleTargetsForPublishing(scope: TenantScope, scheduleId: string): Promise<DraftScheduleTarget[]>;
   updateDraftScheduleTargetStatus(scope: TenantScope, targetId: string, status: string, lastError?: string): Promise<DraftScheduleTarget | undefined>;
   getScheduledDrafts(scope: TenantScope, pagination?: Pagination, platform?: string): Promise<DraftSchedule[]>;
   getScheduledDraftsByStatus(scope: TenantScope, status: string, pagination?: Pagination, platform?: string): Promise<DraftSchedule[]>;
   countScheduledDrafts(scope: TenantScope, status?: string, platform?: string): Promise<number>;
   getDraftSchedule(scope: TenantScope, draftId: string): Promise<DraftSchedule | undefined>;
-  getScheduledDraftsForPublishing(limit?: number): Promise<DraftSchedule[]>; // Not tenant-scoped, for scheduler
+  getScheduledDraftsForPublishing(scope: TenantScope, limit?: number): Promise<DraftSchedule[]>;
   updateDraftScheduleStatus(scope: TenantScope, scheduleId: string, status: string, lastError?: string): Promise<DraftSchedule | undefined>;
   cancelDraftSchedule(scope: TenantScope, draftId: string): Promise<void>;
   markDraftAsPublished(scope: TenantScope, draftId: string): Promise<DraftSchedule | undefined>;
@@ -149,6 +152,42 @@ async function scoped<T>(scope: TenantScope, fn: (tx: Tx) => Promise<T>): Promis
     await tx.execute(sql`select set_config('app.tenant_id', ${scope.tenantId}, true)`);
     return fn(tx);
   });
+}
+
+export class ScheduleConflictError extends Error {}
+
+function ownedSchedule(scope: TenantScope) {
+  return sql`exists (select 1 from ${drafts} where ${drafts.id} = ${draftSchedules.draftId}
+    and ${drafts.tenantId} = ${scope.tenantId} and ${drafts.userId} = ${scope.userId})`;
+}
+
+async function lockScheduledDraft(tx: Tx, scope: TenantScope, scheduleId: string) {
+  const [draft] = await tx.select().from(drafts).where(and(
+    eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId),
+    sql`${drafts.id} in (select ${draftSchedules.draftId} from ${draftSchedules}
+      where ${draftSchedules.id} = ${scheduleId} and ${draftSchedules.tenantId} = ${scope.tenantId})`,
+  )).for("update");
+  return draft;
+}
+
+/** Caller holds the draft row lock. Child mutation and aggregate commit together. */
+async function aggregateSchedule(tx: Tx, scope: TenantScope, scheduleId: string) {
+  const targets = await tx.select().from(draftScheduleTargets).where(and(
+    eq(draftScheduleTargets.tenantId, scope.tenantId), eq(draftScheduleTargets.draftScheduleId, scheduleId),
+  ));
+  const status = aggregateScheduleStatus(targets.map((target) => target.status));
+  const now = new Date();
+  const [schedule] = await tx.update(draftSchedules).set({
+    status, updatedAt: now,
+    publishedAt: status === "published" ? now : null,
+    lastError: targets.find((target) => target.lastError)?.lastError ?? null,
+  }).where(and(eq(draftSchedules.id, scheduleId), eq(draftSchedules.tenantId, scope.tenantId), ownedSchedule(scope))).returning();
+  if (schedule) await tx.update(drafts).set({
+    publishStatus: ["scheduled", "queued", "publishing"].includes(status) ? "scheduled" : status === "cancelled" ? "draft" : status,
+    scheduledAt: status === "cancelled" ? null : schedule.scheduledPublishAt,
+    publishedAt: status === "published" ? now : null, updatedAt: now,
+  }).where(and(eq(drafts.id, schedule.draftId), eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId)));
+  return schedule;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -343,6 +382,29 @@ export class DatabaseStorage implements IStorage {
     data: { content?: string; status?: string },
   ): Promise<Draft | undefined> {
     return scoped(scope, async (tx) => {
+      // Serialize edits with scheduling/worker claims. A route-only preflight
+      // would race a claim and rewrite the content behind a delivery receipt.
+      const [draft] = await tx.select().from(drafts).where(and(
+        eq(drafts.id, id), eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId),
+      )).for("update");
+      if (!draft) return undefined;
+      const schedules = await tx.select().from(draftSchedules).where(and(
+        eq(draftSchedules.draftId, id), eq(draftSchedules.tenantId, scope.tenantId),
+      ));
+      const targets = schedules.length ? await tx.select().from(draftScheduleTargets).where(and(
+        inArray(draftScheduleTargets.draftScheduleId, schedules.map((schedule) => schedule.id)),
+        eq(draftScheduleTargets.tenantId, scope.tenantId),
+      )) : [];
+      const [receipt] = await tx.select({ id: publishJobLogs.id }).from(publishJobLogs).where(and(
+        eq(publishJobLogs.draftId, id), eq(publishJobLogs.tenantId, scope.tenantId),
+        or(inArray(publishJobLogs.status, ["published", "success", "unknown"]), sql`${publishJobLogs.publishedPostId} is not null`),
+      )).limit(1);
+      const editableStates = ["draft", "scheduled", "queued", "failed", "cancelled"];
+      if (draft.status === "published" || draft.publishedAt || !["draft", "scheduled", "failed"].includes(draft.publishStatus)
+        || schedules.some((schedule) => schedule.publishedAt || !editableStates.includes(schedule.status))
+        || targets.some((target) => target.publishedAt || !editableStates.includes(target.status)) || receipt) {
+        throw new ScheduleConflictError("Published, partially delivered, in-flight or uncertain drafts are immutable. Copy to a new draft to make changes.");
+      }
       const safeData: Record<string, unknown> = { updatedAt: new Date() };
       if (data.content !== undefined) safeData.content = data.content;
       if (data.status !== undefined) safeData.status = data.status;
@@ -616,8 +678,44 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Draft scheduling methods
+  async getDraft(scope: TenantScope, draftId: string): Promise<Draft | undefined> {
+    return scoped(scope, async (tx) => (await tx.select().from(drafts).where(and(
+      eq(drafts.id, draftId), eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId),
+    )).limit(1))[0]);
+  }
+
+  /** Identity tables are global; all subsequent domain queries are RLS scoped. */
+  async getSchedulerScopes(after?: TenantScope): Promise<TenantScope[]> {
+    return db.select({ tenantId: tenantMembers.tenantId, userId: tenantMembers.userId })
+      .from(tenantMembers).innerJoin(tenants, eq(tenants.id, tenantMembers.tenantId))
+      .where(and(eq(tenants.status, "active"), after ? or(
+        gt(tenantMembers.tenantId, after.tenantId),
+        and(eq(tenantMembers.tenantId, after.tenantId), gt(tenantMembers.userId, after.userId)),
+      ) : undefined)).orderBy(tenantMembers.tenantId, tenantMembers.userId).limit(100);
+  }
+
+  async getSchedulerActivity(scope: TenantScope): Promise<{ active: boolean; engagement: number }> {
+    return scoped(scope, async (tx) => {
+      const result = await tx.execute(sql`select
+        (exists(select 1 from inbox_items where tenant_id = ${scope.tenantId} and user_id = ${scope.userId} and created_at > now() - interval '30 days')
+        or exists(select 1 from drafts where tenant_id = ${scope.tenantId} and user_id = ${scope.userId} and updated_at > now() - interval '30 days')) as active,
+        ((select count(*) from inbox_items where tenant_id = ${scope.tenantId} and user_id = ${scope.userId} and status = 'saved')
+        + (select count(*) from drafts where tenant_id = ${scope.tenantId} and user_id = ${scope.userId} and status != 'draft')) as engagement`);
+      return { active: Boolean(result.rows[0]?.active), engagement: Number(result.rows[0]?.engagement ?? 0) };
+    });
+  }
+
   async scheduleDraftPublish(scope: TenantScope, draftId: string, publishAt: Date, platforms?: string[]): Promise<DraftSchedule> {
     return scoped(scope, async (tx) => {
+      if (!Number.isFinite(publishAt.getTime())) throw new ScheduleConflictError("Invalid publication time");
+      const [draft] = await tx.select().from(drafts).where(and(eq(drafts.id, draftId), eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId))).for("update");
+      if (!draft) throw new ScheduleConflictError("Draft not found");
+      const [existing] = await tx.select().from(draftSchedules).where(and(eq(draftSchedules.draftId, draftId), eq(draftSchedules.tenantId, scope.tenantId)));
+      const previous = existing ? await tx.select().from(draftScheduleTargets).where(and(eq(draftScheduleTargets.draftScheduleId, existing.id), eq(draftScheduleTargets.tenantId, scope.tenantId))) : [];
+      if (previous.some((target) => ["publishing", "unknown"].includes(target.status)) || (existing && ["publishing", "unknown"].includes(existing.status))) {
+        throw new ScheduleConflictError("Publication is in flight or its outcome is unknown; reconcile with the provider before rescheduling");
+      }
+      if (draft.publishStatus === "published") throw new ScheduleConflictError("Draft is already published");
       // Create or update schedule, update draft status
       const [schedule] = await tx
         .insert(draftSchedules)
@@ -632,6 +730,8 @@ export class DatabaseStorage implements IStorage {
           set: {
             scheduledPublishAt: publishAt,
             status: "scheduled",
+            lastError: null,
+            publishedAt: null,
             updatedAt: new Date(),
           },
         })
@@ -643,37 +743,50 @@ export class DatabaseStorage implements IStorage {
         .set({ publishStatus: "scheduled", scheduledAt: publishAt, updatedAt: new Date() })
         .where(and(eq(drafts.id, draftId), eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId)));
 
-      const targetPlatforms = platforms?.length ? [...new Set(platforms)] : [
-        (await tx.select({ platform: drafts.platform }).from(drafts).where(and(eq(drafts.id, draftId), eq(drafts.tenantId, scope.tenantId))).limit(1))[0]?.platform,
-      ].filter((platform): platform is string => Boolean(platform));
-      if (platforms?.length) {
-        await tx.delete(draftScheduleTargets).where(and(
-          eq(draftScheduleTargets.draftScheduleId, schedule.id),
-          not(inArray(draftScheduleTargets.platform, targetPlatforms)),
-        ));
-      }
+      const retained = previous.filter((target) => target.status !== "cancelled");
+      const defaults = (retained.length ? retained : previous).map((target) => target.platform);
+      const targetPlatforms = platforms?.length ? [...new Set(platforms)] : defaults;
+      if (!targetPlatforms.length) targetPlatforms.push(draft.platform);
+      // Fresh IDs fence every previously queued delivery, even at the same publish time.
+      // Keep successful targets as durable dedupe records; never reschedule them.
+      await tx.delete(draftScheduleTargets).where(and(eq(draftScheduleTargets.tenantId, scope.tenantId), eq(draftScheduleTargets.draftScheduleId, schedule.id), sql`${draftScheduleTargets.status} != 'published'`));
       for (const platform of targetPlatforms) {
-        await tx.insert(draftScheduleTargets).values({ tenantId: scope.tenantId, draftScheduleId: schedule.id, platform, status: "scheduled" }).onConflictDoUpdate({
-          target: [draftScheduleTargets.draftScheduleId, draftScheduleTargets.platform],
-          set: { status: "scheduled", lastError: null, updatedAt: new Date() },
-        });
+        await tx.insert(draftScheduleTargets).values({ tenantId: scope.tenantId, draftScheduleId: schedule.id, platform, status: "scheduled" }).onConflictDoNothing();
       }
 
-      return schedule;
+      return (await aggregateSchedule(tx, scope, schedule.id))!;
     });
   }
 
   async getDraftScheduleTargets(scope: TenantScope, scheduleId: string): Promise<DraftScheduleTarget[]> {
-    return scoped(scope, (tx) => tx.select().from(draftScheduleTargets).where(and(eq(draftScheduleTargets.tenantId, scope.tenantId), eq(draftScheduleTargets.draftScheduleId, scheduleId))));
+    return scoped(scope, async (tx) => {
+      const [schedule] = await tx.select().from(draftSchedules).where(and(eq(draftSchedules.id, scheduleId), eq(draftSchedules.tenantId, scope.tenantId), ownedSchedule(scope)));
+      if (!schedule) return [];
+      return tx.select().from(draftScheduleTargets).where(and(eq(draftScheduleTargets.tenantId, scope.tenantId), eq(draftScheduleTargets.draftScheduleId, scheduleId)));
+    });
   }
 
-  async getDraftScheduleTargetsForPublishing(scheduleId: string): Promise<DraftScheduleTarget[]> {
-    return db.select().from(draftScheduleTargets).where(and(eq(draftScheduleTargets.draftScheduleId, scheduleId), eq(draftScheduleTargets.status, "scheduled")));
+  async getDraftScheduleTargetsForPublishing(scope: TenantScope, scheduleId: string): Promise<DraftScheduleTarget[]> {
+    return scoped(scope, async (tx) => {
+      const draft = await lockScheduledDraft(tx, scope, scheduleId);
+      if (!draft) return [];
+      const [schedule] = await tx.select().from(draftSchedules).where(eq(draftSchedules.id, scheduleId));
+      if (!schedule || !["scheduled", "queued", "publishing"].includes(schedule.status)) return [];
+      let targets = await tx.select().from(draftScheduleTargets).where(and(eq(draftScheduleTargets.draftScheduleId, scheduleId), eq(draftScheduleTargets.tenantId, scope.tenantId)));
+      // Upgrade only untouched legacy schedules. Never guess the outcome of an old in-flight job.
+      if (!targets.length && schedule.status === "scheduled") targets = await tx.insert(draftScheduleTargets).values({ tenantId: scope.tenantId, draftScheduleId: scheduleId, platform: draft.platform }).returning();
+      return targets.filter((target) => ["scheduled", "queued"].includes(target.status));
+    });
   }
 
   async updateDraftScheduleTargetStatus(scope: TenantScope, targetId: string, status: string, lastError?: string): Promise<DraftScheduleTarget | undefined> {
     return scoped(scope, async (tx) => {
-      const [target] = await tx.update(draftScheduleTargets).set({ status, lastError: lastError ?? null, publishedAt: status === "published" ? new Date() : undefined, updatedAt: new Date() }).where(and(eq(draftScheduleTargets.id, targetId), eq(draftScheduleTargets.tenantId, scope.tenantId))).returning();
+      const [existing] = await tx.select().from(draftScheduleTargets).where(and(eq(draftScheduleTargets.id, targetId), eq(draftScheduleTargets.tenantId, scope.tenantId)));
+      if (!existing || !await lockScheduledDraft(tx, scope, existing.draftScheduleId)) return undefined;
+      // Delivery transitions require claimPublishTarget/finishPublishTarget.
+      if (!["queued", "failed", "cancelled"].includes(status)) throw new ScheduleConflictError("Use the target lifecycle API for this transition");
+      const [target] = await tx.update(draftScheduleTargets).set({ status, lastError: lastError ?? null, updatedAt: new Date() }).where(and(eq(draftScheduleTargets.id, targetId), eq(draftScheduleTargets.tenantId, scope.tenantId), inArray(draftScheduleTargets.status, ["scheduled", "queued"]))).returning();
+      if (target) await aggregateSchedule(tx, scope, target.draftScheduleId);
       return target;
     });
   }
@@ -749,29 +862,120 @@ export class DatabaseStorage implements IStorage {
           and(
             eq(draftSchedules.tenantId, scope.tenantId),
             eq(draftSchedules.draftId, draftId),
+            ownedSchedule(scope),
           ),
         );
       return schedule || undefined;
     });
   }
 
-  async getScheduledDraftsForPublishing(limit?: number): Promise<DraftSchedule[]> {
-    // Not tenant-scoped: used by scheduler to find all due drafts
-    return db
+  async getScheduledDraftsForPublishing(scope: TenantScope, limit = 50): Promise<DraftSchedule[]> {
+    return scoped(scope, (tx) => tx
       .select()
       .from(draftSchedules)
       .where(
         and(
-          eq(draftSchedules.status, "scheduled"),
+          eq(draftSchedules.tenantId, scope.tenantId),
+          ownedSchedule(scope),
+          inArray(draftSchedules.status, ["scheduled", "queued", "publishing"]),
           gte(sql`NOW()`, draftSchedules.scheduledPublishAt),
+          sql`(exists (select 1 from ${draftScheduleTargets} where ${draftScheduleTargets.draftScheduleId} = ${draftSchedules.id}
+            and ${draftScheduleTargets.tenantId} = ${scope.tenantId} and ${draftScheduleTargets.status} in ('scheduled', 'queued'))
+            or (${draftSchedules.status} = 'scheduled' and not exists (select 1 from ${draftScheduleTargets} where ${draftScheduleTargets.draftScheduleId} = ${draftSchedules.id})))`,
         ),
       )
       .orderBy(draftSchedules.scheduledPublishAt)
-      .limit(limit || 50);
+      .limit(clampLimit(limit)));
+  }
+
+  async claimPublishTarget(scope: TenantScope, data: { draftId: string; draftScheduleId: string; draftScheduleTargetId?: string; platform: string; publishAt: Date | string }): Promise<Draft | undefined> {
+    // Old jobs without a concrete target generation must never publish.
+    const targetId = data.draftScheduleTargetId;
+    if (!targetId) return undefined;
+    return scoped(scope, async (tx) => {
+      const draft = await lockScheduledDraft(tx, scope, data.draftScheduleId);
+      if (!draft || draft.id !== data.draftId) return undefined;
+      const [schedule] = await tx.select().from(draftSchedules).where(eq(draftSchedules.id, data.draftScheduleId));
+      if (!schedule || !["scheduled", "queued", "publishing"].includes(schedule.status)
+        || schedule.scheduledPublishAt.getTime() !== new Date(data.publishAt).getTime()
+        || schedule.scheduledPublishAt.getTime() > Date.now()) return undefined;
+      const [target] = await tx.update(draftScheduleTargets).set({ status: "publishing", retryCount: sql`coalesce(${draftScheduleTargets.retryCount}, 0) + 1`, updatedAt: new Date() })
+        .where(and(eq(draftScheduleTargets.id, targetId), eq(draftScheduleTargets.draftScheduleId, schedule.id),
+          eq(draftScheduleTargets.tenantId, scope.tenantId), eq(draftScheduleTargets.platform, data.platform),
+          inArray(draftScheduleTargets.status, ["scheduled", "queued"])) ).returning();
+      if (!target) return undefined;
+      await aggregateSchedule(tx, scope, schedule.id);
+      return draft;
+    });
+  }
+
+  async finishPublishTarget(scope: TenantScope, targetId: string, status: "published" | "failed" | "scheduled" | "unknown", log: Scoped<InsertPublishJobLog>): Promise<boolean> {
+    return scoped(scope, async (tx) => {
+      const [target] = await tx.select().from(draftScheduleTargets).where(and(eq(draftScheduleTargets.id, targetId), eq(draftScheduleTargets.tenantId, scope.tenantId)));
+      if (!target) return false;
+      const draft = await lockScheduledDraft(tx, scope, target.draftScheduleId);
+      if (!draft || draft.id !== log.draftId || target.platform !== log.platform) return false;
+      const [updated] = await tx.update(draftScheduleTargets).set({ status, lastError: log.errorMessage ?? null, publishedAt: status === "published" ? new Date() : null, updatedAt: new Date() })
+        .where(and(eq(draftScheduleTargets.id, targetId), eq(draftScheduleTargets.tenantId, scope.tenantId), eq(draftScheduleTargets.status, "publishing"))).returning();
+      if (!updated) return false;
+      await tx.insert(publishJobLogs).values({ ...log, tenantId: scope.tenantId, draftScheduleId: target.draftScheduleId, completedAt: new Date() });
+      await aggregateSchedule(tx, scope, target.draftScheduleId);
+      return true;
+    });
+  }
+
+  async retryDraftScheduleTargets(scope: TenantScope, draftId: string, targetId?: string): Promise<DraftScheduleTarget[] | undefined> {
+    return scoped(scope, async (tx) => {
+      const [draft] = await tx.select().from(drafts).where(and(eq(drafts.id, draftId), eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId))).for("update");
+      if (!draft) return undefined;
+      const [schedule] = await tx.select().from(draftSchedules).where(and(eq(draftSchedules.draftId, draftId), eq(draftSchedules.tenantId, scope.tenantId)));
+      if (!schedule) return undefined;
+      const targets = await tx.select().from(draftScheduleTargets).where(and(eq(draftScheduleTargets.draftScheduleId, schedule.id), eq(draftScheduleTargets.tenantId, scope.tenantId)));
+      if (targetId && !targets.some((target) => target.id === targetId)) return undefined;
+      const failed = targets.filter((target) => target.status === "failed" && (!targetId || target.id === targetId));
+      if (!failed.length) throw new ScheduleConflictError("Only failed targets can be retried; unknown outcomes require provider reconciliation");
+      const retried: DraftScheduleTarget[] = [];
+      for (const target of failed) {
+        const [replacement] = await tx.update(draftScheduleTargets).set({ id: randomUUID(), status: "scheduled", retryCount: 0, lastError: null, publishedAt: null, updatedAt: new Date() })
+          .where(and(eq(draftScheduleTargets.id, target.id), eq(draftScheduleTargets.tenantId, scope.tenantId))).returning();
+        retried.push(replacement);
+      }
+      // Keep the original timestamp: sibling jobs carry it as an additional stale-job fence.
+      await aggregateSchedule(tx, scope, schedule.id);
+      return retried;
+    });
+  }
+
+  async cancelDraftScheduleTarget(scope: TenantScope, draftId: string, targetId: string): Promise<DraftScheduleTarget | undefined> {
+    return scoped(scope, async (tx) => {
+      const [draft] = await tx.select().from(drafts).where(and(eq(drafts.id, draftId), eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId))).for("update");
+      if (!draft) return undefined;
+      const [schedule] = await tx.select().from(draftSchedules).where(and(eq(draftSchedules.draftId, draftId), eq(draftSchedules.tenantId, scope.tenantId)));
+      if (!schedule) return undefined;
+      const [target] = await tx.select().from(draftScheduleTargets).where(and(eq(draftScheduleTargets.id, targetId), eq(draftScheduleTargets.draftScheduleId, schedule.id), eq(draftScheduleTargets.tenantId, scope.tenantId)));
+      if (!target) return undefined;
+      if (["publishing", "unknown", "published"].includes(target.status)) throw new ScheduleConflictError("This target is already publishing, published, or needs provider reconciliation");
+      const [updated] = await tx.update(draftScheduleTargets).set({ status: "cancelled", updatedAt: new Date() }).where(eq(draftScheduleTargets.id, targetId)).returning();
+      await aggregateSchedule(tx, scope, schedule.id);
+      return updated;
+    });
   }
 
   async updateDraftScheduleStatus(scope: TenantScope, scheduleId: string, status: string, lastError?: string): Promise<DraftSchedule | undefined> {
     return scoped(scope, async (tx) => {
+      if (!await lockScheduledDraft(tx, scope, scheduleId)) return undefined;
+      const targets = await tx.select().from(draftScheduleTargets).where(and(eq(draftScheduleTargets.tenantId, scope.tenantId), eq(draftScheduleTargets.draftScheduleId, scheduleId)));
+      if (targets.length) {
+        if (["failed", "cancelled"].includes(status)) {
+          if (targets.some((target) => ["publishing", "unknown"].includes(target.status))) throw new ScheduleConflictError("Publication requires provider reconciliation");
+          await tx.update(draftScheduleTargets).set({ status, lastError: lastError ?? null, updatedAt: new Date() }).where(and(
+            eq(draftScheduleTargets.tenantId, scope.tenantId), eq(draftScheduleTargets.draftScheduleId, scheduleId), inArray(draftScheduleTargets.status, ["scheduled", "queued", "failed"]),
+          ));
+        } else if (status !== aggregateScheduleStatus(targets.map((target) => target.status))) {
+          throw new ScheduleConflictError("Parent status is derived from its targets");
+        }
+        return aggregateSchedule(tx, scope, scheduleId);
+      }
       const now = new Date();
       const draftPublishStatusMap: Record<string, string> = {
         scheduled: "scheduled",
@@ -794,6 +998,7 @@ export class DatabaseStorage implements IStorage {
           and(
             eq(draftSchedules.tenantId, scope.tenantId),
             eq(draftSchedules.id, scheduleId),
+            ownedSchedule(scope),
           ),
         )
         .returning();
@@ -817,6 +1022,8 @@ export class DatabaseStorage implements IStorage {
 
   async cancelDraftSchedule(scope: TenantScope, draftId: string): Promise<void> {
     return scoped(scope, async (tx) => {
+      const [draft] = await tx.select().from(drafts).where(and(eq(drafts.id, draftId), eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId))).for("update");
+      if (!draft) return;
       const schedule = await tx
         .select()
         .from(draftSchedules)
@@ -829,6 +1036,15 @@ export class DatabaseStorage implements IStorage {
         .then((rows) => rows[0]);
 
       if (schedule) {
+        const targets = await tx.select().from(draftScheduleTargets).where(and(eq(draftScheduleTargets.draftScheduleId, schedule.id), eq(draftScheduleTargets.tenantId, scope.tenantId)));
+        if (targets.some((target) => ["publishing", "unknown"].includes(target.status)) || ["publishing", "unknown"].includes(schedule.status)) {
+          throw new ScheduleConflictError("Publication is in flight or its outcome is unknown; it cannot be safely cancelled");
+        }
+        await tx.update(draftScheduleTargets).set({ status: "cancelled", updatedAt: new Date() }).where(and(eq(draftScheduleTargets.draftScheduleId, schedule.id), eq(draftScheduleTargets.tenantId, scope.tenantId), sql`${draftScheduleTargets.status} != 'published'`));
+        if (targets.length) {
+          await aggregateSchedule(tx, scope, schedule.id);
+          return;
+        }
         await tx
           .update(draftSchedules)
           .set({ status: "cancelled", updatedAt: new Date() })
@@ -844,29 +1060,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async markDraftAsPublished(scope: TenantScope, draftId: string): Promise<DraftSchedule | undefined> {
-    return scoped(scope, async (tx) => {
-      const now = new Date();
-
-      // Update schedule
-      const [schedule] = await tx
-        .update(draftSchedules)
-        .set({ status: "published", publishedAt: now, updatedAt: now })
-        .where(
-          and(
-            eq(draftSchedules.tenantId, scope.tenantId),
-            eq(draftSchedules.draftId, draftId),
-          ),
-        )
-        .returning();
-
-      // Update draft
-      await tx
-        .update(drafts)
-        .set({ publishStatus: "published", publishedAt: now, updatedAt: now })
-        .where(and(eq(drafts.id, draftId), eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId)));
-
-      return schedule || undefined;
-    });
+    const schedule = await this.getDraftSchedule(scope, draftId);
+    if (!schedule) return undefined;
+    return this.updateDraftScheduleStatus(scope, schedule.id, "published");
   }
 
   // Publish log methods

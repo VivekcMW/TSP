@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
-import { Switch, Route, useLocation, Router as WouterRouter } from "wouter";
+import { Switch, Route, useLocation, useSearch, Router as WouterRouter } from "wouter";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -10,24 +10,25 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { DashboardNavbar } from "@/components/dashboard/navbar";
 import { AppFooter } from "@/components/dashboard/app-footer";
+import { CreatePostProvider } from "@/components/dashboard/create-post-provider";
 import { useAuth } from "@/lib/auth";
 import { LoadingScreen } from "@/components/loading-screen";
 import { AuthError } from "@/components/auth-error";
 import { resolveGate } from "@/lib/gate";
+import { AccountBoundary } from "@/lib/account-boundary";
+import { AccountAvailability } from "@/lib/account-availability";
+import { dashboardRedirectTarget, gateQueryStatus, isAuthenticationError } from "@/lib/integration-security";
 import { PublicRoutes } from "@/components/public-routes";
 import type { User as DbUser } from "@shared/models/auth";
+import type { UserProfile } from "@shared/schema";
 
 import CompleteRegistrationPage from "@/pages/complete-registration";
 import OnboardingPage from "@/pages/onboarding";
 const OverviewPage = lazy(() => import("@/pages/overview"));
 const DashboardPage = lazy(() => import("@/pages/dashboard"));
 const DraftsPage = lazy(() => import("@/pages/drafts"));
-const PublishedPage = lazy(() => import("@/pages/published"));
-const AnalyticsPage = lazy(() => import("@/pages/analytics"));
 const PerformancePage = lazy(() => import("@/pages/performance"));
-const PluginsPage = lazy(() => import("@/pages/plugins"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
-const BillingPage = lazy(() => import("@/pages/billing"));
 const CalendarPage = lazy(() => import("@/pages/calendar"));
 import NotFound from "@/pages/not-found";
 import { AdminLayout } from "@/components/admin/admin-layout";
@@ -43,36 +44,36 @@ import { SignInPage, SignUpPage, VerifyEmailPage } from "@/pages/auth";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-// Clerk passes full paths to routerPush/routerReplace, but wouter's
-// setLocation prepends the base — strip it to avoid doubling.
-function stripBase(path: string): string {
-  return basePath && path.startsWith(basePath) ? path.slice(basePath.length) || "/" : path;
-}
-
-
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  // /api/me.id is a user ID. The resolved tenant comes from /api/profile.
+  const { data: profile } = useQuery<UserProfile>({ queryKey: ["/api/profile"], enabled: !!user });
   const style = {
     "--sidebar-width": "14rem",
-    "--sidebar-width-icon": "3rem",
+    "--sidebar-width-icon": "3.5rem",
   };
 
   return (
-    <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-screen w-full">
+    <CreatePostProvider key={JSON.stringify([user?.id, profile?.tenantId])}>
+    <SidebarProvider style={style as React.CSSProperties} className="h-full min-h-0">
+      <div className="flex h-full w-full">
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0">
           <DashboardNavbar />
-          <div className="flex-1 overflow-hidden">{children}</div>
+          <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
           <AppFooter />
         </div>
       </div>
     </SidebarProvider>
+    </CreatePostProvider>
   );
 }
 
 function DashboardRedirect({ to }: { to: string }) {
   const [, setLocation] = useLocation();
-  useEffect(() => { setLocation(to, { replace: true }); }, [setLocation, to]);
+  const search = useSearch();
+  const target = dashboardRedirectTarget(to, search);
+  useEffect(() => { setLocation(target, { replace: true }); }, [setLocation, target]);
   return <LoadingScreen />;
 }
 
@@ -96,18 +97,19 @@ function DashboardRouter() {
             <Route path="/dashboard" component={OverviewPage} />
             <Route path="/dashboard/discover" component={DashboardPage} />
             <Route path="/dashboard/inbox"><DashboardRedirect to="/dashboard/discover" /></Route>
-            <Route path="/dashboard/drafts" component={DraftsPage} />
-            <Route path="/dashboard/published" component={PublishedPage} />
+            <Route path="/dashboard/content" component={DraftsPage} />
+            <Route path="/dashboard/drafts"><DashboardRedirect to="/dashboard/content" /></Route>
+            <Route path="/dashboard/published"><DashboardRedirect to="/dashboard/content?view=published" /></Route>
             <Route path="/dashboard/performance" component={PerformancePage} />
-            <Route path="/dashboard/connections" component={AnalyticsPage} />
+            <Route path="/dashboard/connections"><DashboardRedirect to="/dashboard/settings?tab=integrations" /></Route>
             <Route path="/dashboard/analytics"><DashboardRedirect to="/dashboard/performance" /></Route>
-            <Route path="/dashboard/preferences" component={PluginsPage} />
-            <Route path="/dashboard/plugins"><DashboardRedirect to="/dashboard/preferences" /></Route>
+            <Route path="/dashboard/preferences"><DashboardRedirect to="/dashboard/settings?tab=publishing" /></Route>
+            <Route path="/dashboard/plugins"><DashboardRedirect to="/dashboard/settings?tab=publishing" /></Route>
             <Route path="/dashboard/profile"><DashboardRedirect to="/dashboard/settings?tab=content" /></Route>
             <Route path="/dashboard/settings" component={SettingsPage} />
-            <Route path="/dashboard/billing" component={BillingPage} />
+            <Route path="/dashboard/billing"><DashboardRedirect to="/dashboard/settings?tab=billing" /></Route>
             <Route path="/dashboard/calendar" component={CalendarPage} />
-            <Route component={OverviewPage} />
+            <Route component={NotFound} />
           </Switch>
           </Suspense>
         </motion.div>
@@ -181,7 +183,7 @@ function AppRoutes() {
     enabled: authLoaded && signedIn,
   });
 
-  const { data: profile, error: profileError } = useQuery<{ onboardingStatus?: string }>({
+  const { data: profile, error: profileError } = useQuery<UserProfile>({
     queryKey: ["/api/profile"],
     enabled: authLoaded && signedIn,
   });
@@ -193,11 +195,11 @@ function AppRoutes() {
     authLoaded,
     signedIn,
     me: {
-      status: dbUserError ? "error" : dbUser === undefined ? "loading" : "ok",
+      status: gateQueryStatus(dbUser, dbUserError),
       registrationCompleted: dbUser?.registrationCompleted ?? null,
     },
     profile: {
-      status: profileError ? "error" : profile === undefined ? "loading" : "ok",
+      status: gateQueryStatus(profile, profileError),
       onboardingStatus: profile?.onboardingStatus ?? null,
     },
     path: location,
@@ -224,7 +226,7 @@ function AppRoutes() {
       return <LoadingScreen />;
 
     case "auth-error":
-      return <AuthError error={dbUserError ?? profileError} />;
+      return <AuthError error={isAuthenticationError(profileError) ? profileError : dbUserError ?? profileError} />;
 
     case "public":
       return (
@@ -256,7 +258,11 @@ function AppRoutes() {
       return <OnboardingPage />;
 
     case "dashboard":
-      return location.startsWith("/admin") ? <AdminRouter /> : <DashboardRouter />;
+      // A failed background refresh must not destroy Settings or Create state.
+      // Query errors remain intact: publishing readiness still fails closed.
+      return <AccountAvailability unavailable={Boolean(dbUserError || profileError)}>
+        {location.startsWith("/admin") ? <AdminRouter /> : <DashboardRouter />}
+      </AccountAvailability>;
 
     case "not-found":
       return <NotFound />;
@@ -267,7 +273,7 @@ function App() {
   return (
     <WouterRouter base={basePath}>
       <QueryClientProvider client={queryClient}>
-        <HelmetProvider><TooltipProvider><Toaster /><AppRoutes /></TooltipProvider></HelmetProvider>
+        <HelmetProvider><TooltipProvider><AccountBoundary><Toaster /><AppRoutes /></AccountBoundary></TooltipProvider></HelmetProvider>
       </QueryClientProvider>
     </WouterRouter>
   );

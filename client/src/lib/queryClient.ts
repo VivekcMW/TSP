@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { createAccountCache } from "./account-cache";
 
 /**
  * Carries the HTTP status alongside the message so callers can act on the
@@ -8,7 +9,7 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 export class ApiError extends Error {
   readonly status: number;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, readonly retryAfterMs?: number) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -29,7 +30,11 @@ async function throwIfResNotOk(res: Response) {
         // Keep default statusText
       }
     }
-    throw new ApiError(res.status, errorMessage);
+    const retryAfter = res.headers.get("Retry-After");
+    let delay = Number.NaN;
+    if (retryAfter !== null) delay = /^\d+(\.\d+)?$/.test(retryAfter)
+      ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now();
+    throw new ApiError(res.status, errorMessage, Number.isFinite(delay) ? Math.max(0, delay) : undefined);
   }
 }
 
@@ -37,18 +42,29 @@ export async function apiRequest(
   method: string,
   url: string,
   data?: unknown,
-  options?: { headers?: Record<string, string> },
+  options?: { headers?: Record<string, string>; signal?: AbortSignal },
 ): Promise<Response> {
+  if (accountCache.getSnapshot().signingOut) throw new DOMException("Signing out", "AbortError");
+  // A cached /api/me row is enough to retain local work, not to authorize new
+  // writes during an account outage. Profile/publishing readiness remains owned
+  // by the existing consumers; recovery GETs and auth-client sign-out still work.
+  if (!["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase()) && queryClient.getQueryState(["/api/me"])?.error) {
+    throw new ApiError(503, "Account information is unavailable. Retry account information before making changes. Your work is retained.");
+  }
   const headers = new Headers(options?.headers);
+  const signal = options?.signal ? AbortSignal.any([options.signal, accountCache.getSignal()]) : accountCache.getSignal();
   if (data) headers.set("Content-Type", "application/json");
   const res = await fetch(url, {
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
+    signal,
   });
 
+  signal.throwIfAborted();
   await throwIfResNotOk(res);
+  signal.throwIfAborted();
   return res;
 }
 
@@ -57,9 +73,10 @@ export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
-  async ({ queryKey }) => {
+  async ({ queryKey, signal }) => {
     const res = await fetch(queryKey.join("/") as string, {
       credentials: "include",
+      signal,
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
@@ -84,3 +101,5 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+export const accountCache = createAccountCache(queryClient);

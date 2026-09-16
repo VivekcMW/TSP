@@ -1,15 +1,17 @@
 import type { Express } from "express";
+import rateLimit from "express-rate-limit";
+import { RedisStore } from "rate-limit-redis";
+import { redis } from "../lib/redis";
 import { z } from "zod";
 import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
 import { discoverFeed } from "../services/feedDiscovery";
-import { assertPublicHttpUrl } from "../services/urlValidator";
 import { normalizeIndustryToSlug } from "../services/metaEngine";
 import { storage } from "../storage";
 
 const addSourceSchema = z.union([
   z.object({ input: z.string().trim().min(1).max(300) }),
-  z.object({ name: z.string().trim().min(1).max(200), feedUrl: z.string().trim().url() }),
+  z.object({ name: z.string().trim().min(1).max(200), feedUrl: z.string().trim().max(2048).url() }),
 ]);
 
 const updateSourceSchema = z.object({
@@ -22,6 +24,19 @@ const updateSourceSchema = z.object({
  * automatically; /suggestions is opt-in only.
  */
 export function registerSourcesRoutes(app: Express) {
+  const rateLimitClient = redis;
+  const sourceCreationRateLimit = rateLimit({
+    windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false,
+    keyGenerator: (req) => {
+      const { tenant } = authedOf(req);
+      return `${tenant.tenantId}:${tenant.userId}`;
+    },
+    store: rateLimitClient ? new RedisStore({
+      prefix: "rl:source-creation:",
+      sendCommand: (...args: string[]) => rateLimitClient.call(args[0], ...args.slice(1)) as Promise<any>,
+    }) : undefined,
+    message: { message: "Too many source creation attempts. Please wait a few minutes and try again." },
+  });
   app.get("/api/sources", requireDbUser, requirePermission("inbox:read:own"), async (req, res) => {
     try {
       const { tenant: scope } = authedOf(req);
@@ -47,12 +62,12 @@ export function registerSourcesRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sources", requireDbUser, requirePermission("inbox:write:own"), async (req, res) => {
+  app.post("/api/sources", requireDbUser, requirePermission("inbox:write:own"), sourceCreationRateLimit, async (req, res) => {
     try {
       const { tenant: scope } = authedOf(req);
       const parsed = addSourceSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: "Provide a publication name/URL, or a name and feedUrl." });
+        return res.status(400).json({ message: "Provide an explicit website/feed URL, or a name and feedUrl." });
       }
 
       let name: string;
@@ -68,12 +83,13 @@ export function registerSourcesRoutes(app: Express) {
         feedUrl = result.feedUrl;
         sourceType = result.sourceType;
       } else {
-        const guard = await assertPublicHttpUrl(parsed.data.feedUrl);
-        if (!guard.ok) {
-          return res.status(400).json({ message: guard.reason });
+        const result = await discoverFeed(parsed.data.feedUrl);
+        if ("error" in result) {
+          return res.status(400).json({ message: result.error });
         }
         name = parsed.data.name;
-        feedUrl = parsed.data.feedUrl;
+        feedUrl = result.feedUrl;
+        sourceType = result.sourceType;
       }
 
       const created = await storage.createUserSource(scope, {
@@ -88,7 +104,7 @@ export function registerSourcesRoutes(app: Express) {
       if (error?.code === "23505") {
         return res.status(409).json({ message: "You've already added this source." });
       }
-      console.error("Error adding source:", error);
+      console.error("Error adding source");
       res.status(500).json({ message: "Failed to add source" });
     }
   });

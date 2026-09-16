@@ -1,16 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Inbox, RefreshCw, Link2, AlertTriangle, Rss } from "lucide-react";
-import { useAuth, useIsSignedIn } from "@/lib/auth";
+import { useIsSignedIn } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useInboxRefresh } from "@/hooks/use-inbox-refresh";
-import { InboxRefreshProgress } from "@/components/dashboard/inbox-refresh-progress";
+import { useInboxRefreshJob, refreshJobMessage } from "@/hooks/use-inbox-refresh-job";
 import { InboxListRow } from "@/components/dashboard/inbox-list-row";
 import { InboxDetail } from "@/components/dashboard/inbox-detail";
-import { PostGeneratorModal } from "@/components/dashboard/post-generator-modal";
-import { InstantReviewPanel } from "@/components/dashboard/instant-review-panel";
+import { useCreatePost } from "@/components/dashboard/create-post-provider";
+import { ignoreDiscoverShortcut } from "@/components/dashboard/create-post-state";
 import { SourcesManagerContent } from "@/components/dashboard/sources-manager";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { DashboardEmptyState } from "@/components/dashboard/empty-state";
@@ -23,13 +22,11 @@ import type { InboxItem } from "@shared/schema";
 type FilterType = "all" | "saved" | "dismissed";
 
 export default function DashboardPage() {
-  const { user } = useAuth();
   const isSignedIn = useIsSignedIn();
   const { toast } = useToast();
   const [filter, setFilter] = useState<FilterType>("all");
-  const [selectedItem, setSelectedItem] = useState<InboxItem | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isInstantReviewOpen, setIsInstantReviewOpen] = useState(false);
+  const { openCreate, isOpen: isCreateOpen } = useCreatePost();
+  const triageLock = useRef(false);
   const [isSourcesOpen, setIsSourcesOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isDetailSheetOpen, setIsDetailSheetOpen] = useState(false);
@@ -39,54 +36,8 @@ export default function DashboardPage() {
     enabled: !!isSignedIn,
   });
   
-  const openLinkedInShare = (content: string, articleUrl?: string) => {
-    navigator.clipboard.writeText(content);
-    toast({
-      title: "Content copied!",
-      description: "Paste your post content into LinkedIn.",
-    });
-    
-    const linkedInUrl = articleUrl 
-      ? `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(articleUrl)}`
-      : "https://www.linkedin.com/feed/?shareActive=true";
-    window.open(linkedInUrl, "_blank");
-  };
-
-  const refreshInbox = useInboxRefresh({
-    onComplete: () => queryClient.invalidateQueries({ queryKey: ["/api/inbox"] }),
-  });
-  const { needsSetup } = refreshInbox;
-
-  useEffect(() => {
-    if (!user) return;
-    const sessionKey = `inbox_refreshed_${user.id}`;
-    if (!sessionStorage.getItem(sessionKey)) {
-      sessionStorage.setItem(sessionKey, "1");
-      refreshInbox.startRefresh(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
-
-  const saveDraftMutation = useMutation({
-    mutationFn: async (data: { inboxItemId?: string; platform: string; tone: string; content: string }) => {
-      const res = await apiRequest("POST", "/api/drafts", data);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/drafts"] });
-      toast({
-        title: "Draft saved",
-        description: "Find it in your Drafts tab.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Failed to save draft",
-        description: "Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
+  const refreshInbox = useInboxRefreshJob();
+  const needsSetup = refreshInbox.progress.needsSetup;
 
   const items = inboxItems || [];
   const filteredItems = items.filter(item => {
@@ -131,8 +82,13 @@ export default function DashboardPage() {
       const res = await apiRequest("PATCH", `/api/inbox/${id}`, { status });
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inbox"] });
+    onSuccess: (_data, { id, status }) => {
+      // Only commit triage and advance after the API acknowledges the change.
+      queryClient.setQueryData<InboxItem[]>(["/api/inbox"], current => current?.map(item => item.id === id ? { ...item, status } : item));
+      if (activeId === id) advanceSelectionPast(id);
+      setIsDetailSheetOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["/api/inbox"] });
+      toast({ title: status === "saved" ? "Story saved" : "Story dismissed", description: status === "saved" ? "Find it in Saved stories." : "Removed from your active stories." });
     },
     onError: () => {
       toast({
@@ -141,67 +97,25 @@ export default function DashboardPage() {
         variant: "destructive",
       });
     },
+    onSettled: () => { triageLock.current = false; },
   });
 
-  const handleGeneratePost = (item: InboxItem) => {
-    setSelectedItem(item);
-    setIsModalOpen(true);
+  const handleGeneratePost = (item: InboxItem) => { setIsDetailSheetOpen(false); openCreate(item); };
+  const triage = (item: InboxItem, status: "saved" | "dismissed") => {
+    if (triageLock.current || item.status === status) return;
+    triageLock.current = true;
+    updateInboxItemMutation.mutate({ id: item.id, status });
   };
-
-  const handleSave = (item: InboxItem) => {
-    advanceSelectionPast(item.id);
-    updateInboxItemMutation.mutate({ id: item.id, status: "saved" });
-    toast({
-      title: "Article saved",
-      description: "You can find it in your Saved tab.",
-    });
-  };
-
-  const handleDismiss = (item: InboxItem) => {
-    advanceSelectionPast(item.id);
-    updateInboxItemMutation.mutate({ id: item.id, status: "dismissed" });
-    toast({
-      title: "Article dismissed",
-      description: "We'll learn from this to improve your recommendations.",
-    });
-  };
-
-  const handleSaveDraft = (platform: string, tone: string, content: string) => {
-    saveDraftMutation.mutate({
-      inboxItemId: selectedItem?.id,
-      platform,
-      tone,
-      content,
-    });
-    setIsModalOpen(false);
-  };
-
-  const handlePost = (platform: string, tone: string, content: string) => {
-    if (platform === "linkedin") {
-      const articleUrl = selectedItem?.articleUrl;
-      openLinkedInShare(content, articleUrl);
-      setIsModalOpen(false);
-    } else {
-      // Twitter/X - copy and open in new tab
-      navigator.clipboard.writeText(content);
-      toast({
-        title: "Content copied!",
-        description: "Paste your post content into Twitter/X.",
-      });
-      window.open("https://twitter.com/compose/tweet", "_blank");
-      setIsModalOpen(false);
-    }
-  };
+  const handleSave = (item: InboxItem) => triage(item, "saved");
+  const handleDismiss = (item: InboxItem) => triage(item, "dismissed");
 
   const activeCount = items.filter((i) => i.status === "active").length;
   const savedCount = items.filter((i) => i.status === "saved").length;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
-      if (isModalOpen || isInstantReviewOpen || isSourcesOpen || isDetailSheetOpen) return;
+      if (ignoreDiscoverShortcut(event)) return;
+      if (isCreateOpen || isSourcesOpen || isDetailSheetOpen || triageLock.current) return;
       if (!activeItem) return;
 
       switch (event.key.toLowerCase()) {
@@ -234,7 +148,7 @@ export default function DashboardPage() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeItem, filteredItems, isModalOpen, isInstantReviewOpen, isSourcesOpen, isDetailSheetOpen]);
+  }, [activeItem, filteredItems, isCreateOpen, isSourcesOpen, isDetailSheetOpen, openCreate]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -260,16 +174,16 @@ export default function DashboardPage() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => setIsInstantReviewOpen(true)}
+              onClick={() => openCreate()}
               data-testid="button-instant-review"
             >
               <Link2 className="w-4 h-4 mr-2" />
-              Instant Review
+              Create draft
             </Button>
             <Button
               variant="default"
-              onClick={() => refreshInbox.startRefresh(false)}
-              disabled={refreshInbox.isLoading}
+              onClick={() => void refreshInbox.startRefresh()}
+              disabled={refreshInbox.isLoading || refreshInbox.status === "unavailable"}
               data-testid="button-refresh-inbox"
             >
               <RefreshCw className={`w-4 h-4 mr-2 ${refreshInbox.isLoading ? "animate-spin" : ""}`} />
@@ -330,8 +244,8 @@ export default function DashboardPage() {
                       </Link>
                     )}
                     <Button
-                      onClick={() => refreshInbox.startRefresh(false)}
-                      disabled={refreshInbox.isLoading}
+                      onClick={() => void refreshInbox.startRefresh()}
+                      disabled={refreshInbox.isLoading || refreshInbox.status === "unavailable"}
                       data-testid="button-refresh-empty"
                     >
                       <RefreshCw className={`w-4 h-4 mr-2 ${refreshInbox.isLoading ? "animate-spin" : ""}`} />
@@ -368,19 +282,6 @@ export default function DashboardPage() {
         )}
       </main>
       
-      <PostGeneratorModal
-        item={selectedItem}
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSaveDraft={handleSaveDraft}
-        onPost={handlePost}
-      />
-      
-      <InstantReviewPanel
-        isOpen={isInstantReviewOpen}
-        onClose={() => setIsInstantReviewOpen(false)}
-      />
-
       <Sheet open={isSourcesOpen} onOpenChange={setIsSourcesOpen}>
         <SheetContent side="right" className="w-full sm:max-w-[500px] overflow-y-auto">
           <SheetHeader>
@@ -395,25 +296,19 @@ export default function DashboardPage() {
 
       <Sheet open={isDetailSheetOpen} onOpenChange={setIsDetailSheetOpen}>
         <SheetContent side="right" className="w-full p-0 sm:max-w-lg">
+          <SheetHeader className="sr-only"><SheetTitle>Story details</SheetTitle><SheetDescription>Review a story, save it, dismiss it, or create a draft.</SheetDescription></SheetHeader>
           {activeItem && (
             <InboxDetail
               item={activeItem}
               onGeneratePost={(item) => { setIsDetailSheetOpen(false); handleGeneratePost(item); }}
-              onSave={(item) => { setIsDetailSheetOpen(false); handleSave(item); }}
-              onDismiss={(item) => { setIsDetailSheetOpen(false); handleDismiss(item); }}
+              onSave={handleSave}
+              onDismiss={handleDismiss}
             />
           )}
         </SheetContent>
       </Sheet>
 
-      <InboxRefreshProgress
-        isVisible={!refreshInbox.isSilent}
-        isLoading={refreshInbox.isLoading}
-        progress={refreshInbox.progress}
-        error={refreshInbox.error}
-        jobStatus={refreshInbox.jobStatus === "active" || refreshInbox.jobStatus === "delayed" || refreshInbox.jobStatus === "waiting" ? "active" : refreshInbox.jobStatus}
-        onDismiss={refreshInbox.reset}
-      />
+      {refreshInbox.status !== "idle" && <div className="flex flex-wrap items-center gap-2 border-t p-3 text-sm"><output>{refreshJobMessage(refreshInbox)}</output>{refreshInbox.status === "unavailable" && <Button variant="outline" onClick={refreshInbox.checkAgain}>Check refresh status</Button>}</div>}
     </div>
   );
 }

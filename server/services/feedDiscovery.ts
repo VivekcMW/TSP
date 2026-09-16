@@ -1,9 +1,13 @@
-import { assertPublicHttpUrl } from "./urlValidator.js";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { CrawlError, crawlErrorMessage, fetchPublicText, type CrawlPage, type CrawlBudget } from "./crawlerFetch.js";
+import { isSingleArticle, requireReadableHtml } from "./crawlerHtml.js";
+import { extractArticleFromHtml } from "./urlFetcher.js";
+import { extractListingLinks } from "./webpageScraper.js";
 import { parseFeedContent } from "./universalFeedParser.js";
 
 /**
  * Live, multi-signal feed discovery for any site a user adds — replaces the
- * old static ~80-entry publication dictionary. Given a name or URL, this
+ * old static ~80-entry publication dictionary. Given an explicit URL, this
  * combines several independent signals rather than one guess:
  *   1. the input itself, if it's already a working feed
  *   2. every <link rel="alternate"> the homepage (or its blog/news
@@ -18,23 +22,19 @@ import { parseFeedContent } from "./universalFeedParser.js";
  */
 
 const FETCH_TIMEOUT_MS = 4000;
-const MAX_CANDIDATES = 24;
+const MAX_CANDIDATES = 12;
+const discoveryContext = new AsyncLocalStorage<{ signal: AbortSignal; pages: Map<string, Promise<CrawlPage>>; budget: CrawlBudget }>();
 
 const PLATFORM_FEED_PATHS = [
   // WordPress (self-hosted and most page builders that bolt a blog onto one)
-  "/feed", "/feed/", "/?feed=rss2", "/comments/feed",
-  "/blog/feed", "/blog/feed/", "/blog/?feed=rss2",
-  "/news/feed", "/insights/feed", "/press/feed", "/articles/feed", "/resources/feed",
+  "/feed", "/?feed=rss2", "/blog/feed", "/blog/?feed=rss2",
   // Generic / spec-default
-  "/rss", "/rss/", "/rss.xml", "/feed.xml", "/atom.xml", "/index.xml",
-  // Ghost
-  "/rss/",
+  "/rss", "/rss.xml", "/feed.xml", "/atom.xml", "/index.xml",
   // Blogger / Blogspot
-  "/feeds/posts/default", "/feeds/posts/default?alt=rss",
+  "/feeds/posts/default",
   // Squarespace
   "/blog?format=rss",
-  // Medium (works for @user and custom-domain publications)
-  "/feed",
+  "/news/feed",
 ];
 
 export interface DiscoveredFeed {
@@ -52,50 +52,35 @@ interface FetchedPage {
   html: string;
 }
 
-/**
- * Shared fetch used by every candidate check - includes the SSRF guard and a
- * single short backoff-and-retry specifically for HTTP 429 (many real hosts,
- * e.g. Reddit's ".rss" endpoint, rate-limit aggressively per-IP but recover
- * within under a second; without this, a source that resolves fine in
- * isolation can flake under back-to-back real-world traffic).
- */
-async function fetchWithGuard(url: string): Promise<Response | null> {
-  const guard = await assertPublicHttpUrl(url);
-  if (!guard.ok) return null;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const res = await fetch(url, {
-        headers: { "User-Agent": "TheSocialPundit/1.0 (Feed Discovery)" },
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        redirect: "follow",
-      });
-      if (res.status === 429 && attempt === 0) {
-        await new Promise((resolve) => setTimeout(resolve, 700));
-        continue;
-      }
-      return res;
-    } catch {
-      return null;
-    }
-  }
-  return null;
+/** Request-scoped memoization includes failures. No retries that amplify host throttling. */
+function fetchWithGuard(url: string): Promise<CrawlPage> {
+  const context = discoveryContext.getStore();
+  if (!context) throw new Error("Missing discovery context");
+  context.signal.throwIfAborted();
+  const normalized = new URL(url);
+  normalized.hash = "";
+  const key = normalized.href;
+  const cached = context.pages.get(key);
+  if (cached) return cached;
+  if (context.pages.size >= 16) throw new CrawlError("budget", "Feed discovery reached its probe limit. Try a direct feed URL.");
+  const result = fetchPublicText(key, { signal: context.signal, timeoutMs: FETCH_TIMEOUT_MS, budget: context.budget });
+  context.pages.set(key, result);
+  return result;
 }
 
 async function fetchText(url: string): Promise<string | null> {
-  const res = await fetchWithGuard(url);
-  if (!res || !res.ok) return null;
   try {
-    return await res.text();
+    return (await fetchWithGuard(url)).text;
   } catch {
     return null;
   }
 }
 
 async function fetchPage(url: string): Promise<FetchedPage | null> {
-  const res = await fetchWithGuard(url);
-  if (!res || !res.ok) return null;
   try {
-    return { finalUrl: res.url, html: await res.text() };
+    const res = await fetchWithGuard(url);
+    requireReadableHtml(res);
+    return { finalUrl: res.url, html: res.text };
   } catch {
     return null;
   }
@@ -116,42 +101,15 @@ function bareHost(url: string): string | null {
   }
 }
 
-/**
- * Same as tryParse, but additionally rejects the candidate if fetching it
- * redirects to a different registrable domain than expected. Guarding
- * specifically against a guessed "{name}.com" domain that turns out to be
- * defunct/parked and 301s somewhere unrelated (e.g. a discontinued brand
- * redirecting into a different publication's site) — accepting that would
- * silently mislabel someone else's feed under the wrong source name.
- */
-async function tryParseOnExpectedDomain(url: string, expectedHost: string): Promise<boolean> {
-  const res = await fetchWithGuard(url);
-  if (!res || !res.ok) return false;
-  if (bareHost(res.url) !== expectedHost) return false;
-  try {
-    const items = await parseFeedContent(await res.text());
-    return Boolean(items && items.length > 0);
-  } catch {
-    return false;
-  }
-}
-
 /** Schemes we can never crawl (not fetchable web pages) - rejected outright instead of being mis-guessed as a domain. */
 const REJECTED_SCHEME_RE = /^(ftp|ftps|mailto|javascript|data|file|tel|sms|ws|wss|chrome|about):/i;
 
-function normalizeToUrl(input: string): string | null {
+export function normalizeToUrl(input: string): string | null {
   const trimmed = input.trim().replace(/^\/\//, "https://");
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (REJECTED_SCHEME_RE.test(trimmed)) return null;
   if (/^[a-z0-9-]+(\.[a-z0-9-]+)+([/?#].*)?$/i.test(trimmed)) return `https://${trimmed}`;
   return null;
-}
-
-/** Best-effort domain guess for a bare brand/publication name (e.g. "Marketing Week" -> marketingweek.com), verified live below - never assumed correct. */
-function guessDomainFromName(input: string): string | null {
-  const slug = input.toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (!slug) return null;
-  return `https://${slug}.com`;
 }
 
 /** Platforms that never publish a public feed - checked up front so these fail fast with an honest reason instead of burning time probing dead-end paths. */
@@ -227,7 +185,7 @@ function extractSubsectionHubUrl(html: string, baseUrl: string): string | null {
     try {
       const resolved = new URL(match[1], baseUrl);
       const segments = resolved.pathname.split("/").filter(Boolean);
-      if (segments.length === 1 && SUBSECTION_SLUGS.has(segments[0].toLowerCase())) {
+      if (resolved.origin === new URL(baseUrl).origin && segments.length === 1 && SUBSECTION_SLUGS.has(segments[0].toLowerCase())) {
         return resolved.toString();
       }
     } catch {
@@ -311,6 +269,7 @@ async function resolveMedium(url: URL): Promise<DiscoveredFeed | null> {
   if (!first) return null;
   let feedUrl: string | null = null;
   let name: string = first;
+  if (first !== "tag" && segments.length !== 1) return null;
   if (first.startsWith("@")) {
     feedUrl = `https://medium.com/feed/${first}`;
   } else if (first === "tag" && segments[1]) {
@@ -341,11 +300,8 @@ async function resolveApplePodcasts(url: URL): Promise<DiscoveredFeed | null> {
   const id = /\/id(\d+)/.exec(url.pathname)?.[1];
   if (!id) return null;
   try {
-    const res = await fetch(`https://itunes.apple.com/lookup?id=${id}`, {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    if (!res.ok) return null;
-    const data: any = await res.json();
+    const res = await fetchWithGuard(`https://itunes.apple.com/lookup?id=${id}`);
+    const data: any = JSON.parse(res.text);
     const feedUrl = data?.results?.[0]?.feedUrl;
     const name = data?.results?.[0]?.collectionName;
     if (typeof feedUrl !== "string") return null;
@@ -356,30 +312,20 @@ async function resolveApplePodcasts(url: URL): Promise<DiscoveredFeed | null> {
 }
 
 /** First candidate (in priority order) that actually parses as a feed, checked concurrently so trying many candidates doesn't add up latency-wise. */
-async function firstValidCandidate(
-  candidates: string[],
-  options: { requireSameHost: boolean; expectedHost?: string },
-): Promise<string | null> {
+async function firstValidCandidate(candidates: string[]): Promise<string | null> {
   const unique = Array.from(new Set(candidates)).slice(0, MAX_CANDIDATES);
-  const results = await Promise.allSettled(
-    unique.map((candidate) =>
-      options.requireSameHost && options.expectedHost
-        ? tryParseOnExpectedDomain(candidate, options.expectedHost)
-        : tryParse(candidate),
-    ),
-  );
-  for (let i = 0; i < unique.length; i++) {
-    if (results[i].status === "fulfilled" && (results[i] as PromiseFulfilledResult<boolean>).value) {
-      return unique[i];
-    }
+  // Priority-ordered pairs: stop probing as soon as a valid feed is found.
+  for (let i = 0; i < unique.length; i += 2) {
+    discoveryContext.getStore()!.signal.throwIfAborted();
+    const batch = unique.slice(i, i + 2);
+    const results = await Promise.all(batch.map(tryParse));
+    const index = results.indexOf(true);
+    if (index !== -1) return (await fetchWithGuard(batch[index])).url;
   }
   return null;
 }
 
-async function findFeedOnDomain(
-  baseUrl: string,
-  options: { requireSameHost: boolean; expectedHost?: string },
-): Promise<string | null> {
+async function findFeedOnDomain(baseUrl: string): Promise<string | null> {
   const homepage = await fetchPage(baseUrl);
   // Some sites only redirect the root path to their canonical host (e.g.
   // bare domain -> www), not deeper paths - resolving conventional paths
@@ -433,76 +379,70 @@ async function findFeedOnDomain(
     }
   }
 
-  return firstValidCandidate(candidates, options);
+  return firstValidCandidate(candidates);
 }
 
 /**
- * Resolve any user-provided name/URL into a real, working feed URL. Never
- * falls back to a hardcoded per-site dictionary — every result comes from
- * live discovery against the actual site.
+ * Resolve explicit URLs only. A reachable guessed domain proves neither
+ * publication identity nor user consent, so bare names are never crawled.
  */
-export async function discoverFeed(input: string): Promise<DiscoveredFeed | FeedDiscoveryError> {
+export async function discoverFeed(input: string, parentSignal?: AbortSignal): Promise<DiscoveredFeed | FeedDiscoveryError> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  const signal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal;
+  try {
+    return await discoveryContext.run({ signal, pages: new Map(), budget: { requests: 24, bytes: 4 * 1024 * 1024 } }, () => discoverExplicitFeed(input));
+  } catch (error) {
+    return { error: signal.aborted ? "Discovery exceeded its time budget. Try a direct feed URL or retry later." : crawlErrorMessage(error) };
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
+}
+
+async function discoverExplicitFeed(input: string): Promise<DiscoveredFeed | FeedDiscoveryError> {
   const name = input.trim();
-  if (!name) return { error: "Enter a publication name or URL." };
-
-  if (REJECTED_SCHEME_RE.test(name)) {
-    return { error: `"${name}" isn't a web address this can crawl. Paste an http(s) link, or just the site's name.` };
-  }
-
-  if (/^https?:\/\//i.test(name) && (await tryParse(name))) {
-    return { name: bareHost(name) || name, feedUrl: name, sourceType: "feed" };
-  }
-
   const explicitBaseUrl = normalizeToUrl(name);
-  const guessedBaseUrl = guessDomainFromName(name);
-
-  const noRssPlatform =
-    (explicitBaseUrl ? matchNoRssPlatform(explicitBaseUrl) : null) ??
-    (guessedBaseUrl ? matchNoRssPlatform(guessedBaseUrl) : null);
+  if (!explicitBaseUrl) return { error: "Enter the publication's explicit website or feed URL. We don't guess domains from names." };
+  const noRssPlatform = matchNoRssPlatform(explicitBaseUrl);
   if (noRssPlatform) {
     return { error: `${noRssPlatform} doesn't publish a public feed, so this can't be auto-discovered. Try a different source.` };
   }
 
-  if (explicitBaseUrl) {
-    const platformResult = await resolveKnownPlatform(explicitBaseUrl);
-    if (platformResult) return platformResult;
+  const platformResult = await resolveKnownPlatform(explicitBaseUrl);
+  if (platformResult) return { ...platformResult, feedUrl: (await fetchWithGuard(platformResult.feedUrl)).url };
 
-    const feedUrl = await findFeedOnDomain(explicitBaseUrl, { requireSameHost: false });
-    if (feedUrl) return { name: bareHost(explicitBaseUrl) || name, feedUrl, sourceType: "feed" };
+  // Initial errors are fatal: do not turn an inaccessible URL into an unrelated source.
+  const page = await fetchWithGuard(explicitBaseUrl);
+  const items = await parseFeedContent(page.text);
+  if (items) return { name: bareHost(page.url) || name, feedUrl: page.url, sourceType: "feed" };
+  requireReadableHtml(page);
+  const webpageName = /<title[^>]*>([^<]{1,300})<\/title>/i.exec(page.text)?.[1]?.trim() || bareHost(page.url) || name;
+  const webpage: DiscoveredFeed = { name: webpageName, feedUrl: page.url, sourceType: "webpage" };
+  if (isSingleArticle(page.text)) {
+    extractArticleFromHtml(page.text, page.url);
+    return webpage;
   }
-
-  if (guessedBaseUrl && guessedBaseUrl !== explicitBaseUrl) {
-    const expectedHost = bareHost(guessedBaseUrl);
-    const feedUrl = expectedHost ? await findFeedOnDomain(guessedBaseUrl, { requireSameHost: true, expectedHost }) : null;
-    if (feedUrl) return { name, feedUrl, sourceType: "feed" };
+  const feedUrl = await findFeedOnDomain(explicitBaseUrl);
+  if (feedUrl) return { name: bareHost(feedUrl) || name, feedUrl, sourceType: "feed" };
+  // Link labels alone do not prove a crawlable listing (login/account menus
+  // often look like one). Validate at least one bounded, guarded child body.
+  const links = extractListingLinks(page.text, page.url);
+  if (links.length < 3) {
+    extractArticleFromHtml(page.text, page.url);
+  } else {
+    for (const link of links.slice(0, 3)) {
+      try {
+        const child = await fetchWithGuard(link.link);
+        requireReadableHtml(child);
+        extractArticleFromHtml(child.text, child.url);
+        return webpage;
+      } catch {
+        discoveryContext.getStore()!.signal.throwIfAborted();
+      }
+    }
+    throw new CrawlError("quality", "No readable public articles were found in this listing. Its links may be navigation or require login.");
   }
-
-  if (!explicitBaseUrl && !guessedBaseUrl) {
-    return { error: `Couldn't find a website for "${name}". Try entering its URL directly, e.g. https://example.com.` };
-  }
-
-  // No feed anywhere on the site — fall back to treating it as a plain
-  // webpage (scraped directly by webpageScraper.ts) rather than rejecting
-  // it outright. An explicit URL is trusted as-is; a guessed domain must
-  // still resolve to itself (not redirect elsewhere) to avoid mislabeling
-  // an unrelated site under the wrong name.
-  const webpageResult = explicitBaseUrl
-    ? await tryWebpageFallback(explicitBaseUrl, name, null)
-    : guessedBaseUrl
-      ? await tryWebpageFallback(guessedBaseUrl, name, bareHost(guessedBaseUrl))
-      : null;
-  if (webpageResult) return webpageResult;
-
-  return { error: `Couldn't reach "${name}" as a website. Check the URL and try again.` };
-}
-
-/** Confirms the URL is a real, fetchable public page and names it from its <title> (falling back to the hostname). Rejects if expectedHost is given and the page redirects to a different domain. Never throws. */
-async function tryWebpageFallback(baseUrl: string, fallbackName: string, expectedHost: string | null): Promise<DiscoveredFeed | null> {
-  const page = await fetchPage(baseUrl);
-  if (!page) return null;
-  if (expectedHost && bareHost(page.finalUrl) !== expectedHost) return null;
-  const titleMatch = /<title[^>]*>([^<]{1,300})<\/title>/i.exec(page.html);
-  const name = titleMatch?.[1]?.trim() || bareHost(page.finalUrl) || fallbackName;
-  return { name, feedUrl: page.finalUrl, sourceType: "webpage" };
+  return webpage;
 }
 

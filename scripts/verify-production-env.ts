@@ -1,4 +1,5 @@
 import "../server/lib/env-aliases";
+import { validateAIConfig } from "../server/lib/ai-config-validation";
 
 const required = [
   "DATABASE_URL",
@@ -16,11 +17,7 @@ const required = [
 ];
 
 const missing = required.filter((name) => !process.env[name]?.trim());
-const failures: string[] = [];
-
-if (!process.env.OPENROUTER_API_KEY?.trim() && !process.env.GEMINI_API_KEY?.trim() && !process.env.AI_INTEGRATIONS_GEMINI_API_KEY?.trim()) {
-  failures.push("OPENROUTER_API_KEY, GEMINI_API_KEY, or AI_INTEGRATIONS_GEMINI_API_KEY must be configured");
-}
+const failures = validateAIConfig(process.env);
 
 if (process.env.NODE_ENV !== "production") failures.push("NODE_ENV must be production");
 if (process.env.DEV_AUTH_BYPASS === "true") failures.push("DEV_AUTH_BYPASS must not be true");

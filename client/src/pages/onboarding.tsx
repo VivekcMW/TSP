@@ -37,8 +37,8 @@ export default function OnboardingPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       toast({
-        title: "Profile created!",
-        description: "Your personalized content inbox is ready.",
+        title: "Preferences saved",
+        description: "Create a post now, or add sources and refresh Discover when you're ready.",
       });
       setLocation("/dashboard");
     },

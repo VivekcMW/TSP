@@ -1,6 +1,6 @@
 import type { IndustrySlug } from "@shared/schema";
 import { engineRegistry } from "./engines/index.js";
-import { generateText } from "./openRouter";
+import { AIGenerationError, generateText } from "./openRouter";
 
 const SUPPORTED_VERTICALS: Array<{ slug: IndustrySlug; name: string; signals: string[] }> = [
   {
@@ -143,7 +143,8 @@ export interface MetaEngineResult {
 
 export async function selectIndustryEngine(
   selectedIndustry: string,
-  focusDescription: string
+  focusDescription: string,
+  scope: { tenantId: string }
 ): Promise<MetaEngineResult> {
   const userPrompt = `DROPDOWN SELECTION: "${selectedIndustry}"
 PROFESSIONAL FOCUS: "${focusDescription}"
@@ -151,7 +152,7 @@ PROFESSIONAL FOCUS: "${focusDescription}"
 Analyze this input and determine the best industry vertical match. Return valid JSON only.`;
 
   try {
-    const text = await generateText(`${META_ENGINE_PROMPT}\n\n${userPrompt}`);
+    const text = await generateText(`${META_ENGINE_PROMPT}\n\n${userPrompt}`, { scope });
     
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
@@ -183,6 +184,8 @@ Analyze this input and determine the best industry vertical match. Return valid 
       engineDisplayName: engine.config.displayName,
     };
   } catch (error) {
+    // A tenant budget rejection must not be disguised as successful selection.
+    if (error instanceof AIGenerationError && error.code === "ai_budget") throw error;
     console.error("[MetaEngine] Error selecting industry:", error);
     return createFallbackResult(selectedIndustry);
   }
