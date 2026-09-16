@@ -18,6 +18,13 @@
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
+  <url><loc>https://www.thesocialpundit.com/privacy</loc><changefreq>yearly</changefreq><priority>0.4</priority></url>
+  <url><loc>https://www.thesocialpundit.com/terms</loc><changefreq>yearly</changefreq><priority>0.4</priority></url>
+  <url><loc>https://www.thesocialpundit.com/refund-policy</loc><changefreq>yearly</changefreq><priority>0.4</priority></url>
+  <url><loc>https://www.thesocialpundit.com/subscription-cancellation</loc><changefreq>yearly</changefreq><priority>0.4</priority></url>
+  <url><loc>https://www.thesocialpundit.com/data-retention</loc><changefreq>yearly</changefreq><priority>0.4</priority></url>
+  <url><loc>https://www.thesocialpundit.com/ai-data-processing</loc><changefreq>yearly</changefreq><priority>0.4</priority></url>
+  <url><loc>https://www.thesocialpundit.com/cookies</loc><changefreq>yearly</changefreq><priority>0.4</priority></url>
   <url>
     <loc>https://www.thesocialpundit.com/login</loc>
     <lastmod>2025-12-26</lastmod>

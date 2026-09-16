@@ -1,0 +1,140 @@
+import { eq } from "drizzle-orm";
+import { Resend } from "resend";
+import Bull from "bull";
+import { db } from "../../db";
+import { emailDeliveries, emailPreferences } from "@shared/schema";
+
+export type EmailType =
+  | "verification" | "password_reset" | "welcome" | "password_changed"
+  | "payment_succeeded" | "payment_failed" | "subscription_cancelled"
+  | "draft_generated" | "draft_failed" | "post_scheduled"
+  | "post_published" | "post_failed" | "daily_digest" | "content_alert"
+  | "oauth_connected" | "token_expired" | "weekly_summary"
+  | "usage_warning" | "product_update" | "maintenance" | "incident";
+
+export interface AppEmail {
+  type: EmailType;
+  recipient: string;
+  recipientName?: string;
+  userId?: string;
+  subject: string;
+  html: string;
+  text?: string;
+  dedupeKey?: string;
+  required?: boolean;
+  eyebrow?: string;
+  preheader?: string;
+  primaryCta?: { label: string; url: string };
+}
+
+const FROM_NAME = "TheSocialPundit";
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "info@thesocialpundit.com";
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+let emailQueue: Bull.Queue<AppEmail> | undefined;
+let emailWorkerRegistered = false;
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ?? character);
+}
+
+function preferenceEnabled(type: EmailType, preference: typeof emailPreferences.$inferSelect | undefined) {
+  if (["verification", "password_reset", "password_changed", "payment_succeeded", "payment_failed", "subscription_cancelled", "token_expired"].includes(type)) return true;
+  if (preference?.unsubscribedAt) return false;
+  if (["daily_digest", "weekly_summary"].includes(type)) return preference?.dailyDigest ?? true;
+  if (type === "content_alert") return preference?.contentAlerts ?? true;
+  if (["product_update", "maintenance", "incident"].includes(type)) return preference?.productUpdates ?? true;
+  return preference?.marketing ?? true;
+}
+
+function wrapEmail(email: AppEmail) {
+  const name = email.recipientName ? `Hi ${escapeHtml(email.recipientName)},` : "Hello,";
+  const unsubscribe = `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/email-preferences`;
+  const cta = email.primaryCta ? `<p style="margin:24px 0"><a href="${escapeHtml(email.primaryCta.url)}" style="display:inline-block;background:#1b2a4a;color:#fff;padding:13px 22px;border-radius:6px;text-decoration:none;font-weight:700">${escapeHtml(email.primaryCta.label)}</a></p><p style="font-size:12px;color:#667085">If the button does not work, copy this link: ${escapeHtml(email.primaryCta.url)}</p>` : "";
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><span style="display:none!important;opacity:0;height:0;width:0">${escapeHtml(email.preheader ?? email.subject)}</span></head><body style="margin:0;background:#f4f6f1;font-family:Arial,sans-serif;color:#17233d"><main style="max-width:600px;margin:32px auto;background:#fff;border:1px solid #e4e7ec;border-radius:8px;overflow:hidden"><header style="background:#1b2a4a;color:#fff;padding:24px 28px;border-bottom:3px solid #c99a3e"><div style="font-size:20px;font-weight:700">TheSocialPundit</div><div style="margin-top:6px;color:#d7b56d;font-size:11px;text-transform:uppercase;letter-spacing:1.5px">Your professional signal</div></header><section style="padding:28px"><p style="margin-top:0;color:#667085;font-size:11px;text-transform:uppercase;letter-spacing:1.4px">${escapeHtml(email.eyebrow ?? "TheSocialPundit")}</p><p>${name}</p>${email.html}${cta}</section><footer style="border-top:1px solid #e4e7ec;padding:18px 28px;color:#667085;font-size:12px">You received this email from TheSocialPundit.<br><a href="${unsubscribe}" style="color:#1b2a4a">Manage email preferences</a> · <a href="${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/privacy" style="color:#1b2a4a">Privacy</a></footer></main></body></html>`;
+}
+
+async function deliverAppEmail(email: AppEmail): Promise<{ skipped?: boolean; messageId?: string }> {
+  const [preference] = email.userId
+    ? await db.select().from(emailPreferences).where(eq(emailPreferences.userId, email.userId)).limit(1)
+    : [];
+  if (!email.required && !preferenceEnabled(email.type, preference)) return { skipped: true };
+  if (!resend) {
+    if (process.env.NODE_ENV !== "production") {
+      console.info(`[email:${email.type}] RESEND_API_KEY missing; would send to ${email.recipient}`);
+      return { skipped: true };
+    }
+    throw new Error("RESEND_API_KEY is not configured");
+  }
+
+  let delivery: { id: string } | undefined;
+  if (email.dedupeKey) {
+    const [existing] = await db.select({ id: emailDeliveries.id, status: emailDeliveries.status }).from(emailDeliveries).where(eq(emailDeliveries.dedupeKey, email.dedupeKey)).limit(1);
+    if (existing?.status === "sent" || existing?.status === "pending") return { skipped: true };
+    if (existing) {
+      [delivery] = await db.update(emailDeliveries).set({ status: "pending", errorMessage: null }).where(eq(emailDeliveries.id, existing.id)).returning({ id: emailDeliveries.id });
+    }
+  }
+  if (!delivery) {
+    [delivery] = await db.insert(emailDeliveries).values({ userId: email.userId ?? null, recipient: email.recipient, type: email.type, dedupeKey: email.dedupeKey ?? null, status: "pending" }).returning({ id: emailDeliveries.id });
+  }
+  try {
+    const result = await resend.emails.send({ from: `${FROM_NAME} <${FROM_EMAIL}>`, to: [email.recipient], subject: email.subject, html: wrapEmail(email), text: email.text });
+    if (result.error) throw new Error(result.error.message);
+    await db.update(emailDeliveries).set({ status: "sent", providerMessageId: result.data?.id, sentAt: new Date() }).where(eq(emailDeliveries.id, delivery.id));
+    return { messageId: result.data?.id };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await db.update(emailDeliveries).set({ status: "failed", errorMessage: message }).where(eq(emailDeliveries.id, delivery.id));
+    throw error;
+  }
+}
+
+export function initializeEmailQueue() {
+  if (!process.env.REDIS_URL || process.env.EMAIL_QUEUE_ENABLED !== "true") return undefined;
+  const redisUrl = new URL(process.env.REDIS_URL);
+  emailQueue = new Bull<AppEmail>("email_delivery", {
+    redis: { host: redisUrl.hostname, port: Number(redisUrl.port || 6379), password: redisUrl.password || undefined, tls: redisUrl.protocol === "rediss:" ? {} : undefined },
+    defaultJobOptions: { attempts: 4, backoff: { type: "exponential", delay: 5000 }, removeOnComplete: { age: 86400 }, removeOnFail: { age: 604800 } },
+  });
+  return emailQueue;
+}
+
+export function registerEmailWorker() {
+  if (!emailQueue || emailWorkerRegistered) return;
+  emailWorkerRegistered = true;
+  emailQueue.process(3, async (job) => deliverAppEmail(job.data));
+  emailQueue.on("failed", (job, error) => console.error(`[email] delivery job ${job.id} failed:`, error.message));
+}
+
+export async function closeEmailQueue() {
+  if (emailQueue) await emailQueue.close();
+  emailQueue = undefined;
+  emailWorkerRegistered = false;
+}
+
+export async function sendAppEmail(email: AppEmail): Promise<{ skipped?: boolean; messageId?: string }> {
+  if (emailQueue && !email.required) {
+    await emailQueue.add(email, { jobId: email.dedupeKey ?? undefined });
+    return { skipped: true };
+  }
+  return deliverAppEmail(email);
+}
+
+export async function sendVerificationEmail(email: string, name: string, verificationUrl: string): Promise<void> {
+  await sendAppEmail({ type: "verification", recipient: email, recipientName: name, subject: "Verify your TheSocialPundit email", eyebrow: "Account security", html: `<p>Please verify your email address to finish creating your account.</p><p>This link expires in one hour. If you did not create this account, you can safely ignore this message.</p>`, primaryCta: { label: "Verify email address", url: verificationUrl }, required: true, dedupeKey: `verification:${email}:${verificationUrl}` });
+}
+
+export async function sendPasswordResetEmail(email: string, name: string, resetUrl: string): Promise<void> {
+  await sendAppEmail({ type: "password_reset", recipient: email, recipientName: name, subject: "Reset your TheSocialPundit password", eyebrow: "Account security", html: `<p>Use the link below to create a new password.</p><p>If you did not request this, you can safely ignore this email.</p>`, primaryCta: { label: "Reset password", url: resetUrl }, required: true });
+}
+
+export const emailTemplates = {
+  passwordChanged: (name: string) => ({ subject: "Your TheSocialPundit password was changed", eyebrow: "Account security", html: `<p>Your password was changed successfully. If you did not make this change, contact support immediately.</p>`, text: `Your password was changed successfully, ${name}.` }),
+  paymentSucceeded: (plan: string, amount: string) => ({ subject: "Payment received — TheSocialPundit", eyebrow: "Payment update", html: `<p>Your payment for <strong>${escapeHtml(plan)}</strong> was received.</p><p>Amount: ${escapeHtml(amount)}</p>`, primaryCta: { label: "View billing", url: `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/dashboard/billing` }, text: `Your payment for ${plan} was received. Amount: ${amount}.` }),
+  paymentFailed: (reason: string) => ({ subject: "Action needed: payment failed", eyebrow: "Payment update", html: `<p>We could not complete your payment.</p><p>${escapeHtml(reason)}</p><p>Please review your billing details and try again.</p>`, primaryCta: { label: "Review billing", url: `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/dashboard/billing` }, text: `Payment failed: ${reason}. Please review your billing details.` }),
+  subscriptionCancelled: (date: string) => ({ subject: "Subscription cancellation scheduled", eyebrow: "Subscription update", html: `<p>Your subscription cancellation is scheduled for <strong>${escapeHtml(date)}</strong>. Your access remains active until then.</p>`, primaryCta: { label: "View subscription", url: `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/dashboard/billing` }, text: `Your subscription cancellation is scheduled for ${date}.` }),
+  postPublished: (platform: string) => ({ subject: `Published to ${platform}`, eyebrow: "Publishing update", html: `<p>Your post was published successfully to <strong>${escapeHtml(platform)}</strong>.</p>`, primaryCta: { label: "View published posts", url: `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/dashboard/published` }, text: `Your post was published successfully to ${platform}.` }),
+  postFailed: (platform: string, reason: string) => ({ subject: `Publishing failed on ${platform}`, eyebrow: "Publishing update", html: `<p>We could not publish your post to <strong>${escapeHtml(platform)}</strong>.</p><p>${escapeHtml(reason)}</p>`, primaryCta: { label: "Review drafts", url: `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/dashboard/drafts` }, text: `Publishing failed on ${platform}: ${reason}.` }),
+  dailyDigest: (articles: Array<{ source: string; headline: string; summary: string; url: string }>) => ({ subject: "Your daily industry briefing", eyebrow: "Content digest", html: articles.slice(0, 5).map((article) => `<article style="border-top:1px solid #e4e7ec;padding:16px 0"><p style="margin:0;color:#667085;font-size:11px;text-transform:uppercase">${escapeHtml(article.source)}</p><h2 style="font-size:18px;margin:7px 0"><a href="${escapeHtml(article.url)}" style="color:#1b2a4a;text-decoration:none">${escapeHtml(article.headline)}</a></h2><p style="color:#667085;line-height:1.5">${escapeHtml(article.summary)}</p></article>`).join(""), text: articles.slice(0, 5).map((article) => `${article.source}: ${article.headline}\n${article.summary}\n${article.url}`).join("\n\n") }),
+  productUpdate: (title: string, body: string, url: string) => ({ subject: title, eyebrow: "Product update", html: `<p>${escapeHtml(body)}</p>`, primaryCta: { label: "Explore the update", url }, text: `${body}\n\n${url}` }),
+};

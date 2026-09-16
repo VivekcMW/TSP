@@ -25,6 +25,7 @@ describe("resolveGate", () => {
       expect(out("/dashboard")).toBe("redirect-signin");
       expect(out("/dashboard/analytics")).toBe("redirect-signin");
       expect(out("/onboarding")).toBe("redirect-signin");
+      expect(out("/admin")).toBe("redirect-signin");
     });
 
     it("404s an unknown route instead of silently serving the landing page", () => {
@@ -54,6 +55,11 @@ describe("resolveGate", () => {
     it("reaches the dashboard when registration and onboarding are complete", () => {
       expect(resolveGate(input())).toBe("dashboard");
       expect(resolveGate(input({ path: "/dashboard/drafts" }))).toBe("dashboard");
+    });
+
+    it("treats /admin as a protected app path, same gate as /dashboard", () => {
+      expect(resolveGate(input({ path: "/admin" }))).toBe("dashboard");
+      expect(resolveGate(input({ path: "/admin/tenants" }))).toBe("dashboard");
     });
 
     it("404s an unknown route", () => {

@@ -1,4 +1,4 @@
-interface FetchedArticle {
+export interface FetchedArticle {
   title: string;
   content: string;
   source: string;

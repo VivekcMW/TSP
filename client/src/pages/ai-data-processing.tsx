@@ -1,0 +1,12 @@
+import { LegalPage, legalLinkClass, legalTextClass } from "@/components/legal/legal-page";
+
+export default function AIDataProcessingPage() {
+  return <LegalPage title="AI Data-Processing Disclosure" path="/ai-data-processing" testId="ai-data-processing" description="How TheSocialPundit uses AI providers to generate content and personalize recommendations." sections={[
+    { title: "What AI does", content: <p className={legalTextClass}>TheSocialPundit uses AI to summarize relevant industry content, analyze your stated professional focus, and draft platform-specific posts. AI output is an assistive draft, not a guarantee of accuracy or professional advice.</p> },
+    { title: "Information sent for processing", content: <p className={legalTextClass}>Depending on the feature you use, we may send article text or excerpts, your selected industry, focus description, topics, preferred tone, and relevant instructions to the configured AI provider. We do not intentionally send your payment credentials or social-account access tokens to the AI provider.</p> },
+    { title: "AI providers", content: <p className={legalTextClass}>The application can use OpenRouter or Google Gemini, according to the server configuration. The applicable provider processes requests under its own API terms and privacy documentation. We configure these services for application processing and do not use your prompts to create advertising profiles.</p> },
+    { title: "Your responsibility", content: <p className={legalTextClass}>Review every AI-generated draft before publishing. Verify claims, citations, personal information, regulated-industry statements, and compliance with the destination platform's rules. Do not submit confidential or highly sensitive information that you are not authorized to process.</p> },
+    { title: "Retention and deletion", content: <p className={legalTextClass}>Generated drafts and related application records are retained according to our <a href="/data-retention" className={legalLinkClass}>Data Retention Policy</a>. Third-party providers may retain request data according to their own policies and service terms.</p> },
+    { title: "Questions", content: <p className={legalTextClass}>For questions about AI processing or to request deletion, contact <a href="mailto:privacy@thesocialpundit.com" className={legalLinkClass}>privacy@thesocialpundit.com</a>.</p> },
+  ]} />;
+}

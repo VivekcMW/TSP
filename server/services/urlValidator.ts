@@ -1,4 +1,6 @@
 import pLimit from "p-limit";
+import dns from "node:dns/promises";
+import net from "node:net";
 
 const limit = pLimit(5);
 
@@ -155,4 +157,62 @@ export async function filterValidUrls<T extends { articleUrl?: string; link?: st
   }
 
   return validItems;
+}
+
+function isPrivateIp(ip: string): boolean {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split(".").map(Number);
+    if (a === 10 || a === 127 || a === 0) return true;
+    if (a === 169 && b === 254) return true; // link-local, incl. cloud metadata 169.254.169.254
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // carrier-grade NAT
+    return false;
+  }
+  if (net.isIPv6(ip)) {
+    const lower = ip.toLowerCase();
+    if (lower === "::1" || lower === "::") return true;
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // unique local fc00::/7
+    if (lower.startsWith("fe80")) return true; // link-local
+    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
+    if (mapped) return isPrivateIp(mapped[1]);
+    return false;
+  }
+  return true; // unrecognized format - block to be safe
+}
+
+/**
+ * SSRF guard for any URL a user submits for the server to fetch (custom
+ * Discover sources, feed autodiscovery). Resolves the hostname and checks the
+ * actual IP(s), not just the string, so a public-looking domain that
+ * DNS-rebinds to a private/internal address is still blocked.
+ */
+export async function assertPublicHttpUrl(rawUrl: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return { ok: false, reason: "That doesn't look like a valid URL." };
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return { ok: false, reason: "Only http:// and https:// URLs are allowed." };
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname === "localhost" || hostname.endsWith(".local") || hostname.endsWith(".internal")) {
+    return { ok: false, reason: "This host isn't allowed." };
+  }
+
+  try {
+    const records = await dns.lookup(hostname, { all: true });
+    if (records.length === 0) return { ok: false, reason: "Couldn't resolve this host." };
+    if (records.some((record) => isPrivateIp(record.address))) {
+      return { ok: false, reason: "This host resolves to a private/internal address and isn't allowed." };
+    }
+  } catch {
+    return { ok: false, reason: "Couldn't resolve this host." };
+  }
+
+  return { ok: true };
 }

@@ -149,7 +149,7 @@ function getIndustryContent(industry?: string): IndustryContent {
  */
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "noreply@thesocialpundit.com";
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "info@thesocialpundit.com";
 
 let cachedClient: Resend | undefined;
 
@@ -254,7 +254,7 @@ export async function sendWelcomeEmail(
                         <tr>
                           <td style="width: 48px; vertical-align: top;">
                             <div style="width: 40px; height: 40px; background: #e8edf5; border-radius: 10px; text-align: center; line-height: 40px;">
-                              <span style="font-size: 18px;">&#128218;</span>
+                              <span style="font-size: 13px; font-weight: 700; color: #1B2A4A;">01</span>
                             </div>
                           </td>
                           <td style="padding-left: 12px; vertical-align: top;">
@@ -269,7 +269,7 @@ export async function sendWelcomeEmail(
                         <tr>
                           <td style="width: 48px; vertical-align: top;">
                             <div style="width: 40px; height: 40px; background: #e8edf5; border-radius: 10px; text-align: center; line-height: 40px;">
-                              <span style="font-size: 18px;">&#129302;</span>
+                              <span style="font-size: 13px; font-weight: 700; color: #1B2A4A;">02</span>
                             </div>
                           </td>
                           <td style="padding-left: 12px; vertical-align: top;">
@@ -284,7 +284,7 @@ export async function sendWelcomeEmail(
                         <tr>
                           <td style="width: 48px; vertical-align: top;">
                             <div style="width: 40px; height: 40px; background: #e8edf5; border-radius: 10px; text-align: center; line-height: 40px;">
-                              <span style="font-size: 18px;">&#127908;</span>
+                              <span style="font-size: 13px; font-weight: 700; color: #1B2A4A;">03</span>
                             </div>
                           </td>
                           <td style="padding-left: 12px; vertical-align: top;">
@@ -299,7 +299,7 @@ export async function sendWelcomeEmail(
                         <tr>
                           <td style="width: 48px; vertical-align: top;">
                             <div style="width: 40px; height: 40px; background: #e8edf5; border-radius: 10px; text-align: center; line-height: 40px;">
-                              <span style="font-size: 18px;">&#9889;</span>
+                              <span style="font-size: 13px; font-weight: 700; color: #1B2A4A;">04</span>
                             </div>
                           </td>
                           <td style="padding-left: 12px; vertical-align: top;">
@@ -373,7 +373,6 @@ export async function sendWelcomeEmail(
       return { success: false, error: error.message };
     }
 
-    console.log("Welcome email sent to:", email);
     return { success: true, messageId: data?.id };
   } catch (error: any) {
     console.error("Error sending welcome email:", error);
@@ -383,12 +382,70 @@ export async function sendWelcomeEmail(
 
 export async function testEmailConnection(): Promise<boolean> {
   try {
-    const { client } = getResendClient();
+    getResendClient();
     // Resend doesn't have a ping endpoint, but getting credentials validates the connection
     console.log("Resend connection test: connected successfully");
     return true;
   } catch (error) {
     console.error("Resend connection failed:", error);
     return false;
+  }
+}
+
+/** Sends Better Auth's single-use verification link. */
+export async function sendVerificationEmail(
+  email: string,
+  name: string,
+  verificationUrl: string,
+): Promise<void> {
+  if (!emailEnabled && process.env.NODE_ENV !== "production") {
+    // Local-only delivery capture makes the complete verification flow testable
+    // without pretending a message was sent or weakening production behavior.
+    console.info(`[email] Development verification link for ${email}: ${verificationUrl}`);
+    return;
+  }
+  try {
+    const { client, fromEmail } = getResendClient();
+    const { error } = await client.emails.send({
+      from: `${FROM_NAME} <${fromEmail}>`,
+      to: [email],
+      subject: "Verify your TheSocialPundit email address",
+      html: `<p>Hi ${name},</p><p>Please verify your email address to finish creating your TheSocialPundit account.</p><p><a href="${verificationUrl}">Verify email address</a></p><p>This link expires in one hour. If you did not create this account, you can safely ignore this message.</p>`,
+    });
+    if (error) throw new Error(error.message);
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(`[email] Resend verification failed; use this development link for ${email}: ${verificationUrl}`, error);
+      return;
+    }
+    throw new Error(`Could not send verification email: ${error instanceof Error ? error.message : "Resend request failed"}`);
+  }
+}
+
+/** Sends Better Auth's single-use password reset link. */
+export async function sendPasswordResetEmail(
+  email: string,
+  name: string,
+  resetUrl: string,
+): Promise<void> {
+  if (!emailEnabled && process.env.NODE_ENV !== "production") {
+    console.info(`[email] Development password reset link for ${email}: ${resetUrl}`);
+    return;
+  }
+  try {
+    const { client, fromEmail } = getResendClient();
+    const { error } = await client.emails.send({
+      from: `${FROM_NAME} <${fromEmail}>`,
+      to: [email],
+      subject: "Reset your TheSocialPundit password",
+      html: `<p>Hi ${name},</p><p>Use the link below to create a new password for your TheSocialPundit account.</p><p><a href="${resetUrl}">Reset password</a></p><p>This link expires soon. If you did not request it, you can safely ignore this message.</p>`,
+    });
+    if (error) throw new Error(error.message);
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(`[email] Resend password reset failed; use this development link for ${email}: ${resetUrl}`, error);
+      return;
+    }
+    throw new Error(`Could not send password reset email: ${error instanceof Error ? error.message : "Resend request failed"}`);
   }
 }

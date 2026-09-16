@@ -1,5 +1,5 @@
 import type { TenantScope } from "../../storage.js";
-import type { IndustrySlug, InboxItem, UserProfile, IndustrySource } from "@shared/schema";
+import type { IndustrySlug, UserProfile } from "@shared/schema";
 
 export interface RSSFeedConfig {
   name: string;
@@ -20,7 +20,6 @@ export interface FetchedArticle {
 export interface ScoredArticle extends FetchedArticle {
   relevanceScore: number;
   matchedKeywords: string[];
-  aiSummary?: string;
 }
 
 export interface EngineRunResult {
@@ -29,34 +28,32 @@ export interface EngineRunResult {
   articlesMatched: number;
   newInboxItems: number;
   durationMs: number;
+  /** Set when the user has no keywords/companies/influencers and no active sources yet, so the caller can prompt setup instead of treating this as a failure. */
+  needsSetup?: boolean;
   errors?: string[];
 }
 
+/**
+ * Per-engine identity/voice only. There is no feed list or trend keyword list
+ * here anymore — every user's Discover content comes exclusively from their
+ * own sources (user_sources) and live keyword search, never a shared preset.
+ */
 export interface EngineConfig {
   industry: IndustrySlug;
   displayName: string;
   description: string;
-  defaultFeeds: RSSFeedConfig[];
-  trendKeywords: Array<{ keyword: string; display: string }>;
   industryPrompt: string;
 }
 
 export interface IIndustryEngine {
   readonly config: EngineConfig;
-  
-  fetchArticles(sources?: IndustrySource[]): Promise<FetchedArticle[]>;
-  
-  scoreArticles(
-    articles: FetchedArticle[],
-    userProfile: UserProfile
-  ): Promise<ScoredArticle[]>;
-  
+
   processForUser(
     scope: TenantScope,
     userProfile: UserProfile
   ): Promise<EngineRunResult>;
-  
-  getHotTrends(maxTrends?: number): Promise<Array<{
+
+  getHotTrends(scope: TenantScope, maxTrends?: number): Promise<Array<{
     topic: string;
     count: number;
     articles: Array<{ title: string; source: string; link: string }>;

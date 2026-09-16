@@ -181,6 +181,16 @@ describe("tenant isolation: drafts", () => {
 
     expect(await storage.getDrafts(b)).toHaveLength(1);
   });
+
+  it("propagates failed schedule state to the draft publish status", async () => {
+    const created = await storage.createDraft(a, draft);
+    const schedule = await storage.scheduleDraftPublish(a, created.id, new Date(Date.now() + 60_000));
+
+    await storage.updateDraftScheduleStatus(a, schedule.id, "failed", "LinkedIn rejected the post");
+
+    const reloaded = await storage.getDrafts(a);
+    expect(reloaded.find((item) => item.id === created.id)?.publishStatus).toBe("failed");
+  });
 });
 
 describe("tenant isolation: social accounts", () => {

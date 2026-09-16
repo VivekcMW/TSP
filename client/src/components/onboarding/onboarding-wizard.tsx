@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MessageCircle, Newspaper, Brain, Users, Check, Sparkles, ArrowLeft, ArrowRight, Zap } from "lucide-react";
+import { Check, Sparkles, ArrowLeft, ArrowRight, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -549,7 +549,7 @@ const countryInfluencers: Record<string, Record<string, string[]>> = {
 };
 
 // Get global leaders (first 10) and mix with local leaders (up to 10) based on country
-function getIndustryData(industry?: string, country?: string): IndustryData {
+export function getIndustryData(industry?: string, country?: string): IndustryData {
   // Normalize industry slug if provided
   const normalized = industry 
     ? industry.toLowerCase()
@@ -745,11 +745,8 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
 
         {currentStep === "identity" && (
           <Card data-testid="section-identity">
-            <CardHeader className="flex flex-row items-start gap-4 space-y-0">
-              <div className="w-10 h-10 rounded-md bg-yellow-500/10 flex items-center justify-center flex-shrink-0">
-                <MessageCircle className="w-5 h-5 text-yellow-500" />
-              </div>
-              <div className="flex-1">
+            <CardHeader>
+              <div>
                 <CardTitle className="text-lg">What's your professional focus?</CardTitle>
                 <CardDescription className="mt-1">
                   Describe your role, expertise, and what topics you want to be known for.
@@ -776,11 +773,8 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
 
         {currentStep === "publications" && (
           <Card data-testid="section-sources">
-            <CardHeader className="flex flex-row items-start gap-4 space-y-0">
-              <div className="w-10 h-10 rounded-md bg-red-500/10 flex items-center justify-center flex-shrink-0">
-                <Newspaper className="w-5 h-5 text-red-500" />
-              </div>
-              <div className="flex-1">
+            <CardHeader>
+              <div>
                 <CardTitle className="text-lg">Which industry publications do you follow?</CardTitle>
                 <CardDescription className="mt-1">
                   Select trade publications and news sources you trust.
@@ -811,11 +805,8 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
 
         {currentStep === "topics" && (
           <Card data-testid="section-topics">
-            <CardHeader className="flex flex-row items-start gap-4 space-y-0">
-              <div className="w-10 h-10 rounded-md bg-pink-500/10 flex items-center justify-center flex-shrink-0">
-                <Brain className="w-5 h-5 text-pink-500" />
-              </div>
-              <div className="flex-1">
+            <CardHeader>
+              <div>
                 <CardTitle className="text-lg">What topics interest you?</CardTitle>
                 <CardDescription className="mt-1">
                   Pick the themes and subjects you want to post about.
@@ -864,11 +855,8 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
 
         {currentStep === "connections" && (
           <Card data-testid="section-connections">
-            <CardHeader className="flex flex-row items-start gap-4 space-y-0">
-              <div className="w-10 h-10 rounded-md bg-green-500/10 flex items-center justify-center flex-shrink-0">
-                <Users className="w-5 h-5 text-green-500" />
-              </div>
-              <div className="flex-1">
+            <CardHeader>
+              <div>
                 <CardTitle className="text-lg">Who do you follow in the {industryData.industryLabel}?</CardTitle>
                 <CardDescription className="mt-1">
                   Select leaders and companies whose perspectives you admire.

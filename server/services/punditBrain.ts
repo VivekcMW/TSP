@@ -1,16 +1,5 @@
-import { GoogleGenAI } from "@google/genai";
-import { fetchAllFeeds, matchArticlesToKeywords, MEDIA_ADVERTISING_FEEDS, RSSArticle } from "./rssService";
 import type { IndustrySlug } from "@shared/schema";
-
-export { MEDIA_ADVERTISING_FEEDS } from "./rssService";
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.AI_INTEGRATIONS_GEMINI_API_KEY,
-  httpOptions: {
-    apiVersion: "",
-    baseUrl: process.env.AI_INTEGRATIONS_GEMINI_BASE_URL,
-  },
-});
+import { generateText } from "./openRouter";
 
 export interface PunditAnalysis {
   primaryIndustry: string;
@@ -40,6 +29,20 @@ export interface PunditAnalysis {
     whyToTrack: string;
     newsToWatch: string;
   }>;
+}
+
+function fallbackPunditAnalysis(config: { displayName: string; subDomains: string[]; keywords: string; publications: string; personalities: string; companies: string }): PunditAnalysis {
+  const values = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean);
+  return {
+    primaryIndustry: config.displayName,
+    confidence: 0.6,
+    subDomains: config.subDomains,
+    keywords: values(config.keywords),
+    publications: values(config.publications).map((name) => ({ name, url: "", focus: config.displayName, relevance: "Curated industry source" })),
+    topics: config.subDomains.map((phrase) => ({ phrase, subDomain: phrase, whyItMatters: `Relevant to ${config.displayName} professionals` })),
+    personalities: values(config.personalities).map((name) => ({ name, role: "Industry leader", areaOfInfluence: config.displayName, whyTheyMatter: "Relevant industry perspective" })),
+    companies: values(config.companies).map((name) => ({ name, industry: config.displayName, whyToTrack: "Industry relevance", newsToWatch: "Product and market updates" })),
+  };
 }
 
 const INDUSTRY_CONFIG: Record<IndustrySlug | "default", { displayName: string; subDomains: string[]; keywords: string; publications: string; personalities: string; companies: string }> = {
@@ -352,145 +355,18 @@ USER INPUT: "${userInput}"
 
 Analyze this professional's identity within the ${config.displayName} industry and provide comprehensive recommendations tailored to their specific role and niche. Return valid JSON only.`;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
-
-  const candidate = response.candidates?.[0];
-  const text = candidate?.content?.parts?.[0]?.text || "";
+  const text = await generateText(prompt);
   
   const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error("Failed to parse AI response as JSON");
-  }
-
-  const parsed = JSON.parse(jsonMatch[0]) as PunditAnalysis;
-  
-  if (!parsed.primaryIndustry || !parsed.keywords || !parsed.publications) {
-    throw new Error("Invalid AI response structure");
-  }
-
-  return parsed;
-}
-
-export interface ArticleMatch {
-  headline: string;
-  source: string;
-  articleUrl: string;
-  summary: string;
-  matchedKeywords: string[];
-}
-
-export async function generateArticleMatches(
-  keywords: string[],
-  publications: string[],
-  count: number = 8
-): Promise<ArticleMatch[]> {
-  console.log(`Fetching real articles from RSS feeds for keywords: ${keywords.slice(0, 5).join(", ")}`);
-  
+  if (!jsonMatch) return fallbackPunditAnalysis(config);
   try {
-    const allArticles = await fetchAllFeeds();
-    console.log(`Fetched ${allArticles.length} articles from RSS feeds`);
-    
-    if (allArticles.length === 0) {
-      console.log("No RSS articles found, using AI-generated summaries");
-      return generateAIArticles(keywords, publications, count);
-    }
-    
-    const matchedArticles = matchArticlesToKeywords(allArticles, keywords, count);
-    console.log(`Matched ${matchedArticles.length} articles to user keywords`);
-    
-    if (matchedArticles.length === 0) {
-      const topArticles = allArticles.slice(0, count);
-      return topArticles.map((article) => ({
-        headline: article.title,
-        source: article.source,
-        articleUrl: article.link,
-        summary: article.content.slice(0, 300) + (article.content.length > 300 ? "..." : ""),
-        matchedKeywords: article.categories || [],
-      }));
-    }
-    
-    return matchedArticles.map((article) => ({
-      headline: article.title,
-      source: article.source,
-      articleUrl: article.link,
-      summary: article.content.slice(0, 300) + (article.content.length > 300 ? "..." : ""),
-      matchedKeywords: article.categories || [],
-    }));
+    const parsed = JSON.parse(jsonMatch[0]) as PunditAnalysis;
+    if (!parsed.primaryIndustry || !Array.isArray(parsed.keywords) || !Array.isArray(parsed.publications)) return fallbackPunditAnalysis(config);
+    return parsed;
   } catch (error) {
-    console.error("RSS fetch failed, using AI-generated articles:", error);
-    return generateAIArticles(keywords, publications, count);
+    console.warn("[punditBrain] Malformed identity-analysis JSON; using curated fallback", error instanceof Error ? error.message : "unknown error");
+    return fallbackPunditAnalysis(config);
   }
-}
-
-async function generateAIArticles(
-  keywords: string[],
-  publications: string[],
-  count: number
-): Promise<ArticleMatch[]> {
-  const prompt = `You are a news curator for Media & Advertising professionals. Generate ${count} realistic article summaries about advertising, marketing, and media industry news.
-
-KEYWORDS: ${keywords.slice(0, 10).join(", ")}
-PREFERRED SOURCES: ${publications.slice(0, 5).join(", ")}
-
-Focus on topics like:
-- Advertising industry trends and shifts
-- Agency news and account moves
-- Ad tech platform updates
-- Brand campaign case studies
-- Media buying and planning developments
-- Privacy regulations affecting advertising
-- Measurement and attribution news
-- Creative and production innovations
-
-For each article provide:
-- A compelling headline about advertising/media
-- The source publication (advertising/media trade)
-- A 2-3 sentence summary
-- Which keywords it matches
-
-Return valid JSON only:
-{
-  "articles": [
-    {
-      "headline": "string",
-      "source": "string",
-      "articleUrl": "https://example.com/article-[unique-id]",
-      "summary": "string",
-      "matchedKeywords": ["keyword1", "keyword2"]
-    }
-  ]
-}`;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
-
-  const candidate = response.candidates?.[0];
-  const text = candidate?.content?.parts?.[0]?.text || "";
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  
-  if (!jsonMatch) {
-    return generateFallbackArticles(keywords, publications, count);
-  }
-
-  try {
-    const parsed = JSON.parse(jsonMatch[0]);
-    return parsed.articles || [];
-  } catch {
-    return generateFallbackArticles(keywords, publications, count);
-  }
-}
-
-function generateFallbackArticles(
-  keywords: string[],
-  publications: string[],
-  count: number
-): ArticleMatch[] {
-  return [];
 }
 
 // Validation interface for post content
@@ -953,6 +829,9 @@ export interface InstantReviewResult {
   };
 }
 
+export type InstantReviewTone = typeof TONALITIES[number]["key"];
+export type PlatformReviewResult = Record<InstantReviewTone, string>;
+
 const TONALITIES = [
   { key: "thoughtLeader", label: "Thought Leader", description: "Visionary, forward-thinking, positions you as an industry leader with unique insights" },
   { key: "industryInsider", label: "Industry Insider", description: "Well-connected, shares behind-the-scenes perspective, speaks from experience" },
@@ -997,6 +876,27 @@ export async function generateInstantReview(
   return result;
 }
 
+/** Generates only the requested platform/tone combinations; callers cap platform count. */
+export async function generatePlatformReviews(
+  article: { title: string; content: string; source: string; url: string },
+  platforms: PlatformKey[],
+): Promise<Record<string, PlatformReviewResult>> {
+  const result: Record<string, PlatformReviewResult> = {};
+  await Promise.all(platforms.map(async (platform) => {
+    const reviews = {} as PlatformReviewResult;
+    await Promise.all(TONALITIES.map(async (tonality) => {
+      try {
+        reviews[tonality.key] = await generatePostContent({ headline: article.title, summary: article.content, source: article.source, articleUrl: article.url }, platform, tonality.description);
+      } catch (error) {
+        console.error(`Error generating ${platform} ${tonality.key}:`, error);
+        reviews[tonality.key] = `Unable to generate ${tonality.label} post. Please try again.`;
+      }
+    }));
+    result[platform] = reviews;
+  }));
+  return result;
+}
+
 export async function generatePostContent(
   article: { headline: string; summary: string; source: string; articleUrl?: string },
   platform: PlatformKey,
@@ -1024,13 +924,7 @@ export async function generatePostContent(
         prompt += `\n\nPREVIOUS ATTEMPT FAILED. FIX THESE ISSUES:\n${lastErrors.map(e => `- ${e}`).join("\n")}\n\nGenerate a corrected version.`;
       }
       
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-      });
-
-      const candidate = response.candidates?.[0];
-      let text = candidate?.content?.parts?.[0]?.text || "";
+      let text = await generateText(prompt);
       
       // Clean up the response
       text = text.trim();

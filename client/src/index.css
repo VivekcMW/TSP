@@ -13,6 +13,7 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    overflow-x: clip;
   }
 
   /* Worldwide audience, many on lower-power devices — respecting this is a
@@ -48,6 +49,17 @@
     font-size: clamp(1.875rem, 2vw + 1.25rem, 2.75rem);
   }
 
+  /* Same serif treatment as heading-section, sized for app chrome (page
+     titles inside the dashboard) rather than marketing display type. */
+  .heading-dashboard {
+    font-family: var(--font-serif);
+    font-optical-sizing: auto;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    font-weight: 600;
+    font-size: 1.5rem;
+  }
+
   /* Lift-on-hover for cards — layers on top of the existing hover-elevate overlay. */
   .hover-lift {
     transition: transform 200ms ease, box-shadow 200ms ease;
@@ -78,6 +90,19 @@
   @keyframes glow-pulse {
     0%, 100% { box-shadow: 0 0 0 0 hsl(var(--secondary) / 0.35); }
     50% { box-shadow: 0 0 0 8px hsl(var(--secondary) / 0); }
+  }
+
+  /* Calendar panels are compact card surfaces but intentionally do not use
+     the shared Card primitive, so keep their corners on the same 4px scale. */
+  main:has([data-calendar-day]) .rounded-xl {
+    border-radius: 4px;
+  }
+
+  /* Keep the Calendar composer wide enough for complete editorial review. */
+  body:has(main [data-calendar-day]) [role="dialog"] {
+    max-width: min(90vw, 1152px);
+    max-height: 92vh;
+    overflow-y: auto;
   }
 }
 

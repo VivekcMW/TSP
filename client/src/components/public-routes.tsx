@@ -11,6 +11,12 @@ import AboutPage from "@/pages/about";
 import ContactPage from "@/pages/contact";
 import PrivacyPolicyPage from "@/pages/privacy";
 import TermsOfServicePage from "@/pages/terms";
+import RefundPolicyPage from "@/pages/refund-policy";
+import SubscriptionCancellationPage from "@/pages/subscription-cancellation";
+import DataRetentionPage from "@/pages/data-retention";
+import AIDataProcessingPage from "@/pages/ai-data-processing";
+import CookiePolicyPage from "@/pages/cookies";
+import EmailPreferencesPage from "@/pages/email-preferences";
 import CaseStudiesPage from "@/pages/case-studies";
 import CareersPage from "@/pages/careers";
 import NotFound from "@/pages/not-found";
@@ -37,6 +43,12 @@ export function PublicRoutes({ signInRoutes }: { signInRoutes?: React.ReactNode 
       <Route path="/contact" component={ContactPage} />
       <Route path="/privacy" component={PrivacyPolicyPage} />
       <Route path="/terms" component={TermsOfServicePage} />
+      <Route path="/refund-policy" component={RefundPolicyPage} />
+      <Route path="/subscription-cancellation" component={SubscriptionCancellationPage} />
+      <Route path="/data-retention" component={DataRetentionPage} />
+      <Route path="/ai-data-processing" component={AIDataProcessingPage} />
+      <Route path="/cookies" component={CookiePolicyPage} />
+      <Route path="/email-preferences" component={EmailPreferencesPage} />
       <Route path="/case-studies" component={CaseStudiesPage} />
       <Route path="/careers" component={CareersPage} />
       {signInRoutes}

@@ -1,11 +1,18 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
-import { clerkMiddleware } from "@clerk/express";
+import { toNodeHandler } from "better-auth/node";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { pool } from "./db";
+import { initializeQueues } from "./jobs/queue";
+import { getQueueHealth } from "./jobs/queue";
+import { registerJobHandlers, closeJobHandlers } from "./jobs";
+import { initializeScheduler, stopScheduler } from "./jobs/scheduler";
+import { setupSwagger } from "./swagger";
+import { auth } from "./authentication";
+import { closeEmailQueue, initializeEmailQueue, registerEmailWorker } from "./services/email";
 
 const app = express();
 const httpServer = createServer(app);
@@ -29,7 +36,9 @@ if (process.env.APP_URL) {
   allowedOriginPatterns.push(process.env.APP_URL.replace(/\/$/, ""));
 }
 if (process.env.NODE_ENV !== "production") {
-  allowedOriginPatterns.push(/^http:\/\/localhost:\d+$/);
+  // Local browsers commonly switch between localhost and 127.0.0.1;
+  // both names resolve to the same development server.
+  allowedOriginPatterns.push(/^http:\/\/(localhost|127\.0\.0\.1):\d+$/);
 }
 
 app.use(
@@ -46,8 +55,13 @@ app.use(
   }),
 );
 
-// Reads CLERK_PUBLISHABLE_KEY / CLERK_SECRET_KEY from the environment.
-app.use(clerkMiddleware());
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  next();
+});
 
 app.use(
   express.json({
@@ -59,6 +73,11 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// Better Auth owns sign-up, sign-in, secure sessions, and email verification.
+app.all("/api/auth/*", toNodeHandler(auth));
+
+setupSwagger(app);
+
 // Liveness/readiness probe for the deploy platform — no auth, no Clerk dependency.
 app.get("/healthz", async (_req, res) => {
   try {
@@ -67,6 +86,19 @@ app.get("/healthz", async (_req, res) => {
   } catch (error) {
     console.error("[healthz] DB check failed:", error);
     res.status(503).json({ status: "error" });
+  }
+});
+
+app.get("/readyz", async (_req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    const queue = await getQueueHealth();
+    const jobsRequired = process.env.NODE_ENV === "production" && process.env.BACKGROUND_JOBS_ENABLED === "true";
+    const ready = !jobsRequired || (queue.reachable && queue.queuesReady);
+    res.status(ready ? 200 : 503).json({ status: ready ? "ok" : "not_ready", database: "ok", queue, jobsRequired });
+  } catch (error) {
+    console.error("[readyz] readiness check failed:", error);
+    res.status(503).json({ status: "not_ready", database: "error" });
   }
 });
 
@@ -84,23 +116,10 @@ export function log(message: string, source = "express") {
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      log(logLine);
+      log(`${req.method} ${path} ${res.statusCode} in ${duration}ms`);
     }
   });
 
@@ -108,6 +127,15 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize background job queue (if Redis is configured)
+  initializeQueues();
+  initializeEmailQueue();
+  registerEmailWorker();
+  await registerJobHandlers();
+
+  // Initialize scheduler for cron-based pre-warming (if enabled)
+  await initializeScheduler();
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -140,3 +168,20 @@ app.use((req, res, next) => {
     },
   );
 })();
+
+// Graceful shutdown
+process.on("SIGTERM", async () => {
+  console.log("[shutdown] SIGTERM received, closing gracefully...");
+  await stopScheduler();
+  await closeJobHandlers();
+  await closeEmailQueue();
+  process.exit(0);
+});
+
+process.on("SIGINT", async () => {
+  console.log("[shutdown] SIGINT received, closing gracefully...");
+  await stopScheduler();
+  await closeJobHandlers();
+  await closeEmailQueue();
+  process.exit(0);
+});

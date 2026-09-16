@@ -4,14 +4,18 @@ import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
 import { engineRegistry } from "../services/engines/index.js";
 import { normalizeIndustryToSlug } from "../services/metaEngine";
-import { generateArticleMatches } from "../services/punditBrain";
-import { getHotTrends } from "../services/rssService";
 import { validateUrl, validateUrlSync } from "../services/urlValidator";
 import { storage } from "../storage";
 import { z } from "zod";
+import { enqueueInboxRefresh, getJobStatus } from "../jobs/queue";
 
 const updateInboxItemSchema = z.object({
   status: z.enum(["active", "saved", "dismissed"]),
+});
+
+const paginationQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
 });
 
 export function registerInboxRoutes(app: Express) {
@@ -19,7 +23,8 @@ export function registerInboxRoutes(app: Express) {
     try {
       const { dbUser, tenant: scope } = authedOf(req);
       const userId = dbUser.id;
-      const items = await storage.getInboxItems(scope);
+      const { limit, offset } = paginationQuerySchema.parse(req.query);
+      const items = await storage.getInboxItems(scope, { limit, offset });
       res.json(items);
     } catch (error) {
       console.error("Error fetching inbox:", error);
@@ -37,7 +42,6 @@ export function registerInboxRoutes(app: Express) {
         displayName: engine.config.displayName,
         description: engine.config.description,
         isSpecialized: engineRegistry.hasSpecializedEngine(slug),
-        feedCount: engine.config.defaultFeeds.length,
       }));
       
       res.json({
@@ -57,10 +61,11 @@ export function registerInboxRoutes(app: Express) {
 
   app.get("/api/trends", requireDbUser, requirePermission("inbox:read:own"), async (req, res) => {
     try {
-      const industry = normalizeIndustryToSlug(authedOf(req).dbUser.industry);
-      
+      const { dbUser, tenant: scope } = authedOf(req);
+      const industry = normalizeIndustryToSlug(dbUser.industry);
+
       const engine = engineRegistry.getEngine(industry);
-      const trends = await engine.getHotTrends(5);
+      const trends = await engine.getHotTrends(scope, 5);
       res.json(trends);
     } catch (error) {
       console.error("Error fetching trends:", error);
@@ -72,28 +77,48 @@ export function registerInboxRoutes(app: Express) {
     try {
       const { dbUser, tenant: scope } = authedOf(req);
       const userId = dbUser.id;
-      
+      const autoRefresh = req.body?.autoRefresh === true;
+
+      // Try to enqueue the job
+      const jobId = await enqueueInboxRefresh({
+        tenantId: scope.tenantId,
+        userId,
+        manual: true,
+        autoRefresh,
+        triggeredBy: "manual",
+      });
+
+      // If queue is available, return immediately
+      if (jobId) {
+        return res.json({
+          jobId,
+          status: "queued",
+          message: "Refresh job queued, processing in background",
+        });
+      }
+
+      // Fallback: process synchronously (local dev without Redis)
+      console.log("[Inbox Refresh] No queue available, falling back to sync processing");
+
       const profile = await storage.getUserProfile(scope);
       if (!profile) {
         return res.status(400).json({ message: "Profile not found. Please complete onboarding first." });
       }
-      
+
       const industry = normalizeIndustryToSlug(authedOf(req).dbUser.industry);
-      
+
       const engine = engineRegistry.getEngine(industry);
       console.log(`[Inbox Refresh] Using ${engine.config.displayName} engine for user ${userId}`);
-      
-      const autoRefresh = req.body?.autoRefresh === true;
 
       const existingItems = await storage.getInboxItems(scope);
-      const activeItems = existingItems.filter(item => item.status === "active");
+      const activeItems = existingItems.filter((item) => item.status === "active");
       const activeCount = activeItems.length;
-      
+
       if (activeCount >= 10) {
         if (!autoRefresh) {
-          return res.json({ 
-            message: "You have enough articles to review. Save or dismiss some before refreshing.", 
-            count: 0, 
+          return res.json({
+            message: "You have enough articles to review. Save or dismiss some before refreshing.",
+            count: 0,
             items: [],
             engine: engine.config.displayName,
           });
@@ -104,81 +129,77 @@ export function registerInboxRoutes(app: Express) {
         }
         console.log(`[Inbox Auto-Refresh] Dismissed ${activeCount} stale articles for user ${userId}`);
       }
-      
+
       const result = await engine.processForUser(scope, profile);
-      
+
+      await storage.createEngineRunLog(scope, {
+        industry,
+        status: result.success ? "success" : "failed",
+        articlesProcessed: result.articlesProcessed,
+        articlesMatched: result.articlesMatched,
+        errorMessage: result.errors?.join("; ") || null,
+        durationMs: result.durationMs,
+        completedAt: new Date(),
+      });
+
       if (!result.success) {
         console.error(`Engine processing failed for user ${userId}:`, result.errors);
-        
-        const keywords = profile.keywords || [];
-        const publications = profile.publications || [];
-        
-        if (keywords.length === 0) {
-          return res.status(400).json({ message: "No keywords configured. Please update your profile." });
-        }
-        
-        const numToCreate = Math.min(10, 10 - activeCount);
-        const articles = await generateArticleMatches(keywords, publications, numToCreate + 5);
-        
-        const validatedArticles: typeof articles = [];
-        for (const article of articles) {
-          if (!article.articleUrl) continue;
-          
-          if (!validateUrlSync(article.articleUrl)) {
-            console.log(`Skipping article with invalid URL: ${article.articleUrl}`);
-            continue;
-          }
-          
-          const urlResult = await validateUrl(article.articleUrl, true);
-          if (!urlResult.isValid) {
-            console.log(`Skipping article - ${urlResult.reason}: ${article.articleUrl}`);
-            continue;
-          }
-          
-          validatedArticles.push(article);
-          if (validatedArticles.length >= numToCreate) break;
-        }
-        
-        const createdItems = [];
-        for (const article of validatedArticles) {
-          const item = await storage.createInboxItem(scope, {
-            headline: article.headline,
-            source: article.source,
-            articleUrl: article.articleUrl,
-            summary: article.summary,
-            matchedKeywords: article.matchedKeywords,
-            status: "active",
-          });
-          createdItems.push(item);
-        }
-        
-        return res.json({ 
-          message: "Inbox refreshed using fallback", 
-          count: createdItems.length, 
-          items: createdItems,
-          engine: "Fallback",
+        return res.status(502).json({
+          message: "We couldn't fetch new articles right now. Please try again in a moment.",
+          count: 0,
+          items: [],
+          engine: engine.config.displayName,
         });
       }
-      
+
       const updatedItems = await storage.getInboxItems(scope);
-      const newItems = updatedItems.filter(item => 
-        !existingItems.some(existing => existing.id === item.id)
-      );
-      
-      res.json({ 
-        message: "Inbox refreshed successfully", 
+      const newItems = updatedItems.filter((item) => !existingItems.some((existing) => existing.id === item.id));
+
+      res.json({
+        message: result.needsSetup
+          ? "Add keywords, companies, influencers, or a custom source in your profile to start discovering real, personalized articles."
+          : "Inbox refreshed successfully",
         count: result.newInboxItems,
         articlesProcessed: result.articlesProcessed,
         articlesMatched: result.articlesMatched,
         items: newItems,
         engine: engine.config.displayName,
         durationMs: result.durationMs,
+        needsSetup: result.needsSetup,
       });
     } catch (error) {
       console.error("Error refreshing inbox:", error);
       res.status(500).json({ message: "Failed to refresh inbox" });
     }
   });
+
+  app.get("/api/inbox/refresh/:jobId", requireDbUser, requirePermission("inbox:read:own"), async (req, res) => {
+    try {
+      const { jobId } = req.params;
+
+      const jobStatus = await getJobStatus(jobId);
+      if (!jobStatus) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+      const scope = authedOf(req).tenant;
+      if (jobStatus.data?.tenantId !== scope.tenantId || jobStatus.data?.userId !== scope.userId) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+
+      res.json({
+        id: jobStatus.id,
+        status: jobStatus.state,
+        progress: jobStatus.progress,
+        attemptsMade: jobStatus.attemptsMade,
+        totalAttempts: jobStatus.attempts,
+        error: jobStatus.error || null,
+      });
+    } catch (error) {
+      console.error("Error fetching job status:", error);
+      res.status(500).json({ message: "Failed to fetch job status" });
+    }
+  });
+
 
   app.post("/api/inbox/add-trend", requireDbUser, requirePermission("inbox:write:own"), async (req, res) => {
     try {

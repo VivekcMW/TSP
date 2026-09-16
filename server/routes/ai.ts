@@ -1,10 +1,13 @@
 import type { Express } from "express";
+import { eq } from "drizzle-orm";
+import { db } from "../db";
 import { aiGenerationRateLimit } from "../middlewares/rateLimit";
 import { requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
 import { getAvailableVerticals, normalizeIndustryToSlug, selectIndustryEngine } from "../services/metaEngine";
 import { analyzeProfessionalIdentity, generatePostContent } from "../services/punditBrain";
 import { type PlatformKey } from "../services/punditBrain";
+import { platformIntegrations } from "@shared/schema";
 
 export function registerAiRoutes(app: Express) {
   app.post("/api/ai/analyze-identity", requireDbUser, requirePermission("generation:create:own"), aiGenerationRateLimit, async (req, res) => {
@@ -78,13 +81,22 @@ export function registerAiRoutes(app: Express) {
       if (!headline || !platform || !tone) {
         return res.status(400).json({ message: "Missing required fields" });
       }
-      
+
+      const [integration] = await db
+        .select({ enabled: platformIntegrations.enabled })
+        .from(platformIntegrations)
+        .where(eq(platformIntegrations.key, platform));
+
+      if (integration && !integration.enabled) {
+        return res.status(403).json({ message: "This platform is temporarily unavailable. Please try again later." });
+      }
+
       const content = await generatePostContent(
         { headline, summary: summary || "", source: source || "", articleUrl: articleUrl || "" },
         platform as PlatformKey,
         tone
       );
-      
+
       res.json({ content });
     } catch (error) {
       console.error("Error generating post:", error);

@@ -1,12 +1,7 @@
 import express, { type Express } from "express";
 import request from "supertest";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-
-vi.mock("@clerk/express", () => ({
-  getAuth: vi.fn(),
-  clerkClient: { users: { getUser: vi.fn() } },
-}));
 
 import { pool } from "../db";
 import { ownerDb, ownerPool } from "../../test/db-owner";

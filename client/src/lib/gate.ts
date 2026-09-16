@@ -2,7 +2,7 @@
  * The routing gate, as a pure function.
  *
  * This decision used to live as a cascade of `if`s inside AppRoutes, which made
- * it untestable without rendering the whole app inside a ClerkProvider — and it
+ * it untestable without rendering the whole app inside an auth provider — and it
  * hid a bug: any failure of /api/me or /api/profile fell through to the
  * "registration not completed" / "onboarding not completed" branches, pinning
  * the user to a form whose submit hit the same failing endpoint.
@@ -52,8 +52,15 @@ export const PUBLIC_PATHS = [
   "/contact",
   "/privacy",
   "/terms",
+  "/refund-policy",
+  "/subscription-cancellation",
+  "/data-retention",
+  "/ai-data-processing",
+  "/cookies",
+  "/email-preferences",
   "/case-studies",
   "/careers",
+  "/verify-email",
 ] as const;
 
 export function isAuthGatewayPath(path: string): boolean {
@@ -69,7 +76,7 @@ export function isPublicPath(path: string): boolean {
 }
 
 function isProtectedPath(path: string): boolean {
-  return path.startsWith("/dashboard") || path === "/onboarding";
+  return path.startsWith("/dashboard") || path.startsWith("/admin") || path === "/onboarding";
 }
 
 export function resolveGate(input: GateInput): GateState {
@@ -105,11 +112,14 @@ export function resolveGate(input: GateInput): GateState {
   if (profile.status === "error") return "auth-error";
 
   const onboardingComplete = profile.onboardingStatus === "completed";
-  if (path === "/onboarding" || (!onboardingComplete && path.startsWith("/dashboard"))) {
+  if (
+    path === "/onboarding" ||
+    (!onboardingComplete && (path.startsWith("/dashboard") || path.startsWith("/admin")))
+  ) {
     return "onboarding";
   }
 
-  if (path.startsWith("/dashboard")) return "dashboard";
+  if (path.startsWith("/dashboard") || path.startsWith("/admin")) return "dashboard";
 
   return "not-found";
 }

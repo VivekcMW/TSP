@@ -52,7 +52,7 @@ export default function Pricing() {
             
             <StaggerGroup className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
               <StaggerItem>
-              <Card className="p-8 relative bg-slate-900 dark:bg-slate-950 text-white border-slate-800 h-full" data-testid="card-pricing-early-adopter">
+              <Card className="p-8 relative bg-surface-ink text-surface-ink-foreground border-surface-ink h-full" data-testid="card-pricing-early-adopter">
                 <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-success text-success-foreground">
                   EARLY ADOPTER
                 </Badge>
@@ -62,9 +62,9 @@ export default function Pricing() {
                     <h3 className="text-lg font-semibold">Full Access</h3>
                     <div className="mt-4 flex items-baseline gap-2">
                       <span className="text-4xl font-bold">$0</span>
-                      <span className="text-slate-400 line-through">$49/mo</span>
+                      <span className="text-surface-ink-foreground/60 line-through">$49/mo</span>
                     </div>
-                    <p className="mt-4 text-sm text-slate-400">
+                    <p className="mt-4 text-sm text-surface-ink-foreground/60">
                       Everything you need to build your professional authority. Free while we grow.
                     </p>
                   </div>

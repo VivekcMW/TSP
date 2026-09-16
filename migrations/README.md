@@ -38,6 +38,9 @@ for local iteration, run `npx drizzle-kit push` directly and re-apply
 | `0000_baseline.sql` | Full table/index schema. Generated with `drizzle-kit generate`, then made idempotent. Verified byte-equivalent to a push-built schema. |
 | `0001_tenancy.sql` | Introduces tenancy: tables, `tenant_id` columns, and the backfill that stamps existing rows. A no-op on a fresh database, where `0000` already has the final shape. |
 | `0002_rls.sql` | The `tsp_app` role, grants, and the `tenant_isolation` policies. Drizzle cannot express any of these. |
+| `0013_sync_tenant_rls_and_constraints.sql` | Adds RLS to tenant tables introduced after `0002` and enforces non-null draft publication status. |
+| `0014_billing.sql` | Adds Razorpay-ready tenant billing plans, customers, subscriptions, payments, methods, and webhook idempotency records. |
+| `0015_profile_social_links.sql` | Adds tenant/user-scoped public social profile URLs, separate from OAuth credentials. |
 
 ## Adding a migration
 

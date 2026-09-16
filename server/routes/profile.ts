@@ -5,9 +5,10 @@ import { requirePermission } from "../middlewares/requirePermission";
 import { engineRegistry } from "../services/engines/index.js";
 import { storage } from "../storage";
 import { users } from "@shared/models/auth";
-import { IndustrySlug } from "@shared/schema";
+import { ALL_PLATFORM_KEYS, IndustrySlug, platformIntegrations } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { filterEnabledPlatforms } from "../lib/platformAvailability";
 
 const completeOnboardingSchema = z.object({
   focusDescription: z.string().min(10).max(500).optional(),
@@ -17,6 +18,53 @@ const completeOnboardingSchema = z.object({
   companies: z.array(z.string()).max(20).optional(),
   recommendedIndustry: z.string().optional(),
 });
+
+const profileListSchema = z.array(z.string().trim().min(1).max(100)).max(20);
+
+function validateProfileList(value: unknown, field: string): { values?: string[]; error?: string } {
+  const validation = profileListSchema.safeParse(value);
+  if (!validation.success) return { error: `Invalid ${field}. Select up to 20 non-empty values.` };
+
+  const values = Array.from(new Map(validation.data.map((item) => [item.toLocaleLowerCase(), item])).values());
+  return { values };
+}
+
+function validateProfilePatch(body: any) {
+  const { enabledPlatforms, defaultPlatform, defaultTone, preferredPublishTime } = body;
+  if (enabledPlatforms !== undefined && !z.array(z.enum(ALL_PLATFORM_KEYS)).safeParse(enabledPlatforms).success) {
+    return { error: "Invalid enabledPlatforms" };
+  }
+  if (defaultPlatform !== undefined && !ALL_PLATFORM_KEYS.includes(defaultPlatform)) return { error: "Invalid defaultPlatform" };
+  if (defaultTone !== undefined && !["professional", "authoritative", "contrarian", "ai-recommended"].includes(defaultTone)) return { error: "Invalid defaultTone" };
+  if (preferredPublishTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(preferredPublishTime)) return { error: "Invalid preferredPublishTime" };
+
+  const normalizedLists: Record<string, string[]> = {};
+  for (const field of ["publications", "keywords", "influencers", "companies"]) {
+    if (body[field] === undefined) continue;
+    const result = validateProfileList(body[field], field);
+    if (result.error) return { error: result.error };
+    normalizedLists[field] = result.values ?? [];
+  }
+  return { normalizedLists };
+}
+
+function buildProfileUpdateData(body: any, normalizedLists: Record<string, string[]>, disabledPlatforms: Set<string>) {
+  const updateData: Record<string, unknown> = Object.fromEntries(
+    Object.entries(body).filter(([field, value]) =>
+      ["focusDescription", "timezone", "defaultPlatform", "defaultTone", "preferredPublishTime"].includes(field) && value !== undefined,
+    ),
+  );
+  for (const field of ["publications", "keywords", "influencers", "companies"]) {
+    if (normalizedLists[field]) updateData[field] = normalizedLists[field];
+  }
+  if (body.enabledPlatforms !== undefined) updateData.enabledPlatforms = filterEnabledPlatforms(body.enabledPlatforms, disabledPlatforms);
+  if (typeof body.requirePublishReview === "boolean") updateData.requirePublishReview = body.requirePublishReview;
+  if (typeof body.autoPublish === "boolean") updateData.autoPublish = body.autoPublish;
+  if (typeof body.dailyDigest === "boolean") updateData.dailyDigest = body.dailyDigest;
+  if (typeof body.contentAlerts === "boolean") updateData.contentAlerts = body.contentAlerts;
+  if (typeof body.productUpdates === "boolean") updateData.productUpdates = body.productUpdates;
+  return updateData;
+}
 
 // Helper to sanitize onboarding data - truncates strings and arrays to prevent validation errors
 function sanitizeOnboardingData(data: any) {
@@ -42,18 +90,26 @@ export function registerProfileRoutes(app: Express) {
       }
       
       let profile = await storage.getUserProfile(scope);
-      
-      if (!profile) {
-        profile = await storage.createUserProfile(scope, {
+
+      profile ??= await storage.createUserProfile(scope, {
           onboardingStatus: "pending",
           publications: [],
           keywords: [],
           influencers: [],
           companies: [],
-        });
+          });
+
+      const disabledPlatforms = new Set(
+        (await db.select({ key: platformIntegrations.key }).from(platformIntegrations).where(eq(platformIntegrations.enabled, false)))
+          .map((row) => row.key),
+      );
+      const safeEnabledPlatforms = filterEnabledPlatforms(profile.enabledPlatforms, disabledPlatforms);
+
+      if (safeEnabledPlatforms.length !== (profile.enabledPlatforms ?? []).length) {
+        profile = await storage.updateUserProfile(scope, { enabledPlatforms: safeEnabledPlatforms });
       }
-      
-      res.json(profile);
+
+      res.json({ ...profile, enabledPlatforms: safeEnabledPlatforms });
     } catch (error) {
       console.error("Error fetching profile:", error);
       res.status(500).json({ message: "Failed to fetch profile" });
@@ -62,24 +118,24 @@ export function registerProfileRoutes(app: Express) {
 
   app.patch("/api/profile", requireDbUser, requirePermission("profile:write:own"), async (req, res) => {
     try {
-      const { dbUser, tenant: scope } = authedOf(req);
-      const userId = dbUser.id;
-      const { focusDescription, publications, keywords, influencers, companies } = req.body;
-      
+      const { tenant: scope } = authedOf(req);
+      const validation = validateProfilePatch(req.body);
+      if (validation.error) return res.status(400).json({ message: validation.error });
+
       const existingProfile = await storage.getUserProfile(scope);
       if (!existingProfile) {
         return res.status(404).json({ message: "Profile not found" });
       }
-      
-      const updateData: any = {};
-      if (focusDescription !== undefined) updateData.focusDescription = focusDescription;
-      if (publications !== undefined) updateData.publications = publications;
-      if (keywords !== undefined) updateData.keywords = keywords;
-      if (influencers !== undefined) updateData.influencers = influencers;
-      if (companies !== undefined) updateData.companies = companies;
-      
+
+      const disabledPlatforms = new Set(
+        (await db.select({ key: platformIntegrations.key }).from(platformIntegrations).where(eq(platformIntegrations.enabled, false)))
+          .map((row) => row.key),
+      );
+
+      const updateData = buildProfileUpdateData(req.body, validation.normalizedLists ?? {}, disabledPlatforms);
+
       const profile = await storage.updateUserProfile(scope, updateData);
-      
+
       res.json(profile);
     } catch (error) {
       console.error("Error updating profile:", error);

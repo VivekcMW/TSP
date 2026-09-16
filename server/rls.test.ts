@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db, pool } from "./db";
 import { users } from "@shared/models/auth";
 import { tenantMembers, tenants } from "@shared/models/tenancy";
-import { drafts, inboxItems, socialAccounts, socialAnalytics, userProfiles } from "@shared/schema";
+import { drafts, inboxItems, mediaAssets, publishingRules, socialAccounts, socialAnalytics, userProfiles } from "@shared/schema";
 import { ownerDb, ownerPool } from "../test/db-owner";
 
 /**
@@ -33,6 +33,8 @@ async function inTenantContext<T>(tenantId: string, run: (tx: never) => Promise<
 beforeEach(async () => {
   await ownerDb.delete(socialAnalytics);
   await ownerDb.delete(socialAccounts);
+  await ownerDb.delete(mediaAssets);
+  await ownerDb.delete(publishingRules);
   await ownerDb.delete(drafts);
   await ownerDb.delete(inboxItems);
   await ownerDb.delete(userProfiles);
@@ -113,12 +115,27 @@ describe("the database enforces isolation without help from the query", () => {
 
   it("covers every tenant-scoped table", async () => {
     const expected = [
+      "billing_customers",
+      "draft_schedule_targets",
+      "draft_schedules",
       "drafts",
       "engine_run_logs",
       "inbox_items",
+      "job_execution_logs",
+      "media_assets",
+      "payment_methods",
+      "payments",
+      "profile_social_links",
+      "publish_job_logs",
+      "publish_metrics",
+      "publishing_rules",
+      "queue_metrics",
+      "scheduled_refreshes",
       "social_accounts",
       "social_analytics",
+      "subscriptions",
       "user_profiles",
+      "user_sources",
     ];
     const result = await ownerDb.execute(sql`
       select c.relname::text as name

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, Send, Save, Copy, Check, ExternalLink, X, Plus, Hash } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -8,8 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useIsSignedIn } from "@/lib/dev-auth";
 import { PLATFORMS, getPlatformMeta } from "@/lib/platforms";
-import type { InboxItem } from "@shared/schema";
+import type { InboxItem, UserProfile } from "@shared/schema";
 
 interface PostGeneratorModalProps {
   item: InboxItem | null;
@@ -49,6 +51,28 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
   const [hashtags, setHashtags] = useState<string[]>(["#thesocialpundit"]);
   const [newHashtag, setNewHashtag] = useState("");
   const { toast } = useToast();
+  const isSignedIn = useIsSignedIn();
+
+  const { data: profile } = useQuery<UserProfile>({
+    queryKey: ["/api/profile"],
+    enabled: !!isSignedIn,
+  });
+  const { data: integrations } = useQuery<{ key: string; enabled: boolean }[]>({
+    queryKey: ["/api/integrations"],
+    enabled: !!isSignedIn,
+  });
+  const disabledPlatforms = new Set((integrations ?? []).filter((i) => !i.enabled).map((i) => i.key));
+  const enabledPlatforms = profile?.enabledPlatforms;
+  const visiblePlatforms = (enabledPlatforms ? PLATFORMS.filter((p) => enabledPlatforms.includes(p.value)) : PLATFORMS)
+    .filter((p) => !disabledPlatforms.has(p.value));
+  const activePlatform = visiblePlatforms.some((p) => p.value === platform) ? platform : visiblePlatforms[0]?.value ?? "";
+
+  useEffect(() => {
+    if (activePlatform && activePlatform !== platform) {
+      setPlatform(activePlatform);
+      generateAIContent(activePlatform, tone);
+    }
+  }, [activePlatform, platform, tone]);
 
   const generateAIContent = async (selectedPlatform: string, selectedTone: string) => {
     if (!item) return;
@@ -81,9 +105,9 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
   }, [isOpen, item?.id]);
 
   const handleToneChange = (newTone: string) => {
-    if (newTone) {
+    if (newTone && activePlatform) {
       setTone(newTone);
-      generateAIContent(platform, newTone);
+      generateAIContent(activePlatform, newTone);
     }
   };
 
@@ -95,7 +119,9 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
   };
 
   const handleRegenerate = () => {
-    generateAIContent(platform, tone);
+    if (activePlatform) {
+      generateAIContent(activePlatform, tone);
+    }
   };
 
   const removeHashtag = (tag: string) => {
@@ -136,6 +162,8 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
   };
 
   const handlePostNow = async () => {
+    if (!activePlatform) return;
+
     const full = getFullContent();
     try {
       await navigator.clipboard.writeText(full);
@@ -143,19 +171,19 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
       // clipboard failure non-fatal — proceed to open platform
     }
 
-    const meta = getPlatformMeta(platform);
+    const meta = getPlatformMeta(activePlatform);
     window.open(meta.composeUrl(full, item?.articleUrl), "_blank");
     toast({
       title: `Opening ${meta.label}`,
-      description: platform === "twitter"
+      description: activePlatform === "twitter"
         ? "Your post is pre-filled and ready to send."
         : `Your post is copied — paste it into the ${meta.label} composer and hit Post.`,
     });
 
-    onPost(platform, tone, full);
+    onPost(activePlatform, tone, full);
   };
 
-  const characterLimit = getPlatformMeta(platform).charLimit;
+  const characterLimit = activePlatform ? getPlatformMeta(activePlatform).charLimit : 0;
   const fullContent = getFullContent();
   const characterCount = fullContent.length;
 
@@ -181,20 +209,26 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
             <div className="space-y-6 flex-1">
               <div className="space-y-3">
                 <Label className="text-sm font-medium">Platform</Label>
-                <div className="flex flex-col gap-2">
-                  {PLATFORMS.map((p) => (
-                    <Button
-                      key={p.value}
-                      variant={platform === p.value ? "default" : "outline"}
-                      className="justify-start w-full"
-                      onClick={() => handlePlatformChange(p.value)}
-                      data-testid={`toggle-${p.value}`}
-                    >
-                      <p.icon className="w-4 h-4 mr-2" />
-                      {p.label}
-                    </Button>
-                  ))}
-                </div>
+                {visiblePlatforms.length === 0 ? (
+                  <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                    No platforms are currently available for this account.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {visiblePlatforms.map((p) => (
+                      <Button
+                        key={p.value}
+                        variant={activePlatform === p.value ? "default" : "outline"}
+                        className="justify-start w-full"
+                        onClick={() => handlePlatformChange(p.value)}
+                        data-testid={`toggle-${p.value}`}
+                      >
+                        <p.icon className="w-4 h-4 mr-2" />
+                        {p.label}
+                      </Button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3">
@@ -219,7 +253,8 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
               <Button
                 variant="secondary"
                 className="w-full justify-center"
-                onClick={() => onSaveDraft(platform, tone, fullContent)}
+                onClick={() => activePlatform && onSaveDraft(activePlatform, tone, fullContent)}
+                disabled={!activePlatform || isGenerating}
                 data-testid="button-save-draft"
               >
                 <Save className="w-4 h-4 mr-2" />
@@ -228,7 +263,7 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
               <Button
                 className="w-full justify-center"
                 onClick={handlePostNow}
-                disabled={characterCount > characterLimit || isGenerating}
+                disabled={!activePlatform || characterCount > characterLimit || isGenerating}
                 data-testid="button-post-now"
               >
                 <Send className="w-4 h-4 mr-2" />
@@ -278,7 +313,7 @@ export function PostGeneratorModal({ item, isOpen, onClose, onSaveDraft, onPost 
                   >
                     {copied ? (
                       <>
-                        <Check className="w-3.5 h-3.5 mr-1.5 text-green-500" />
+                        <Check className="w-3.5 h-3.5 mr-1.5 text-success" />
                         Copied
                       </>
                     ) : (

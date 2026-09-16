@@ -1,4 +1,4 @@
-import { useUser } from "@clerk/react";
+import { useIsSignedIn as useBetterAuthSignedIn } from "./auth";
 
 /**
  * TEMPORARY local-development login bypass.
@@ -8,7 +8,7 @@ import { useUser } from "@clerk/react";
  * `import.meta.env.DEV` is substituted at build time, so this condition is
  * dead-code-eliminated from a production bundle.
  *
- * Remove this file once real Clerk sign-in works.
+ * Remove this file once real Better Auth sign-in works.
  */
 export const devAuthEnabled =
   import.meta.env.DEV && import.meta.env.VITE_DEV_AUTH_BYPASS === "true";
@@ -21,6 +21,5 @@ export const devAuthEnabled =
  * otherwise leave every dashboard query disabled and the pages blank.
  */
 export function useIsSignedIn(): boolean {
-  const { isSignedIn } = useUser();
-  return devAuthEnabled || !!isSignedIn;
+  return devAuthEnabled || useBetterAuthSignedIn();
 }

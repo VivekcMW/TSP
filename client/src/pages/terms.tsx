@@ -1,12 +1,12 @@
 import { Link } from "wouter";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import { SEO } from "@/components/seo";
+import { SEO as Seo } from "@/components/seo";
 
 export default function TermsOfServicePage() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <SEO
+      <Seo
         title="Terms of Service"
         canonical="/terms"
         description="The terms that govern your use of TheSocialPundit."
@@ -18,7 +18,7 @@ export default function TermsOfServicePage() {
             <h1 className="heading-display mb-4" data-testid="text-terms-title">
               Terms of Service
             </h1>
-            <p className="text-sm text-muted-foreground mb-12">Last updated: August 28, 2026</p>
+            <p className="text-sm text-muted-foreground mb-12">Last updated: September 3, 2026</p>
 
             <div className="prose prose-neutral dark:prose-invert max-w-none space-y-8">
               <section>
@@ -76,9 +76,17 @@ export default function TermsOfServicePage() {
               <section>
                 <h2 className="heading-section !text-2xl">Pricing</h2>
                 <p className="text-muted-foreground">
-                  The Service is currently offered free to our first 1,000 subscribers. We'll provide
-                  reasonable advance notice before introducing paid plans or changing pricing for existing
-                  accounts.
+                  The Service may offer free and paid plans. Prices, billing intervals, features, and taxes
+                  are shown before purchase. Payments are processed by Razorpay. Unless required by law or
+                  approved under our <Link href="/refund-policy" className="text-primary underline">Refund Policy</Link>,
+                  completed payments are not automatically refundable.
+                </p>
+              </section>
+
+              <section>
+                <h2 className="heading-section !text-2xl">Cancellation and retention</h2>
+                <p className="text-muted-foreground">
+                  Subscription cancellation and payment refunds are governed by our <Link href="/subscription-cancellation" className="text-primary underline">Subscription Cancellation Policy</Link> and <Link href="/refund-policy" className="text-primary underline">Refund Policy</Link>. Billing and legal records may be retained after account deletion as described in our <Link href="/data-retention" className="text-primary underline">Data Retention Policy</Link>.
                 </p>
               </section>
 

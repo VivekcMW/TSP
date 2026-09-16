@@ -161,13 +161,15 @@ export async function resolveTenantContext(
 /**
  * Appends an audit entry.
  *
- * Never throws: losing an audit write must not fail the user's request, but it
- * must be loud in the logs so the gap is visible.
+ * Returns false when the audit write fails so privileged requests can fail
+ * closed instead of completing without a durable record.
  */
-export async function writeAuditLog(entry: InsertAuditLogEntry): Promise<void> {
+export async function writeAuditLog(entry: InsertAuditLogEntry): Promise<boolean> {
   try {
     await db.insert(auditLog).values(entry);
+    return true;
   } catch (error) {
     console.error("[audit] FAILED to write audit entry", { entry, error });
+    return false;
   }
 }

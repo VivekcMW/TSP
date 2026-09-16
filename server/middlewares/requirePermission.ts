@@ -53,8 +53,8 @@ export function requirePermission(permission: Permission): RequestHandler {
 
     if (requiresAudit(actor, permission)) {
       // Awaited so an action is never recorded as having happened before the
-      // audit entry exists. writeAuditLog never throws.
-      await writeAuditLog({
+      // audit entry exists. Privileged actions fail closed if auditing fails.
+      const auditWritten = await writeAuditLog({
         actorUserId: req.dbUser.id,
         actorPlatformRole: actor.platformRole,
         tenantId: req.tenant.tenantId,
@@ -65,6 +65,7 @@ export function requirePermission(permission: Permission): RequestHandler {
         correlationId: correlationId(req),
         metadata: { viaPlatformRole: actor.viaPlatformRole },
       });
+      if (!auditWritten) return res.status(503).json({ message: "Audit service unavailable", code: "audit_unavailable" });
     }
 
     next();

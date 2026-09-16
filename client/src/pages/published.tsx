@@ -1,110 +1,27 @@
-import { Send, ExternalLink, Heart, MessageCircle, Repeat2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, FileText, RefreshCw, Send } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { getPlatformMeta } from "@/lib/platforms";
+import { PageHeader } from "@/components/dashboard/page-header";
+import { DashboardEmptyState } from "@/components/dashboard/empty-state";
+import type { Draft, PublishJobLog } from "@shared/schema";
 
-const samplePublished = [
-  {
-    id: "1",
-    platform: "linkedin",
-    content: "I just came across this fascinating development in our industry. Here's what caught my attention and why I think it matters for all of us working in this space.\n\nThe key takeaway? We need to stay ahead of these changes and adapt our strategies accordingly.",
-    publishedAt: new Date(Date.now() - 86400000),
-    likes: 42,
-    comments: 8,
-    shares: 5,
-  },
-  {
-    id: "2",
-    platform: "twitter",
-    content: "Everyone is celebrating this news. I'm not so sure.\n\nHere's the uncomfortable truth no one is talking about...",
-    publishedAt: new Date(Date.now() - 172800000),
-    likes: 156,
-    comments: 23,
-    shares: 34,
-  },
-];
+function MediaPreview({ media }: { media: Draft["media"] }) {
+  if (!media?.length) return null;
+  return <div className="mt-4 flex flex-wrap gap-2">{media.map((item) => item.type === "image" ? <img key={item.id} src={item.url} alt={item.name} className="h-20 w-20 rounded-md border object-cover" /> : <Badge key={item.id} variant="outline" className="h-8 gap-1"><span className="capitalize">{item.type}</span><span className="max-w-28 truncate">{item.name}</span></Badge>)}</div>;
+}
+
+function PublishLogs({ draftId }: { draftId: string }) {
+  const { data: logs = [] } = useQuery<PublishJobLog[]>({ queryKey: [`/api/drafts/${draftId}/publish-logs`] });
+  if (!logs.length) return <p className="mt-3 text-xs text-muted-foreground">No publish log is available yet.</p>;
+  return <ScrollArea className="mt-3 max-h-24 rounded-md border bg-muted/30"><div className="space-y-1 p-2">{logs.map((log) => <div key={log.id} className="flex items-center justify-between gap-3 text-xs"><span className="capitalize">{log.status} · attempt {log.attempt}/{log.maxAttempts}</span>{log.errorMessage ? <span className="truncate text-destructive">{log.errorMessage}</span> : <span className="text-muted-foreground">{log.publishedPostId ?? "Recorded"}</span>}</div>)}</div></ScrollArea>;
+}
 
 export default function PublishedPage() {
-  return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <header className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
-            <Send className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold" data-testid="text-page-title">Published</h1>
-            <p className="text-sm text-muted-foreground">
-              {samplePublished.length} posts published
-            </p>
-          </div>
-        </div>
-      </header>
-      
-      <main className="flex-1 p-6 overflow-y-auto">
-        {samplePublished.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-              <Send className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <h3 className="text-lg font-medium mb-2">No published posts yet</h3>
-            <p className="text-muted-foreground max-w-md">
-              When you publish posts, they'll appear here with their engagement metrics.
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-4 max-w-3xl">
-            {samplePublished.map((post) => (
-              <Card key={post.id} className="hover-elevate" data-testid={`card-published-${post.id}`}>
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between gap-4 mb-3">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="gap-1">
-                        {(() => {
-                          const Icon = getPlatformMeta(post.platform).icon;
-                          return <Icon className="w-3 h-3" />;
-                        })()}
-                        {getPlatformMeta(post.platform).label}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        {post.publishedAt.toLocaleDateString()}
-                      </span>
-                      <a 
-                        href="#" 
-                        className="text-muted-foreground hover:text-foreground transition-colors"
-                        data-testid={`link-view-${post.id}`}
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </a>
-                    </div>
-                  </div>
-                  
-                  <p className="text-sm leading-relaxed whitespace-pre-line mb-4">
-                    {post.content}
-                  </p>
-                  
-                  <div className="flex items-center gap-6 pt-3 border-t text-sm text-muted-foreground">
-                    <div className="flex items-center gap-1.5">
-                      <Heart className="w-4 h-4" />
-                      <span>{post.likes}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <MessageCircle className="w-4 h-4" />
-                      <span>{post.comments}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <Repeat2 className="w-4 h-4" />
-                      <span>{post.shares}</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </main>
-    </div>
-  );
+  const { data: drafts = [], isLoading, isError, error, refetch } = useQuery<Draft[]>({ queryKey: ["/api/drafts/published"] });
+  return <div className="flex flex-col h-full overflow-hidden"><PageHeader icon={Send} title="Published" subtitle={`${drafts.length} post${drafts.length === 1 ? "" : "s"} published`} /><main className="flex-1 overflow-y-auto p-6">{isLoading ? <div className="mx-auto grid max-w-3xl gap-4">{[1, 2, 3].map((item) => <Skeleton key={item} className="h-40 w-full" />)}</div> : isError ? <DashboardEmptyState icon={AlertTriangle} title="Published history is unavailable" description={error instanceof Error ? error.message : "We couldn't load your published history."} action={<Button onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" />Try again</Button>} /> : !drafts.length ? <DashboardEmptyState icon={FileText} title="No published posts yet" description="Publish a draft and its real delivery status will appear here." /> : <div className="mx-auto grid max-w-3xl gap-4">{drafts.map((draft) => { const platform = getPlatformMeta(draft.platform); const Icon = platform.icon; return <Card key={draft.id} className="hover-elevate hover-lift" data-testid={`card-published-${draft.id}`}><CardContent className="p-5"><div className="mb-3 flex items-start justify-between gap-4"><Badge variant="secondary" className="gap-1"><Icon className="h-3 w-3" />{platform.label}</Badge><span className="text-xs text-muted-foreground">{draft.publishedAt ? new Date(draft.publishedAt).toLocaleString() : "Published"}</span></div><p className="whitespace-pre-wrap text-sm leading-relaxed">{draft.content}</p><MediaPreview media={draft.media} /><PublishLogs draftId={draft.id} /></CardContent></Card>; })}</div>}</main></div>;
 }

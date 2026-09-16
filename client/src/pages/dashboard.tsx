@@ -1,35 +1,41 @@
 import { useState, useEffect } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Inbox, RefreshCw, Link2, Loader2 } from "lucide-react";
-import { useUser } from "@clerk/react";
-import { useIsSignedIn } from "@/lib/dev-auth";
+import { Inbox, RefreshCw, Link2, AlertTriangle, Rss } from "lucide-react";
+import { useAuth, useIsSignedIn } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { InboxCard } from "@/components/dashboard/inbox-card";
+import { useInboxRefresh } from "@/hooks/use-inbox-refresh";
+import { InboxRefreshProgress } from "@/components/dashboard/inbox-refresh-progress";
+import { InboxListRow } from "@/components/dashboard/inbox-list-row";
+import { InboxDetail } from "@/components/dashboard/inbox-detail";
 import { PostGeneratorModal } from "@/components/dashboard/post-generator-modal";
-import { InstantReviewModal } from "@/components/dashboard/instant-review-modal";
+import { InstantReviewPanel } from "@/components/dashboard/instant-review-panel";
+import { SourcesManagerContent } from "@/components/dashboard/sources-manager";
+import { PageHeader } from "@/components/dashboard/page-header";
+import { DashboardEmptyState } from "@/components/dashboard/empty-state";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import type { InboxItem } from "@shared/schema";
 
 type FilterType = "all" | "saved" | "dismissed";
 
 export default function DashboardPage() {
-  const { user } = useUser();
+  const { user } = useAuth();
   const isSignedIn = useIsSignedIn();
   const { toast } = useToast();
   const [filter, setFilter] = useState<FilterType>("all");
   const [selectedItem, setSelectedItem] = useState<InboxItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isInstantReviewOpen, setIsInstantReviewOpen] = useState(false);
+  const [isSourcesOpen, setIsSourcesOpen] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [isDetailSheetOpen, setIsDetailSheetOpen] = useState(false);
 
-  const { data: inboxItems, isLoading } = useQuery<InboxItem[]>({
+  const { data: inboxItems, isLoading, isError, error, refetch } = useQuery<InboxItem[]>({
     queryKey: ["/api/inbox"],
-    enabled: !!isSignedIn,
-  });
-
-  const { data: enginesData } = useQuery<{ currentEngine: { displayName: string } }>({
-    queryKey: ["/api/engines"],
     enabled: !!isSignedIn,
   });
   
@@ -46,38 +52,19 @@ export default function DashboardPage() {
     window.open(linkedInUrl, "_blank");
   };
 
-  const refreshMutation = useMutation<{ count: number }, Error, boolean>({
-    mutationFn: async (autoRefresh: boolean = false) => {
-      const res = await apiRequest("POST", "/api/inbox/refresh", { autoRefresh });
-      return res.json();
-    },
-    onSuccess: (data, autoRefresh) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inbox"] });
-      if (!autoRefresh) {
-        toast({
-          title: "Inbox refreshed",
-          description: `Found ${data.count} new articles based on your keywords.`,
-        });
-      }
-    },
-    onError: (error: Error, autoRefresh) => {
-      if (!autoRefresh) {
-        toast({
-          title: "Failed to refresh",
-          description: error.message || "Could not fetch new articles. Please try again.",
-          variant: "destructive",
-        });
-      }
-    },
+  const refreshInbox = useInboxRefresh({
+    onComplete: () => queryClient.invalidateQueries({ queryKey: ["/api/inbox"] }),
   });
+  const { needsSetup } = refreshInbox;
 
   useEffect(() => {
     if (!user) return;
-    const sessionKey = `inbox_refreshed_${user.externalId ?? user.id ?? "session"}`;
+    const sessionKey = `inbox_refreshed_${user.id}`;
     if (!sessionStorage.getItem(sessionKey)) {
       sessionStorage.setItem(sessionKey, "1");
-      refreshMutation.mutate(true);
+      refreshInbox.startRefresh(true);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const saveDraftMutation = useMutation({
@@ -108,6 +95,36 @@ export default function DashboardPage() {
     if (filter === "dismissed") return item.status === "dismissed";
     return true;
   });
+  const activeItem = filteredItems.find((i) => i.id === activeId) ?? null;
+
+  useEffect(() => {
+    if (!activeItem && filteredItems.length > 0) {
+      setActiveId(filteredItems[0].id);
+    }
+  }, [activeItem, filteredItems]);
+
+  const advanceSelectionPast = (removedId: string) => {
+    const currentIndex = filteredItems.findIndex((i) => i.id === removedId);
+    const remaining = filteredItems.filter((i) => i.id !== removedId);
+    if (remaining.length === 0) {
+      setActiveId(null);
+      return;
+    }
+    const nextIndex = Math.min(currentIndex, remaining.length - 1);
+    setActiveId(remaining[nextIndex].id);
+  };
+
+  const selectRelative = (delta: number) => {
+    if (!activeItem) return;
+    const index = filteredItems.findIndex((i) => i.id === activeItem.id);
+    const nextIndex = Math.min(Math.max(index + delta, 0), filteredItems.length - 1);
+    setActiveId(filteredItems[nextIndex].id);
+  };
+
+  const handleSelectRow = (item: InboxItem) => {
+    setActiveId(item.id);
+    if (window.innerWidth < 1024) setIsDetailSheetOpen(true);
+  };
 
   const updateInboxItemMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
@@ -132,6 +149,7 @@ export default function DashboardPage() {
   };
 
   const handleSave = (item: InboxItem) => {
+    advanceSelectionPast(item.id);
     updateInboxItemMutation.mutate({ id: item.id, status: "saved" });
     toast({
       title: "Article saved",
@@ -140,6 +158,7 @@ export default function DashboardPage() {
   };
 
   const handleDismiss = (item: InboxItem) => {
+    advanceSelectionPast(item.id);
     updateInboxItemMutation.mutate({ id: item.id, status: "dismissed" });
     toast({
       title: "Article dismissed",
@@ -174,25 +193,71 @@ export default function DashboardPage() {
     }
   };
 
+  const activeCount = items.filter((i) => i.status === "active").length;
+  const savedCount = items.filter((i) => i.status === "saved").length;
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+      if (isModalOpen || isInstantReviewOpen || isSourcesOpen || isDetailSheetOpen) return;
+      if (!activeItem) return;
+
+      switch (event.key.toLowerCase()) {
+        case "j":
+        case "arrowdown":
+          event.preventDefault();
+          selectRelative(1);
+          break;
+        case "k":
+        case "arrowup":
+          event.preventDefault();
+          selectRelative(-1);
+          break;
+        case "s":
+          event.preventDefault();
+          handleSave(activeItem);
+          break;
+        case "d":
+          event.preventDefault();
+          handleDismiss(activeItem);
+          break;
+        case "g":
+        case "enter":
+          event.preventDefault();
+          handleGeneratePost(activeItem);
+          break;
+        default:
+          break;
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeItem, filteredItems, isModalOpen, isInstantReviewOpen, isSourcesOpen, isDetailSheetOpen]);
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <header className="flex-shrink-0 bg-background border-b px-6 py-4">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
-              <Inbox className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold" data-testid="text-page-title">
-                Your Inbox{enginesData?.currentEngine?.displayName ? ` for ${enginesData.currentEngine.displayName}` : ""}
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                {filteredItems.length} articles curated for you today
-              </p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-3">
+      <PageHeader
+        icon={Inbox}
+        title="Discover"
+        subtitle={`${filteredItems.length} articles curated from your own sources and interests`}
+        stats={
+          <>
+            <Badge variant="outline" className="text-xs font-normal">{activeCount} active</Badge>
+            <Badge variant="outline" className="text-xs font-normal">{savedCount} saved</Badge>
+          </>
+        }
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setIsSourcesOpen(true)}
+              data-testid="button-manage-sources"
+            >
+              <Rss className="w-4 h-4 mr-2" />
+              Manage Sources
+            </Button>
             <Button
               variant="outline"
               onClick={() => setIsInstantReviewOpen(true)}
@@ -203,12 +268,12 @@ export default function DashboardPage() {
             </Button>
             <Button
               variant="default"
-              onClick={() => refreshMutation.mutate(false)}
-              disabled={refreshMutation.isPending}
+              onClick={() => refreshInbox.startRefresh(false)}
+              disabled={refreshInbox.isLoading}
               data-testid="button-refresh-inbox"
             >
-              <RefreshCw className={`w-4 h-4 mr-2 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
-              {refreshMutation.isPending ? "Searching..." : "Refresh Articles"}
+              <RefreshCw className={`w-4 h-4 mr-2 ${refreshInbox.isLoading ? "animate-spin" : ""}`} />
+              {refreshInbox.isLoading ? "Searching..." : "Refresh Articles"}
             </Button>
             <div className="flex bg-muted rounded-md p-1">
               {(["all", "saved", "dismissed"] as FilterType[]).map((f) => (
@@ -224,51 +289,81 @@ export default function DashboardPage() {
                 </Button>
               ))}
             </div>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
       
-      <main className="flex-1 p-6 overflow-y-auto">
+      <main className="flex-1 overflow-hidden">
         {isLoading ? (
-          <div className="grid gap-4">
+          <div className="grid gap-4 p-6">
             {[1, 2, 3, 4].map((i) => (
-              <Skeleton key={i} className="h-48 w-full rounded-lg" />
+              <Skeleton key={i} className="h-16 w-full max-w-3xl rounded-lg" />
             ))}
+          </div>
+        ) : isError ? (
+          <div className="p-6">
+            <DashboardEmptyState
+              icon={AlertTriangle}
+              title="Discover is taking a breather"
+              description={error instanceof Error ? error.message : "We couldn't load your articles right now."}
+              action={<Button onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" />Try again</Button>}
+            />
           </div>
         ) : filteredItems.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-              <Inbox className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <h3 className="text-lg font-medium mb-2">No articles yet</h3>
-            <p className="text-muted-foreground max-w-md mb-4">
-              {filter === "all" 
-                ? "Click 'Refresh Articles' to search for content based on your keywords and interests."
-                : `No ${filter} articles found.`
+          <div className="p-6">
+            <DashboardEmptyState
+              icon={Inbox}
+              title={filter === "all" && needsSetup ? "Tell us what you're interested in" : "No articles yet"}
+              description={
+                filter === "all"
+                  ? needsSetup
+                    ? "Discover is 100% driven by your own interests — add keywords, companies, influencers, or a custom source in your profile, then refresh."
+                    : "Click 'Refresh Articles' to search for content based on your keywords, companies, influencers, and sources."
+                  : `No ${filter} articles found.`
               }
-            </p>
-            {filter === "all" && (
-              <Button
-                onClick={() => refreshMutation.mutate(false)}
-                disabled={refreshMutation.isPending}
-                data-testid="button-refresh-empty"
-              >
-                <RefreshCw className={`w-4 h-4 mr-2 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
-                {refreshMutation.isPending ? "Searching..." : "Refresh Articles"}
-              </Button>
-            )}
+              action={
+                filter === "all" && (
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {needsSetup && (
+                      <Link href="/dashboard/settings?tab=content">
+                        <Button variant="outline">Set up your interests</Button>
+                      </Link>
+                    )}
+                    <Button
+                      onClick={() => refreshInbox.startRefresh(false)}
+                      disabled={refreshInbox.isLoading}
+                      data-testid="button-refresh-empty"
+                    >
+                      <RefreshCw className={`w-4 h-4 mr-2 ${refreshInbox.isLoading ? "animate-spin" : ""}`} />
+                      {refreshInbox.isLoading ? "Searching..." : "Refresh Articles"}
+                    </Button>
+                  </div>
+                )
+              }
+            />
           </div>
         ) : (
-          <div className="grid gap-4 max-w-3xl">
-            {filteredItems.map((item) => (
-              <InboxCard
-                key={item.id}
-                item={item}
-                onGeneratePost={handleGeneratePost}
-                onSave={handleSave}
-                onDismiss={handleDismiss}
-              />
-            ))}
+          <div className="flex h-full">
+            <div className="w-full overflow-y-auto lg:w-[380px] lg:shrink-0 lg:border-r">
+              {filteredItems.map((item) => (
+                <InboxListRow
+                  key={item.id}
+                  item={item}
+                  isActive={item.id === activeItem?.id}
+                  onSelect={() => handleSelectRow(item)}
+                />
+              ))}
+            </div>
+            <div className="hidden flex-1 lg:block">
+              {activeItem && (
+                <InboxDetail
+                  item={activeItem}
+                  onGeneratePost={handleGeneratePost}
+                  onSave={handleSave}
+                  onDismiss={handleDismiss}
+                />
+              )}
+            </div>
           </div>
         )}
       </main>
@@ -281,9 +376,43 @@ export default function DashboardPage() {
         onPost={handlePost}
       />
       
-      <InstantReviewModal
+      <InstantReviewPanel
         isOpen={isInstantReviewOpen}
         onClose={() => setIsInstantReviewOpen(false)}
+      />
+
+      <Sheet open={isSourcesOpen} onOpenChange={setIsSourcesOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-[500px] overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Manage Sources</SheetTitle>
+            <SheetDescription>Add as many blogs, publications, or sites as you want — Discover fetches only from what you add here plus live search on your own keywords, companies, and influencers. No pre-configured sources.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-6">
+            <SourcesManagerContent />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={isDetailSheetOpen} onOpenChange={setIsDetailSheetOpen}>
+        <SheetContent side="right" className="w-full p-0 sm:max-w-lg">
+          {activeItem && (
+            <InboxDetail
+              item={activeItem}
+              onGeneratePost={(item) => { setIsDetailSheetOpen(false); handleGeneratePost(item); }}
+              onSave={(item) => { setIsDetailSheetOpen(false); handleSave(item); }}
+              onDismiss={(item) => { setIsDetailSheetOpen(false); handleDismiss(item); }}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
+
+      <InboxRefreshProgress
+        isVisible={!refreshInbox.isSilent}
+        isLoading={refreshInbox.isLoading}
+        progress={refreshInbox.progress}
+        error={refreshInbox.error}
+        jobStatus={refreshInbox.jobStatus === "active" || refreshInbox.jobStatus === "delayed" || refreshInbox.jobStatus === "waiting" ? "active" : refreshInbox.jobStatus}
+        onDismiss={refreshInbox.reset}
       />
     </div>
   );

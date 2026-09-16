@@ -37,10 +37,13 @@ export async function apiRequest(
   method: string,
   url: string,
   data?: unknown,
+  options?: { headers?: Record<string, string> },
 ): Promise<Response> {
+  const headers = new Headers(options?.headers);
+  if (data) headers.set("Content-Type", "application/json");
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers,
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });

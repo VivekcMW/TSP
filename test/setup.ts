@@ -15,3 +15,4 @@ process.env.OWNER_TEST_DATABASE_URL ??=
 // Never let a stray .env value turn authentication off inside the suite.
 process.env.DEV_AUTH_BYPASS = "";
 process.env.NODE_ENV = "test";
+process.env.BETTER_AUTH_SECRET = "test-only-better-auth-secret-at-least-32-characters";

@@ -5,10 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, Search, Sparkles, UserRound } from "lucide-react";
+import { Reveal } from "@/components/motion/reveal";
 
 const countries = [
   "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Argentina", "Armenia", "Australia", 
@@ -54,18 +56,20 @@ const industries = [
 interface CompleteRegistrationProps {
   existingFirstName?: string | null;
   existingLastName?: string | null;
+  existingName?: string | null;
 }
 
-export default function CompleteRegistrationPage({ existingFirstName, existingLastName }: CompleteRegistrationProps) {
+export default function CompleteRegistrationPage({ existingFirstName, existingLastName, existingName }: CompleteRegistrationProps) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [firstName, setFirstName] = useState(existingFirstName || "");
-  const [lastName, setLastName] = useState(existingLastName || "");
-  const [industry, setIndustry] = useState("");
-  const [country, setCountry] = useState("");
+  const nameParts = (existingName || "").trim().split(/\s+/).filter(Boolean);
+  const firstName = existingFirstName || nameParts[0] || "User";
+  const lastName = existingLastName || nameParts.slice(1).join(" ") || "Member";
+  const [industriesSelected, setIndustriesSelected] = useState<string[]>([]);
+  const [countriesSelected, setCountriesSelected] = useState<string[]>([]);
 
   const completeRegistrationMutation = useMutation({
-    mutationFn: async (data: { firstName: string; lastName: string; industry: string; country: string }) => {
+    mutationFn: async (data: { firstName: string; lastName: string; industries: string[]; countries: string[] }) => {
       return await apiRequest("POST", "/api/complete-registration", data);
     },
     onSuccess: async () => {
@@ -95,82 +99,45 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (firstName && lastName && industry && country) {
-      completeRegistrationMutation.mutate({ firstName, lastName, industry, country });
+    if (industriesSelected.length && countriesSelected.length) {
+      completeRegistrationMutation.mutate({ firstName, lastName, industries: industriesSelected, countries: countriesSelected });
     }
   };
 
-  const isValid = firstName.trim() && lastName.trim() && industry && country;
+  const isValid = industriesSelected.length > 0 && countriesSelected.length > 0;
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-[100dvh] bg-background px-4 py-8 sm:px-6">
+      <Reveal className="mx-auto flex min-h-[calc(100dvh-4rem)] max-w-xl items-center justify-center">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
-            <Sparkles className="w-8 h-8 text-primary" />
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-secondary/15">
+            <Sparkles className="h-7 w-7 text-secondary" />
           </div>
-          <CardTitle className="text-2xl" data-testid="text-registration-title">
-            Complete Your Profile
-          </CardTitle>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-secondary">One last step</p>
+          <CardTitle className="heading-dashboard text-2xl" data-testid="text-registration-title">Personalize your workspace</CardTitle>
           <CardDescription>
-            Just a few details to personalize your experience.
+            Tell us what to watch so your recommendations feel relevant from day one.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="firstName">First Name</Label>
-                <Input
-                  id="firstName"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  placeholder="John"
-                  data-testid="input-first-name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lastName">Last Name</Label>
-                <Input
-                  id="lastName"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  placeholder="Doe"
-                  data-testid="input-last-name"
-                />
-              </div>
+            <div className="flex items-center gap-3 rounded-[4px] border bg-muted/30 p-3" data-testid="text-saved-name">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10"><UserRound className="h-4 w-4 text-primary" /></div>
+              <div className="min-w-0 flex-1"><p className="text-xs text-muted-foreground">Your name</p><p className="truncate text-sm font-medium">{[firstName, lastName].filter(Boolean).join(" ")}</p></div>
+              <Check className="h-4 w-4 text-success" aria-label="Name saved from signup" />
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="industry">Industry</Label>
-              <Select value={industry} onValueChange={setIndustry}>
-                <SelectTrigger data-testid="select-industry">
-                  <SelectValue placeholder="Select your industry" />
-                </SelectTrigger>
-                <SelectContent>
-                  {industries.map((ind) => (
-                    <SelectItem key={ind.value} value={ind.value} data-testid={`option-industry-${ind.value}`}>
-                      {ind.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Industries</Label>
+              <MultiSelect label="Select industries" options={industries} selected={industriesSelected} onChange={setIndustriesSelected} testId="industries" />
+              <p className="text-xs text-muted-foreground">Select up to 10 industries. Your first selection is used for initial recommendations.</p>
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="country">Country</Label>
-              <Select value={country} onValueChange={setCountry}>
-                <SelectTrigger data-testid="select-country">
-                  <SelectValue placeholder="Select your country" />
-                </SelectTrigger>
-                <SelectContent>
-                  {countries.map((c) => (
-                    <SelectItem key={c} value={c} data-testid={`option-country-${c.toLowerCase().replace(/\s+/g, '-')}`}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Countries</Label>
+              <MultiSelect label="Select countries" options={countries.map((country) => ({ value: country, label: country }))} selected={countriesSelected} onChange={setCountriesSelected} testId="countries" />
+              <p className="text-xs text-muted-foreground">Select up to 10 countries to tailor regional recommendations.</p>
             </div>
             
             <Button
@@ -195,6 +162,15 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
           </form>
         </CardContent>
       </Card>
+      </Reveal>
     </div>
   );
+}
+
+function MultiSelect({ label, options, selected, onChange, testId }: Readonly<{ label: string; options: { value: string; label: string }[]; selected: string[]; onChange: (values: string[]) => void; testId: string }>) {
+  const [search, setSearch] = useState("");
+  const toggle = (value: string) => onChange(selected.includes(value) ? selected.filter((item) => item !== value) : selected.length < 10 ? [...selected, value] : selected);
+  const summary = selected.length ? `${selected.length} selected` : label;
+  const filteredOptions = options.filter((option) => `${option.label} ${option.value}`.toLowerCase().includes(search.trim().toLowerCase()));
+  return <Popover onOpenChange={(open) => !open && setSearch("")}><PopoverTrigger asChild><Button type="button" variant="outline" className="w-full justify-between font-normal" data-testid={`select-${testId}`}>{summary}<ChevronDown className="h-4 w-4 opacity-50" /></Button></PopoverTrigger><PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-2"><div className="relative mb-2"><Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${label.toLowerCase()}…`} aria-label={`Search ${label.toLowerCase()}`} className="h-9 pl-9" autoComplete="off" /></div><div className="max-h-56 overflow-y-auto"><div className="space-y-1">{filteredOptions.length ? filteredOptions.map((option) => <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"><Checkbox checked={selected.includes(option.value)} onCheckedChange={() => toggle(option.value)} data-testid={`option-${testId}-${option.value.toLowerCase().replace(/\s+/g, "-")}`} /><span>{option.label}</span></label>) : <p className="px-2 py-4 text-center text-sm text-muted-foreground">No matches found.</p>}</div></div></PopoverContent></Popover>;
 }

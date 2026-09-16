@@ -65,12 +65,11 @@ The platform supports connecting social media accounts to track post performance
 - `social_analytics` - Stores analytics snapshots with metrics and top posts
 
 **Connection Methods:**
-- **LinkedIn**: Real OAuth flow via `/auth/linkedin/analytics` (requires callback URL in LinkedIn Developer Portal)
-- **Twitter/X**: Demo data approach (real API requires elevated developer access)
+- **LinkedIn**: Real OAuth flow via `/auth/linkedin/analytics` (requires callback URL in LinkedIn Developer Portal). Follower/impression/engagement metrics are stored as a truthful zeroed snapshot until LinkedIn's separately-approved Marketing/Community Management API products are available — no fabricated numbers.
+- **Twitter/X**: Real OAuth 2.0 + PKCE flow via `/auth/twitter/connect`.
 
 **Analytics Endpoints:**
 - `GET /api/social/connections` - List connected accounts
-- `POST /api/social/connect/:provider` - Connect account (Twitter demo data)
 - `DELETE /api/social/disconnect/:provider` - Disconnect account
 - `POST /api/social/sync/:provider` - Refresh analytics data
 - `GET /api/analytics/summary` - Combined analytics for all platforms
@@ -82,6 +81,7 @@ For real LinkedIn connection, add this callback URL to your LinkedIn Developer P
 
 ### Modular Industry Engine System
 The platform uses a modular engine architecture to deliver industry-specific content curation:
+
 
 **Engine Architecture** (`server/services/engines/`)
 - **BaseIndustryEngine**: Abstract base class with shared functionality (RSS fetching, keyword scoring, AI summarization, deduplication)

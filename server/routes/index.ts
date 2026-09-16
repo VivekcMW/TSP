@@ -2,14 +2,24 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { requireDbUser } from "../middlewares/requireDbUser";
 import { registerLinkedInAnalyticsAuth } from "../services/linkedinAnalyticsAuth";
+import { registerRedditAuth } from "../services/redditAuth";
+import { registerTwitterAuth } from "../services/twitterAuth";
 
 import { registerAuthRoutes } from "./auth";
 import { registerProfileRoutes } from "./profile";
 import { registerAiRoutes } from "./ai";
 import { registerInboxRoutes } from "./inbox";
+import { registerSourcesRoutes } from "./sources";
 import { registerDraftsRoutes } from "./drafts";
 import { registerSocialRoutes } from "./social";
 import { registerAnalyticsRoutes } from "./analytics";
+import { registerAdminRoutes } from "./admin";
+import { registerIntegrationsRoutes } from "./integrations";
+import { registerJobsRoutes } from "./jobs";
+import { registerMediaRoutes } from "./media";
+import { registerBillingRoutes } from "./billing";
+import { registerEmailPreferenceRoutes } from "./email-preferences";
+import { registerProfileSocialLinksRoutes } from "./profile-social-links";
 
 /**
  * Mounts the HTTP API.
@@ -22,14 +32,24 @@ import { registerAnalyticsRoutes } from "./analytics";
  */
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   registerLinkedInAnalyticsAuth(app, requireDbUser);
+  registerRedditAuth(app, requireDbUser);
+  registerTwitterAuth(app, requireDbUser);
 
   registerAuthRoutes(app);
   registerProfileRoutes(app);
   registerAiRoutes(app);
   registerInboxRoutes(app);
+  registerSourcesRoutes(app);
   registerDraftsRoutes(app);
   registerSocialRoutes(app);
   registerAnalyticsRoutes(app);
+  registerAdminRoutes(app);
+  registerIntegrationsRoutes(app);
+  registerJobsRoutes(app);
+  registerMediaRoutes(app);
+  registerBillingRoutes(app);
+  registerEmailPreferenceRoutes(app);
+  registerProfileSocialLinksRoutes(app);
 
   return httpServer;
 }

@@ -1,5 +1,7 @@
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import rateLimit, { ipKeyGenerator, type Store } from "express-rate-limit";
+import RedisStore from "rate-limit-redis";
 import type { Request } from "express";
+import { redis } from "../lib/redis";
 
 // Keyed by authenticated user (falls back to IP pre-auth) so one abusive
 // account can't be worked around by rotating IPs, and legitimate shared
@@ -9,6 +11,20 @@ function keyByUser(req: Request): string {
   return (req as any).dbUser?.id || ipKeyGenerator(req.ip || "anonymous");
 }
 
+// Without REDIS_URL, each rateLimit() falls back to express-rate-limit's own
+// in-memory MemoryStore — fine for single-process local dev, but on a
+// multi-instance deploy (e.g. Vercel) each instance counts independently, so
+// the real limit becomes (configured limit) x (instance count). A shared
+// Redis store is what makes these budgets actually enforceable in production.
+function makeStore(prefix: string): Store | undefined {
+  const client = redis;
+  if (!client) return undefined;
+  return new RedisStore({
+    prefix: `rl:${prefix}:`,
+    sendCommand: (...args: string[]) => client.call(args[0], ...args.slice(1)) as Promise<any>,
+  });
+}
+
 // Gemini-backed endpoints: generation is the most expensive/abusable path.
 export const aiGenerationRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -16,6 +32,7 @@ export const aiGenerationRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: keyByUser,
+  store: makeStore("ai-generation"),
   message: { message: "Too many AI requests. Please wait a few minutes and try again." },
 });
 
@@ -26,6 +43,7 @@ export const instantReviewRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: keyByUser,
+  store: makeStore("instant-review"),
   message: { message: "Instant Review limit reached for this hour. Please try again later." },
 });
 
@@ -36,5 +54,6 @@ export const inboxRefreshRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: keyByUser,
+  store: makeStore("inbox-refresh"),
   message: { message: "Too many refresh requests. Please wait a few minutes and try again." },
 });

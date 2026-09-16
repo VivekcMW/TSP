@@ -20,9 +20,9 @@
 /** Values that do not vary by theme. */
 export const invariant = {
   "font-sans": "Inter, system-ui, sans-serif",
-  "font-serif": '"Newsreader", Georgia, serif',
+  "font-serif": 'Poppins, system-ui, sans-serif',
   "font-mono": "JetBrains Mono, monospace",
-  "radius": ".5rem",
+  "radius": ".25rem",
   "spacing": "0.25rem",
   "tracking-normal": "0em",
 } as const;
@@ -69,8 +69,8 @@ export const lightColors = {
   "ring": "221 47% 20%",
   "chart-1": "221 47% 20%",
   "chart-2": "38 92% 50%",
-  "chart-3": "240 6% 10%",
-  "chart-4": "251 92% 96%",
+  "chart-3": "252 52% 46%",
+  "chart-4": "20 85% 42%",
   "chart-5": "150 65% 35%",
 } as const;
 
@@ -110,8 +110,8 @@ export const darkColors = {
   "ring": "222 49% 57%",
   "chart-1": "222 49% 57%",
   "chart-2": "38 80% 55%",
-  "chart-3": "251 92% 96%",
-  "chart-4": "25 80% 68%",
+  "chart-3": "252 78% 72%",
+  "chart-4": "25 88% 65%",
   "chart-5": "150 65% 65%",
 } as const;
 

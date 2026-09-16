@@ -1,39 +1,47 @@
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Switch, Route, useLocation, Router as WouterRouter } from "wouter";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { HelmetProvider } from "react-helmet-async";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { ClerkProvider, SignIn, SignUp, useClerk, useUser } from "@clerk/react";
+import { DashboardNavbar } from "@/components/dashboard/navbar";
+import { AppFooter } from "@/components/dashboard/app-footer";
+import { useAuth } from "@/lib/auth";
 import { LoadingScreen } from "@/components/loading-screen";
 import { AuthError } from "@/components/auth-error";
-import { devAuthEnabled } from "@/lib/dev-auth";
 import { resolveGate } from "@/lib/gate";
 import { PublicRoutes } from "@/components/public-routes";
-import { buildClerkAppearance } from "@/lib/clerk-appearance";
 import type { User as DbUser } from "@shared/models/auth";
 
 import CompleteRegistrationPage from "@/pages/complete-registration";
 import OnboardingPage from "@/pages/onboarding";
-import DashboardPage from "@/pages/dashboard";
-import DraftsPage from "@/pages/drafts";
-import PublishedPage from "@/pages/published";
-import AnalyticsPage from "@/pages/analytics";
-import SettingsPage from "@/pages/settings";
-import ProfileSettingsPage from "@/pages/profile-settings";
+const OverviewPage = lazy(() => import("@/pages/overview"));
+const DashboardPage = lazy(() => import("@/pages/dashboard"));
+const DraftsPage = lazy(() => import("@/pages/drafts"));
+const PublishedPage = lazy(() => import("@/pages/published"));
+const AnalyticsPage = lazy(() => import("@/pages/analytics"));
+const PerformancePage = lazy(() => import("@/pages/performance"));
+const PluginsPage = lazy(() => import("@/pages/plugins"));
+const SettingsPage = lazy(() => import("@/pages/settings"));
+const BillingPage = lazy(() => import("@/pages/billing"));
+const CalendarPage = lazy(() => import("@/pages/calendar"));
 import NotFound from "@/pages/not-found";
-
-// Single deployment domain, so the key comes straight from the environment.
-// This previously routed through publishableKeyFromHost + a Clerk FAPI proxy to
-// support multiple Replit/custom domains from one build; both are gone.
-const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+import { AdminLayout } from "@/components/admin/admin-layout";
+const AdminOverviewPage = lazy(() => import("@/pages/admin/overview"));
+const AdminTenantsPage = lazy(() => import("@/pages/admin/tenants"));
+const AdminUsersPage = lazy(() => import("@/pages/admin/users"));
+const AdminIntegrationsPage = lazy(() => import("@/pages/admin/integrations"));
+const AdminAuditLogPage = lazy(() => import("@/pages/admin/audit-log"));
+const AdminEngineRunsPage = lazy(() => import("@/pages/admin/engine-runs"));
+const AdminFeatureFlagsPage = lazy(() => import("@/pages/admin/feature-flags"));
+const AdminMonitoringPage = lazy(() => import("@/pages/admin/monitoring"));
+import { SignInPage, SignUpPage, VerifyEmailPage } from "@/pages/auth";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
-const clerkAppearance = buildClerkAppearance(basePath);
 
 // Clerk passes full paths to routerPush/routerReplace, but wouter's
 // setLocation prepends the base — strip it to avoid doubling.
@@ -41,50 +49,10 @@ function stripBase(path: string): string {
   return basePath && path.startsWith(basePath) ? path.slice(basePath.length) || "/" : path;
 }
 
-if (!clerkPubKey) {
-  throw new Error("Missing VITE_CLERK_PUBLISHABLE_KEY in .env file");
-}
-
-function SignInPage() {
-  return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4">
-      {/* path must be the full browser path — Clerk reads window.location.pathname directly */}
-      <SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} />
-    </div>
-  );
-}
-
-function SignUpPage() {
-  return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4">
-      <SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} />
-    </div>
-  );
-}
-
-// Helps the client stay in sync when the signed-in user changes by invalidating the QueryClient cache.
-function ClerkQueryClientCacheInvalidator() {
-  const { addListener } = useClerk();
-  const qc = useQueryClient();
-  const prevUserIdRef = useRef<string | null | undefined>(undefined);
-
-  useEffect(() => {
-    const unsubscribe = addListener(({ user }) => {
-      const userId = user?.id ?? null;
-      if (prevUserIdRef.current !== undefined && prevUserIdRef.current !== userId) {
-        qc.clear();
-      }
-      prevUserIdRef.current = userId;
-    });
-    return unsubscribe;
-  }, [addListener, qc]);
-
-  return null;
-}
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const style = {
-    "--sidebar-width": "16rem",
+    "--sidebar-width": "14rem",
     "--sidebar-width-icon": "3rem",
   };
 
@@ -93,55 +61,107 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
       <div className="flex h-screen w-full">
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0">
-          <header className="flex items-center justify-between gap-4 p-3 border-b bg-background sticky top-0 z-10">
-            <SidebarTrigger data-testid="button-sidebar-toggle" />
-          </header>
+          <DashboardNavbar />
           <div className="flex-1 overflow-hidden">{children}</div>
+          <AppFooter />
         </div>
       </div>
     </SidebarProvider>
   );
 }
 
+function DashboardRedirect({ to }: { to: string }) {
+  const [, setLocation] = useLocation();
+  useEffect(() => { setLocation(to, { replace: true }); }, [setLocation, to]);
+  return <LoadingScreen />;
+}
+
 function DashboardRouter() {
   const [location] = useLocation();
+  const shouldReduceMotion = useReducedMotion();
 
   return (
     <AuthenticatedLayout>
       <AnimatePresence mode="wait">
         <motion.div
           key={location}
-          initial={{ opacity: 0, y: 8 }}
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+          exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
+          transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           className="h-full"
         >
+          <Suspense fallback={<LoadingScreen />}>
           <Switch>
-            <Route path="/dashboard" component={DashboardPage} />
+            <Route path="/dashboard" component={OverviewPage} />
+            <Route path="/dashboard/discover" component={DashboardPage} />
+            <Route path="/dashboard/inbox"><DashboardRedirect to="/dashboard/discover" /></Route>
             <Route path="/dashboard/drafts" component={DraftsPage} />
             <Route path="/dashboard/published" component={PublishedPage} />
-            <Route path="/dashboard/analytics" component={AnalyticsPage} />
-            <Route path="/dashboard/profile" component={ProfileSettingsPage} />
+            <Route path="/dashboard/performance" component={PerformancePage} />
+            <Route path="/dashboard/connections" component={AnalyticsPage} />
+            <Route path="/dashboard/analytics"><DashboardRedirect to="/dashboard/performance" /></Route>
+            <Route path="/dashboard/preferences" component={PluginsPage} />
+            <Route path="/dashboard/plugins"><DashboardRedirect to="/dashboard/preferences" /></Route>
+            <Route path="/dashboard/profile"><DashboardRedirect to="/dashboard/settings?tab=content" /></Route>
             <Route path="/dashboard/settings" component={SettingsPage} />
-            <Route component={DashboardPage} />
+            <Route path="/dashboard/billing" component={BillingPage} />
+            <Route path="/dashboard/calendar" component={CalendarPage} />
+            <Route component={OverviewPage} />
           </Switch>
+          </Suspense>
         </motion.div>
       </AnimatePresence>
     </AuthenticatedLayout>
   );
 }
 
+function AdminRouter() {
+  const [location] = useLocation();
+  const shouldReduceMotion = useReducedMotion();
+
+  return (
+    <AdminLayout>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={location}
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
+          transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+          className="h-full"
+        >
+          <Suspense fallback={<LoadingScreen />}>
+          <Switch>
+            <Route path="/admin" component={AdminOverviewPage} />
+            <Route path="/admin/tenants" component={AdminTenantsPage} />
+            <Route path="/admin/users" component={AdminUsersPage} />
+            <Route path="/admin/integrations" component={AdminIntegrationsPage} />
+            <Route path="/admin/audit-log" component={AdminAuditLogPage} />
+            <Route path="/admin/engine-runs" component={AdminEngineRunsPage} />
+            <Route path="/admin/feature-flags" component={AdminFeatureFlagsPage} />
+            <Route path="/admin/monitoring" component={AdminMonitoringPage} />
+            <Route component={NotFound} />
+          </Switch>
+          </Suspense>
+        </motion.div>
+      </AnimatePresence>
+    </AdminLayout>
+  );
+}
+
 /** Wraps a page in the shared enter/exit transition. */
 function PageTransition({ transitionKey, children }: { transitionKey: string; children: React.ReactNode }) {
+  const shouldReduceMotion = useReducedMotion();
+
   return (
     <AnimatePresence mode="wait">
       <motion.div
         key={transitionKey}
-        initial={{ opacity: 0, y: 8 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -8 }}
-        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
+        transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
       >
         {children}
       </motion.div>
@@ -150,14 +170,11 @@ function PageTransition({ transitionKey, children }: { transitionKey: string; ch
 }
 
 function AppRoutes() {
-  const { isLoaded: clerkLoaded, isSignedIn: clerkSignedIn } = useUser();
+  const { user, isPending } = useAuth();
   const [location, setLocation] = useLocation();
 
-  // TEMPORARY: with the bypass on, treat Clerk as loaded and signed in. This
-  // also covers the case where Clerk never finishes loading (bad key, blocked
-  // FAPI), which would otherwise hold the app on the loading screen forever.
-  const authLoaded = devAuthEnabled || clerkLoaded;
-  const signedIn = devAuthEnabled || !!clerkSignedIn;
+  const authLoaded = !isPending;
+  const signedIn = !!user;
 
   const { data: dbUser, error: dbUserError } = useQuery<DbUser | null>({
     queryKey: ["/api/me"],
@@ -193,8 +210,6 @@ function AppRoutes() {
     if (gate === "redirect-signin") setLocation("/sign-in", { replace: true });
   }, [gate, setLocation]);
 
-  // Collapse Clerk's internal multi-step sub-paths (e.g. /sign-up/verify-email-address)
-  // to one key so the transition doesn't replay on every step of the auth flow.
   const transitionKey = location.startsWith("/sign-in")
     ? "/sign-in"
     : location.startsWith("/sign-up")
@@ -220,6 +235,7 @@ function AppRoutes() {
                 <>
                   <Route path="/sign-in/*?" component={SignInPage} />
                   <Route path="/sign-up/*?" component={SignUpPage} />
+                  <Route path="/verify-email" component={VerifyEmailPage} />
                 </>
               )
             }
@@ -232,6 +248,7 @@ function AppRoutes() {
         <CompleteRegistrationPage
           existingFirstName={dbUser?.firstName}
           existingLastName={dbUser?.lastName}
+          existingName={dbUser?.name}
         />
       );
 
@@ -239,56 +256,19 @@ function AppRoutes() {
       return <OnboardingPage />;
 
     case "dashboard":
-      return <DashboardRouter />;
+      return location.startsWith("/admin") ? <AdminRouter /> : <DashboardRouter />;
 
     case "not-found":
       return <NotFound />;
   }
 }
 
-function ClerkProviderWithRoutes() {
-  const [, setLocation] = useLocation();
-
-  return (
-    <ClerkProvider
-      publishableKey={clerkPubKey}
-      appearance={clerkAppearance}
-      signInUrl={`${basePath}/sign-in`}
-      signUpUrl={`${basePath}/sign-up`}
-      localization={{
-        signIn: {
-          start: {
-            title: "Welcome back",
-            subtitle: "Sign in to TheSocialPundit",
-          },
-        },
-        signUp: {
-          start: {
-            title: "Create your account",
-            subtitle: "Get started with TheSocialPundit",
-          },
-        },
-      }}
-      routerPush={(to) => setLocation(stripBase(to))}
-      routerReplace={(to) => setLocation(stripBase(to), { replace: true })}
-    >
-      <QueryClientProvider client={queryClient}>
-        <ClerkQueryClientCacheInvalidator />
-        <HelmetProvider>
-          <TooltipProvider>
-            <Toaster />
-            <AppRoutes />
-          </TooltipProvider>
-        </HelmetProvider>
-      </QueryClientProvider>
-    </ClerkProvider>
-  );
-}
-
 function App() {
   return (
     <WouterRouter base={basePath}>
-      <ClerkProviderWithRoutes />
+      <QueryClientProvider client={queryClient}>
+        <HelmetProvider><TooltipProvider><Toaster /><AppRoutes /></TooltipProvider></HelmetProvider>
+      </QueryClientProvider>
     </WouterRouter>
   );
 }

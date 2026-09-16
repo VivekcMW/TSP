@@ -3,6 +3,7 @@ import type { Express as ExpressApp, NextFunction, Request, Response } from "exp
 import passport from "passport";
 import { Strategy as OAuth2Strategy } from "passport-oauth2";
 import { storage } from "../storage";
+import { encryptWebhookUrl } from "./webhookSecrets";
 
 /**
  * LinkedIn "Connect account" flow used by the Analytics page. This is a
@@ -18,6 +19,7 @@ import { storage } from "../storage";
  */
 
 const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const LINKEDIN_SCOPES = ["openid", "profile", "email", "w_member_social"];
 
 interface LinkedInAnalyticsStatePayload {
   userId: string;
@@ -80,69 +82,6 @@ function getOAuthCallbackUrl(path: string, envOverride?: string): string {
   return `http://localhost:${process.env.PORT || 3000}${path}`;
 }
 
-function generateDemoAnalyticsMetrics(provider: string) {
-  const baseFollowers = provider === "linkedin" ? 2500 : 1800;
-  const variance = () => Math.floor(Math.random() * 200) - 100;
-
-  const metrics = {
-    followers: baseFollowers + variance(),
-    following: provider === "linkedin" ? 450 + variance() : 320 + variance(),
-    posts: 24 + Math.floor(Math.random() * 10),
-    impressions: 12400 + Math.floor(Math.random() * 3000),
-    engagements: 520 + Math.floor(Math.random() * 200),
-    engagementRate: parseFloat((4.2 + Math.random() * 2).toFixed(2)),
-    likes: 340 + Math.floor(Math.random() * 100),
-    comments: 45 + Math.floor(Math.random() * 30),
-    shares: 28 + Math.floor(Math.random() * 20),
-    clicks: 156 + Math.floor(Math.random() * 50),
-    profileViews: provider === "linkedin" ? 89 + Math.floor(Math.random() * 40) : undefined,
-  };
-
-  const topPosts = [
-    {
-      postId: `post_${Date.now()}_1`,
-      content:
-        provider === "linkedin"
-          ? "The future of B2B marketing isn't about more content—it's about better context. Here's what I learned from analyzing 500+ campaigns..."
-          : "Hot take: Most SaaS companies are over-engineering their onboarding. Simple wins. Here's why...",
-      impressions: 3200 + Math.floor(Math.random() * 1000),
-      engagements: 180 + Math.floor(Math.random() * 50),
-      likes: 120 + Math.floor(Math.random() * 30),
-      comments: 24 + Math.floor(Math.random() * 10),
-      shares: 18 + Math.floor(Math.random() * 8),
-      postedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-    {
-      postId: `post_${Date.now()}_2`,
-      content:
-        provider === "linkedin"
-          ? "Just shipped a major feature after 3 months of work. The key insight? Listen to users, not just their words, but their behaviors."
-          : "Thread: 5 counterintuitive lessons from scaling to $10M ARR. Let's go...",
-      impressions: 2800 + Math.floor(Math.random() * 800),
-      engagements: 145 + Math.floor(Math.random() * 40),
-      likes: 95 + Math.floor(Math.random() * 25),
-      comments: 18 + Math.floor(Math.random() * 8),
-      shares: 12 + Math.floor(Math.random() * 6),
-      postedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-    {
-      postId: `post_${Date.now()}_3`,
-      content:
-        provider === "linkedin"
-          ? "AI won't replace marketers. But marketers who use AI will replace those who don't. Here's my stack for 2026..."
-          : "Unpopular opinion: Most productivity advice is just procrastination in disguise.",
-      impressions: 2100 + Math.floor(Math.random() * 600),
-      engagements: 98 + Math.floor(Math.random() * 30),
-      likes: 72 + Math.floor(Math.random() * 20),
-      comments: 12 + Math.floor(Math.random() * 6),
-      shares: 8 + Math.floor(Math.random() * 4),
-      postedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-  ];
-
-  return { metrics, topPosts };
-}
-
 type RequireAuthMiddleware = (req: Request, res: Response, next: NextFunction) => void;
 
 export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: RequireAuthMiddleware) {
@@ -171,7 +110,7 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
       clientID: process.env.LINKEDIN_CLIENT_ID,
       clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
       callbackURL: linkedinAnalyticsCallbackURL,
-      scope: "openid profile email",
+      scope: LINKEDIN_SCOPES,
     } as any,
     async (accessToken: string, refreshToken: string, _params: any, _profile: any, done: any) => {
       try {
@@ -214,8 +153,9 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
 
   app.get("/auth/linkedin/analytics", requireAuth, (req: any, res: Response) => {
     const userId = req.dbUser.id;
-    const rawReturnTo = (req.query.returnTo as string) || req.headers.referer || "/analytics";
-    const returnTo = rawReturnTo.includes("/dashboard") ? "/dashboard" : "/analytics";
+    // Analytics is an authenticated dashboard route. The former /analytics
+    // target falls through to the dashboard overview after Clerk's route gate.
+    const returnTo = "/dashboard/connections";
 
     const clientId = process.env.LINKEDIN_CLIENT_ID;
     if (!clientId) {
@@ -241,7 +181,7 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
       "?response_type=code" +
       `&client_id=${clientId}` +
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      "&scope=openid%20profile%20email" +
+      `&scope=${encodeURIComponent(LINKEDIN_SCOPES.join(" "))}` +
       `&state=${encodeURIComponent(state)}`;
 
     res.redirect(authUrl);
@@ -256,7 +196,7 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
           error_description: req.query.error_description,
         });
         return res.redirect(
-          `/analytics?error=linkedin_connect_failed&reason=${encodeURIComponent(
+          `/dashboard/connections?error=linkedin_connect_failed&reason=${encodeURIComponent(
             (req.query.error_description as string) || (req.query.error as string),
           )}`,
         );
@@ -267,7 +207,7 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
 
       if (!statePayload) {
         console.error("LinkedIn Analytics Callback: invalid or expired state");
-        return res.redirect("/analytics?error=linkedin_connect_failed&reason=state_mismatch");
+        return res.redirect("/dashboard/connections?error=linkedin_connect_failed&reason=state_mismatch");
       }
 
       (req as any).linkedInAnalyticsState = statePayload;
@@ -281,7 +221,7 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
       const statePayload = (req as any).linkedInAnalyticsState as LinkedInAnalyticsStatePayload | undefined;
       const userId = statePayload?.userId;
       const tenantId = statePayload?.tenantId;
-      const returnTo = statePayload?.returnTo || "/analytics";
+      const returnTo = statePayload?.returnTo || "/dashboard/connections";
       const oauthData = (req as any).user;
 
       if (!userId || !tenantId || !oauthData?.profile) {
@@ -294,8 +234,9 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
         const existing = await storage.getSocialAccountByProvider(scope, "linkedin");
         if (existing) {
           await storage.updateSocialAccount(scope, existing.id, {
-            accessToken: oauthData.accessToken,
-            refreshToken: oauthData.refreshToken || null,
+            accessToken: encryptWebhookUrl(oauthData.accessToken),
+            refreshToken: oauthData.refreshToken ? encryptWebhookUrl(oauthData.refreshToken) : null,
+            scopes: LINKEDIN_SCOPES,
             lastSyncAt: new Date(),
           });
         } else {
@@ -309,20 +250,24 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
             providerAccountId: oauthData.profile.id,
             accountName: displayName,
             accountHandle: `@${oauthData.profile.id}`,
-            accessToken: oauthData.accessToken,
-            refreshToken: oauthData.refreshToken || null,
+            accessToken: encryptWebhookUrl(oauthData.accessToken),
+            refreshToken: oauthData.refreshToken ? encryptWebhookUrl(oauthData.refreshToken) : null,
             isActive: true,
-            scopes: ["openid", "profile", "email"],
+            scopes: LINKEDIN_SCOPES,
             lastSyncAt: new Date(),
           });
 
-          const demoMetrics = generateDemoAnalyticsMetrics("linkedin");
+          // LinkedIn's basic OIDC profile doesn't provide audience/engagement
+          // metrics. Store a truthful zeroed snapshot (same pattern as
+          // syncLinkedInAnalytics) rather than fabricated numbers; a real sync
+          // is available via the Sync button once organization/member
+          // analytics API products are approved.
           await storage.createSocialAnalytics(scope, {
             socialAccountId: account.id,
             provider: "linkedin",
             snapshotDate: new Date(),
-            metrics: demoMetrics.metrics,
-            topPosts: demoMetrics.topPosts,
+            metrics: { followers: 0, following: 0, posts: 0, impressions: 0, engagements: 0, engagementRate: 0, likes: 0, comments: 0, shares: 0, clicks: 0 },
+            topPosts: [],
           });
         }
 

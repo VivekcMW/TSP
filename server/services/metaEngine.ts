@@ -1,14 +1,6 @@
-import { GoogleGenAI } from "@google/genai";
 import type { IndustrySlug } from "@shared/schema";
 import { engineRegistry } from "./engines/index.js";
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.AI_INTEGRATIONS_GEMINI_API_KEY,
-  httpOptions: {
-    apiVersion: "",
-    baseUrl: process.env.AI_INTEGRATIONS_GEMINI_BASE_URL,
-  },
-});
+import { generateText } from "./openRouter";
 
 const SUPPORTED_VERTICALS: Array<{ slug: IndustrySlug; name: string; signals: string[] }> = [
   {
@@ -159,16 +151,7 @@ PROFESSIONAL FOCUS: "${focusDescription}"
 Analyze this input and determine the best industry vertical match. Return valid JSON only.`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        { role: "user", parts: [{ text: META_ENGINE_PROMPT }] },
-        { role: "user", parts: [{ text: userPrompt }] },
-      ],
-    });
-
-    const candidate = response.candidates?.[0];
-    const text = candidate?.content?.parts?.[0]?.text || "";
+    const text = await generateText(`${META_ENGINE_PROMPT}\n\n${userPrompt}`);
     
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {

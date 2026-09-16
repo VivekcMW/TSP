@@ -1,11 +1,11 @@
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import { SEO } from "@/components/seo";
+import { SEO as Seo } from "@/components/seo";
 
 export default function PrivacyPolicyPage() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <SEO
+      <Seo
         title="Privacy Policy"
         canonical="/privacy"
         description="How TheSocialPundit collects, uses, and protects your data."
@@ -17,7 +17,7 @@ export default function PrivacyPolicyPage() {
             <h1 className="heading-display mb-4" data-testid="text-privacy-title">
               Privacy Policy
             </h1>
-            <p className="text-sm text-muted-foreground mb-12">Last updated: August 28, 2026</p>
+            <p className="text-sm text-muted-foreground mb-12">Last updated: September 3, 2026</p>
 
             <div className="prose prose-neutral dark:prose-invert max-w-none space-y-8">
               <section>
@@ -35,7 +35,7 @@ export default function PrivacyPolicyPage() {
                 <ul className="text-muted-foreground space-y-2">
                   <li>
                     <strong className="text-foreground">Account information:</strong> your name, email
-                    address, and profile image, managed through our authentication provider, Clerk, when
+                    address, and profile image, managed through our authentication provider, Better Auth, when
                     you sign up or sign in.
                   </li>
                   <li>
@@ -76,10 +76,10 @@ export default function PrivacyPolicyPage() {
                 <h2 className="heading-section !text-2xl">AI processing</h2>
                 <p className="text-muted-foreground">
                   When you generate a post, the relevant news article content and your profile context
-                  (such as industry and chosen tone) are sent to Google's Gemini API to produce a draft.
-                  This processing is used solely to generate your content and is not used by us to build
-                  advertising profiles. Please review Google's own privacy terms for how they handle data
-                  processed through their API.
+                  (such as industry and chosen tone) are sent to the configured AI provider (OpenRouter or
+                  Google Gemini) to produce a draft. This processing is used to provide the requested feature
+                  and is not used by us to build advertising profiles. Please review the applicable provider's
+                  privacy terms for how API data is handled.
                 </p>
               </section>
 
@@ -87,8 +87,9 @@ export default function PrivacyPolicyPage() {
                 <h2 className="heading-section !text-2xl">How we share information</h2>
                 <p className="text-muted-foreground">
                   We do not sell your personal information. We share data only with the service providers
-                  necessary to operate TheSocialPundit — including our authentication provider (Clerk), our
-                  AI provider (Google Gemini), and our hosting and database infrastructure — and only to the
+                  necessary to operate TheSocialPundit — including our authentication provider (Better Auth),
+                  configured AI provider (OpenRouter or Google Gemini), payment processor (Razorpay), and our
+                  hosting and database infrastructure — and only to the
                   extent needed for them to perform their function. We may also disclose information if
                   required by law.
                 </p>
@@ -121,8 +122,9 @@ export default function PrivacyPolicyPage() {
               <section>
                 <h2 className="heading-section !text-2xl">Cookies</h2>
                 <p className="text-muted-foreground">
-                  We use essential cookies managed by our authentication provider to keep you signed in and
-                  to secure your session. We do not use third-party advertising cookies.
+                  We use essential authentication and security cookies to keep you signed in and protect your
+                  session. The current Service does not intentionally use third-party advertising cookies. See
+                  our <a href="/cookies" className="text-primary underline">Cookie Policy</a> for details.
                 </p>
               </section>
 

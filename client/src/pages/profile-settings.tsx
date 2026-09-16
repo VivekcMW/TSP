@@ -1,42 +1,64 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback, type ReactNode } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { User, Tag, Building2, Users, Newspaper, Sparkles, Save, Plus, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ExternalLink, Link2, User, Sparkles, Save, Plus, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { UserProfile, InboxItem } from "@shared/schema";
+import { PageHeader } from "@/components/dashboard/page-header";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
+import { SourcesManagerContent } from "@/components/dashboard/sources-manager";
+import { getIndustryData } from "@/components/onboarding/onboarding-wizard";
+import type { UserProfile, InboxItem, ProfileSocialLink } from "@shared/schema";
 
 interface ProfileData extends UserProfile {
   aiKeywords?: string[];
 }
 
-export default function ProfileSettingsPage() {
+const socialLinkPlatforms = [
+  { value: "linkedin", label: "LinkedIn" },
+  { value: "twitter", label: "X / Twitter" },
+  { value: "github", label: "GitHub" },
+  { value: "instagram", label: "Instagram" },
+  { value: "youtube", label: "YouTube" },
+  { value: "website", label: "Personal website" },
+  { value: "portfolio", label: "Portfolio" },
+  { value: "other", label: "Other" },
+];
+
+interface ProfileSettingsPageProps {
+  embedded?: boolean;
+  onSaveActionChange?: (action: { onSave: () => void; isPending: boolean } | null) => void;
+}
+
+export default function ProfileSettingsPage({ embedded = false, onSaveActionChange }: Readonly<ProfileSettingsPageProps>) {
   const { toast } = useToast();
   
   const { data: profile, isLoading: profileLoading } = useQuery<UserProfile>({
     queryKey: ["/api/profile"],
   });
+  const { data: currentUser } = useQuery<{ industry?: string; country?: string }>({
+    queryKey: ["/api/me"],
+  });
 
   const { data: inboxItems } = useQuery<InboxItem[]>({
     queryKey: ["/api/inbox"],
   });
+  const { data: socialLinks = [], isLoading: socialLinksLoading } = useQuery<ProfileSocialLink[]>({ queryKey: ["/api/profile/social-links"] });
 
   const [focusDescription, setFocusDescription] = useState("");
   const [publications, setPublications] = useState<string[]>([]);
   const [keywords, setKeywords] = useState<string[]>([]);
   const [influencers, setInfluencers] = useState<string[]>([]);
   const [companies, setCompanies] = useState<string[]>([]);
-  const [newPublication, setNewPublication] = useState("");
-  const [newKeyword, setNewKeyword] = useState("");
-  const [newInfluencer, setNewInfluencer] = useState("");
-  const [newCompany, setNewCompany] = useState("");
+  const [newLinkPlatform, setNewLinkPlatform] = useState("linkedin");
+  const [newLinkLabel, setNewLinkLabel] = useState("LinkedIn");
+  const [newLinkUrl, setNewLinkUrl] = useState("");
 
   useEffect(() => {
     if (profile) {
@@ -50,6 +72,14 @@ export default function ProfileSettingsPage() {
 
   const aiKeywords = inboxItems?.flatMap(item => item.matchedKeywords || [])
     .filter((keyword, index, self) => self.indexOf(keyword) === index) || [];
+  const industryData = useMemo(
+    () => getIndustryData(currentUser?.industry, currentUser?.country),
+    [currentUser?.industry, currentUser?.country],
+  );
+  const publicationOptions = industryData.publications.map((value) => ({ value }));
+  const keywordOptions = [...industryData.keywords, ...aiKeywords].map((value) => ({ value }));
+  const influencerOptions = industryData.influencers.map((value) => ({ value }));
+  const companyOptions = industryData.companies.map((value) => ({ value }));
 
   const updateMutation = useMutation({
     mutationFn: async (data: Partial<UserProfile>) => {
@@ -71,7 +101,22 @@ export default function ProfileSettingsPage() {
     },
   });
 
-  const handleSave = () => {
+  const addLinkMutation = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/profile/social-links", { platform: newLinkPlatform, label: newLinkLabel, url: newLinkUrl })).json(),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/profile/social-links"] }); setNewLinkUrl(""); toast({ title: "Social link added", description: "Your public profile link is saved." }); },
+    onError: (error: Error) => toast({ title: "Could not add link", description: error.message, variant: "destructive" }),
+  });
+  const deleteLinkMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest("DELETE", `/api/profile/social-links/${id}`),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/profile/social-links"] }); toast({ title: "Social link removed" }); },
+    onError: (error: Error) => toast({ title: "Could not remove link", description: error.message, variant: "destructive" }),
+  });
+  const reorderLinksMutation = useMutation({
+    mutationFn: async (ids: string[]) => apiRequest("PUT", "/api/profile/social-links/reorder", { ids }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/profile/social-links"] }),
+  });
+
+  const handleSave = useCallback(() => {
     updateMutation.mutate({
       focusDescription,
       publications,
@@ -79,15 +124,13 @@ export default function ProfileSettingsPage() {
       influencers,
       companies,
     });
-  };
+  }, [companies, focusDescription, influencers, keywords, publications, updateMutation]);
 
-  const addItem = (list: string[], setList: (items: string[]) => void, newItem: string, setNewItem: (val: string) => void) => {
-    const trimmed = newItem.trim();
-    if (trimmed && !list.includes(trimmed)) {
-      setList([...list, trimmed]);
-      setNewItem("");
-    }
-  };
+  useEffect(() => {
+    if (!embedded || !onSaveActionChange) return;
+    onSaveActionChange({ onSave: handleSave, isPending: updateMutation.isPending });
+    return () => onSaveActionChange(null);
+  }, [embedded, handleSave, onSaveActionChange, updateMutation.isPending]);
 
   const removeItem = (list: string[], setList: (items: string[]) => void, item: string) => {
     setList(list.filter(i => i !== item));
@@ -103,14 +146,43 @@ export default function ProfileSettingsPage() {
     }
   };
 
+  const handleLinkPlatformChange = (value: string) => {
+    setNewLinkPlatform(value);
+    setNewLinkLabel(socialLinkPlatforms.find((platform) => platform.value === value)?.label ?? "Other");
+  };
+
+  let socialLinksContent: ReactNode;
+  if (socialLinksLoading) {
+    socialLinksContent = <Skeleton className="h-12 w-full" />;
+  } else if (socialLinks.length > 0) {
+    socialLinksContent = (
+      <div className="space-y-2">
+        {socialLinks.map((link, index) => (
+          <div key={link.id} className="flex items-center gap-3 rounded-[4px] border p-3" data-testid={`social-link-${link.platform}`}>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] bg-secondary/15"><Link2 className="h-4 w-4 text-secondary" /></div>
+            <div className="min-w-0 flex-1"><p className="text-sm font-medium">{link.label}</p><a href={link.url} target="_blank" rel="noreferrer" className="block truncate text-xs text-muted-foreground hover:text-primary">{link.url}</a></div>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" disabled={index === 0 || reorderLinksMutation.isPending} onClick={() => reorderLinksMutation.mutate([socialLinks[index - 1].id, link.id, ...socialLinks.filter((item) => item.id !== link.id && item.id !== socialLinks[index - 1].id).map((item) => item.id)])} aria-label={`Move ${link.label} up`}><ArrowUp className="h-3.5 w-3.5" /></Button>
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" disabled={index === socialLinks.length - 1 || reorderLinksMutation.isPending} onClick={() => reorderLinksMutation.mutate([...socialLinks.filter((item) => item.id !== link.id && item.id !== socialLinks[index + 1].id).map((item) => item.id), link.id, socialLinks[index + 1].id])} aria-label={`Move ${link.label} down`}><ArrowDown className="h-3.5 w-3.5" /></Button>
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" disabled={deleteLinkMutation.isPending} onClick={() => deleteLinkMutation.mutate(link.id)} aria-label={`Remove ${link.label}`}><X className="h-3.5 w-3.5" /></Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  } else {
+    socialLinksContent = <p className="rounded-[4px] border border-dashed p-4 text-sm text-muted-foreground">No public links added yet.</p>;
+  }
+
   if (profileLoading) {
+    if (embedded) return <div className="space-y-6"><Skeleton className="h-48 w-full" /><Skeleton className="h-48 w-full" /></div>;
     return (
       <div className="flex-1 overflow-hidden">
         <header className="sticky top-0 z-10 bg-background border-b px-6 py-4">
           <Skeleton className="h-8 w-48" />
         </header>
-        <main className="p-6">
-          <div className="max-w-3xl space-y-6">
+        <main className="p-4 sm:p-6">
+          <div className="mx-auto w-full max-w-4xl space-y-6">
             <Skeleton className="h-48 w-full" />
             <Skeleton className="h-48 w-full" />
           </div>
@@ -120,42 +192,24 @@ export default function ProfileSettingsPage() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <header className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
-              <User className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold" data-testid="text-page-title">Profile Settings</h1>
-              <p className="text-sm text-muted-foreground">
-                Customize your content preferences
-              </p>
-            </div>
-          </div>
-          <Button 
-            onClick={handleSave} 
-            disabled={updateMutation.isPending}
-            data-testid="button-save-profile"
-          >
-            <Save className="w-4 h-4 mr-2" />
-            {updateMutation.isPending ? "Saving..." : "Save Changes"}
-          </Button>
-        </div>
-      </header>
+    <>
+      {!embedded && <PageHeader
+        icon={User}
+        title="Profile Settings"
+        subtitle="Customize your content preferences"
+        actions={<Button onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-profile"><Save className="w-4 h-4 mr-2" />{updateMutation.isPending ? "Saving..." : "Save Changes"}</Button>}
+      />}
       
-      <main className="flex-1 p-6 overflow-y-auto">
-        <div className="max-w-3xl space-y-6">
+      <main className={embedded ? "" : "flex-1 p-4 sm:p-6 overflow-y-auto"}>
+        <div className="mx-auto w-full max-w-4xl space-y-6">
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Tag className="w-5 h-5" />
-                Focus Area
-              </CardTitle>
-              <CardDescription>
-                Describe what you want to be known for in your industry
-              </CardDescription>
+            <CardHeader className="flex flex-row items-start justify-between gap-4">
+              <div>
+                <CardTitle>Focus Area</CardTitle>
+                <CardDescription>
+                  Describe what you want to be known for in your industry
+                </CardDescription>
+              </div>
             </CardHeader>
             <CardContent>
               <Textarea
@@ -168,12 +222,26 @@ export default function ProfileSettingsPage() {
             </CardContent>
           </Card>
 
+          <Card data-testid="card-profile-social-links">
+            <CardHeader>
+              <CardTitle>Social profiles</CardTitle>
+              <CardDescription>Links people can visit when they want to learn more about your work.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {socialLinksContent}
+              <div className="grid gap-2 md:grid-cols-[180px_1fr_1.5fr_auto]">
+                <Select value={newLinkPlatform} onValueChange={handleLinkPlatformChange}><SelectTrigger aria-label="Social platform"><SelectValue /></SelectTrigger><SelectContent>{socialLinkPlatforms.filter((platform) => !socialLinks.some((link) => link.platform === platform.value)).map((platform) => <SelectItem key={platform.value} value={platform.value}>{platform.label}</SelectItem>)}</SelectContent></Select>
+                <Input value={newLinkLabel} onChange={(event) => setNewLinkLabel(event.target.value)} placeholder="Link label" aria-label="Social link label" />
+                <Input value={newLinkUrl} onChange={(event) => setNewLinkUrl(event.target.value)} placeholder="https://…" type="url" aria-label="Social link URL" />
+                <Button type="button" onClick={() => addLinkMutation.mutate()} disabled={!newLinkUrl.trim() || !newLinkLabel.trim() || addLinkMutation.isPending} aria-label="Add social link"><Plus className="mr-2 h-4 w-4" />Add</Button>
+              </div>
+              <p className="flex items-center gap-2 text-xs text-muted-foreground"><ExternalLink className="h-3.5 w-3.5" />Only public URLs are stored here. Connected publishing credentials remain protected in Connections.</p>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Newspaper className="w-5 h-5" />
-                Publications
-              </CardTitle>
+              <CardTitle>Publications</CardTitle>
               <CardDescription>
                 Industry publications you follow for insights
               </CardDescription>
@@ -196,32 +264,34 @@ export default function ProfileSettingsPage() {
                   <p className="text-sm text-muted-foreground">No publications added yet</p>
                 )}
               </div>
-              <div className="flex gap-2">
-                <Input
-                  value={newPublication}
-                  onChange={(e) => setNewPublication(e.target.value)}
-                  placeholder="Add a publication..."
-                  onKeyDown={(e) => e.key === "Enter" && addItem(publications, setPublications, newPublication, setNewPublication)}
-                  data-testid="input-new-publication"
-                />
-                <Button 
-                  variant="outline" 
-                  size="icon"
-                  onClick={() => addItem(publications, setPublications, newPublication, setNewPublication)}
-                  data-testid="button-add-publication"
-                >
-                  <Plus className="w-4 h-4" />
-                </Button>
-              </div>
+              <SearchableMultiSelect
+                options={publicationOptions}
+                selected={publications}
+                onChange={setPublications}
+                placeholder="Search or select publications..."
+                searchPlaceholder="Search publications..."
+                aria-label="Search and select publications"
+                maxItems={20}
+              />
+              <p className="text-xs text-muted-foreground">Choose from industry suggestions or add your own publication.</p>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-custom-sources">
+            <CardHeader>
+              <CardTitle>Custom Sources</CardTitle>
+              <CardDescription>
+                Add any blog, publication, or site — we detect its feed automatically. Discover fetches only from what you add here plus live search on your keywords/companies/influencers below, nothing else.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SourcesManagerContent />
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Tag className="w-5 h-5" />
-                Keywords
-              </CardTitle>
+              <CardTitle>Keywords</CardTitle>
               <CardDescription>
                 Topics and keywords that match your expertise
               </CardDescription>
@@ -244,32 +314,22 @@ export default function ProfileSettingsPage() {
                   <p className="text-sm text-muted-foreground">No keywords added yet</p>
                 )}
               </div>
-              <div className="flex gap-2">
-                <Input
-                  value={newKeyword}
-                  onChange={(e) => setNewKeyword(e.target.value)}
-                  placeholder="Add a keyword..."
-                  onKeyDown={(e) => e.key === "Enter" && addItem(keywords, setKeywords, newKeyword, setNewKeyword)}
-                  data-testid="input-new-keyword"
-                />
-                <Button 
-                  variant="outline" 
-                  size="icon"
-                  onClick={() => addItem(keywords, setKeywords, newKeyword, setNewKeyword)}
-                  data-testid="button-add-keyword"
-                >
-                  <Plus className="w-4 h-4" />
-                </Button>
-              </div>
+              <SearchableMultiSelect
+                options={keywordOptions}
+                selected={keywords}
+                onChange={setKeywords}
+                placeholder="Search or select keywords..."
+                searchPlaceholder="Search keywords..."
+                aria-label="Search and select keywords"
+                maxItems={20}
+              />
+              <p className="text-xs text-muted-foreground">Suggestions are based on your industry and detected inbox topics.</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="w-5 h-5" />
-                Influencers
-              </CardTitle>
+              <CardTitle>Influencers</CardTitle>
               <CardDescription>
                 Industry leaders whose insights you value
               </CardDescription>
@@ -292,32 +352,22 @@ export default function ProfileSettingsPage() {
                   <p className="text-sm text-muted-foreground">No influencers added yet</p>
                 )}
               </div>
-              <div className="flex gap-2">
-                <Input
-                  value={newInfluencer}
-                  onChange={(e) => setNewInfluencer(e.target.value)}
-                  placeholder="Add an influencer..."
-                  onKeyDown={(e) => e.key === "Enter" && addItem(influencers, setInfluencers, newInfluencer, setNewInfluencer)}
-                  data-testid="input-new-influencer"
-                />
-                <Button 
-                  variant="outline" 
-                  size="icon"
-                  onClick={() => addItem(influencers, setInfluencers, newInfluencer, setNewInfluencer)}
-                  data-testid="button-add-influencer"
-                >
-                  <Plus className="w-4 h-4" />
-                </Button>
-              </div>
+              <SearchableMultiSelect
+                options={influencerOptions}
+                selected={influencers}
+                onChange={setInfluencers}
+                placeholder="Search or select influencers..."
+                searchPlaceholder="Search influencers..."
+                aria-label="Search and select influencers"
+                maxItems={20}
+              />
+              <p className="text-xs text-muted-foreground">Relevant industry and country-based leaders are shown first.</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Building2 className="w-5 h-5" />
-                Companies
-              </CardTitle>
+              <CardTitle>Companies</CardTitle>
               <CardDescription>
                 Companies you want to track for news and updates
               </CardDescription>
@@ -340,33 +390,22 @@ export default function ProfileSettingsPage() {
                   <p className="text-sm text-muted-foreground">No companies added yet</p>
                 )}
               </div>
-              <div className="flex gap-2">
-                <Input
-                  value={newCompany}
-                  onChange={(e) => setNewCompany(e.target.value)}
-                  placeholder="Add a company..."
-                  onKeyDown={(e) => e.key === "Enter" && addItem(companies, setCompanies, newCompany, setNewCompany)}
-                  data-testid="input-new-company"
-                />
-                <Button 
-                  variant="outline" 
-                  size="icon"
-                  onClick={() => addItem(companies, setCompanies, newCompany, setNewCompany)}
-                  data-testid="button-add-company"
-                >
-                  <Plus className="w-4 h-4" />
-                </Button>
-              </div>
+              <SearchableMultiSelect
+                options={companyOptions}
+                selected={companies}
+                onChange={setCompanies}
+                placeholder="Search or select companies..."
+                searchPlaceholder="Search companies..."
+                aria-label="Search and select companies"
+                maxItems={20}
+              />
             </CardContent>
           </Card>
 
           {aiKeywords.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-primary" />
-                  AI-Detected Keywords
-                </CardTitle>
+                <CardTitle>AI-Detected Keywords</CardTitle>
                 <CardDescription>
                   Keywords extracted from your inbox content. Click to add to your profile.
                 </CardDescription>
@@ -394,6 +433,6 @@ export default function ProfileSettingsPage() {
           )}
         </div>
       </main>
-    </div>
+    </>
   );
 }

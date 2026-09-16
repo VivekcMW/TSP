@@ -17,6 +17,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { PLATFORMS, getPlatformMeta } from "@/lib/platforms";
 
 interface InstantReviewResult {
   article: {
@@ -26,20 +27,7 @@ interface InstantReviewResult {
     domain: string;
     content: string;
   };
-  posts: {
-    linkedin: {
-      thoughtLeader: string;
-      industryInsider: string;
-      provocateur: string;
-      dataDriven: string;
-    };
-    twitter: {
-      thoughtLeader: string;
-      industryInsider: string;
-      provocateur: string;
-      dataDriven: string;
-    };
-  };
+  posts: Record<string, Record<typeof TONALITIES[number]["key"], string>>;
 }
 
 interface InstantReviewModalProps {
@@ -76,7 +64,7 @@ function PostCard({
 }: {
   content: string;
   tonality: typeof TONALITIES[number];
-  platform: "linkedin" | "twitter";
+  platform: string;
   articleUrl: string;
   hashtags: string[];
   onSaveDraft: () => void;
@@ -105,23 +93,9 @@ function PostCard({
       // non-fatal
     }
 
-    if (platform === "linkedin") {
-      const url = articleUrl
-        ? `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(articleUrl)}`
-        : "https://www.linkedin.com/feed/?shareActive=true";
-      window.open(url, "_blank");
-      toast({
-        title: "Opening LinkedIn",
-        description: "Your post is copied — paste it into the LinkedIn composer and hit Post.",
-      });
-    } else {
-      const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(full.substring(0, 280))}`;
-      window.open(twitterUrl, "_blank");
-      toast({
-        title: "Opening Twitter/X",
-        description: "Your post is pre-filled and ready to send.",
-      });
-    }
+    const meta = getPlatformMeta(platform);
+    window.open(meta.composeUrl(full, articleUrl), "_blank");
+    toast({ title: `Opening ${meta.label}`, description: "Your post is copied and ready to paste into the composer." });
   };
 
   const removeHashtag = (tag: string) => {
@@ -153,11 +127,7 @@ function PostCard({
               onClick={handlePostNow}
               data-testid={`button-post-${platform}-${tonality.key}`}
             >
-              {platform === "linkedin" ? (
-                <Linkedin className="w-3.5 h-3.5 mr-1.5" />
-              ) : (
-                <SiX className="w-3.5 h-3.5 mr-1.5" />
-              )}
+              {(() => { const Icon = getPlatformMeta(platform).icon; return <Icon className="w-3.5 h-3.5 mr-1.5" />; })()}
               Post Now
             </Button>
             <Button
@@ -209,12 +179,14 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
   const { toast } = useToast();
   const [url, setUrl] = useState("");
   const [result, setResult] = useState<InstantReviewResult | null>(null);
-  const [selectedPlatform, setSelectedPlatform] = useState<"linkedin" | "twitter">("linkedin");
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(["linkedin", "twitter"]);
+  const [selectedPlatform, setSelectedPlatform] = useState("linkedin");
   const [savingDraft, setSavingDraft] = useState<string | null>(null);
 
   const reviewMutation = useMutation({
     mutationFn: async (articleUrl: string) => {
-      const res = await apiRequest("POST", "/api/instant-review", { url: articleUrl });
+      const endpoint = selectedPlatforms.length === 2 && selectedPlatforms.includes("linkedin") && selectedPlatforms.includes("twitter") ? "/api/instant-review" : "/api/instant-review/selected";
+      const res = await apiRequest("POST", endpoint, { url: articleUrl, selectedPlatforms });
       return res.json() as Promise<InstantReviewResult>;
     },
     onSuccess: (data) => {
@@ -264,7 +236,7 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
     reviewMutation.mutate(url.trim());
   };
 
-  const handleSaveDraft = (platform: "linkedin" | "twitter", tonalityKey: string, toneValue: string, content: string) => {
+  const handleSaveDraft = (platform: string, tonalityKey: string, toneValue: string, content: string) => {
     setSavingDraft(`${platform}-${tonalityKey}`);
     saveDraftMutation.mutate({ platform, tone: toneValue, content });
   };
@@ -280,7 +252,7 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col min-h-0">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Link2 className="w-5 h-5" />
@@ -311,6 +283,16 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
             )}
           </Button>
         </form>
+        <div className="mb-4">
+          <p className="mb-2 text-xs font-medium text-muted-foreground">Choose up to 4 platforms. Four tones are generated for each selected platform.</p>
+          <div className="flex flex-wrap gap-2">
+            {PLATFORMS.map((platform) => {
+              const selected = selectedPlatforms.includes(platform.value);
+              const Icon = platform.icon;
+              return <Button key={platform.value} type="button" size="sm" variant={selected ? "default" : "outline"} onClick={() => setSelectedPlatforms((current) => selected ? current.filter((value) => value !== platform.value) : current.length < 4 ? [...current, platform.value] : current)} disabled={!selected && selectedPlatforms.length >= 4} className="gap-1.5"><Icon className="h-3.5 w-3.5" />{platform.label}</Button>;
+            })}
+          </div>
+        </div>
 
         {reviewMutation.isPending && (
           <div className="space-y-4">
@@ -319,7 +301,7 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
               <div>
                 <p className="font-medium">Analysing article...</p>
                 <p className="text-sm text-muted-foreground">
-                  Generating 8 posts (4 tonalities for each platform)
+                  Generating {selectedPlatforms.length * 4} posts across {selectedPlatforms.length} selected platform{selectedPlatforms.length === 1 ? "" : "s"}
                 </p>
               </div>
             </div>
@@ -349,47 +331,25 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
 
             <Tabs
               value={selectedPlatform}
-              onValueChange={(v) => setSelectedPlatform(v as "linkedin" | "twitter")}
+              onValueChange={setSelectedPlatform}
               className="flex-1 flex flex-col min-h-0"
             >
               <TabsList className="w-full justify-start">
-                <TabsTrigger value="linkedin" className="flex items-center gap-2">
-                  <Linkedin className="w-4 h-4" />
-                  LinkedIn
-                </TabsTrigger>
-                <TabsTrigger value="twitter" className="flex items-center gap-2">
-                  <SiX className="w-4 h-4" />
-                  Twitter/X
-                </TabsTrigger>
+                {Object.keys(result.posts).map((platform) => { const meta = getPlatformMeta(platform); const Icon = meta.icon; return <TabsTrigger key={platform} value={platform} className="flex items-center gap-2"><Icon className="w-4 h-4" />{meta.label}</TabsTrigger>; })}
               </TabsList>
 
-              <ScrollArea className="flex-1 mt-4">
-                <TabsContent value="linkedin" className="mt-0">
+              <ScrollArea className="flex-1 min-h-0 mt-4">
+                <TabsContent value={selectedPlatform} className="mt-0 pb-4">
                   {TONALITIES.map((tonality) => (
                     <PostCard
                       key={tonality.key}
                       content={currentPosts?.[tonality.key] || ""}
                       tonality={tonality}
-                      platform="linkedin"
+                      platform={selectedPlatform}
                       articleUrl={result.article.url}
                       hashtags={[...defaultHashtags]}
-                      onSaveDraft={() => handleSaveDraft("linkedin", tonality.key, tonality.toneValue, currentPosts?.[tonality.key] || "")}
-                      isSaving={savingDraft === `linkedin-${tonality.key}`}
-                    />
-                  ))}
-                </TabsContent>
-
-                <TabsContent value="twitter" className="mt-0">
-                  {TONALITIES.map((tonality) => (
-                    <PostCard
-                      key={tonality.key}
-                      content={currentPosts?.[tonality.key] || ""}
-                      tonality={tonality}
-                      platform="twitter"
-                      articleUrl={result.article.url}
-                      hashtags={[...defaultHashtags]}
-                      onSaveDraft={() => handleSaveDraft("twitter", tonality.key, tonality.toneValue, currentPosts?.[tonality.key] || "")}
-                      isSaving={savingDraft === `twitter-${tonality.key}`}
+                      onSaveDraft={() => handleSaveDraft(selectedPlatform, tonality.key, tonality.toneValue, currentPosts?.[tonality.key] || "")}
+                      isSaving={savingDraft === `${selectedPlatform}-${tonality.key}`}
                     />
                   ))}
                 </TabsContent>
@@ -405,7 +365,7 @@ export function InstantReviewModal({ isOpen, onClose }: InstantReviewModalProps)
             </div>
             <h3 className="text-lg font-medium mb-2">Paste any article URL</h3>
             <p className="text-muted-foreground max-w-md">
-              We'll generate 8 unique posts in different tonalities for both LinkedIn and Twitter/X,
+              Choose one to four platforms. We'll create four distinct tonalities for each,
               and automatically add the publication to your profile.
             </p>
           </div>

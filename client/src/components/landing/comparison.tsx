@@ -19,7 +19,7 @@ const solutionItems = [
 
 export function Comparison() {
   return (
-    <section className="py-20 lg:py-28" data-testid="section-comparison">
+    <section className="overflow-x-clip py-20 lg:py-28" data-testid="section-comparison">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <Reveal>
           <h2 className="heading-section text-center mb-4">

@@ -10,16 +10,16 @@ export function FinalCTA() {
 
   return (
     <section
-      className="py-20 lg:py-24 bg-surface-ink text-white relative overflow-hidden"
+      className="py-20 lg:py-24 bg-surface-ink text-surface-ink-foreground relative overflow-hidden"
       data-testid="section-final-cta"
     >
       <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-secondary to-transparent" />
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
         <Reveal variants={fadeUp}>
-          <h2 className="heading-section mb-4 text-white">
+          <h2 className="heading-section mb-4 text-surface-ink-foreground">
             Free for the first 1,000 subscribers.
           </h2>
-          <p className="text-lg text-white/70 mb-8 max-w-xl mx-auto">
+          <p className="text-lg text-surface-ink-foreground/70 mb-8 max-w-xl mx-auto">
             Start posting like the go-to voice in your industry — across 23 platforms, in your
             voice, in minutes a week.
           </p>
