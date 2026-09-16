@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, Copy, Link2, Loader2, PenLine, Send } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Copy, ExternalLink, Link2, Loader2, PenLine, Send } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getPlatformMeta, PLATFORMS } from "@/lib/platforms";
 import { useToast } from "@/hooks/use-toast";
@@ -110,5 +110,25 @@ function ArticleList({ platform, articles, onReview, pending }: { platform: stri
 }
 
 function ReviewResults({ result, platform, onPlatform, onBack, saveDraft, saving }: { result: InstantReviewResult; platform: string; onPlatform: (platform: string) => void; onBack: () => void; saveDraft: (data: { platform: string; tone: string; content: string; media?: ArticleMedia[] }) => void; saving: boolean }) {
-  return <div className="flex h-full min-h-0 flex-col"><div className="border-b p-5"><Button variant="ghost" size="sm" onClick={onBack}>← All articles</Button><h3 className="mt-2 font-medium">{result.article.title}</h3><Tabs value={platform} onValueChange={onPlatform}><TabsList className="mt-3">{Object.keys(result.posts).map((key) => <TabsTrigger key={key} value={key}>{getPlatformMeta(key).label}</TabsTrigger>)}</TabsList></Tabs></div><ScrollArea className="min-h-0 flex-1"><div className="p-5">{TONES.map((tone) => <PostOption key={tone[0]} content={result.posts[platform]?.[tone[0]] ?? ""} platform={platform} tone={tone} saving={saving} onSave={() => saveDraft({ platform, tone: tone[2], content: result.posts[platform]?.[tone[0]] ?? "", media: result.article.media })} />)}</div></ScrollArea></div>;
+  return <div className="flex h-full min-h-0 flex-col"><div className="border-b p-5"><Button variant="ghost" size="sm" onClick={onBack}>← All articles</Button><h3 className="mt-2 font-medium">{result.article.title}</h3><SourceContent article={result.article} /><Tabs value={platform} onValueChange={onPlatform}><TabsList className="mt-3">{Object.keys(result.posts).map((key) => <TabsTrigger key={key} value={key}>{getPlatformMeta(key).label}</TabsTrigger>)}</TabsList></Tabs></div><ScrollArea className="min-h-0 flex-1"><div className="p-5">{TONES.map((tone) => <PostOption key={tone[0]} content={result.posts[platform]?.[tone[0]] ?? ""} platform={platform} tone={tone} saving={saving} onSave={() => saveDraft({ platform, tone: tone[2], content: result.posts[platform]?.[tone[0]] ?? "", media: result.article.media })} />)}</div></ScrollArea></div>;
+}
+
+/** Shows exactly what was crawled from the URL (or written manually) — the real basis for the AI's posts, not just the headline, so a user can verify the source content the moment something looks off. */
+function SourceContent({ article }: { article: InstantReviewResult["article"] }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasContent = Boolean(article.content?.trim());
+  return <div className="mt-2 space-y-2">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+      {article.source && <span>{article.source}</span>}
+      {article.domain && article.domain !== "manual" && <span>· {article.domain}</span>}
+      {article.url && <a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-secondary hover:underline">Open original<ExternalLink className="h-3 w-3" /></a>}
+    </div>
+    {hasContent && <div className="rounded-md border bg-muted/20 p-3">
+      <button type="button" onClick={() => setExpanded((current) => !current)} className="flex w-full items-center justify-between text-xs font-medium text-muted-foreground" data-testid="button-toggle-source-content">
+        <span>Fetched article content</span>
+        {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      </button>
+      <p className={`mt-2 whitespace-pre-wrap text-sm leading-relaxed ${expanded ? "" : "line-clamp-3"}`} data-testid="text-source-content">{article.content}</p>
+    </div>}
+  </div>;
 }
