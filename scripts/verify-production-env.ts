@@ -1,3 +1,5 @@
+import "../server/lib/env-aliases";
+
 const required = [
   "DATABASE_URL",
   "BETTER_AUTH_SECRET",

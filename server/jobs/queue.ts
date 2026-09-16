@@ -53,11 +53,13 @@ export function initializeQueues(): Bull.Queue<InboxRefreshJobData> | undefined 
   }
 
   try {
+    // Pass the full connection string (not just host/port) so ioredis picks up
+    // auth credentials and TLS (rediss://) from the URL itself — a manually
+    // extracted {host, port} object silently drops both, which breaks any
+    // Redis provider that requires a password or TLS (e.g. Render Key Value).
+    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
     inboxRefreshQueue = new Bull<InboxRefreshJobData>("inbox_refresh", {
-      redis: {
-        host: new URL(process.env.REDIS_URL || "redis://localhost:6379").hostname,
-        port: Number.parseInt(new URL(process.env.REDIS_URL || "redis://localhost:6379").port || "6379"),
-      },
+      redis: redisUrl,
       defaultJobOptions: {
         attempts: 3,
         backoff: {
@@ -71,10 +73,7 @@ export function initializeQueues(): Bull.Queue<InboxRefreshJobData> | undefined 
     });
 
     publishDraftQueue = new Bull<PublishDraftJobData>("publish_draft", {
-      redis: {
-        host: new URL(process.env.REDIS_URL || "redis://localhost:6379").hostname,
-        port: Number.parseInt(new URL(process.env.REDIS_URL || "redis://localhost:6379").port || "6379"),
-      },
+      redis: redisUrl,
       defaultJobOptions: {
         attempts: 3,
         backoff: {

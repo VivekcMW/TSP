@@ -1,4 +1,5 @@
 import "dotenv/config";
+import "./lib/env-aliases";
 import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { toNodeHandler } from "better-auth/node";
