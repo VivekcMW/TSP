@@ -8,6 +8,7 @@
     { "source": "/api/:path*", "destination": "https://tsp-kr8k.onrender.com/api/:path*" },
     { "source": "/auth/:path*", "destination": "https://tsp-kr8k.onrender.com/auth/:path*" },
     { "source": "/healthz", "destination": "https://tsp-kr8k.onrender.com/healthz" },
-    { "source": "/readyz", "destination": "https://tsp-kr8k.onrender.com/readyz" }
+    { "source": "/readyz", "destination": "https://tsp-kr8k.onrender.com/readyz" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
