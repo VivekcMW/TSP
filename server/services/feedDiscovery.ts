@@ -40,6 +40,8 @@ const PLATFORM_FEED_PATHS = [
 export interface DiscoveredFeed {
   name: string;
   feedUrl: string;
+  /** "feed" when feedUrl is a real RSS/Atom/JSON feed, "webpage" when it's a plain page scraped directly (no feed exists). */
+  sourceType: "feed" | "webpage";
 }
 export interface FeedDiscoveryError {
   error: string;
@@ -263,7 +265,7 @@ async function resolveYouTube(url: URL): Promise<DiscoveredFeed | null> {
   const segments = url.pathname.split("/").filter(Boolean);
   const buildFeed = async (channelId: string, name: string): Promise<DiscoveredFeed | null> => {
     const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
-    return (await tryParse(feedUrl)) ? { name, feedUrl } : null;
+    return (await tryParse(feedUrl)) ? { name, feedUrl, sourceType: "feed" } : null;
   };
 
   if (segments[0] === "channel" && segments[1]) return buildFeed(segments[1], `YouTube: ${segments[1]}`);
@@ -271,7 +273,7 @@ async function resolveYouTube(url: URL): Promise<DiscoveredFeed | null> {
   const playlistId = url.searchParams.get("list");
   if (segments[0] === "playlist" && playlistId) {
     const feedUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${encodeURIComponent(playlistId)}`;
-    return (await tryParse(feedUrl)) ? { name: "YouTube playlist", feedUrl } : null;
+    return (await tryParse(feedUrl)) ? { name: "YouTube playlist", feedUrl, sourceType: "feed" } : null;
   }
 
   // Handle (@name), and the legacy /c/ and /user/ aliases all need the real
@@ -300,7 +302,7 @@ async function resolveReddit(url: URL): Promise<DiscoveredFeed | null> {
     name = `u/${segments[1]}`;
   }
   if (!feedUrl || !name) return null;
-  return (await tryParse(feedUrl)) ? { name, feedUrl } : null;
+  return (await tryParse(feedUrl)) ? { name, feedUrl, sourceType: "feed" } : null;
 }
 
 async function resolveMedium(url: URL): Promise<DiscoveredFeed | null> {
@@ -318,7 +320,7 @@ async function resolveMedium(url: URL): Promise<DiscoveredFeed | null> {
     feedUrl = `https://medium.com/feed/${first}`;
   }
   if (!feedUrl) return null;
-  return (await tryParse(feedUrl)) ? { name, feedUrl } : null;
+  return (await tryParse(feedUrl)) ? { name, feedUrl, sourceType: "feed" } : null;
 }
 
 async function resolveGitHub(url: URL): Promise<DiscoveredFeed | null> {
@@ -329,7 +331,7 @@ async function resolveGitHub(url: URL): Promise<DiscoveredFeed | null> {
     `https://github.com/${owner}/${repo}/releases.atom`,
     `https://github.com/${owner}/${repo}/commits.atom`,
   ]) {
-    if (await tryParse(feedUrl)) return { name: `${owner}/${repo}`, feedUrl };
+    if (await tryParse(feedUrl)) return { name: `${owner}/${repo}`, feedUrl, sourceType: "feed" };
   }
   return null;
 }
@@ -347,7 +349,7 @@ async function resolveApplePodcasts(url: URL): Promise<DiscoveredFeed | null> {
     const feedUrl = data?.results?.[0]?.feedUrl;
     const name = data?.results?.[0]?.collectionName;
     if (typeof feedUrl !== "string") return null;
-    return (await tryParse(feedUrl)) ? { name: typeof name === "string" ? name : "Podcast", feedUrl } : null;
+    return (await tryParse(feedUrl)) ? { name: typeof name === "string" ? name : "Podcast", feedUrl, sourceType: "feed" } : null;
   } catch {
     return null;
   }
@@ -448,7 +450,7 @@ export async function discoverFeed(input: string): Promise<DiscoveredFeed | Feed
   }
 
   if (/^https?:\/\//i.test(name) && (await tryParse(name))) {
-    return { name: bareHost(name) || name, feedUrl: name };
+    return { name: bareHost(name) || name, feedUrl: name, sourceType: "feed" };
   }
 
   const explicitBaseUrl = normalizeToUrl(name);
@@ -466,19 +468,41 @@ export async function discoverFeed(input: string): Promise<DiscoveredFeed | Feed
     if (platformResult) return platformResult;
 
     const feedUrl = await findFeedOnDomain(explicitBaseUrl, { requireSameHost: false });
-    if (feedUrl) return { name: bareHost(explicitBaseUrl) || name, feedUrl };
+    if (feedUrl) return { name: bareHost(explicitBaseUrl) || name, feedUrl, sourceType: "feed" };
   }
 
   if (guessedBaseUrl && guessedBaseUrl !== explicitBaseUrl) {
     const expectedHost = bareHost(guessedBaseUrl);
     const feedUrl = expectedHost ? await findFeedOnDomain(guessedBaseUrl, { requireSameHost: true, expectedHost }) : null;
-    if (feedUrl) return { name, feedUrl };
+    if (feedUrl) return { name, feedUrl, sourceType: "feed" };
   }
 
   if (!explicitBaseUrl && !guessedBaseUrl) {
     return { error: `Couldn't find a website for "${name}". Try entering its URL directly, e.g. https://example.com.` };
   }
 
-  return { error: `Couldn't detect an RSS feed for "${name}". Try entering the direct feed URL instead.` };
+  // No feed anywhere on the site — fall back to treating it as a plain
+  // webpage (scraped directly by webpageScraper.ts) rather than rejecting
+  // it outright. An explicit URL is trusted as-is; a guessed domain must
+  // still resolve to itself (not redirect elsewhere) to avoid mislabeling
+  // an unrelated site under the wrong name.
+  const webpageResult = explicitBaseUrl
+    ? await tryWebpageFallback(explicitBaseUrl, name, null)
+    : guessedBaseUrl
+      ? await tryWebpageFallback(guessedBaseUrl, name, bareHost(guessedBaseUrl))
+      : null;
+  if (webpageResult) return webpageResult;
+
+  return { error: `Couldn't reach "${name}" as a website. Check the URL and try again.` };
+}
+
+/** Confirms the URL is a real, fetchable public page and names it from its <title> (falling back to the hostname). Rejects if expectedHost is given and the page redirects to a different domain. Never throws. */
+async function tryWebpageFallback(baseUrl: string, fallbackName: string, expectedHost: string | null): Promise<DiscoveredFeed | null> {
+  const page = await fetchPage(baseUrl);
+  if (!page) return null;
+  if (expectedHost && bareHost(page.finalUrl) !== expectedHost) return null;
+  const titleMatch = /<title[^>]*>([^<]{1,300})<\/title>/i.exec(page.html);
+  const name = titleMatch?.[1]?.trim() || bareHost(page.finalUrl) || fallbackName;
+  return { name, feedUrl: page.finalUrl, sourceType: "webpage" };
 }
 

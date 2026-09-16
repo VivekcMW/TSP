@@ -57,6 +57,7 @@ export function registerSourcesRoutes(app: Express) {
 
       let name: string;
       let feedUrl: string;
+      let sourceType: "feed" | "webpage" = "feed";
 
       if ("input" in parsed.data) {
         const result = await discoverFeed(parsed.data.input);
@@ -65,6 +66,7 @@ export function registerSourcesRoutes(app: Express) {
         }
         name = result.name;
         feedUrl = result.feedUrl;
+        sourceType = result.sourceType;
       } else {
         const guard = await assertPublicHttpUrl(parsed.data.feedUrl);
         if (!guard.ok) {
@@ -77,6 +79,7 @@ export function registerSourcesRoutes(app: Express) {
       const created = await storage.createUserSource(scope, {
         name,
         feedUrl,
+        sourceType,
         addedVia: "input" in parsed.data ? "manual" : "suggestion",
         isActive: true,
       });

@@ -136,6 +136,8 @@ export const userSources = pgTable("user_sources", {
   userId: varchar("user_id").notNull(),
   name: varchar("name").notNull(),
   feedUrl: text("feed_url").notNull(),
+  /** "feed" = a real RSS/Atom/JSON feed at feedUrl, parsed by universalFeedParser. "webpage" = no feed exists; feedUrl is a plain page scraped directly instead. */
+  sourceType: varchar("source_type").notNull().default("feed"),
   /** How this row was created: typed directly by the user, resolved from a Publications entry, or added from the suggestions catalog. */
   addedVia: varchar("added_via").notNull().default("manual"),
   isActive: boolean("is_active").default(true).notNull(),

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Rss, Trash2, CheckCircle2, XCircle, Plus } from "lucide-react";
+import { Rss, Globe, Trash2, CheckCircle2, XCircle, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -54,7 +54,9 @@ export function SourcesManagerContent() {
         <div className="space-y-2">
           {sources.map((source) => (
             <div key={source.id} className="flex items-center gap-3 rounded-[4px] border p-3" data-testid={`source-${source.id}`}>
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] bg-secondary/15"><Rss className="h-4 w-4 text-secondary" /></div>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] bg-secondary/15">
+                {source.sourceType === "webpage" ? <Globe className="h-4 w-4 text-secondary" /> : <Rss className="h-4 w-4 text-secondary" />}
+              </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{source.name}</p>
                 <p className="truncate text-xs text-muted-foreground">{source.feedUrl}</p>

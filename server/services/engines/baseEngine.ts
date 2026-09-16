@@ -2,6 +2,7 @@ import { validateUrlSync, assertPublicHttpUrl } from "../urlValidator.js";
 import { discoverFeed } from "../feedDiscovery.js";
 import { fetchArticlesForQuery } from "../keywordSearch.js";
 import { parseFeedContent, normalizeTitleForDedup } from "../universalFeedParser.js";
+import { scrapeWebpageArticles } from "../webpageScraper.js";
 import { getCachedArticles } from "./articleCache.js";
 import type {
   IIndustryEngine,
@@ -61,6 +62,26 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
     }
   }
 
+  /** Same contract as fetchFeed, but for a source with no RSS/Atom/JSON feed — scrapes the page directly instead. */
+  protected async fetchWebpage(source: RSSFeedConfig): Promise<FetchedArticle[]> {
+    try {
+      const items = await scrapeWebpageArticles(source.url);
+      const withCategories = items.slice(0, 15).map((item) => ({
+        title: item.title,
+        link: item.link,
+        pubDate: item.pubDate,
+        source: source.name,
+        content: item.content,
+        categories: item.categories.length ? item.categories : [source.category],
+      }));
+      return withCategories.filter((item) => item.link && validateUrlSync(item.link)).slice(0, 10);
+    } catch (error) {
+      console.error(`[${this.config.industry}] Failed to scrape webpage ${source.name}:`,
+        error instanceof Error ? error.message : error);
+      return [];
+    }
+  }
+
   /**
    * Ensures every entry in the user's free-text `publications` list has a
    * matching `user_sources` row, resolving new ones via live feed
@@ -89,6 +110,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
           await storage.createUserSource(scope, {
             name: result.name,
             feedUrl: result.feedUrl,
+            sourceType: result.sourceType,
             addedVia: "publication",
             isActive: true,
           });
@@ -113,7 +135,11 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
     if (!sources.length) return [];
 
     const results = await Promise.allSettled(
-      sources.map((source) => this.fetchFeed({ name: source.name, url: source.feedUrl, category: "user-source" })),
+      sources.map((source) =>
+        source.sourceType === "webpage"
+          ? this.fetchWebpage({ name: source.name, url: source.feedUrl, category: "user-source" })
+          : this.fetchFeed({ name: source.name, url: source.feedUrl, category: "user-source" }),
+      ),
     );
 
     const articles: FetchedArticle[] = [];
