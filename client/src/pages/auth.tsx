@@ -51,7 +51,7 @@ export function SignUpPage() {
   const [name, setName] = useState(""); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [pending, setPending] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault(); setPending(true); setError("");
-    const result = await authClient.signUp.email({ name, email, password, callbackURL: "/complete-registration" });
+    const result = await authClient.signUp.email({ name, email, password, callbackURL: `${window.location.origin}/complete-registration` });
     setPending(false);
     if (result.error) return setError(result.error.message || "Unable to create your account.");
     setLocation("/verify-email");
@@ -120,7 +120,7 @@ function SocialLogin() {
     const enabled = providers?.[id] === true;
     const status = getProviderStatus(loaded, enabled);
     const isDisabled = !enabled;
-    return <Button key={id} type="button" className={`h-11 w-full font-medium flex items-center justify-center gap-2 ${getButtonStyle(id)} ${isDisabled ? "opacity-60 cursor-not-allowed" : ""}`} disabled={isDisabled} title={enabled ? `Continue with ${label}` : `${label} login is ${status.toLowerCase()}`} aria-label={enabled ? `Continue with ${label}` : `${label} login is ${status.toLowerCase()}`} onClick={() => { if (enabled) authClient.signIn.social({ provider: id, callbackURL: "/dashboard" }); }} data-testid={`button-social-${id}`}><Icon className="h-5 w-5" /><span className="text-sm">{label}</span></Button>;
+    return <Button key={id} type="button" className={`h-11 w-full font-medium flex items-center justify-center gap-2 ${getButtonStyle(id)} ${isDisabled ? "opacity-60 cursor-not-allowed" : ""}`} disabled={isDisabled} title={enabled ? `Continue with ${label}` : `${label} login is ${status.toLowerCase()}`} aria-label={enabled ? `Continue with ${label}` : `${label} login is ${status.toLowerCase()}`} onClick={() => { if (enabled) authClient.signIn.social({ provider: id, callbackURL: `${window.location.origin}/dashboard` }); }} data-testid={`button-social-${id}`}><Icon className="h-5 w-5" /><span className="text-sm">{label}</span></Button>;
   })}</div>{loaded && !anyEnabled && <p className="text-center text-xs text-muted-foreground">Social login will activate when credentials are configured. Email login is ready now.</p>}</div>;
 }
 
