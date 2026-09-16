@@ -51,7 +51,7 @@ async function generateWithOpenRouter(prompt: string, options: { systemPrompt?: 
         { role: "user", content: prompt },
       ],
       temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens ?? 1024,
+      max_tokens: options.maxTokens ?? 2048,
     }),
   });
 
@@ -90,7 +90,10 @@ async function generateWithGemini(prompt: string, options: { systemPrompt?: stri
     contents: [{ role: "user", parts: [{ text: options.systemPrompt ? `${options.systemPrompt}\n\n${prompt}` : prompt }] }],
     config: {
       temperature: options.temperature ?? 0.7,
-      maxOutputTokens: options.maxTokens ?? 1024,
+      // Newer Gemini models spend part of this budget on internal reasoning
+      // before the visible output, which can truncate short JSON responses
+      // at the old 1024 default -- give more headroom.
+      maxOutputTokens: options.maxTokens ?? 2048,
     },
   });
 
