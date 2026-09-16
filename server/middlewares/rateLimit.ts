@@ -1,5 +1,10 @@
 import rateLimit, { ipKeyGenerator, type Store } from "express-rate-limit";
-import RedisStore from "rate-limit-redis";
+// Named import, not default: rate-limit-redis's default export breaks under
+// esbuild's CJS bundling (ESM/CJS interop wraps the whole module under
+// `.default` instead of just the class), throwing "is not a constructor" —
+// only surfaces once REDIS_URL is actually set, since makeStore() short-
+// circuits to undefined without it.
+import { RedisStore } from "rate-limit-redis";
 import type { Request } from "express";
 import { redis } from "../lib/redis";
 
