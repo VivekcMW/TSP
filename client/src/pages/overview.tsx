@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPlatformMeta } from "@/lib/platforms";
+import { isUsableInboxArticle } from "@/lib/inbox-quality";
 import type { InboxItem, Draft, UserProfile } from "@shared/schema";
 import type { User as DbUser } from "@shared/models/auth";
 
@@ -63,7 +64,7 @@ export default function OverviewPage() {
   const schedules = useQuery<{ items: ScheduledItem[] }>({ queryKey: ["/api/drafts/scheduled"], enabled: !!isSignedIn });
   const refresh = useInboxRefreshJob();
   const readyDrafts = (drafts.data ?? []).filter((draft) => draft.publishStatus === "draft");
-  const activeItem = inbox.data?.find((item) => item.status === "active");
+  const activeItem = inbox.data?.find((item) => item.status === "active" && isUsableInboxArticle(item));
   const scheduledItems = schedules.data?.items ?? [];
   const failedSchedules = scheduledItems.filter((item) => item.status === "failed" || item.targets?.some((target) => target.status === "failed"));
   const failedDrafts = (drafts.data ?? []).filter((draft) => draft.publishStatus === "failed" && !failedSchedules.some((item) => item.draftId === draft.id));

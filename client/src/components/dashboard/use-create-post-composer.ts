@@ -5,6 +5,7 @@ import { supportsArticle, type EditorialFormat } from "@shared/editorial";
 import { apiRequest } from "@/lib/queryClient";
 import { getPlatformMeta, PLATFORMS } from "@/lib/platforms";
 import { usablePost, type ReviewResponse } from "@/lib/editorial";
+import { isUsableInboxArticle } from "@/lib/inbox-quality";
 import { useEditorialGeneration } from "@/hooks/use-editorial-generation";
 import { applyReview, CREATE_TONES, emptyArticle, isEdited, isUnsaved, publicSourceUrl, versionKey, type CreateTone, type ManualArticle, type PostVersions } from "./create-post-state";
 
@@ -127,7 +128,7 @@ export function useCreatePostComposer(isOpen: boolean) {
   };
   return { platforms, preferencesReady, preferencesError: profile.isError || integrations.isError,
     retryPreferences: () => { void profile.refetch(); void integrations.refetch(); },
-    inbox: inbox.data ?? [], inboxLoading: inbox.isLoading, inboxError: inbox.isError, retryInbox: inbox.refetch,
+    inbox: (inbox.data ?? []).filter(isUsableInboxArticle), inboxLoading: inbox.isLoading, inboxError: inbox.isError, retryInbox: inbox.refetch,
     platform, setPlatform, tone, setTone, format: effectiveFormat, setFormat, mode, setMode, url, setUrl, item,
     manual, setManual, setUploading, versions, version, edit, generation, generate, save, copy, copyStatus, notice,
     dirty, busy, saving, canGenerate, canUse, prefill };

@@ -5,6 +5,7 @@ import { Inbox, RefreshCw, Link2, AlertTriangle, Rss } from "lucide-react";
 import { useIsSignedIn } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { isUsableInboxArticle } from "@/lib/inbox-quality";
 import { useInboxRefreshJob, refreshJobMessage } from "@/hooks/use-inbox-refresh-job";
 import { InboxListRow } from "@/components/dashboard/inbox-list-row";
 import { InboxDetail } from "@/components/dashboard/inbox-detail";
@@ -40,8 +41,10 @@ export default function DashboardPage() {
   const needsSetup = refreshInbox.progress.needsSetup;
 
   const items = inboxItems || [];
+  const activeCandidates = items.filter(item => item.status === "active" && isUsableInboxArticle(item));
+  const hiddenCount = items.filter(item => item.status === "active").length - activeCandidates.length;
   const filteredItems = items.filter(item => {
-    if (filter === "all") return item.status === "active";
+    if (filter === "all") return item.status === "active" && isUsableInboxArticle(item);
     if (filter === "saved") return item.status === "saved";
     if (filter === "dismissed") return item.status === "dismissed";
     return true;
@@ -109,7 +112,7 @@ export default function DashboardPage() {
   const handleSave = (item: InboxItem) => triage(item, "saved");
   const handleDismiss = (item: InboxItem) => triage(item, "dismissed");
 
-  const activeCount = items.filter((i) => i.status === "active").length;
+  const activeCount = activeCandidates.length;
   const savedCount = items.filter((i) => i.status === "saved").length;
 
   useEffect(() => {
@@ -206,7 +209,13 @@ export default function DashboardPage() {
           </>
         }
       />
-      
+
+      {!isLoading && !isError && filter === "all" && hiddenCount > 0 && (
+        <output className="shrink-0 border-b px-4 py-3 text-sm text-muted-foreground">
+          {hiddenCount} unavailable or low-quality {hiddenCount === 1 ? "story" : "stories"} hidden from active recommendations. No records were changed. Saved stories are still accessible in Saved.
+        </output>
+      )}
+
       <main className="flex-1 overflow-hidden">
         {isLoading ? (
           <div className="grid gap-4 p-6">
