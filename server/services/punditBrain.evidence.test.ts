@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import type { GenerationResult } from "./openRouter";
 
 const { provider, buildBrief } = vi.hoisted(() => ({ provider: vi.fn(), buildBrief: vi.fn() }));
@@ -17,7 +17,164 @@ const reply = (content = post, attributions = [attribution], metadata: Partial<G
   text: JSON.stringify({ content, attributions }), provider: "anthropic", model: "test-model",
   usage: { inputTokens: 10, outputTokens: 5 }, fallbackUsed: false, ...metadata,
 });
-beforeEach(() => { provider.mockReset().mockResolvedValue(reply()); buildBrief.mockClear(); });
+let warn: MockInstance<typeof console.warn>;
+beforeEach(() => {
+  provider.mockReset().mockResolvedValue(reply()); buildBrief.mockClear();
+  warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+});
+afterEach(() => vi.restoreAllMocks());
+
+const diagnostics = () => warn.mock.calls.map(call => {
+  expect(call).toHaveLength(2);
+  expect(call[0]).toBe("[ai-diagnostic]");
+  return JSON.parse(call[1]) as Record<string, unknown>;
+});
+
+describe("safe writer-attempt diagnostics", () => {
+  it.each([
+    ["malformed JSON", '{"content":"PRIVATE_OUTPUT', "writer_json", ["json_parse"]],
+    ["wrong schema", JSON.stringify({ content: "PRIVATE_OUTPUT", attributions: [] }), "writer_schema", ["schema"]],
+    ["non-object JSON", "null", "writer_schema", ["schema"]],
+    ["oversized response", "x".repeat(50_001), "writer_schema", ["length"]],
+  ])("logs each failed %s attempt with that response's metadata", async (_label, text, stage, validationReasons) => {
+    provider.mockResolvedValueOnce(reply(post, [attribution], { text: text as string }))
+      .mockResolvedValueOnce(reply(post, [attribution], { text: text as string, provider: "openrouter", model: "vendor/repair-model:free", usage: { inputTokens: 20, outputTokens: null } }));
+    await expect(generatePostContentDetailed(article, "twitter", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    expect(provider).toHaveBeenCalledTimes(2);
+    expect(diagnostics()).toEqual([
+      expect.objectContaining({ stage, validationReasons, tone: "professional", attempt: 1, provider: "anthropic", model: "test-model", inputTokens: 10, outputTokens: 5, visibleTextLength: (text as string).length }),
+      expect.objectContaining({ stage, validationReasons, tone: "professional", attempt: 2, provider: "openrouter", model: "vendor/repair-model:free", inputTokens: 20, outputTokens: null, visibleTextLength: (text as string).length }),
+    ]);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("PRIVATE_OUTPUT");
+  });
+
+  it.each([
+    ["publication_missing", "A pilot reported 12% lower latency. " + article.articleUrl],
+    ["source_url_missing", "Research Desk reports 12% lower latency."],
+    ["unexpected_url", post + "-invented"],
+    ["length", post + "x".repeat(281)],
+    ["hashtags", post + " #one #two #three"],
+    ["placeholder_url", post + " [URL]"],
+    ["multiple_urls", post + " " + article.articleUrl],
+    ["quotation", post + ' "Guaranteed success"'],
+    ["personal_experience", post + " I tested this."],
+  ])("reports precise %s validation on both attempts", async (reason, content) => {
+    provider.mockResolvedValue(reply(content, [{ text: content, excerptIds: ["p1"] }]));
+    await expect(generatePostContentDetailed(article, "twitter", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    expect(provider).toHaveBeenCalledTimes(2);
+    expect(diagnostics()).toEqual([1, 2].map(attempt => expect.objectContaining({
+      stage: "writer_validation", attempt, validationReasons: expect.arrayContaining([reason]),
+    })));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(content);
+  });
+
+  it.each([
+    ["missing span", { ...attribution, text: "PRIVATE_MISSING_SPAN" }],
+    ["unknown excerpt", { ...attribution, excerptIds: ["p99"] }],
+  ])("reports attribution for %s without serializing evidence errors", async (_label, invalidAttribution) => {
+    provider.mockResolvedValue(reply(post, [invalidAttribution]));
+    await expect(generatePostContentDetailed(article, "linkedin", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    expect(diagnostics().map(record => record.validationReasons)).toEqual([["attribution"], ["attribution"]]);
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/PRIVATE_MISSING_SPAN|p99|Attribution text|supplied excerpt IDs/);
+  });
+
+  it("does not loosen the personal experience guard for source-attributed team guidance", async () => {
+    const content = "Research Desk says our team should record a rollback plan.";
+    provider.mockResolvedValue(reply(content, [{ text: content, excerptIds: ["p1"] }]));
+    await expect(generatePostContentDetailed({ ...article, summary: "Our team should record a rollback plan.", articleUrl: "" }, "linkedin", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    expect(diagnostics().map(record => record.validationReasons)).toEqual([["personal_experience"], ["personal_experience"]]);
+  });
+
+  it.each([
+    ["INSUFFICIENT_SOURCE_CONTENT", "writer_sentinel", "insufficient_source"],
+    [" \nINSUFFICIENT_SOURCE_CONTENT\t ", "writer_sentinel", "insufficient_source"],
+    [" \n\t ", "writer_validation", "empty_content"],
+  ])("logs terminal response %# once without adding a repair", async (text, stage, reason) => {
+    provider.mockResolvedValue(reply(post, [attribution], { text }));
+    await expect(generatePostContentDetailed(article, "linkedin", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(diagnostics()).toEqual([expect.objectContaining({ stage, attempt: 1, validationReasons: [reason], provider: "anthropic", model: "test-model" })]);
+  });
+
+  it("accepts valid JSON that mentions the sentinel in supported content and attribution", async () => {
+    const summary = "The application reports INSUFFICIENT_SOURCE_CONTENT when source material is missing.";
+    const content = "Research Desk says the application reports INSUFFICIENT_SOURCE_CONTENT when source material is missing.";
+    provider.mockResolvedValue(reply(content, [{ text: content, excerptIds: ["p1"] }]));
+    await expect(generatePostContentDetailed({ ...article, summary, articleUrl: "" }, "linkedin", "professional")).resolves.toMatchObject({ content });
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("treats a sentinel embedded in non-JSON prose as a JSON failure, not a terminal sentinel", async () => {
+    provider.mockResolvedValueOnce(reply(post, [attribution], { text: "prefix INSUFFICIENT_SOURCE_CONTENT suffix" })).mockResolvedValueOnce(reply());
+    await expect(generatePostContentDetailed(article, "linkedin", "professional")).resolves.toMatchObject({ content: post });
+    expect(provider).toHaveBeenCalledTimes(2);
+    expect(diagnostics()).toEqual([expect.objectContaining({ stage: "writer_json", attempt: 1, validationReasons: ["json_parse"] })]);
+  });
+
+  it("logs only the failed attempt when validation repair succeeds, preserving usage and options", async () => {
+    provider.mockResolvedValueOnce(reply("No publication or URL", [{ text: "No publication or URL", excerptIds: ["p1"] }])).mockResolvedValueOnce(reply());
+    const result = await generatePostContentDetailed(article, "linkedin", "professional");
+    expect(result.generation.usage).toEqual({ inputTokens: 20, outputTokens: 10 });
+    expect(result.generation.attempts).toHaveLength(2);
+    expect(diagnostics()).toEqual([expect.objectContaining({ attempt: 1, stage: "writer_validation", validationReasons: ["publication_missing", "source_url_missing"] })]);
+    expect(provider.mock.calls[1][1].systemPrompt).toContain("Correct these format issues: Article URL missing; Publication not mentioned");
+    for (const [, options] of provider.mock.calls) {
+      expect(options).not.toHaveProperty("maxTokens");
+      expect(options).not.toHaveProperty("model");
+      expect(options).not.toHaveProperty("provider");
+    }
+  });
+
+  it("logs each review tone as an enum, not its descriptive prompt", async () => {
+    const seen = new Set<string>();
+    provider.mockImplementation(async prompt => {
+      const { tone } = JSON.parse(prompt);
+      if (seen.has(tone)) return reply();
+      seen.add(tone);
+      return reply(post, [attribution], { text: "malformed" });
+    });
+    await generatePlatformReviewsDetailed({ title: article.headline, content: article.summary, source: article.source, url: article.articleUrl }, ["twitter"]);
+    const records = diagnostics();
+    expect(records).toHaveLength(4);
+    expect(records.map(record => record.tone).sort()).toEqual(["thoughtLeader", "industryInsider", "provocateur", "dataDriven"].sort());
+    expect(records.every(record => record.attempt === 1)).toBe(true);
+    expect(provider).toHaveBeenCalledTimes(8);
+  });
+
+  it("never logs raw source, prompt, output, custom tone, scope, or unsafe provider metadata", async () => {
+    const privateText = "PRIVATE source/output/tone https://secret.invalid/?key=hidden";
+    provider.mockResolvedValue(reply(privateText, [], { model: privateText, provider: privateText as GenerationResult["provider"] }));
+    await expect(generatePostContentDetailed({ headline: privateText, summary: privateText, source: privateText, articleUrl: "https://secret.invalid/?key=hidden" }, "linkedin", privateText,
+      { voice: privateText, userContext: privateText, scope: { tenantId: "private-tenant" } })).rejects.toMatchObject({ code: "ai_invalid_output" });
+    expect(diagnostics()).toEqual([1, 2].map(attempt => expect.objectContaining({ tone: "custom", attempt, provider: null, model: null })));
+    const serialized = JSON.stringify(warn.mock.calls);
+    expect(serialized).not.toMatch(/PRIVATE|secret.invalid|hidden|private-tenant|Return valid JSON/);
+    for (const record of diagnostics()) expect(Object.keys(record).sort()).toEqual([
+      "code", "stage", "provider", "model", "finishReason", "maxTokens", "inputTokens", "outputTokens", "visibleTextLength", "validationReasons", "tone", "attempt",
+    ].sort());
+  });
+
+  it("logging failure cannot change repair or the terminal error", async () => {
+    warn.mockImplementation(() => { throw new Error("PRIVATE logging failure"); });
+    provider.mockResolvedValueOnce(reply(post, [attribution], { text: "malformed" })).mockResolvedValueOnce(reply());
+    await expect(generatePostContentDetailed(article, "linkedin", "professional")).resolves.toMatchObject({ content: post });
+    provider.mockResolvedValue(reply(post, [attribution], { text: "malformed" }));
+    await expect(generatePostContentDetailed(article, "linkedin", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+  });
+
+  it("stays silent for success, provider errors, and responses received after cancellation", async () => {
+    await generatePostContentDetailed(article, "linkedin", "professional");
+    const failure = new Error("PRIVATE provider error");
+    provider.mockRejectedValueOnce(failure);
+    await expect(generatePostContentDetailed(article, "linkedin", "professional")).rejects.toBe(failure);
+    const controller = new AbortController();
+    provider.mockImplementation(async () => { controller.abort(); return reply(post, [attribution], { text: "malformed" }); });
+    await expect(generatePostContentDetailed(article, "linkedin", "professional", { signal: controller.signal })).rejects.toMatchObject({ code: "ai_cancelled" });
+    expect(provider).toHaveBeenCalledTimes(3);
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
 
 describe("metadata-aware editorial pipeline", () => {
   it("returns content, source excerpts, warnings, provenance, and honest validation scope", async () => {

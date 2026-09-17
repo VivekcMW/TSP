@@ -2,6 +2,7 @@ import type { IndustrySlug } from "@shared/schema";
 import { ALL_PLATFORM_KEYS } from "@shared/schema";
 import { z } from "zod";
 import { AIGenerationError, generateText, generateTextWithMetadata, type GenerationResult } from "./openRouter";
+import { logAIInvalidOutputDiagnostic, type AIDiagnosticStage, type AIDiagnosticTone, type AIValidationReason } from "./aiDiagnostics";
 import {
   buildEvidenceBrief, validateEvidenceAttributions, verifySourceExcerpt,
   type EvidenceBrief, type EvidenceAttribution, type SourceContentMetadata,
@@ -381,6 +382,7 @@ Analyze this professional's identity within the ${config.displayName} industry a
 interface PostValidation {
   isValid: boolean;
   errors: string[];
+  reasons: AIValidationReason[];
 }
 
 export type PlatformKey = "linkedin" | "twitter" | "threads" | "bluesky" | "substack" | "medium" | "reddit" | "mastodon" | "devto" | "hashnode" | "quora" | "facebook" | "telegram" | "discord" | "farcaster" | "xiaohongshu" | "weibo" | "wechat" | "maimai" | "vk" | "line" | "naver" | "xing";
@@ -555,46 +557,74 @@ function validatePostContent(
   platform: PlatformKey
 ): PostValidation {
   const errors: string[] = [];
+  const reasons: AIValidationReason[] = [];
   
   // Check for placeholder text (not allowed) - but allow example.com for testing with mock data
   if (content.includes("[URL]") || content.includes("[url]")) {
     errors.push("Placeholder URL text detected - must use real article URL");
+    reasons.push("placeholder_url");
   }
   
   // Check URL is present (if article has URL)
   if (article.articleUrl && !content.includes(article.articleUrl)) {
     errors.push("Article URL missing");
+    reasons.push("source_url_missing");
   }
   
   // Check publication is mentioned
   const sourceLower = article.source.toLowerCase();
   if (!content.toLowerCase().includes(sourceLower)) {
     errors.push("Publication not mentioned");
+    reasons.push("publication_missing");
   }
   
   // Check character limit for the target platform
   const limits = PLATFORM_LIMITS[platform];
   if (content.length > limits.charLimit) {
     errors.push(`Post exceeds ${limits.charLimit} characters (${content.length} chars)`);
+    reasons.push("length");
   }
   
   // Check hashtag count for the target platform
   const hashtagCount = (content.match(/#\w+/g) || []).length;
   if (hashtagCount > limits.maxHashtags) {
     errors.push(`Too many hashtags (${hashtagCount}, max ${limits.maxHashtags})`);
+    reasons.push("hashtags");
   }
   
   // Check for multiple URLs (only one primary link allowed)
   const urlMatches = content.match(/https?:\/\/\S+/g) || [];
   if (urlMatches.length > 1) {
     errors.push("Multiple URLs detected - only one primary link allowed");
+    reasons.push("multiple_urls");
   }
-  if (urlMatches.some(url => url !== article.articleUrl)) errors.push("Use only the exact supplied article URL; do not invent URLs");
+  if (urlMatches.some(url => url !== article.articleUrl)) {
+    errors.push("Use only the exact supplied article URL; do not invent URLs");
+    reasons.push("unexpected_url");
+  }
   
   return {
     isValid: errors.length === 0,
-    errors
+    errors,
+    reasons,
   };
+}
+
+// Match only the evidence validator's fixed messages. Never log those messages
+// (or unknown future ones); keep repair feedback separate from diagnostics.
+function evidenceDiagnosticReason(error: string): AIValidationReason {
+  switch (error) {
+    case "Provide at least one source attribution for a reported point":
+    case "Attribution text must be an exact span of the generated content":
+    case "Attributions must refer only to supplied excerpt IDs":
+      return "attribution";
+    case "Quoted text must appear verbatim in a cited passage":
+      return "quotation";
+    case "Do not claim personal experience or access; attribute source experiences to the source":
+      return "personal_experience";
+    default:
+      return "evidence";
+  }
 }
 
 const VOICE_STYLE_GUIDE = `
@@ -926,6 +956,29 @@ export async function generatePostContentDetailed(
   return writeFromEvidence(prepareArticle(article, platform, tone, preferences.userContext), platform, tone.trim(), preferences);
 }
 
+function getDiagnosticTone(tone: string): AIDiagnosticTone {
+  return TONALITIES.find(value => value.key === tone || value.label === tone || value.description === tone)?.key
+    ?? (tone === "professional" ? "professional" : "custom");
+}
+
+function parseWriterOutput(text: string, logFailure: (stage: AIDiagnosticStage, reasons: AIValidationReason[]) => void) {
+  if (text.length > 50_000) {
+    logFailure("writer_schema", ["length"]);
+    return;
+  }
+  let output: unknown;
+  try { output = JSON.parse(text); } catch {
+    logFailure("writer_json", ["json_parse"]);
+    return;
+  }
+  const parsed = writerResultSchema.safeParse(output);
+  if (!parsed.success) {
+    logFailure("writer_schema", ["schema"]);
+    return;
+  }
+  return parsed.data;
+}
+
 async function writeFromEvidence(
   prepared: ReturnType<typeof prepareArticle>,
   platform: PlatformKey,
@@ -935,6 +988,7 @@ async function writeFromEvidence(
   const { article, evidence } = prepared;
   const { signal, scope, format, voice, userContext } = options;
   const attempts: EditorialAttempt[] = [];
+  const diagnosticTone = getDiagnosticTone(tone);
   let lastErrors: string[] = [];
   // One bounded format-repair attempt only. Provider errors propagate immediately.
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -946,22 +1000,31 @@ async function writeFromEvidence(
     checkCancelled(signal);
     attempts.push(metadata);
     const text = rawText.trim();
-    if (!text || text.includes("INSUFFICIENT_SOURCE_CONTENT")) throw new AIGenerationError("ai_invalid_output");
-    let output: unknown;
-    try { output = text.length <= 50_000 ? JSON.parse(text) : undefined; } catch { output = undefined; }
-    const parsed = writerResultSchema.safeParse(output);
-    if (!parsed.success) {
+    const logFailure = (stage: AIDiagnosticStage, validationReasons: AIValidationReason[]) => logAIInvalidOutputDiagnostic({
+      stage, validationReasons, tone: diagnosticTone, attempt: attempt + 1,
+      provider: metadata.provider, model: metadata.model,
+      inputTokens: metadata.usage.inputTokens, outputTokens: metadata.usage.outputTokens,
+      visibleTextLength: rawText.length,
+    });
+    if (!text || text === "INSUFFICIENT_SOURCE_CONTENT") {
+      logFailure(text ? "writer_sentinel" : "writer_validation", [text ? "insufficient_source" : "empty_content"]);
+      throw new AIGenerationError("ai_invalid_output");
+    }
+    const parsed = parseWriterOutput(text, logFailure);
+    if (!parsed) {
       lastErrors = ["Return valid JSON with content and nonempty attributions containing exact text and excerptIds; respect the output bounds"];
       continue;
     }
-    const { content, attributions } = parsed.data;
+    const { content, attributions } = parsed;
     const validation = validatePostContent(content, article, platform);
-    lastErrors = [...validation.errors, ...validateEvidenceAttributions(content, attributions, evidence)];
+    const evidenceErrors = validateEvidenceAttributions(content, attributions, evidence);
+    lastErrors = [...validation.errors, ...evidenceErrors];
     if (!lastErrors.length) return {
       content, evidence, attributions,
       generation: { ...metadata, usage: sumUsage(attempts), fallbackUsed: attempts.some(value => value.fallbackUsed), attempts },
       validation: { structural: "passed", attributionMapping: "passed", factualVerification: "not-performed", requiresHumanReview: true },
     };
+    logFailure("writer_validation", [...validation.reasons, ...evidenceErrors.map(evidenceDiagnosticReason)]);
   }
   throw new AIGenerationError("ai_invalid_output");
 }

@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import Anthropic from "@anthropic-ai/sdk";
 import { acquireAILease, AIProviderLimitError, type AILease } from "./aiProviderLimiter";
+import { logAIInvalidOutputDiagnostic, type AIDiagnosticInput } from "./aiDiagnostics";
 
 const DEFAULT_OPENROUTER_MODEL = "openai/gpt-4o-mini";
 const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
@@ -138,10 +139,11 @@ function anthropicFailure(error: unknown): AIGenerationError {
   return providerFailure(error.status, error.headers?.get("retry-after"));
 }
 
-async function generateWithAnthropic(prompt: string, options: GenerationOptions): Promise<ProviderResult> {
+async function generateWithAnthropic(prompt: string, options: GenerationOptions, diagnostic: AIDiagnosticInput): Promise<ProviderResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
   if (!apiKey) throw new AIGenerationError("ai_configuration");
   const model = process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL;
+  diagnostic.model = model;
   try {
     const client = new Anthropic({ apiKey, maxRetries: 0, timeout: AI_REQUEST_TIMEOUT_MS, logLevel: "off", baseURL: "https://api.anthropic.com", fetchOptions: { redirect: "error" } });
     const response = await client.messages.create({
@@ -153,11 +155,18 @@ async function generateWithAnthropic(prompt: string, options: GenerationOptions)
       // https://platform.claude.com/docs/en/models/sonnet-5/whats-new-sonnet-5
       thinking: { type: "disabled" },
     }, { signal: options.signal });
+    diagnostic.model = response.model || model;
+    diagnostic.finishReason = response.stop_reason;
+    diagnostic.inputTokens = tokenCount(response.usage?.input_tokens) === null ? null : response.usage.input_tokens + (tokenCount(response.usage.cache_creation_input_tokens) ?? 0) + (tokenCount(response.usage.cache_read_input_tokens) ?? 0);
+    diagnostic.outputTokens = response.usage?.output_tokens;
+    diagnostic.visibleTextLength = Array.isArray(response.content) ? response.content.reduce((length, block) => length + (block?.type === "text" && typeof block.text === "string" ? block.text.length : 0), 0) : null;
     const details = response as typeof response & { stop_details?: { type?: string } | null };
     if (response.stop_reason === "refusal" || details.stop_details?.type === "refusal") throw new AIGenerationError("ai_refusal");
     if (response.stop_reason === "model_context_window_exceeded") throw new AIGenerationError("ai_invalid_input");
     // Never return truncated text, tool requests, or a partial/pause turn as a post.
+    diagnostic.stage = "provider_finish_reason";
     if (response.stop_reason !== "end_turn") throw new AIGenerationError("ai_invalid_output");
+    diagnostic.stage = "provider_content_shape";
     if (!Array.isArray(response.content) || response.content.some(block => !block || (block.type === "text" && typeof block.text !== "string"))) throw new AIGenerationError("ai_invalid_output");
     return {
       text: response.content.filter(block => block.type === "text").map(block => block.text).join("").trim(),
@@ -195,8 +204,9 @@ function getGeminiConfig() {
   return { apiKey, model };
 }
 
-async function generateWithOpenRouter(prompt: string, options: GenerationOptions): Promise<ProviderResult> {
+async function generateWithOpenRouter(prompt: string, options: GenerationOptions, diagnostic: AIDiagnosticInput): Promise<ProviderResult> {
   const { apiKey, baseUrl, model } = getOpenRouterConfig();
+  diagnostic.model = model;
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -239,7 +249,16 @@ async function generateWithOpenRouter(prompt: string, options: GenerationOptions
 
   if (json?.error) throw providerFailure(json.error.code);
   const choice = json?.choices?.[0];
+  diagnostic.model = json?.model || model;
+  diagnostic.finishReason = choice?.finish_reason;
+  diagnostic.inputTokens = json?.usage?.prompt_tokens;
+  diagnostic.outputTokens = json?.usage?.completion_tokens;
+  const visibleContent = choice?.message?.content;
+  diagnostic.visibleTextLength = 0;
+  if (typeof visibleContent === "string") diagnostic.visibleTextLength = visibleContent.length;
+  else if (Array.isArray(visibleContent)) diagnostic.visibleTextLength = visibleContent.reduce((length, part) => length + ((!part?.type || part.type === "text") && typeof part?.text === "string" ? part.text.length : 0), 0);
   if (choice?.finish_reason === "content_filter" || choice?.message?.refusal) throw new AIGenerationError("ai_refusal");
+  diagnostic.stage = "provider_finish_reason";
   if (choice?.finish_reason && choice.finish_reason !== "stop") throw new AIGenerationError("ai_invalid_output");
   const content = choice?.message?.content;
 
@@ -249,8 +268,9 @@ async function generateWithOpenRouter(prompt: string, options: GenerationOptions
   return { text, model: json.model || model, usage: { inputTokens: tokenCount(json.usage?.prompt_tokens), outputTokens: tokenCount(json.usage?.completion_tokens) } };
 }
 
-async function generateWithGemini(prompt: string, options: GenerationOptions): Promise<ProviderResult> {
+async function generateWithGemini(prompt: string, options: GenerationOptions, diagnostic: AIDiagnosticInput): Promise<ProviderResult> {
   const { apiKey, model } = getGeminiConfig();
+  diagnostic.model = model;
   // No retryOptions: the SDK's default unary path makes exactly one fetch and
   // preserves ApiError.status. Its opt-in retry wrapper discards that status.
   const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: AI_REQUEST_TIMEOUT_MS } });
@@ -270,7 +290,13 @@ async function generateWithGemini(prompt: string, options: GenerationOptions): P
   });
 
   const candidate = response.candidates?.[0];
+  diagnostic.model = response.modelVersion || model;
+  diagnostic.finishReason = candidate?.finishReason;
+  diagnostic.inputTokens = response.usageMetadata?.promptTokenCount;
+  diagnostic.outputTokens = response.usageMetadata?.candidatesTokenCount;
+  diagnostic.visibleTextLength = Array.isArray(candidate?.content?.parts) ? candidate.content.parts.reduce((length, part) => length + (!part?.thought && typeof part?.text === "string" ? part.text.length : 0), 0) : 0;
   if (response.promptFeedback?.blockReason || ["SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"].includes(candidate?.finishReason ?? "")) throw new AIGenerationError("ai_refusal");
+  diagnostic.stage = "provider_finish_reason";
   if (candidate?.finishReason && candidate.finishReason !== "STOP") throw new AIGenerationError("ai_invalid_output");
   const text = candidate?.content?.parts?.filter(part => !part.thought).map(part => part.text || "").join("") || "";
   return { text: text.trim(), model: response.modelVersion || model, usage: { inputTokens: tokenCount(response.usageMetadata?.promptTokenCount), outputTokens: tokenCount(response.usageMetadata?.candidatesTokenCount) } };
@@ -283,14 +309,17 @@ async function attempt(provider: AIProvider, prompt: string, options: Generation
   if (cooldown && cooldown.until > Date.now()) {
     throw new AIGenerationError(cooldown.code, Math.ceil((cooldown.until - Date.now()) / 1000));
   }
+  const diagnostic: AIDiagnosticInput = { provider, stage: "provider_response_json", maxTokens: options.maxTokens ?? 2048 };
   try {
     const adapter = { anthropic: generateWithAnthropic, gemini: generateWithGemini, openrouter: generateWithOpenRouter }[provider];
-    const result = await adapter(prompt, options);
+    const result = await adapter(prompt, options, diagnostic);
     if (signal.aborted) throw cancellationFailure(signal);
+    diagnostic.stage = "provider_empty_text";
     if (!result.text.trim()) throw new AIGenerationError("ai_invalid_output");
     return result;
   } catch (error) {
     const failure = normalizeFailure(error, signal);
+    if (failure.code === "ai_invalid_output" && !signal.aborted) logAIInvalidOutputDiagnostic(diagnostic);
     if (failure.code === "ai_quota" || failure.code === "ai_configuration" || failure.code === "ai_rate_limit") {
       cooldowns.set(provider, { code: failure.code, until: Date.now() + (failure.retryAfterSeconds ?? 60) * 1000 });
     }
