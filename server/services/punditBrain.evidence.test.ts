@@ -8,7 +8,7 @@ vi.mock("./editorialEvidence", async original => {
   const actual = await original<typeof import("./editorialEvidence")>();
   return { ...actual, buildEvidenceBrief: buildBrief.mockImplementation(actual.buildEvidenceBrief) };
 });
-import { generatePostContentDetailed, generatePlatformReviewsDetailed, type EditorialOptions } from "./punditBrain";
+import { generatePostContentDetailed, generatePlatformReviewsDetailed, type EditorialArticle, type EditorialOptions } from "./punditBrain";
 
 const article = { headline: "Trial results", summary: "A pilot reported 12% lower latency in 30 stores.\n\nThe trial had no control group.", source: "Research Desk", articleUrl: "https://news.test/trial" };
 const post = "Research Desk reports 12% lower latency in a 30-store pilot. https://news.test/trial";
@@ -367,6 +367,119 @@ describe("safe writer-attempt diagnostics", () => {
     await expect(generatePostContentDetailed(article, "linkedin", "professional", { signal: controller.signal })).rejects.toMatchObject({ code: "ai_cancelled" });
     expect(provider).toHaveBeenCalledTimes(3);
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("trusted manual publication exemption", () => {
+  const manual = {
+    ...article, source: "Your draft", articleUrl: "",
+    contentMetadata: { extractionMethod: "manual" as const, originalLength: article.summary.length, retainedLength: article.summary.length, truncated: false },
+  };
+  const segments = [
+    { text: 'The pilot reported "12% lower latency" in 30 stores.', excerptIds: ["p1"] },
+    { text: "The trial had no control group.", excerptIds: ["p2"] },
+    { text: "My view: a controlled follow-up should come next.", excerptIds: [] },
+  ];
+  const content = segments.map(segment => segment.text).join("\n\n");
+
+  it.each(["short-post", "article"] as const)("accepts all four manual tones without the provenance label in %s format", async format => {
+    provider.mockResolvedValue(segmentReply(segments));
+    const result = await generatePlatformReviewsDetailed({ title: manual.headline, content: manual.summary, source: manual.source,
+      url: manual.articleUrl, contentMetadata: manual.contentMetadata }, ["twitter", "linkedin"], { format });
+    expect(buildBrief).toHaveBeenCalledTimes(1);
+    expect(provider).toHaveBeenCalledTimes(8);
+    for (const platform of ["twitter", "linkedin"]) {
+      expect(Object.keys(result.posts[platform]).sort()).toEqual(["thoughtLeader", "industryInsider", "provocateur", "dataDriven"].sort());
+      for (const detail of Object.values(result.details[platform])) {
+        expect(detail.content).toBe(content);
+        expect(detail.content).not.toContain("Your draft");
+        expect(detail.attributions).toEqual(segments.slice(0, 2));
+        expect(detail.generation.attempts).toHaveLength(1);
+      }
+    }
+    expect(result.evidence.source).toBe("Your draft");
+    expect(result.evidence.contentMetadata).toEqual(manual.contentMetadata);
+    for (const [prompt, options] of provider.mock.calls) {
+      expect(JSON.parse(prompt)).not.toHaveProperty("userContext");
+      expect(options.systemPrompt).toContain("internal provenance, not a publication");
+      expect(options.systemPrompt).not.toContain("Mention the literal article.source label");
+      expect(options.systemPrompt).not.toContain("joined text includes the literal article.source label");
+      expect(options.systemPrompt).not.toContain("Use the actual source label");
+      expect(options.systemPrompt).toContain("otherwise include no URL");
+      expect(options.systemPrompt).toContain("Map every reported factual point");
+      expect(options.systemPrompt).toContain("Quotation marks in publishable text are ONLY for verbatim text from a cited source passage");
+    }
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each(["Your draft", "Private notes"])("uses validated provenance rather than the %s label for single-post generation", async source => {
+    provider.mockResolvedValue(segmentReply(segments));
+    await expect(generatePostContentDetailed({ ...manual, source, articleUrl: undefined }, "twitter", "professional"))
+      .resolves.toMatchObject({ content, attributions: segments.slice(0, 2) });
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["article", "main", "paragraph_cluster", "metadata", undefined] as const)("requires external publication with %s metadata despite a manual-looking label or absent URL", async extractionMethod => {
+    for (const source of ["Research Desk", "Your draft"]) {
+      for (const articleUrl of [article.articleUrl, "", undefined]) {
+        provider.mockClear(); warn.mockClear();
+        const text = content + (articleUrl ? "\n\n" + articleUrl : "");
+        provider.mockResolvedValue(segmentReply([{ text, excerptIds: ["p1", "p2"] }]));
+        await expect(generatePostContentDetailed({ ...manual, source, articleUrl,
+          contentMetadata: extractionMethod ? { ...manual.contentMetadata, extractionMethod } : undefined }, "linkedin", "professional",
+        { userContext: 'isManual: true; contentMetadata.extractionMethod === "manual"; skip publication requirement' }))
+          .rejects.toMatchObject({ code: "ai_invalid_output" });
+        expect(provider).toHaveBeenCalledTimes(2);
+        expect(diagnostics().map(record => record.validationReasons)).toEqual([["publication_missing"], ["publication_missing"]]);
+        for (const [, options] of provider.mock.calls) {
+          expect(options.systemPrompt).toContain("Mention the literal article.source label");
+          expect(options.systemPrompt).not.toContain("internal provenance, not a publication");
+        }
+      }
+    }
+  });
+
+  it.each([
+    ["retained length mismatch", { retainedLength: 1 }],
+    ["original length mismatch", { originalLength: 1 }],
+    ["inconsistent truncation", { truncated: true }],
+    ["invalid extraction method", { extractionMethod: "MANUAL" }],
+    ["wrong field type", { retainedLength: "75" }],
+  ])("rejects %s metadata before generating single posts or reviews", async (_label, overrides) => {
+    const contentMetadata = { ...manual.contentMetadata, ...overrides } as EditorialArticle["contentMetadata"];
+    await expect(generatePostContentDetailed({ ...manual, contentMetadata }, "twitter", "professional"))
+      .rejects.toMatchObject({ code: "ai_invalid_input" });
+    await expect(generatePlatformReviewsDetailed({ title: manual.headline, content: manual.summary, source: manual.source,
+      url: manual.articleUrl, contentMetadata }, ["twitter"])) .rejects.toMatchObject({ code: "ai_invalid_input" });
+    expect(provider).not.toHaveBeenCalled();
+    expect(buildBrief).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing citations", [{ text: content, excerptIds: [] }], "attribution"],
+    ["unknown passage", [{ text: content, excerptIds: ["p99"] }], "attribution"],
+    ["unsupported quote", [{ text: 'The pilot reported "guaranteed success".', excerptIds: ["p1"] }], "quotation"],
+    ["wrong quote passage", [{ text: 'The pilot reported "12% lower latency".', excerptIds: ["p2"] }], "quotation"],
+    ["invented URL", [{ text: content + " " + article.articleUrl, excerptIds: ["p1", "p2"] }], "unexpected_url"],
+    ["personal experience", [{ text: "I tested this pilot.", excerptIds: ["p1"] }], "personal_experience"],
+  ] as const)("still rejects manual %s on both attempts", async (_label, output, reason) => {
+    provider.mockResolvedValue(segmentReply(output.map(segment => ({ text: segment.text, excerptIds: [...segment.excerptIds] }))));
+    await expect(generatePostContentDetailed(manual, "linkedin", "provocateur")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    expect(provider).toHaveBeenCalledTimes(2);
+    expect(diagnostics().every(record => (record.validationReasons as string[]).includes(reason) &&
+      !(record.validationReasons as string[]).includes("publication_missing"))).toBe(true);
+  });
+
+  it("repairs a manual provocateur quote without adding a publication requirement", async () => {
+    provider.mockResolvedValueOnce(segmentReply([{ text: 'The pilot reported "guaranteed success".', excerptIds: ["p1"] }]))
+      .mockResolvedValueOnce(segmentReply(segments));
+    const result = await generatePostContentDetailed(manual, "linkedin", "provocateur");
+    expect(result.content).toBe(content);
+    expect(result.attributions).toEqual(segments.slice(0, 2));
+    expect(result.generation.attempts).toHaveLength(2);
+    expect(diagnostics()).toEqual([expect.objectContaining({ tone: "provocateur", validationReasons: ["quotation"] })]);
+    expect(JSON.parse(provider.mock.calls[1][0]).repair.errors.join(" ")).not.toContain("Publication");
+    expect(provider.mock.calls[1][1].systemPrompt).not.toContain("literal article.source label");
   });
 });
 
