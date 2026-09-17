@@ -1,12 +1,7 @@
-import rateLimit, { ipKeyGenerator, type Store } from "express-rate-limit";
-// Named import, not default: rate-limit-redis's default export breaks under
-// esbuild's CJS bundling (ESM/CJS interop wraps the whole module under
-// `.default` instead of just the class), throwing "is not a constructor" —
-// only surfaces once REDIS_URL is actually set, since makeStore() short-
-// circuits to undefined without it.
-import { RedisStore } from "rate-limit-redis";
-import type { Request } from "express";
+import rateLimit, { ipKeyGenerator, type Options, type RateLimitRequestHandler, type Store } from "express-rate-limit";
+import type { Request, RequestHandler } from "express";
 import { redis } from "../lib/redis";
+import { RateLimitStoreUnavailableError, RecoverableRateLimitRedisStore } from "./rateLimitRedisStore";
 
 // Keyed by authenticated user (falls back to IP pre-auth) so one abusive
 // account can't be worked around by rotating IPs, and legitimate shared
@@ -24,14 +19,29 @@ function keyByUser(req: Request): string {
 function makeStore(prefix: string): Store | undefined {
   const client = redis;
   if (!client) return undefined;
-  return new RedisStore({
-    prefix: `rl:${prefix}:`,
-    sendCommand: (...args: string[]) => client.call(args[0], ...args.slice(1)) as Promise<any>,
+  return new RecoverableRateLimitRedisStore(
+    `rl:${prefix}:`,
+    (...args) => client.call(args[0], ...args.slice(1)),
+  );
+}
+
+function recoverableRateLimit(options: Partial<Options>): RateLimitRequestHandler {
+  const limiter = rateLimit({ ...options, passOnStoreError: false });
+  const middleware: RequestHandler = (req, res, next) => limiter(req, res, (error) => {
+    if (error instanceof RateLimitStoreUnavailableError) {
+      res.setHeader("Retry-After", "5");
+      res.setHeader("Cache-Control", "no-store");
+      res.status(503).json({ message: error.message });
+      return;
+    }
+    next(error);
   });
+  // Preserve the installed middleware's public get/reset methods.
+  return Object.assign(middleware, { getKey: limiter.getKey, resetKey: limiter.resetKey });
 }
 
 // Gemini-backed endpoints: generation is the most expensive/abusable path.
-export const aiGenerationRateLimit = rateLimit({
+export const aiGenerationRateLimit = recoverableRateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 30,
   standardHeaders: true,
@@ -42,7 +52,7 @@ export const aiGenerationRateLimit = rateLimit({
 });
 
 // Instant Review fans out to 8 Gemini calls per request — tighter budget.
-export const instantReviewRateLimit = rateLimit({
+export const instantReviewRateLimit = recoverableRateLimit({
   windowMs: 60 * 60 * 1000,
   limit: 10,
   standardHeaders: true,
@@ -53,7 +63,7 @@ export const instantReviewRateLimit = rateLimit({
 });
 
 // RSS fetch + AI scoring engine run — cheaper per-call but still I/O heavy.
-export const inboxRefreshRateLimit = rateLimit({
+export const inboxRefreshRateLimit = recoverableRateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
   standardHeaders: true,

@@ -1,7 +1,8 @@
 import Bull from "bull";
-import Redis from "ioredis";
+import type Redis from "ioredis";
 import { randomUUID } from "node:crypto";
-import { redis, redisOptions } from "../lib/redis";
+import { redis } from "../lib/redis";
+import { createRedisClient } from "../lib/redis-options";
 import type { PublishDraftJobData } from "./handlers/publish-draft";
 
 /**
@@ -55,8 +56,8 @@ function disabledQueue(): null {
 export function queueOptions(redisUrl: string): Bull.QueueOptions {
   return {
     createClient: (type) => {
-      // Keep the complete URL: parsing only host/port drops credentials and rediss TLS.
-      const client = new Redis(redisUrl, redisOptions(type !== "client"));
+      // Preserve auth/TLS/db without letting URL queries override lifecycle policy.
+      const client = createRedisClient(redisUrl, type !== "client");
       queueClients.add(client);
       // Bull carries ioredis v5 types; the app uses v6's compatible legacy API.
       return client as unknown as ReturnType<NonNullable<Bull.QueueOptions["createClient"]>>;

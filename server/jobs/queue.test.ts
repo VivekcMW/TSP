@@ -19,10 +19,22 @@ describe("queue reliability", () => {
     options.createClient!("client", {}); options.createClient!("bclient", {}); options.createClient!("subscriber", {});
     expect(redisConstructor).toHaveBeenNthCalledWith(1, url, expect.objectContaining({ maxRetriesPerRequest: 2, commandTimeout: 5000, keepAlive: 10000 }));
     expect(redisConstructor).toHaveBeenNthCalledWith(2, url, expect.objectContaining({ maxRetriesPerRequest: null, enableReadyCheck: false }));
-    expect(redisConstructor.mock.calls[1][1]).not.toHaveProperty("commandTimeout");
+    expect(redisConstructor.mock.calls[0][1]).toMatchObject({ socketTimeout: 10000, autoResendUnfulfilledCommands: false });
+    for (const index of [1, 2]) {
+      expect(redisConstructor.mock.calls[index][1]).toMatchObject({ maxRetriesPerRequest: null, enableReadyCheck: false,
+        commandTimeout: undefined, socketTimeout: undefined, blockingTimeout: undefined, autoResendUnfulfilledCommands: true });
+    }
     expect(redisOptions().retryStrategy!(100)).toBe(3000);
     expect(options.defaultJobOptions?.removeOnFail).toEqual({ age: 604800, count: 1000 });
     expect(options.defaultJobOptions?.removeOnComplete).toEqual({ age: 3600, count: 1000 });
+  });
+  it("removes lifecycle query overrides for all three Bull connection types", () => {
+    const options = queueOptions("rediss://test-user:test-password@redis.invalid:6380/2?retryStrategy=0&commandTimeout=1&socketTimeout=1&blockingTimeout=1&maxRetriesPerRequest=0&enableReadyCheck=true");
+    for (const type of ["client", "bclient", "subscriber"] as const) options.createClient!(type, {});
+    for (const [url, policy] of redisConstructor.mock.calls) {
+      expect(url).toBe("rediss://test-user:test-password@redis.invalid:6380/2");
+      expect(policy.retryStrategy(100)).toBe(3000);
+    }
   });
   it("initializes once and gives target generations stable job IDs", async () => {
     initializeQueues(); initializeQueues();
