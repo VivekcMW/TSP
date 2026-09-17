@@ -61,6 +61,7 @@ export const PUBLIC_PATHS = [
   "/case-studies",
   "/careers",
   "/verify-email",
+  "/reset-password",
 ] as const;
 
 export function isAuthGatewayPath(path: string): boolean {

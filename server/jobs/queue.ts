@@ -108,8 +108,22 @@ export function initializeQueues(): Bull.Queue<InboxRefreshJobData> | undefined 
     const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
     inboxRefreshQueue = new Bull<InboxRefreshJobData>("inbox_refresh", queueOptions(redisUrl));
     publishDraftQueue = new Bull<PublishDraftJobData>("publish_draft", queueOptions(redisUrl));
+    
+    let lastErrorLog = 0;
+    let errorCount = 0;
+    const ERROR_LOG_INTERVAL_MS = 30_000; // Log errors max once per 30s
+    
     for (const queue of [inboxRefreshQueue, publishDraftQueue]) {
-      queue.on("error", (error) => console.error("[queue] Redis error:", error.message));
+      queue.on("error", (error) => {
+        const now = Date.now();
+        errorCount++;
+        // Reduce error log spam: queue errors are usually transient reconnects
+        if (now - lastErrorLog >= ERROR_LOG_INTERVAL_MS) {
+          console.warn(`[queue] ${queue.name} queue error: ${error.message} (${errorCount} errors since last log)`);
+          lastErrorLog = now;
+          errorCount = 0;
+        }
+      });
     }
 
     console.log("[queue] Inbox refresh queue initialized");

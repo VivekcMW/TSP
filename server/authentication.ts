@@ -59,21 +59,9 @@ export const auth = betterAuth({
     // that would also move sessions/verification data out of PostgreSQL.
     ...(redis ? { customStorage: createAuthRateLimitStorage(redis) } : {}),
   },
-  databaseHooks: {
-    user: {
-      create: {
-        // Providers like Twitter/X don't always return an email; Better Auth
-        // substitutes a non-routable "*.placeholder.invalid" address that can
-        // never receive a verification link. The provider already
-        // authenticated the identity, so treat it as verified.
-        async before(user) {
-          if (typeof user.email === "string" && user.email.endsWith(".placeholder.invalid")) {
-            return { data: { ...user, emailVerified: true } };
-          }
-        },
-      },
-    },
-  },
+  // Preserve Better Auth's verification provenance. A placeholder email is
+  // not proof of ownership: password signups can submit the same suffix.
+  // OAuth identity authentication is distinct from email verification.
   user: {
     modelName: "users",
     fields: {

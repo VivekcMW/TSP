@@ -3,10 +3,19 @@ import Redis, { type RedisOptions } from "ioredis";
 /** Blocking/subscriber Bull connections must wait indefinitely; commands must not. */
 export function redisOptions(blocking = false): RedisOptions {
   return {
-    keepAlive: 10_000,
+    // More aggressive keepAlive for free-tier Redis providers (e.g. Render)
+    // that drop idle connections. TCP keepalive probes every 5s prevent 
+    // connection timeout from the provider side.
+    keepAlive: 5_000,
     connectTimeout: 5_000,
     retryStrategy: (attempt) => Math.min(100 * 2 ** Math.min(attempt, 5), 3_000),
-    reconnectOnError: (error) => error.message.includes("READONLY"),
+    reconnectOnError: (error) => {
+      // Reconnect on READONLY errors (primary failover) and connection resets
+      // from free-tier providers. Return false to not reconnect on other errors.
+      return error.message.includes("READONLY") || 
+             error.message.includes("ECONNRESET") ||
+             error.message.includes("ECONNREFUSED");
+    },
     maxRetriesPerRequest: blocking ? null : 2,
     enableReadyCheck: !blocking,
     lazyConnect: false,

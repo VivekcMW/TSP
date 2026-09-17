@@ -5,6 +5,7 @@ import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { toNodeHandler } from "better-auth/node";
 import { configureProxy, CLIENT_IP_HEADER } from "./lib/proxy";
+import { sendPasswordResetEmail, sendVerificationEmail } from "./services/email";
 
 const { evalRedis, fakeRedis } = vi.hoisted(() => {
   const evalRedis = vi.fn();
@@ -14,12 +15,26 @@ vi.mock("./db", async () => ({ pool: (await import("better-auth/adapters/memory"
 vi.mock("./lib/redis", () => ({ redis: fakeRedis }));
 vi.mock("./services/email", () => ({ sendPasswordResetEmail: vi.fn(), sendVerificationEmail: vi.fn() }));
 
-beforeEach(() => { evalRedis.mockReset().mockResolvedValue([1, 0]); });
+beforeEach(() => {
+  evalRedis.mockReset().mockResolvedValue([1, 0]);
+  vi.mocked(sendPasswordResetEmail).mockReset();
+  vi.mocked(sendVerificationEmail).mockReset();
+});
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
 async function authApp(peer = "198.51.100.20", proxies = "") {
   const { auth } = await import("./authentication");
-  const instance = betterAuth({ ...auth.options, database: memoryAdapter({}), socialProviders: {}, logger: { disabled: true } });
+  const instance = betterAuth({
+    ...auth.options,
+    baseURL: "http://localhost:4300",
+    trustedOrigins: ["http://localhost:4300"],
+    // Better Auth skips origin checks by default in NODE_ENV=test. Exercise
+    // production-like checks here, with isolated in-memory tables only.
+    advanced: { ...auth.options.advanced, disableOriginCheck: false, disableCSRFCheck: false },
+    database: memoryAdapter({ users: [], accounts: [], sessions: [], verifications: [] }),
+    socialProviders: {},
+    logger: { disabled: true },
+  });
   const app = express();
   app.use((req, _res, next) => {
     Object.defineProperty(req.socket, "remoteAddress", { configurable: true, value: peer });
@@ -28,10 +43,92 @@ async function authApp(peer = "198.51.100.20", proxies = "") {
   configureProxy(app, proxies);
   const handler = toNodeHandler(instance);
   app.all("/api/auth/*", (req, res, next) => { void handler(req, res).catch(next); });
-  return { app, options: auth.options };
+  return { app, options: auth.options, instance };
 }
 
 describe("Better Auth safeguards", () => {
+  it.each(["attacker@x.placeholder.invalid", "attacker@twitter.placeholder.invalid", "attacker@X.PLACEHOLDER.INVALID", "ordinary@example.com"])
+    ("does not let email signup verify %s or issue a session", async (email) => {
+      const { app, instance } = await authApp();
+      const credentials = { email, password: "auth-regression-password" };
+      const signedUp = await request(app).post("/api/auth/sign-up/email")
+        .set("Origin", "http://localhost:4300")
+        .send({ ...credentials, name: "Auth regression", emailVerified: true, provider: "twitter" });
+      expect(signedUp.status).toBe(200);
+      expect(signedUp.body.user.emailVerified).toBe(false);
+      expect(signedUp.body.token).toBeNull();
+      expect(signedUp.headers["set-cookie"]).toBeUndefined();
+      const context = await instance.$context;
+      const stored = await context.internalAdapter.findUserByEmail(email.toLowerCase());
+      expect(stored?.user.emailVerified).toBe(false);
+      expect(sendVerificationEmail).toHaveBeenCalledTimes(1);
+      const signedIn = await request(app).post("/api/auth/sign-in/email")
+        .set("Origin", "http://localhost:4300").send(credentials);
+      expect(signedIn.status).toBe(403);
+      expect(signedIn.body.code).toBe("EMAIL_NOT_VERIFIED");
+      expect(signedIn.headers["set-cookie"]).toBeUndefined();
+      expect((await request(app).get("/api/auth/get-session")).body).toBeNull();
+    });
+
+  it("resets through real HTTP endpoints once, without verifying an unverified email", async () => {
+    const { app, instance } = await authApp();
+    const email = "reset@example.com";
+    await request(app).post("/api/auth/sign-up/email")
+      .send({ email, name: "Reset regression", password: "original-password" }).expect(200);
+    await request(app).post("/api/auth/request-password-reset")
+      .send({ email, redirectTo: "http://localhost:4300/reset-password" }).expect(200);
+    expect(sendPasswordResetEmail).toHaveBeenCalledTimes(1);
+    const link = new URL(vi.mocked(sendPasswordResetEmail).mock.calls[0][2]);
+    const callback = await request(app).get(link.pathname + link.search).expect(302);
+    const destination = new URL(callback.headers.location);
+    expect(destination.origin + destination.pathname).toBe("http://localhost:4300/reset-password");
+    const token = destination.searchParams.get("token");
+    expect(token).toBeTruthy();
+    const body = { token, newPassword: "replacement-password" };
+    await request(app).post("/api/auth/reset-password").send({ ...body, newPassword: "short" }).expect(400);
+    const reset = await request(app).post("/api/auth/reset-password").send(body).expect(200);
+    expect(reset.body.status).toBe(true);
+    expect(reset.headers["set-cookie"]).toBeUndefined();
+    const repeated = await request(app).post("/api/auth/reset-password").send(body).expect(400);
+    expect(repeated.body.code).toBe("INVALID_TOKEN");
+    const context = await instance.$context;
+    const stored = await context.internalAdapter.findUserByEmail(email);
+    expect(stored?.user.emailVerified).toBe(false);
+    const account = await context.internalAdapter.findCredentialAccount(stored!.user.id);
+    expect(await context.password.verify({ hash: account!.password!, password: body.newPassword })).toBe(true);
+    expect(await context.password.verify({ hash: account!.password!, password: "original-password" })).toBe(false);
+  });
+
+  it("rejects expired reset tokens in callbacks and reset submissions", async () => {
+    const { app, instance } = await authApp();
+    const context = await instance.$context;
+    const token = "expired-auth-regression-token";
+    await context.internalAdapter.createVerificationValue({
+      identifier: `reset-password:${token}`, value: "unused-user",
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    const callback = await request(app).get(`/api/auth/reset-password/${token}`)
+      .query({ callbackURL: "http://localhost:4300/reset-password" }).expect(302);
+    const destination = new URL(callback.headers.location);
+    expect(destination.searchParams.get("error")).toBe("INVALID_TOKEN");
+    expect(destination.searchParams.has("token")).toBe(false);
+    const reset = await request(app).post("/api/auth/reset-password")
+      .send({ token, newPassword: "replacement-password" }).expect(400);
+    expect(reset.body.code).toBe("INVALID_TOKEN");
+    expect(sendPasswordResetEmail).not.toHaveBeenCalled();
+  });
+
+  it.each(["https://untrusted.example/reset", "//untrusted.example/reset", "javascript:alert(1)"])
+    ("rejects unsafe reset callbacks: %s", async (callbackURL) => {
+      const { app } = await authApp();
+      await request(app).post("/api/auth/request-password-reset")
+        .send({ email: "reset@example.com", redirectTo: callbackURL }).expect(403);
+      const callback = await request(app).get("/api/auth/reset-password/not-a-token")
+        .query({ callbackURL }).expect(403);
+      expect(callback.headers.location).toBeUndefined();
+      expect(sendPasswordResetEmail).not.toHaveBeenCalled();
+    });
+
   it("configures only the canonical IP header and rate-limit-only storage", async () => {
     const { options } = await authApp();
     expect(options.advanced?.ipAddress?.ipAddressHeaders).toEqual([CLIENT_IP_HEADER]);

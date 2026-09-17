@@ -20,6 +20,7 @@ import EmailPreferencesPage from "@/pages/email-preferences";
 import CaseStudiesPage from "@/pages/case-studies";
 import CareersPage from "@/pages/careers";
 import NotFound from "@/pages/not-found";
+import { ResetPasswordPage } from "@/pages/auth";
 
 /**
  * The marketing site. Reachable signed in or signed out, so this list lived in
@@ -51,6 +52,7 @@ export function PublicRoutes({ signInRoutes }: { signInRoutes?: React.ReactNode 
       <Route path="/email-preferences" component={EmailPreferencesPage} />
       <Route path="/case-studies" component={CaseStudiesPage} />
       <Route path="/careers" component={CareersPage} />
+      <Route path="/reset-password" component={ResetPasswordPage} />
       {signInRoutes}
       <Route component={NotFound} />
     </Switch>

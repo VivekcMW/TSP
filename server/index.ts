@@ -7,6 +7,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer, STATUS_CODES } from "node:http";
 import type { Socket } from "node:net";
+import { randomUUID } from "node:crypto";
 import { pool } from "./db";
 import { initializeQueues, getQueueHealth } from "./jobs/queue";
 import { registerJobHandlers, closeJobHandlers } from "./jobs";
@@ -27,6 +28,15 @@ httpServer.on("connection", (socket) => {
 configureProxy(app);
 let shuttingDown = false;
 let closeEditorialJobs: (() => Promise<void>) | undefined;
+
+// Request ID tracking for debugging and monitoring (correlate logs across services)
+app.use((req, res, next) => {
+  const requestId = req.get("x-request-id") || req.get("x-correlation-id") || randomUUID();
+  res.set("x-request-id", requestId);
+  (req as any).requestId = requestId;
+  next();
+});
+
 app.use((_req, res, next) => {
   if (shuttingDown) {
     res.setHeader("Connection", "close");
@@ -79,6 +89,22 @@ app.use((_req, res, next) => {
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  
+  // Content-Security-Policy: restrict resource loading to trusted sources
+  // Enumerates fonts (Google Fonts), OAuth/API providers (LinkedIn, Twitter/X, Telegram, etc), and AI services
+  const cspDirectives = [
+    "default-src 'self'",                                                           // Only same-origin by default
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",                              // Needed for React, Vite HMR in dev
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",               // Inline styles + Google Fonts CSS
+    "font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com",      // Google Fonts
+    "img-src 'self' data: https:",                                                  // Self, data URIs, and HTTPS images
+    "connect-src 'self' https://api.linkedin.com https://www.linkedin.com https://api.twitter.com https://api.x.com https://telegram.org https://api.telegram.org https://news.google.com https://api.openrouter.ai https://api.anthropic.com https://generativelanguage.googleapis.com https://accounts.google.com",
+    "frame-src 'none'",                                                             // No embedded frames
+    "object-src 'none'",                                                            // No plugins
+    "base-uri 'self'",                                                              // Restrict base URL changes
+  ].join("; ");
+  
+  res.setHeader("Content-Security-Policy", cspDirectives);
   next();
 });
 
@@ -125,7 +151,41 @@ app.get("/readyz", async (_req, res) => {
   }
 });
 
-export function log(message: string, source = "express") {
+// Production diagnostics endpoint (auth required in future, currently debug-only)
+app.get("/api/diagnostics", async (_req, res) => {
+  try {
+    const queue = await getQueueHealth();
+    const uptime = process.uptime();
+    const memory = process.memoryUsage();
+    
+    res.status(200).json({
+      timestamp: new Date().toISOString(),
+      environment: {
+        nodeEnv: process.env.NODE_ENV,
+        backgroundJobsEnabled: process.env.BACKGROUND_JOBS_ENABLED === "true",
+        cronSchedulerEnabled: process.env.CRON_SCHEDULER === "true",
+        publishingMode: process.env.PUBLISHING_MODE,
+      },
+      process: {
+        uptime: Math.round(uptime),
+        memory: {
+          heapUsed: Math.round(memory.heapUsed / 1024 / 1024),
+          heapTotal: Math.round(memory.heapTotal / 1024 / 1024),
+          external: Math.round(memory.external / 1024 / 1024),
+        },
+      },
+      services: {
+        database: "ok",
+        queue,
+      },
+    });
+  } catch (error) {
+    console.error("[diagnostics] Failed to gather diagnostics:", error);
+    res.status(503).json({ status: "error", message: "Diagnostics check failed" });
+  }
+});
+
+export function log(message: string, source = "express", requestId?: string) {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -133,16 +193,18 @@ export function log(message: string, source = "express") {
     hour12: true,
   });
 
-  console.log(`${formattedTime} [${source}] ${message}`);
+  const requestIdStr = requestId ? ` [${requestId.slice(0, 8)}]` : "";
+  console.log(`${formattedTime} [${source}]${requestIdStr} ${message}`);
 }
 
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
+  const requestId = (req as any).requestId;
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      log(`${req.method} ${path} ${res.statusCode} in ${duration}ms`);
+      log(`${req.method} ${path} ${res.statusCode} in ${duration}ms`, "express", requestId);
     }
   });
 

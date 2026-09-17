@@ -1,10 +1,10 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
 import { FaLinkedin } from "react-icons/fa";
 import { SiGoogle, SiX } from "react-icons/si";
@@ -36,12 +36,18 @@ export function SignInPage() {
     setLocation("/dashboard");
   }
   async function requestReset() {
+    if (resetPending) return;
     if (!email) return setError("Enter your email first, then try again.");
-    setResetPending(true); setError("");
-    const result = await authClient.requestPasswordReset({ email, redirectTo: `${window.location.origin}/reset-password` });
-    setResetPending(false);
-    if (result.error) return setError(result.error.message || "Unable to send the reset email.");
-    setResetSent(true);
+    setResetPending(true); setError(""); setResetSent(false);
+    try {
+      const result = await authClient.requestPasswordReset({ email, redirectTo: `${window.location.origin}/reset-password` });
+      if (result.error) return setError("Unable to send the reset email. Please try again.");
+      setResetSent(true);
+    } catch {
+      setError("Unable to send the reset email. Check your connection and try again.");
+    } finally {
+      setResetPending(false);
+    }
   }
   return <AuthCard title="Welcome back" description="Sign in to TheSocialPundit"><SocialLogin /><Divider /><form className="space-y-4" onSubmit={submit}><Field id="signin-email" label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" /><Field id="signin-password" label="Password" value={password} onChange={setPassword} type="password" autoComplete="current-password" /><div className="-mt-2 flex justify-end"><button type="button" className="text-xs text-primary underline-offset-4 hover:underline" onClick={requestReset} disabled={resetPending}>{resetPending ? "Sending reset link…" : "Forgot password?"}</button></div><Message text={error} />{resetSent && <p className="text-sm text-success">If an account exists for that email, a reset link is on its way.</p>}<Button className="w-full" disabled={pending}>{pending ? "Signing in…" : "Sign in"}</Button><p className="text-sm text-center text-muted-foreground">New here? <Link className="text-primary underline" href="/sign-up">Create an account</Link></p></form></AuthCard>;
 }
@@ -63,13 +69,105 @@ export function VerifyEmailPage() {
   return <AuthCard title="Check your inbox" description="We sent a verification link to your email address. Open it to activate your account, then sign in."><Button asChild className="w-full"><Link href="/sign-in">Go to sign in</Link></Button></AuthCard>;
 }
 
+export function ResetPasswordPage() {
+  const [token, setToken] = useState(() => {
+    const query = new URLSearchParams(window.location.search);
+    const tokens = query.getAll("token");
+    // Treat ambiguous/error links as invalid; never render an untrusted value.
+    return !query.has("error") && tokens.length === 1 && /^[A-Za-z0-9_-]{1,512}$/.test(tokens[0]) ? tokens[0] : null;
+  });
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const submitting = useRef(false);
+  const messageRef = useRef<HTMLParagraphElement>(null);
+  const successRef = useRef<HTMLOutputElement>(null);
+
+  useEffect(() => {
+    // Keep the token only in component memory, not browser history, storage,
+    // subsequent referrers, or callback URLs. Reload requires reopening the email.
+    window.history.replaceState(window.history.state, "", window.location.pathname);
+  }, []);
+  useEffect(() => {
+    if (success) successRef.current?.focus();
+    else if (error || !token) messageRef.current?.focus();
+  }, [error, success, token]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (submitting.current || !token || success) return;
+    setError("");
+    if (password.length < 8 || password.length > 128) return setError("Use a password between 8 and 128 characters.");
+    if (password !== confirmation) return setError("Passwords do not match.");
+    submitting.current = true;
+    setPending(true);
+    try {
+      // Deliberately ignore callbackURL/redirectTo/next supplied in the URL.
+      const result = await authClient.resetPassword({ token, newPassword: password });
+      if (result.error) {
+        if (result.error.code === "INVALID_TOKEN") setToken(null);
+        else setError("Unable to reset your password. Please try again or request a new link.");
+        return;
+      }
+      if (!result.data?.status) {
+        setError("Unable to confirm the password reset. Please try again or request a new link.");
+        return;
+      }
+      setSuccess(true);
+      setToken(null);
+      setPassword("");
+      setConfirmation("");
+    } catch {
+      // SDK/network errors may contain request details. Never log or display them.
+      setError("Unable to reset your password. Check your connection and try again.");
+    } finally {
+      submitting.current = false;
+      setPending(false);
+    }
+  }
+
+  let content: React.ReactNode;
+  if (success) {
+    content = <div className="space-y-4">
+      <output ref={successRef} tabIndex={-1} className="block text-sm text-success">Your password has been reset. You can now sign in with your new password.</output>
+      <Button asChild className="w-full"><Link href="/sign-in">Go to sign in</Link></Button>
+    </div>;
+  } else if (!token) {
+    content = <div className="space-y-4">
+      <p ref={messageRef} tabIndex={-1} role="alert" className="text-sm text-destructive">This reset link is invalid or has expired. Request a new link from the sign-in page.</p>
+      <Button asChild className="w-full"><Link href="/sign-in">Request a new reset link</Link></Button>
+    </div>;
+  } else {
+    content = <form className="space-y-4" onSubmit={submit} noValidate aria-busy={pending} aria-label="Reset password">
+      <fieldset disabled={pending} className="space-y-4">
+        <legend className="sr-only">New password</legend>
+        <div className="space-y-2">
+          <Label htmlFor="reset-password">New password</Label>
+          <Input id="reset-password" type="password" autoComplete="new-password" required minLength={8} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} aria-describedby="reset-password-hint reset-password-error" />
+          <p id="reset-password-hint" className="text-xs text-muted-foreground">Use 8–128 characters. Reopen the email link if you reload this page.</p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="reset-confirmation">Confirm new password</Label>
+          <Input id="reset-confirmation" type="password" autoComplete="new-password" required minLength={8} maxLength={128} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} aria-describedby="reset-password-error" />
+        </div>
+        <Button type="submit" className="w-full">{pending ? "Resetting password…" : "Reset password"}</Button>
+      </fieldset>
+      <p id="reset-password-error" ref={messageRef} tabIndex={-1} role="alert" className="text-sm text-destructive">{error}</p>
+      <Link className="block text-center text-sm text-primary underline" href="/sign-in">Back to sign in</Link>
+    </form>;
+  }
+  return <AuthCard title="Reset your password" description="Choose a new password for your account.">{content}</AuthCard>;
+}
+
 function AuthCard({ title, description, children }: Readonly<{ title: string; description: string; children: React.ReactNode }>) {
   return <div className="grid min-h-[100dvh] bg-background lg:grid-cols-[minmax(0,1fr)_minmax(420px,560px)]">
     <BrandPanel />
     <main className="flex items-center justify-center px-4 py-8 sm:px-8 lg:px-12">
       <div className="w-full max-w-md">
       <MobileBrand />
-      <Card className="w-full max-w-md border-border/70 shadow-sm"><CardHeader className="pb-4"><CardTitle className="heading-dashboard text-2xl">{title}</CardTitle><CardDescription>{description}</CardDescription></CardHeader><CardContent>{children}</CardContent></Card>
+      <Card className="w-full max-w-md border-border/70 shadow-sm"><CardHeader className="pb-4"><h1 className="heading-dashboard text-2xl">{title}</h1><CardDescription>{description}</CardDescription></CardHeader><CardContent>{children}</CardContent></Card>
       </div>
     </main>
   </div>;
@@ -98,7 +196,7 @@ function PreviewStep({ icon: Icon, label, text }: Readonly<{ icon: ComponentType
   return <div className="rounded-[4px] border border-surface-ink-foreground/15 bg-surface-ink-foreground/[0.06] p-3"><Icon className="mb-5 h-4 w-4 text-secondary" /><p className="text-[10px] font-semibold uppercase tracking-wide text-surface-ink-foreground/55">{label}</p><p className="mt-1 text-xs leading-relaxed text-surface-ink-foreground/85">{text}</p></div>;
 }
 function Field({ id, label, value, onChange, type = "text", hint, autoComplete }: Readonly<{ id: string; label: string; value: string; onChange: (value: string) => void; type?: string; hint?: string; autoComplete?: string }>) { const [visible, setVisible] = useState(false); const isPassword = type === "password"; const inputType = isPassword && visible ? "text" : type; return <div className="space-y-2"><Label htmlFor={id}>{label}</Label><div className="relative"><Input id={id} required type={inputType} value={value} autoComplete={autoComplete} onChange={(e) => onChange(e.target.value)} className={isPassword ? "pr-10" : undefined} />{isPassword && <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground" onClick={() => setVisible((current) => !current)} aria-label={visible ? "Hide password" : "Show password"}>{visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>}</div>{hint && <p className="text-xs text-muted-foreground">{hint}</p>}</div>; }
-function Message({ text }: { text: string }) { return text ? <p className="text-sm text-destructive">{text}</p> : null; }
+function Message({ text }: { text: string }) { return text ? <p role="alert" className="text-sm text-destructive">{text}</p> : null; }
 
 function SocialLogin() {
   const { data: providers } = useQuery<ProviderAvailability>({ queryKey: ["/api/auth-providers"] });

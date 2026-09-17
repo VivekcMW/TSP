@@ -38,10 +38,19 @@ describe("resolveGate", () => {
       expect(out("/pricing")).toBe("public");
       expect(out("/blog/some-slug")).toBe("public");
       expect(out("/sign-in")).toBe("public");
+      expect(out("/reset-password")).toBe("public");
     });
   });
 
   describe("signed in", () => {
+    it("allows password recovery before registration or profile queries succeed", () => {
+      expect(resolveGate(input({
+        path: "/reset-password",
+        me: { status: "error", registrationCompleted: null },
+        profile: { status: "loading", onboardingStatus: null },
+      }))).toBe("public");
+    });
+
     it("bounces sign-in and sign-up to the dashboard", () => {
       expect(resolveGate(input({ path: "/sign-in" }))).toBe("redirect-dashboard");
       expect(resolveGate(input({ path: "/sign-up" }))).toBe("redirect-dashboard");
