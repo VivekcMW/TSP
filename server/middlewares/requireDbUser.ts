@@ -5,6 +5,7 @@ import { db } from "../db";
 import { users, type User as UserRow } from "@shared/models/auth";
 import { resolveTenantContext, type TenantContext } from "../services/tenancy";
 import { auth } from "../authentication";
+import { devAuthEnabled, resolveDevUser } from "./devAuth";
 
 declare global {
   namespace Express {
@@ -37,9 +38,26 @@ const TENANT_HEADER = "x-tenant-id";
  * Requires a valid Better Auth session and resolves the matching local user.
  * Better Auth owns the same `users` table, so the user is created before a
  * session can be established and no secondary identity provisioning occurs.
+ *
+ * In development with DEV_AUTH_BYPASS enabled, automatically uses the seeded
+ * dev user without requiring authentication.
  */
 export async function requireDbUser(req: Request, res: Response, next: NextFunction) {
   try {
+    // Check if dev auth bypass is enabled
+    if (devAuthEnabled) {
+      console.log("[requireDbUser] DEV_AUTH_BYPASS enabled, resolving dev user");
+      const dbUser = await resolveDevUser();
+      const tenant = await resolveTenantContext(dbUser.id, tenantHeader(req));
+      if (!tenant) {
+        return res.status(404).json({ message: "Tenant not found" });
+      }
+      req.dbUser = dbUser;
+      req.tenant = tenant;
+      console.log("[requireDbUser] Dev user set:", dbUser.id);
+      return next();
+    }
+
     const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
     const userId = session?.user.id;
     if (!userId) return res.status(401).json({ message: "Unauthorized" });

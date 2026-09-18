@@ -51,19 +51,23 @@ let cachedUser: User | undefined;
 /**
  * Returns the seeded local user, creating it on first use.
  *
- * Both registration and onboarding are marked complete so the client gate
- * lands on the dashboard. That matters because the onboarding wizard calls
- * /api/ai/analyze-identity, so without a Gemini key it cannot be completed
- * by hand — an unfinished profile would leave the app stuck on the wizard.
+ * Onboarding is marked as not-started so the dev user goes through the
+ * profile setup flow for testing purposes.
  */
 export async function resolveDevUser(): Promise<User> {
-  if (cachedUser) return cachedUser;
+  if (cachedUser) {
+    console.log("[devAuth] Returning cached dev user");
+    return cachedUser;
+  }
 
-  await db
+  console.log("[devAuth] Creating/seeding dev user...");
+
+  const insertResult = await db
     .insert(users)
     .values({
       id: DEV_USER_ID,
       email: DEV_EMAIL,
+      name: "Local Developer",
       firstName: "Local",
       lastName: "Developer",
       country: "India",
@@ -72,16 +76,25 @@ export async function resolveDevUser(): Promise<User> {
     })
     .onConflictDoNothing();
 
+  console.log("[devAuth] Insert result:", insertResult);
+
   const tenantId = await ensurePersonalTenant(DEV_USER_ID, "Local Developer");
+  console.log("[devAuth] Created/ensured tenant:", tenantId);
 
   // Through the repository, not a raw insert. The repository sets
   // app.tenant_id transaction-locally, which the Row-Level Security policy on
   // user_profiles requires; a direct insert is rejected by WITH CHECK. RLS
   // caught this exact bypass the first time the app ran as the restricted role.
   const scope = { tenantId, userId: DEV_USER_ID };
-  if (!(await storage.getUserProfile(scope))) {
+  
+  // Check if profile exists
+  const existingProfile = await storage.getUserProfile(scope);
+  console.log("[devAuth] Existing profile:", existingProfile?.onboardingStatus);
+
+  if (!existingProfile) {
+    console.log("[devAuth] Creating new profile with not-started status");
     await storage.createUserProfile(scope, {
-      onboardingStatus: "completed",
+      onboardingStatus: "not-started",
       focusDescription: "Seeded local development profile.",
       publications: [],
       keywords: [
@@ -92,6 +105,11 @@ export async function resolveDevUser(): Promise<User> {
       influencers: [],
       companies: [],
     });
+  } else if (existingProfile.onboardingStatus !== "not-started") {
+    console.log("[devAuth] Updating existing profile to not-started status");
+    await storage.updateUserProfile(scope, {
+      onboardingStatus: "not-started",
+    });
   }
 
   const [user] = await db.select().from(users).where(eq(users.id, DEV_USER_ID)).limit(1);
@@ -100,6 +118,7 @@ export async function resolveDevUser(): Promise<User> {
     throw new Error("Failed to seed the DEV_AUTH_BYPASS user");
   }
 
+  console.log("[devAuth] Dev user ready:", user.id, user.email);
   cachedUser = user;
   return user;
 }

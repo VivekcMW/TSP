@@ -24,14 +24,16 @@ import type { UserProfile } from "@shared/schema";
 
 import CompleteRegistrationPage from "@/pages/complete-registration";
 import OnboardingPage from "@/pages/onboarding";
+import NotFound from "@/pages/not-found";
+import { AdminLayout } from "@/components/admin/admin-layout";
+import { SignInPage, SignUpPage, VerifyEmailPage } from "@/pages/auth";
+
 const OverviewPage = lazy(() => import("@/pages/overview"));
 const DashboardPage = lazy(() => import("@/pages/dashboard"));
 const DraftsPage = lazy(() => import("@/pages/drafts"));
 const PerformancePage = lazy(() => import("@/pages/performance"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const CalendarPage = lazy(() => import("@/pages/calendar"));
-import NotFound from "@/pages/not-found";
-import { AdminLayout } from "@/components/admin/admin-layout";
 const AdminOverviewPage = lazy(() => import("@/pages/admin/overview"));
 const AdminTenantsPage = lazy(() => import("@/pages/admin/tenants"));
 const AdminUsersPage = lazy(() => import("@/pages/admin/users"));
@@ -40,7 +42,6 @@ const AdminAuditLogPage = lazy(() => import("@/pages/admin/audit-log"));
 const AdminEngineRunsPage = lazy(() => import("@/pages/admin/engine-runs"));
 const AdminFeatureFlagsPage = lazy(() => import("@/pages/admin/feature-flags"));
 const AdminMonitoringPage = lazy(() => import("@/pages/admin/monitoring"));
-import { SignInPage, SignUpPage, VerifyEmailPage } from "@/pages/auth";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -106,6 +107,7 @@ function DashboardRouter() {
             <Route path="/dashboard/preferences"><DashboardRedirect to="/dashboard/settings?tab=publishing" /></Route>
             <Route path="/dashboard/plugins"><DashboardRedirect to="/dashboard/settings?tab=publishing" /></Route>
             <Route path="/dashboard/profile"><DashboardRedirect to="/dashboard/settings?tab=content" /></Route>
+            <Route path="/dashboard/profile-setup" component={ProfileSetupPage} />
             <Route path="/dashboard/settings" component={SettingsPage} />
             <Route path="/dashboard/billing"><DashboardRedirect to="/dashboard/settings?tab=billing" /></Route>
             <Route path="/dashboard/calendar" component={CalendarPage} />
@@ -178,14 +180,19 @@ function AppRoutes() {
   const authLoaded = !isPending;
   const signedIn = !!user;
 
+  // Always fetch /api/me to handle dev auth bypass mode (where there's no session cookie)
   const { data: dbUser, error: dbUserError } = useQuery<DbUser | null>({
     queryKey: ["/api/me"],
-    enabled: authLoaded && signedIn,
+    enabled: authLoaded,
   });
+
+  // In dev auth bypass mode, /api/me returns a user even without a session.
+  // Treat the user as signed in if we got a valid dbUser from the API.
+  const devAuthSignedIn = signedIn || (authLoaded && !!dbUser && !dbUserError);
 
   const { data: profile, error: profileError } = useQuery<UserProfile>({
     queryKey: ["/api/profile"],
-    enabled: authLoaded && signedIn,
+    enabled: authLoaded && devAuthSignedIn,
   });
 
   // `undefined` data means "not resolved yet" — more reliable than isLoading,
@@ -193,7 +200,7 @@ function AppRoutes() {
   // previously let a "registration incomplete" screen flash before the fetch.
   const gate = resolveGate({
     authLoaded,
-    signedIn,
+    signedIn: devAuthSignedIn,
     me: {
       status: gateQueryStatus(dbUser, dbUserError),
       registrationCompleted: dbUser?.registrationCompleted ?? null,
