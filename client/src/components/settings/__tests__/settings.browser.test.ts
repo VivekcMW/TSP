@@ -68,7 +68,7 @@ beforeEach(async () => {
     if (failures.has(`${method} ${url.pathname}`)) return reply({ message: "Fixture request failed" }, 500);
     if (url.pathname === "/api/auth/get-session") return reply({ user, session: { id: "fixture-session", userId: user.id, expiresAt: "2099-01-01T00:00:00Z" } });
     if (url.pathname === "/api/auth/update-user") { user = { ...user, name: body.name }; return reply({ status: true }); }
-    if (url.pathname === "/api/auth/update-name") { 
+    if (url.pathname === "/api/account/update-name") { 
       const fullName = body.fullName?.trim() || "";
       const parts = fullName.split(/\s+/);
       const firstName = parts[0] || "";
@@ -337,7 +337,7 @@ describe("Settings consolidation and trust", () => {
     await page.getByLabel("Full Name").fill("Updated Person");
     await page.getByTestId("button-save-account").click();
     await browserExpect(page.getByText("Account saved", { exact: true })).toBeVisible();
-    expect(requests.find((req) => req.url === "/api/auth/update-name")?.body).toEqual({ fullName: "Updated Person" });
+    expect(requests.find((req) => req.url === "/api/account/update-name")?.body).toEqual({ fullName: "Updated Person" });
     await page.reload();
     await browserExpect(page.getByLabel("Full Name")).toHaveValue("Updated Person");
   });
@@ -357,7 +357,7 @@ describe("Settings consolidation and trust", () => {
   });
 
   it("keeps account edits and reports an auth save failure honestly", async () => {
-    failures.add("POST /api/auth/update-name");
+    failures.add("POST /api/account/update-name");
     await open();
     await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original");
     await page.getByLabel("Full Name").fill("Unsaved");

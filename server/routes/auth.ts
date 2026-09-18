@@ -79,9 +79,10 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  // Custom endpoint to update user name (accepts full name and parses into firstName/lastName)
-  // This ensures proper round-trip storage without data corruption
-  app.post("/api/auth/update-name", requireDbUser, async (req, res) => {
+  // Endpoint to update user name (accepts full name and parses into firstName/lastName)
+  // NOTE: This must use /api/account namespace, NOT /api/auth, because Better Auth
+  // intercepts all /api/auth/* routes and returns 404 for unrecognized endpoints.
+  async function handleUpdateName(req: any, res: any) {
     try {
       const { fullName } = req.body;
       if (!req.dbUser) {
@@ -122,5 +123,9 @@ export function registerAuthRoutes(app: Express) {
       console.error("Error updating name:", error);
       res.status(500).json({ message: "Failed to update name" });
     }
-  });
+  }
+
+  // Use /api/account namespace since /api/auth/* is intercepted by Better Auth
+  // and returns 404 for unrecognized endpoints
+  app.post("/api/account/update-name", requireDbUser, handleUpdateName);
 }

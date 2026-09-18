@@ -16,16 +16,14 @@ export function AccountSettings() {
   const { draft, setDraft, dirty, acknowledge } = useSettingsDraft({ fullName: fullNameFromUser });
   const mutation = useMutation({
     mutationFn: async (values: typeof draft) => {
-      // Use custom endpoint to update full name
-      // Server will parse full name into firstName/lastName
-      const response = await fetch("/api/auth/update-name", {
+      const fullName = values.fullName.trim();
+      const response = await fetch("/api/account/update-name", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fullName: values.fullName.trim(),
-        }),
+        body: JSON.stringify({ fullName }),
         credentials: "include",
       });
+      
       if (!response.ok) {
         const error = await response.json().catch(() => ({ message: "Failed to update account" }));
         throw new Error(error.message ?? "Failed to update account");
