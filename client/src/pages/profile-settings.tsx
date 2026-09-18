@@ -18,11 +18,21 @@ import { SourcesManagerContent } from "@/components/dashboard/sources-manager";
 import { getIndustryData } from "@/components/onboarding/onboarding-wizard";
 import type { UserProfile, InboxItem, ProfileSocialLink } from "@shared/schema";
 
+// Helper to extract keyword strings from weighted keywords
+function keywordStrings(keywords: (string | { keyword: string; weight?: number })[]): string[] {
+  return keywords.map(kw => typeof kw === 'string' ? kw : kw.keyword);
+}
+
+// Helper to convert string keywords to weighted format
+function toWeightedKeywords(keywords: string[]) {
+  return keywords.map(kw => ({ keyword: kw, weight: 0.7 }));
+}
+
 function contentValues(profile?: UserProfile) {
   return {
     focusDescription: profile?.focusDescription ?? "",
     publications: profile?.publications ?? [],
-    keywords: profile?.keywords ?? [],
+    keywords: keywordStrings(profile?.keywords ?? []),
     influencers: profile?.influencers ?? [],
     companies: profile?.companies ?? [],
   };
@@ -85,7 +95,12 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
 
   const updateMutation = useMutation({
     mutationFn: async (data: typeof draft): Promise<UserProfile> => {
-      return (await apiRequest("PATCH", "/api/profile", data)).json();
+      // Convert string keywords to weighted format for API
+      const payload = {
+        ...data,
+        keywords: toWeightedKeywords(data.keywords),
+      };
+      return (await apiRequest("PATCH", "/api/profile", payload)).json();
     },
     onSuccess: (saved, submitted) => {
       acknowledge(submitted, contentValues(saved));

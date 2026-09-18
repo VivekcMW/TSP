@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 
 const email = process.env.E2E_TEST_EMAIL;
 const password = process.env.E2E_TEST_PASSWORD;
+const blueskyHandle = process.env.E2E_BLUESKY_HANDLE;
+const blueskyAppPassword = process.env.E2E_BLUESKY_APP_PASSWORD;
 const createdDraftIds: string[] = [];
 const createdMediaIds: string[] = [];
 
@@ -18,12 +20,20 @@ test.afterEach(async ({ page }) => {
 });
 
 test("sign in, create a draft, bulk schedule it, and drag-reschedule it", async ({ page }) => {
+  test.skip(!blueskyHandle || !blueskyAppPassword, "Set E2E_BLUESKY_HANDLE and E2E_BLUESKY_APP_PASSWORD (a real Bluesky handle + App Password) to test bulk scheduling — it requires a connected platform.");
+
   await page.goto("/sign-in");
   const fields = page.locator("input");
   await fields.nth(0).fill(email!);
   await fields.nth(1).fill(password!);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/dashboard/);
+
+  const connect = await page.evaluate(async ({ handle, appPassword }) => {
+    const response = await fetch("/api/integrations/bluesky/app-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ handle, appPassword }) });
+    return { status: response.status, body: await response.json() };
+  }, { handle: blueskyHandle, appPassword: blueskyAppPassword });
+  expect(connect.status).toBe(200);
 
   const content = `E2E scheduling test ${Date.now()}`;
   const draft = await page.evaluate(async ({ content }) => {

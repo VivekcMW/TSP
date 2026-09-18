@@ -319,6 +319,7 @@ function shutdown(code = 0): Promise<void> {
 }
 
 export async function startServer(): Promise<void> {
+  console.log("[startup] Initializing queues...");
   // Initialize background job queue (if Redis is configured)
   initializeQueues();
   initializeEmailQueue();
@@ -326,16 +327,19 @@ export async function startServer(): Promise<void> {
   await registerJobHandlers();
   if (shuttingDown) return;
 
+  console.log("[startup] Importing editorial jobs...");
   const editorial = await import("./jobs/editorial");
   closeEditorialJobs = editorial.closeEditorialJobs;
   editorial.initializeEditorialJobs();
   const { registerEditorialJobsRoutes } = await import("./routes/editorial-jobs");
   registerEditorialJobsRoutes(app);
 
+  console.log("[startup] Initializing scheduler...");
   // Initialize scheduler for cron-based pre-warming (if enabled)
   await initializeScheduler();
   if (shuttingDown) return;
 
+  console.log("[startup] Registering routes...");
   await registerRoutes(httpServer, app);
   if (shuttingDown) return;
 
@@ -343,26 +347,40 @@ export async function startServer(): Promise<void> {
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
   if (process.env.NODE_ENV === "production") {
+    console.log("[startup] Using static file serving (production)...");
     serveStatic(app);
   } else {
+    console.log("[startup] Setting up Vite (development)...");
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
   }
   // Last, so static/Vite errors are handled as well as API errors.
+  console.log("[startup] Setting up error handler...");
   app.use(errorHandler);
   if (shuttingDown) return;
 
   // Serves both the API and the client from one port.
   const port = Number.parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
+  console.log("[startup] Starting HTTP server on port", port);
+  
+  return new Promise<void>((resolve) => {
+    httpServer.listen(
+      {
+        port,
+        host: "0.0.0.0",
+      },
+      () => {
+        log(`serving on port ${port}`);
+        console.log("[startup] HTTP server listening successfully");
+        resolve();
+      },
+    );
+    
+    httpServer.on("error", (error) => {
+      console.error("[startup] HTTP server error:", error);
+      throw error;
+    });
+  });
 }
 
 if (process.env.NODE_ENV !== "test") {

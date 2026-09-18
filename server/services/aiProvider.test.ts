@@ -17,11 +17,12 @@ beforeEach(async () => {
   vi.resetModules();
   http.mockReset();
   vi.stubGlobal("fetch", http);
-  for (const key of ["AI_PROVIDER", "AI_FALLBACK_PROVIDER", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "AI_TENANT_REQUEST_BUDGET", "AI_TENANT_BUDGET_WINDOW_SECONDS", "AI_SHARED_MAX_CONCURRENT_REQUESTS", "AI_INTEGRATIONS_GEMINI_API_KEY", "AI_INTEGRATIONS_GEMINI_BASE_URL", "OPENROUTER_MODEL", "GEMINI_MODEL"]) vi.stubEnv(key, "");
+  for (const key of ["AI_PROVIDER", "AI_FALLBACK_PROVIDER", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "AI_TENANT_REQUEST_BUDGET", "AI_TENANT_BUDGET_WINDOW_SECONDS", "AI_SHARED_MAX_CONCURRENT_REQUESTS", "AI_INTEGRATIONS_GEMINI_API_KEY", "AI_INTEGRATIONS_GEMINI_BASE_URL", "OPENROUTER_MODEL", "GEMINI_MODEL", "OPENAI_API_KEY", "OPENAI_MODEL"]) vi.stubEnv(key, "");
   vi.stubEnv("CLAUDE_API_KEY", "claude-unit-test-only");
   vi.stubEnv("OPENROUTER_API_KEY", "router-unit-test-only");
   vi.stubEnv("OPENROUTER_BASE_URL", "https://provider.invalid/api/v1");
   vi.stubEnv("GEMINI_API_KEY", "gemini-unit-test-only");
+  vi.stubEnv("OPENAI_API_KEY", "openai-unit-test-only");
   ai = await import("./openRouter");
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
@@ -58,6 +59,31 @@ describe("Claude-primary provider contract", () => {
     vi.stubEnv("CLAUDE_API_KEY", "");
     http.mockResolvedValue(legacy());
     expect(await ai.generateTextWithMetadata("article")).toMatchObject({ provider: "openrouter" });
+  });
+
+  it("selects direct OpenAI, hits its own endpoint without OpenRouter attribution headers, and respects the model override", async () => {
+    vi.stubEnv("AI_PROVIDER", "openai");
+    http.mockResolvedValue(legacy());
+    expect(await ai.generateTextWithMetadata("article")).toMatchObject({ provider: "openai", fallbackUsed: false, usage: { inputTokens: 20, outputTokens: 8 } });
+    const [url, options] = http.mock.calls[0];
+    expect(String(url)).toBe("https://api.openai.com/v1/chat/completions");
+    const headers = new Headers(options.headers);
+    expect(headers.get("authorization")).toBe("Bearer openai-unit-test-only");
+    expect(headers.has("HTTP-Referer")).toBe(false);
+    expect(headers.has("X-Title")).toBe(false);
+    expect(JSON.parse(options.body).model).toBe("gpt-4o");
+
+    vi.stubEnv("OPENAI_MODEL", "gpt-4o-custom");
+    http.mockResolvedValue(legacy());
+    await ai.generateTextWithMetadata("article");
+    expect(JSON.parse(http.mock.calls[1][1].body).model).toBe("gpt-4o-custom");
+  });
+
+  it("fails closed for OpenAI when no key is configured", async () => {
+    vi.stubEnv("AI_PROVIDER", "openai");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    await expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_configuration" });
+    expect(http).not.toHaveBeenCalled();
   });
 
   it("uses null for unreported usage and preserves string wrapper", async () => {
@@ -216,10 +242,10 @@ describe("Claude-primary provider contract", () => {
     expect(http).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["openrouter", "gemini"])("does not bypass %s refusals or invalid input via Claude fallback", async provider => {
+  it.each(["openrouter", "gemini", "openai"])("does not bypass %s refusals or invalid input via Claude fallback", async provider => {
     vi.stubEnv("AI_PROVIDER", provider);
     vi.stubEnv("AI_FALLBACK_PROVIDER", "claude");
-    http.mockResolvedValueOnce(provider === "openrouter" ? json({ choices: [{ finish_reason: "content_filter" }] }) : json({ promptFeedback: { blockReason: "SAFETY" } }))
+    http.mockResolvedValueOnce(provider === "gemini" ? json({ promptFeedback: { blockReason: "SAFETY" } }) : json({ choices: [{ finish_reason: "content_filter" }] }))
       .mockResolvedValueOnce(errorResponse(400));
     await expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_refusal" });
     await expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_invalid_input" });

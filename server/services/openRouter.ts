@@ -5,11 +5,12 @@ import { logAIInvalidOutputDiagnostic, type AIDiagnosticInput } from "./aiDiagno
 
 const DEFAULT_OPENROUTER_MODEL = "openai/gpt-4o-mini";
 const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
+const DEFAULT_OPENAI_MODEL = "gpt-4o";
 // Pinned, stable snapshot verified against official model docs on 2026-09-16:
 // https://platform.claude.com/docs/en/models/sonnet-5/overview
 export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5";
 
-export type AIProvider = "openrouter" | "gemini" | "anthropic";
+export type AIProvider = "openrouter" | "gemini" | "anthropic" | "openai";
 
 export const AI_REQUEST_TIMEOUT_MS = 20_000;
 export const AI_MAX_CONCURRENT_REQUESTS = 4;
@@ -99,7 +100,7 @@ function cancellationFailure(signal?: AbortSignal): AIGenerationError {
 function parseProvider(value: string): AIProvider {
   const provider = value.trim().toLowerCase();
   if (provider === "anthropic" || provider === "claude") return "anthropic";
-  if (provider !== "gemini" && provider !== "openrouter") throw new AIGenerationError("ai_configuration");
+  if (provider !== "gemini" && provider !== "openrouter" && provider !== "openai") throw new AIGenerationError("ai_configuration");
   return provider;
 }
 
@@ -116,6 +117,7 @@ export function getEditorialModelIdentity() {
       anthropic: process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL,
       gemini: process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
       openrouter: process.env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL,
+      openai: process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
     },
   };
 }
@@ -204,8 +206,25 @@ function getGeminiConfig() {
   return { apiKey, model };
 }
 
-async function generateWithOpenRouter(prompt: string, options: GenerationOptions, diagnostic: AIDiagnosticInput): Promise<ProviderResult> {
-  const { apiKey, baseUrl, model } = getOpenRouterConfig();
+function getOpenAIConfig() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const model = process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
+
+  if (!apiKey) {
+    throw new AIGenerationError("ai_configuration");
+  }
+
+  return { apiKey, model };
+}
+
+/** Shared by OpenRouter and direct OpenAI: both speak the same chat-completions protocol. */
+async function generateChatCompletion(
+  config: { apiKey: string; baseUrl: string; model: string; extraHeaders?: Record<string, string> },
+  prompt: string,
+  options: GenerationOptions,
+  diagnostic: AIDiagnosticInput,
+): Promise<ProviderResult> {
+  const { apiKey, baseUrl, model, extraHeaders } = config;
   diagnostic.model = model;
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
@@ -215,8 +234,7 @@ async function generateWithOpenRouter(prompt: string, options: GenerationOptions
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": process.env.APP_URL || "http://localhost:4300",
-      "X-Title": "TheSocialPundit",
+      ...extraHeaders,
     },
     body: JSON.stringify({
       model,
@@ -268,6 +286,19 @@ async function generateWithOpenRouter(prompt: string, options: GenerationOptions
   return { text, model: json.model || model, usage: { inputTokens: tokenCount(json.usage?.prompt_tokens), outputTokens: tokenCount(json.usage?.completion_tokens) } };
 }
 
+async function generateWithOpenRouter(prompt: string, options: GenerationOptions, diagnostic: AIDiagnosticInput): Promise<ProviderResult> {
+  const { apiKey, baseUrl, model } = getOpenRouterConfig();
+  return generateChatCompletion(
+    { apiKey, baseUrl, model, extraHeaders: { "HTTP-Referer": process.env.APP_URL || "http://localhost:4300", "X-Title": "TheSocialPundit" } },
+    prompt, options, diagnostic,
+  );
+}
+
+async function generateWithOpenAI(prompt: string, options: GenerationOptions, diagnostic: AIDiagnosticInput): Promise<ProviderResult> {
+  const { apiKey, model } = getOpenAIConfig();
+  return generateChatCompletion({ apiKey, baseUrl: "https://api.openai.com/v1", model }, prompt, options, diagnostic);
+}
+
 async function generateWithGemini(prompt: string, options: GenerationOptions, diagnostic: AIDiagnosticInput): Promise<ProviderResult> {
   const { apiKey, model } = getGeminiConfig();
   diagnostic.model = model;
@@ -286,6 +317,9 @@ async function generateWithGemini(prompt: string, options: GenerationOptions, di
       // before the visible output, which can truncate short JSON responses
       // at the old 1024 default -- give more headroom.
       maxOutputTokens: options.maxTokens ?? 2048,
+      // Mirrors the Anthropic adapter's thinking:disabled above: reserve the
+      // full budget for visible text instead of internal reasoning tokens.
+      thinkingConfig: { thinkingBudget: 0 },
     },
   });
 
@@ -311,7 +345,7 @@ async function attempt(provider: AIProvider, prompt: string, options: Generation
   }
   const diagnostic: AIDiagnosticInput = { provider, stage: "provider_response_json", maxTokens: options.maxTokens ?? 2048 };
   try {
-    const adapter = { anthropic: generateWithAnthropic, gemini: generateWithGemini, openrouter: generateWithOpenRouter }[provider];
+    const adapter = { anthropic: generateWithAnthropic, gemini: generateWithGemini, openrouter: generateWithOpenRouter, openai: generateWithOpenAI }[provider];
     const result = await adapter(prompt, options, diagnostic);
     if (signal.aborted) throw cancellationFailure(signal);
     diagnostic.stage = "provider_empty_text";

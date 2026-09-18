@@ -32,11 +32,22 @@ export const onboardingIdentitySchema = z.object({
 });
 
 const identityText = z.string().trim().min(1);
+
+// Support both old format (string[]) and new format (weighted keywords)
+const keywordSchema = z.union([
+  z.string().trim().min(1),
+  z.object({
+    keyword: z.string().trim().min(1),
+    weight: z.number().min(0).max(1).default(0.7),
+    category: z.string().optional(),
+  }),
+]);
+
 const punditAnalysisSchema = z.object({
   primaryIndustry: identityText,
   confidence: z.number().min(0).max(1),
   subDomains: z.array(identityText),
-  keywords: z.array(identityText),
+  keywords: z.array(keywordSchema),
   publications: z.array(z.object({
     name: identityText, url: identityText, focus: identityText, relevance: identityText,
   })),
@@ -52,6 +63,68 @@ const punditAnalysisSchema = z.object({
 });
 
 export type PunditAnalysis = z.infer<typeof punditAnalysisSchema>;
+
+/**
+ * Normalize keywords to weighted format
+ * Converts both old format (string[]) and new format (weighted objects) to consistent format
+ */
+export function normalizeKeywords(keywords: (string | { keyword: string; weight?: number; category?: string })[]): Array<{ keyword: string; weight: number; category?: string }> {
+  return keywords.map(kw => {
+    if (typeof kw === 'string') {
+      return { keyword: kw, weight: 0.7 }; // Default weight for string keywords
+    }
+    return {
+      keyword: kw.keyword,
+      weight: kw.weight ?? 0.7,
+      category: kw.category,
+    };
+  });
+}
+
+/**
+ * Calculate relevance score for an article against user's weighted keywords
+ * @param articleHeadlineAndSummary - Article text to match against
+ * @param userKeywords - User's weighted keywords
+ * @returns Object with relevance score (0-1) and matching details
+ */
+export function calculateArticleRelevance(
+  articleHeadlineAndSummary: string,
+  userKeywords: Array<{ keyword: string; weight: number; category?: string }>,
+): { relevanceScore: number; matchedKeywords: string[]; reasoning: string } {
+  if (!userKeywords.length) {
+    return { relevanceScore: 0, matchedKeywords: [], reasoning: 'No keywords configured' };
+  }
+
+  const articleLower = articleHeadlineAndSummary.toLowerCase();
+  const matches: Array<{ keyword: string; weight: number }> = [];
+
+  for (const kw of userKeywords) {
+    const keyword = kw.keyword.toLowerCase();
+    // Simple substring match; could use more sophisticated NLP
+    if (articleLower.includes(keyword)) {
+      matches.push({ keyword: kw.keyword, weight: kw.weight });
+    }
+  }
+
+  if (!matches.length) {
+    return { relevanceScore: 0, matchedKeywords: [], reasoning: 'No matching keywords found' };
+  }
+
+  // Calculate weighted score: average weight of matched keywords
+  const totalWeight = matches.reduce((sum, m) => sum + m.weight, 0);
+  const relevanceScore = Math.min(1, totalWeight / Math.max(1, matches.length * 0.75)); // Normalize to 0-1
+
+  const reasoning = matches
+    .slice(0, 3)
+    .map(m => `${m.keyword} (${(m.weight * 100).toFixed(0)}%)`)
+    .join(', ');
+
+  return {
+    relevanceScore: Math.round(relevanceScore * 100) / 100, // Round to 2 decimals
+    matchedKeywords: matches.map(m => m.keyword),
+    reasoning: `Matches ${reasoning}`,
+  };
+}
 
 const INDUSTRY_CONFIG: Record<IndustrySlug | "default", { displayName: string; subDomains: string[]; keywords: string; publications: string; personalities: string; companies: string }> = {
   media_advertising: {
@@ -318,6 +391,8 @@ HARD CONSTRAINTS:
 - Do not hallucinate or invent unknown sources, publications, or people
 - Keep recommendations globally relevant to ${config.displayName} professionals
 - Minimum 30-40 industry-specific keywords — no generic business buzzwords unless directly applicable
+- Assign weight to each keyword (1.0 = core/essential, 0.7 = important, 0.4 = relevant, 0.2 = peripheral) based on importance to the user's focus area
+- Categorize keywords (optional) to help organize user interests (e.g., "AI", "Infrastructure", "Go-to-Market")
 - Prioritize niche, authoritative sources over mainstream general business media
 
 EXAMPLE TRUSTED SOURCES IN THIS INDUSTRY:
@@ -337,7 +412,13 @@ You must respond with valid JSON only, no markdown or explanation. Use this exac
   "primaryIndustry": "${config.displayName}",
   "confidence": 0.0-1.0,
   "subDomains": ["5-8 ${config.displayName} sub-domains"],
-  "keywords": ["30-40 ${config.displayName}-specific keywords"],
+  "keywords": [
+    {
+      "keyword": "string (30-40 ${config.displayName}-specific keywords)",
+      "weight": 0.0-1.0,
+      "category": "string (optional: e.g., 'AI', 'Infrastructure', 'Business')"
+    }
+  ],
   "publications": [
     {"name": "string", "url": "string", "focus": "string", "relevance": "string"}
   ],

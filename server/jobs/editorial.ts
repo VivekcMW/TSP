@@ -162,7 +162,7 @@ export class EditorialJobs {
 
   private async fail(id: string, error: unknown) {
     const failure = error instanceof CrawlError
-      ? { status: 422, body: { code: "source_unreadable", message: "Source could not be read. Try another public URL or use Write article." } }
+      ? { status: 422, body: { code: "source_unreadable", message: `${error.message} Try another public URL or use Write article.` } }
       : getAIErrorResponse(error);
     await this.store.eval(editorialScripts.finish, 2, recordKey(id), cancelKey(id), id, "failed", "error", JSON.stringify(failure), EDITORIAL_RESULT_TTL);
   }

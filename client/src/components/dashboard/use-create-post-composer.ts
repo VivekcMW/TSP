@@ -21,7 +21,7 @@ export function useCreatePostComposer(isOpen: boolean) {
   const [mode, setMode] = useState<"url" | "article" | "manual">("url");
   const [url, setUrl] = useState("");
   const [item, setItem] = useState<InboxItem>();
-  const [manual, setManual] = useState<ManualArticle>(emptyArticle);
+  const [manual, setManual] = useState<ManualArticle>(emptyArticle());
   const [versions, setVersions] = useState<PostVersions>({});
   const versionsRef = useRef(versions);
   const [notice, setNotice] = useState("");

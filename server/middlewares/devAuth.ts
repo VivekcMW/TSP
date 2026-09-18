@@ -84,7 +84,11 @@ export async function resolveDevUser(): Promise<User> {
       onboardingStatus: "completed",
       focusDescription: "Seeded local development profile.",
       publications: [],
-      keywords: ["advertising", "media", "marketing"],
+      keywords: [
+        { keyword: "advertising", weight: 0.8 },
+        { keyword: "media", weight: 0.8 },
+        { keyword: "marketing", weight: 0.7 },
+      ],
       influencers: [],
       companies: [],
     });

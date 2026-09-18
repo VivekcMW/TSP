@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, jsonb, index, integer, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, jsonb, index, integer, unique, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -22,8 +22,11 @@ export const userProfiles = pgTable("user_profiles", {
   tenantId: varchar("tenant_id").notNull(),
   focusDescription: text("focus_description"),
   onboardingStatus: varchar("onboarding_status").default("pending").notNull(),
+  /** AI-recommended industry slug, based on focusDescription analysis */
+  recommendedIndustry: varchar("recommended_industry"),
   publications: jsonb("publications").$type<string[]>().default([]),
-  keywords: jsonb("keywords").$type<string[]>().default([]),
+  /** Keywords with weights: {keyword, weight: 0-1, category} */
+  keywords: jsonb("keywords").$type<Array<{ keyword: string; weight: number; category?: string }>>().default([]),
   influencers: jsonb("influencers").$type<string[]>().default([]),
   companies: jsonb("companies").$type<string[]>().default([]),
   /** Which draft-generation platforms this user has enabled, for the Plugins page. */
@@ -53,6 +56,10 @@ export const inboxItems = pgTable("inbox_items", {
   source: varchar("source").notNull(),
   articleUrl: text("article_url").notNull(),
   matchedKeywords: jsonb("matched_keywords").$type<string[]>().default([]),
+  /** Relevance score 0-1: how relevant this article is to user's interests */
+  relevanceScore: numeric("relevance_score").default('0.5'),
+  /** Reason why this article matched (for debugging/UX) */
+  relevanceReason: text("relevance_reason"),
   summary: text("summary"),
   status: varchar("status").default("active").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -108,6 +115,146 @@ export const INDUSTRY_SLUGS = [
 ] as const;
 
 export type IndustrySlug = typeof INDUSTRY_SLUGS[number];
+
+/** Content tones/writing styles for generated drafts */
+export const CONTENT_TONES = [
+  "professional",
+  "casual",
+  "humorous",
+  "inspirational",
+  "educational",
+  "thought_leadership",
+  "conversational",
+  "formal",
+  "storytelling",
+  "data_driven",
+  "motivational",
+  "sarcastic",
+  "empathetic",
+  "urgent",
+] as const;
+
+export type ContentTone = typeof CONTENT_TONES[number];
+
+/** Content types/formats for articles and posts */
+export const CONTENT_TYPES = [
+  "article",
+  "listicle",
+  "news",
+  "opinion",
+  "how_to",
+  "case_study",
+  "infographic",
+  "video",
+  "podcast",
+  "interview",
+  "announcement",
+  "roundup",
+  "thought_piece",
+  "tip",
+  "quote",
+  "story",
+  "analysis",
+  "tutorial",
+  "research",
+] as const;
+
+export type ContentType = typeof CONTENT_TYPES[number];
+
+/** Content categories/topics for better organization */
+export const CONTENT_CATEGORIES = [
+  "product_launch",
+  "company_news",
+  "industry_news",
+  "market_trends",
+  "leadership_insights",
+  "customer_success",
+  "case_study",
+  "technical_deep_dive",
+  "career_development",
+  "company_culture",
+  "sustainability",
+  "innovation",
+  "research_findings",
+  "events",
+  "partnerships",
+  "awards",
+  "thought_leadership",
+  "educational_content",
+  "behind_the_scenes",
+  "employee_spotlight",
+] as const;
+
+export type ContentCategory = typeof CONTENT_CATEGORIES[number];
+
+/** Target audience segments for content personalization */
+export const AUDIENCE_SEGMENTS = [
+  "customers",
+  "prospects",
+  "partners",
+  "investors",
+  "employees",
+  "industry_peers",
+  "students",
+  "general_public",
+  "media",
+  "influencers",
+  "decision_makers",
+  "early_adopters",
+  "enterprise",
+  "startups",
+  "ngo_nonprofit",
+] as const;
+
+export type AudienceSegment = typeof AUDIENCE_SEGMENTS[number];
+
+/** Content performance metrics to track */
+export const PERFORMANCE_METRICS = [
+  "impressions",
+  "engagement_rate",
+  "click_through_rate",
+  "conversion_rate",
+  "shares",
+  "comments",
+  "likes",
+  "followers_gained",
+  "reach",
+  "save_rate",
+  "sentiment_score",
+  "time_spent",
+  "bounce_rate",
+  "retention_rate",
+] as const;
+
+export type PerformanceMetric = typeof PERFORMANCE_METRICS[number];
+
+/** Publishing strategies for content distribution */
+export const PUBLISHING_STRATEGIES = [
+  "immediate",
+  "scheduled",
+  "auto_optimal_time",
+  "recurring",
+  "evergreen",
+  "seasonal",
+  "event_driven",
+  "batch_scheduled",
+] as const;
+
+export type PublishingStrategy = typeof PUBLISHING_STRATEGIES[number];
+
+/** Sentiment/emotional tone of content */
+export const CONTENT_SENTIMENTS = [
+  "positive",
+  "neutral",
+  "negative",
+  "mixed",
+  "optimistic",
+  "critical",
+  "educational",
+  "entertaining",
+] as const;
+
+export type ContentSentiment = typeof CONTENT_SENTIMENTS[number];
 
 /**
  * Platform-curated reference feeds, kept only as an opt-in suggestion catalog
@@ -670,3 +817,21 @@ export type DraftScheduleTarget = typeof draftScheduleTargets.$inferSelect;
 
 export type InsertPublishJobLog = z.infer<typeof insertPublishJobLogSchema>;
 export type PublishJobLog = typeof publishJobLogs.$inferSelect;
+
+// ============================================================================
+// User Interest & Relevance Scoring Types
+// ============================================================================
+
+/** User interest with importance weighting */
+export interface UserInterest {
+  keyword: string;
+  weight: number;    // 0.0-1.0: importance/relevance of this keyword
+  category?: string; // e.g., "AI", "Infrastructure", "Business"
+}
+
+/** Article matching result with relevance calculation */
+export interface ArticleMatch {
+  relevanceScore: number;  // 0.0-1.0: overall relevance to user interests
+  matchedKeywords: string[];
+  reasoning: string;       // "Matches AI (0.9) and cloud (0.7) = score 0.85"
+}

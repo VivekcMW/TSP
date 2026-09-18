@@ -44,19 +44,18 @@ export async function requireDbUser(req: Request, res: Response, next: NextFunct
     const userId = session?.user.id;
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
-    if (!session.user.emailVerified) {
-      return res.status(403).json({ message: "Verify your email address before continuing." });
-    }
-
     let [dbUser] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
 
     if (!dbUser) {
       return res.status(401).json({ message: "Authenticated user was not found." });
     }
 
-    if (!dbUser) {
-      console.error("Could not resolve or provision user row for Clerk id:", userId);
-      return res.status(500).json({ message: "Failed to resolve user" });
+    // Check email_verified status from DATABASE, not from session.
+    // Session token is created at signup time with emailVerified: false.
+    // After email verification, the user object in the database is updated,
+    // but the JWT token is not refreshed until next login attempt.
+    if (!dbUser.emailVerified) {
+      return res.status(403).json({ message: "Verify your email address before continuing." });
     }
 
     const tenant = await resolveTenantContext(dbUser.id, tenantHeader(req));

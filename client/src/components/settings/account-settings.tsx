@@ -1,6 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { authClient } from "@/lib/auth-client";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,9 +15,21 @@ export function AccountSettings() {
   const { draft, setDraft, dirty, acknowledge } = useSettingsDraft({ firstName: user?.firstName ?? "", lastName: user?.lastName ?? "" });
   const mutation = useMutation({
     mutationFn: async (values: typeof draft) => {
-      const name = `${values.firstName.trim()} ${values.lastName.trim()}`.trim();
-      const result = await authClient.updateUser({ name });
-      if (result.error) throw new Error(result.error.message || "Unable to update your account.");
+      // Use custom endpoint to update firstName/lastName separately
+      // This ensures proper round-trip storage without name-field corruption
+      const response = await fetch("/api/auth/update-name", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName: values.firstName.trim(),
+          lastName: values.lastName.trim(),
+        }),
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: "Failed to update account" }));
+        throw new Error(error.message ?? "Failed to update account");
+      }
       return values;
     },
     onSuccess: (saved) => {

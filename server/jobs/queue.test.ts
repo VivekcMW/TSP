@@ -17,7 +17,7 @@ describe("queue reliability", () => {
     const url = "rediss://test-user:test-password@redis.invalid:6380/2";
     const options = queueOptions(url);
     options.createClient!("client", {}); options.createClient!("bclient", {}); options.createClient!("subscriber", {});
-    expect(redisConstructor).toHaveBeenNthCalledWith(1, url, expect.objectContaining({ maxRetriesPerRequest: 2, commandTimeout: 5000, keepAlive: 10000 }));
+    expect(redisConstructor).toHaveBeenNthCalledWith(1, url, expect.objectContaining({ maxRetriesPerRequest: 2, commandTimeout: 5000, keepAlive: 5000, connectTimeout: 5000 }));
     expect(redisConstructor).toHaveBeenNthCalledWith(2, url, expect.objectContaining({ maxRetriesPerRequest: null, enableReadyCheck: false }));
     expect(redisConstructor.mock.calls[0][1]).toMatchObject({ socketTimeout: 10000, autoResendUnfulfilledCommands: false });
     for (const index of [1, 2]) {

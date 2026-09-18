@@ -14,6 +14,7 @@ vi.mock("../services/editorial-request", () => ({ executeEditorialRequest: vi.fn
 vi.mock("../services/tenancy", () => ({ resolveTenantContext: vi.fn() }));
 import { EditorialJobs, editorialInputHash, EDITORIAL_INPUT_TTL, EDITORIAL_RESULT_TTL, EDITORIAL_DEADLINE_MS } from "./editorial";
 import { buildEvidenceBrief } from "../services/editorialEvidence";
+import { CrawlError } from "../services/crawlerFetch";
 import type { executeEditorialRequest, PreparedEditorialRequest } from "../services/editorial-request";
 
 const scope = { tenantId: "tenant-a", userId: "user-a" };
@@ -133,6 +134,15 @@ describe.skipIf(!binary)("editorial Redis state machine and Bull worker", () => 
     expect(execute).toHaveBeenCalledTimes(1);
     expect(await jobs.enqueue(scope, prepared)).toBe(id);
     expect(await jobs.enqueue(scope, freshIntent())).not.toBe(id);
+  });
+
+  it("surfaces the specific crawl failure reason instead of a generic message", async () => {
+    execute.mockRejectedValueOnce(new CrawlError("size", "The source response exceeds the crawl size limit."));
+    const id = await jobs.enqueue(scope, prepared);
+    await jobs.process(id);
+    const status = await jobs.status(scope, id);
+    expect(status).toMatchObject({ status: "failed", error: { status: 422, body: { code: "source_unreadable" } } });
+    expect((status as any).error.body.message).toContain("exceeds the crawl size limit");
   });
 
   it("does not readmit an uncertain intent when its result expires before the retry deadline", async () => {

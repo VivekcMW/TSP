@@ -25,7 +25,9 @@ interface BillingData {
 }
 
 function formatAmount(amount: number, currency: string) {
-  return new Intl.NumberFormat("en-IN", { style: "currency", currency }).format(amount / 100);
+  // Use en-US locale for consistent USD formatting (matching public pricing page),
+  // and let Intl.NumberFormat handle the currency symbol based on the currency code
+  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount / 100);
 }
 
 export function billingPeriodLabel(subscription: BillingData["subscription"]) {

@@ -34,7 +34,7 @@ export function logAIInvalidOutputDiagnostic(input: AIDiagnosticInput): void {
     const diagnostic = {
       code: "ai_invalid_output",
       stage: input.stage,
-      provider: input.provider === "anthropic" || input.provider === "openrouter" || input.provider === "gemini" ? input.provider : null,
+      provider: input.provider === "anthropic" || input.provider === "openrouter" || input.provider === "gemini" || input.provider === "openai" ? input.provider : null,
       model,
       finishReason: FINISH_REASONS.find(reason => reason === input.finishReason) ?? "other",
       maxTokens: count(input.maxTokens),

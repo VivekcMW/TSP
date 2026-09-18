@@ -23,7 +23,7 @@ const cancelLimit = operationLimit("cancel", 60);
 function admissionError(res: Response, error: unknown) {
   if (error instanceof EditorialQueueUnavailableError) return res.status(503).json({ code: "editorial_queue_unavailable", message: error.message });
   if (error instanceof Error && "status" in error && error.status === 403) return res.status(403).json({ message: "An attached media item is not available to this account" });
-  if (error instanceof CrawlError) return res.status(422).json({ code: "source_unreadable", message: "Source could not be read. Try another public URL or use Write article." });
+  if (error instanceof CrawlError) return res.status(422).json({ code: "source_unreadable", message: `${error.message} Try another public URL or use Write article.` });
   const failure = getAIErrorResponse(error);
   if (failure.retryAfterSeconds) res.setHeader("Retry-After", String(failure.retryAfterSeconds));
   return res.status(failure.status).json(failure.body);

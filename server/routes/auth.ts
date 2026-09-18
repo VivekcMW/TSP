@@ -78,4 +78,45 @@ export function registerAuthRoutes(app: Express) {
       res.status(500).json({ message: "Failed to complete registration" });
     }
   });
+
+  // Custom endpoint to update firstName/lastName separately, ensuring proper round-trip storage
+  // This complements Better Auth's name field to prevent data corruption from whitespace splitting
+  app.post("/api/auth/update-name", requireDbUser, async (req, res) => {
+    try {
+      const { firstName, lastName } = req.body;
+      if (!req.dbUser) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      const userId = req.dbUser.id;
+
+      // Validate inputs
+      if (typeof firstName !== "string" || typeof lastName !== "string") {
+        return res.status(400).json({ message: "firstName and lastName must be strings" });
+      }
+
+      const trimmedFirst = firstName.trim();
+      const trimmedLast = lastName.trim();
+      if (!trimmedFirst && !trimmedLast) {
+        return res.status(400).json({ message: "Name cannot be empty" });
+      }
+
+      // Update both the separate firstName/lastName columns and the concatenated name field
+      const fullName = `${trimmedFirst} ${trimmedLast}`.trim();
+      const updatedUser = await db
+        .update(users)
+        .set({
+          firstName: trimmedFirst || null,
+          lastName: trimmedLast || null,
+          name: fullName,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, userId))
+        .returning();
+
+      res.json(toSafeUser(updatedUser[0]));
+    } catch (error) {
+      console.error("Error updating name:", error);
+      res.status(500).json({ message: "Failed to update name" });
+    }
+  });
 }

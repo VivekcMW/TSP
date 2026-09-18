@@ -16,12 +16,17 @@ export function useAuth() {
   const user = useMemo<AuthUser | null>(() => {
     const source = session.data?.user;
     if (!source) return null;
-    const [firstName = "", ...lastName] = source.name.trim().split(/\s+/);
+    // Use stored firstName/lastName from the database if available;
+    // fall back to splitting the name field only if they're missing
+    // TypeScript: Better Auth user object doesn't include firstName/lastName in type,
+    // but we populate them from the database in the API response
+    const firstName = (source as any).firstName || (source.name.trim().split(/\s+/)[0] || "");
+    const lastName = (source as any).lastName || (source.name.trim().split(/\s+/).slice(1).join(" ") || "");
     return {
       id: source.id,
       email: source.email,
       firstName,
-      lastName: lastName.join(" "),
+      lastName,
       imageUrl: source.image,
       emailVerified: source.emailVerified,
     };

@@ -150,6 +150,10 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       ...(userProfile.companies || []),
       ...(userProfile.influencers || []),
     ]
+      .map((q) => {
+        // Handle both string and weighted keyword formats
+        return typeof q === 'string' ? q : q.keyword;
+      })
       .map((q) => q.trim())
       .filter(Boolean)
       .slice(0, MAX_KEYWORD_QUERIES);
@@ -182,14 +186,16 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       let score = 0;
       const matchedKeywords: string[] = [];
 
-      userKeywords.forEach((keyword) => {
+      userKeywords.forEach((kw) => {
+        // Handle both string and weighted keyword formats
+        const keyword = typeof kw === 'string' ? kw : kw.keyword;
         const keywordLower = keyword.toLowerCase();
         if (text.includes(keywordLower)) {
           score += 2;
           matchedKeywords.push(keyword);
         }
         const words = keywordLower.split(/\s+/);
-        words.forEach((word) => {
+        words.forEach((word: string) => {
           if (word.length > 3 && text.includes(word)) {
             score += 0.5;
           }
@@ -279,12 +285,26 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       for (const article of topArticles) {
         const existing = await storage.getInboxItemByUrl(scope, article.link);
         if (!existing) {
-          const inboxItem = {
+          // Import is at the top of the file; use the relevance scoring
+          const { calculateArticleRelevance, normalizeKeywords } = await import("../punditBrain.js");
+          
+          // Get normalized keywords (weighted)
+          const normalizedKeywords = normalizeKeywords(userProfile.keywords || []);
+          
+          // Calculate relevance score
+          const relevance = calculateArticleRelevance(
+            `${article.title} ${article.content.slice(0, 500)}`,
+            normalizedKeywords,
+          );
+
+          const inboxItem: any = {
             headline: article.title,
             source: article.source,
             articleUrl: article.link,
             summary: article.content.slice(0, 500),
             matchedKeywords: article.matchedKeywords,
+            relevanceScore: String(relevance.relevanceScore),
+            relevanceReason: relevance.reasoning,
             status: "active",
           };
           await storage.createInboxItem(scope, inboxItem);

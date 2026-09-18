@@ -52,7 +52,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   profile = { focusDescription: "Original focus", publications: ["Publication"], keywords: ["technology"], influencers: [], companies: [], enabledPlatforms: ["linkedin", "twitter"], defaultPlatform: "linkedin", defaultTone: "professional", preferredPublishTime: "09:00", timezone: "UTC", requirePublishReview: true, dailyDigest: true, contentAlerts: false, productUpdates: true };
-  user = { id: "fixture-user", name: "Original Person", email: "fixture@example.invalid", emailVerified: true, image: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  user = { id: "fixture-user", name: "Original Person", firstName: "Original", lastName: "Person", email: "fixture@example.invalid", emailVerified: true, image: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   connected = { twitter: true, slack: true };
   subscription = { status: "active", cancelAtPeriodEnd: true, currentPeriodEnd: "2026-10-17T00:00:00Z" };
   failures = new Set(); requests = []; errors = []; dialogs = []; decisions = [];
@@ -68,6 +68,7 @@ beforeEach(async () => {
     if (failures.has(`${method} ${url.pathname}`)) return reply({ message: "Fixture request failed" }, 500);
     if (url.pathname === "/api/auth/get-session") return reply({ user, session: { id: "fixture-session", userId: user.id, expiresAt: "2099-01-01T00:00:00Z" } });
     if (url.pathname === "/api/auth/update-user") { user = { ...user, name: body.name }; return reply({ status: true }); }
+    if (url.pathname === "/api/auth/update-name") { const fullName = `${body.firstName || ""} ${body.lastName || ""}`.trim(); user = { ...user, name: fullName, firstName: body.firstName, lastName: body.lastName }; return reply(user); }
     if (url.pathname === "/api/me") return reply({ industry: "other", country: "India" });
     if (url.pathname === "/api/profile") { if (method === "PATCH") profile = { ...profile, ...body }; return reply(profile); }
     if (["/api/profile/social-links", "/api/inbox", "/api/sources", "/api/sources/suggestions"].includes(url.pathname)) return reply([]);
@@ -211,11 +212,11 @@ describe("Settings navigation guard", () => {
   it("cancels a real reload without losing edits, then reloads after a successful account save without prompting", async () => {
     await open();
     await browserExpect(page.getByLabel("First Name")).toHaveValue("Original");
-    await page.getByLabel("First Name").fill("Reload draft");
+    await page.getByLabel("First Name").fill("Reload");
     decisions.push(false);
     await page.evaluate(() => { setTimeout(() => location.reload(), 0); });
     await browserExpect.poll(() => dialogs).toEqual(["beforeunload"]);
-    await browserExpect(page.getByLabel("First Name")).toHaveValue("Reload draft");
+    await browserExpect(page.getByLabel("First Name")).toHaveValue("Reload");
     expect(dialogs).toEqual(["beforeunload"]);
     expect(await reloadBlocked()).toBe(true);
     await page.getByTestId("button-save-account").click();
@@ -223,6 +224,7 @@ describe("Settings navigation guard", () => {
     expect(await reloadBlocked()).toBe(false);
     await page.reload();
     await browserExpect(page.getByLabel("First Name")).toHaveValue("Reload");
+    await browserExpect(page.getByLabel("Last Name")).toHaveValue("Person");
     expect(dialogs).toEqual(["beforeunload"]);
   });
 
@@ -329,7 +331,7 @@ describe("Settings consolidation and trust", () => {
     await page.getByLabel("First Name").fill("Updated");
     await page.getByTestId("button-save-account").click();
     await browserExpect(page.getByText("Account saved", { exact: true })).toBeVisible();
-    expect(requests.find((req) => req.url === "/api/auth/update-user")?.body).toEqual({ name: "Updated Person" });
+    expect(requests.find((req) => req.url === "/api/auth/update-name")?.body).toEqual({ firstName: "Updated", lastName: "Person" });
     await page.reload();
     await browserExpect(page.getByLabel("First Name")).toHaveValue("Updated");
   });
@@ -349,7 +351,7 @@ describe("Settings consolidation and trust", () => {
   });
 
   it("keeps account edits and reports an auth save failure honestly", async () => {
-    failures.add("POST /api/auth/update-user");
+    failures.add("POST /api/auth/update-name");
     await open();
     await browserExpect(page.getByLabel("First Name")).toHaveValue("Original");
     await page.getByLabel("First Name").fill("Unsaved");

@@ -22,6 +22,7 @@ if (process.env.NODE_ENV !== "production") {
   trustedOrigins.push(baseURL.replace("://localhost:", "://127.0.0.1:"));
 }
 
+// For /api/auth-providers endpoint (backward compatibility)
 const socialProviders = {
   ...(process.env.GOOGLE_AUTH_CLIENT_ID && process.env.GOOGLE_AUTH_CLIENT_SECRET
     ? { google: { clientId: process.env.GOOGLE_AUTH_CLIENT_ID, clientSecret: process.env.GOOGLE_AUTH_CLIENT_SECRET } }

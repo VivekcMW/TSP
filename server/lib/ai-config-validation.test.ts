@@ -6,6 +6,7 @@ const credentials = {
   ANTHROPIC_API_KEY: "anthropic-unit-test-only",
   OPENROUTER_API_KEY: "router-unit-test-only",
   GEMINI_API_KEY: "gemini-unit-test-only",
+  OPENAI_API_KEY: "openai-unit-test-only",
 };
 
 describe("AI production configuration", () => {
@@ -56,12 +57,12 @@ describe("AI production configuration", () => {
 
   it.each(["unknown", " ", "constructor", "__proto__"])("rejects unsupported primary %j without echoing its value", AI_PROVIDER => {
     expect(validateAIConfig({ ...credentials, AI_PROVIDER })).toEqual([
-      "AI_PROVIDER must be anthropic (or claude), openrouter, or gemini",
+      "AI_PROVIDER must be anthropic (or claude), openrouter, gemini, or openai",
     ]);
   });
 
-  it.each(["anthropic", "claude", "openrouter", "gemini"])("checks distinct fallbacks for %s", AI_PROVIDER => {
-    for (const AI_FALLBACK_PROVIDER of ["anthropic", "claude", "openrouter", "gemini"]) {
+  it.each(["anthropic", "claude", "openrouter", "gemini", "openai"])("checks distinct fallbacks for %s", AI_PROVIDER => {
+    for (const AI_FALLBACK_PROVIDER of ["anthropic", "claude", "openrouter", "gemini", "openai"]) {
       const same = AI_PROVIDER === AI_FALLBACK_PROVIDER ||
         (["anthropic", "claude"].includes(AI_PROVIDER) && ["anthropic", "claude"].includes(AI_FALLBACK_PROVIDER));
       const failures = validateAIConfig({ ...credentials, AI_PROVIDER, AI_FALLBACK_PROVIDER });
@@ -80,7 +81,7 @@ describe("AI production configuration", () => {
 
   it.each(["unknown", " ", "constructor"])("rejects unsupported fallback %j", AI_FALLBACK_PROVIDER => {
     expect(validateAIConfig({ ...credentials, AI_FALLBACK_PROVIDER })).toEqual([
-      "AI_FALLBACK_PROVIDER must be anthropic (or claude), openrouter, or gemini",
+      "AI_FALLBACK_PROVIDER must be anthropic (or claude), openrouter, gemini, or openai",
     ]);
   });
 

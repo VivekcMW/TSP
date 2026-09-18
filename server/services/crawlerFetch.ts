@@ -153,7 +153,9 @@ export async function fetchPublicText(rawUrl: string, options: CrawlOptions = {}
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new CrawlError("timeout", "The source took too long to respond.")), boundedSetting(options.timeoutMs, 8000, 10000));
   const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
-  const maxBytes = boundedSetting(options.maxBytes, 2 * 1024 * 1024, 2 * 1024 * 1024);
+  // 2MB rejected real-world long-form pages (e.g. Wikipedia articles routinely
+  // run 2.1-2.5MB of raw HTML despite modest readable text) - see crawlerFetch.test.ts.
+  const maxBytes = boundedSetting(options.maxBytes, 5 * 1024 * 1024, 5 * 1024 * 1024);
   const seen = new Set<string>();
   let current = rawUrl;
   try {

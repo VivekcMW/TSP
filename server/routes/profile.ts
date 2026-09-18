@@ -3,6 +3,7 @@ import { db } from "../db";
 import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
 import { engineRegistry } from "../services/engines/index.js";
+import { normalizeKeywords } from "../services/punditBrain.js";
 import { storage } from "../storage";
 import { users } from "@shared/models/auth";
 import { ALL_PLATFORM_KEYS, IndustrySlug, platformIntegrations } from "@shared/schema";
@@ -20,8 +21,33 @@ const completeOnboardingSchema = z.object({
 });
 
 const profileListSchema = z.array(z.string().trim().min(1).max(100)).max(20);
+const weightedKeywordSchema = z.array(
+  z.object({
+    keyword: z.string().trim().min(1).max(100),
+    weight: z.number().min(0).max(1).optional(),
+  })
+).max(20);
 
 function validateProfileList(value: unknown, field: string): { values?: string[]; error?: string } {
+  // Special handling for keywords: accept both old string format and new weighted format
+  if (field === "keywords") {
+    // Try weighted format first
+    const weightedValidation = weightedKeywordSchema.safeParse(value);
+    if (weightedValidation.success) {
+      const keywords = weightedValidation.data.map((item) => item.keyword);
+      const unique = Array.from(new Map(keywords.map((item) => [item.toLocaleLowerCase(), item])).values());
+      return { values: unique };
+    }
+    // Fall back to string format for backward compatibility
+    const stringValidation = profileListSchema.safeParse(value);
+    if (stringValidation.success) {
+      const values = Array.from(new Map(stringValidation.data.map((item) => [item.toLocaleLowerCase(), item])).values());
+      return { values };
+    }
+    return { error: `Invalid ${field}. Select up to 20 non-empty values.` };
+  }
+
+  // For other fields, use the original string format validation
   const validation = profileListSchema.safeParse(value);
   if (!validation.success) return { error: `Invalid ${field}. Select up to 20 non-empty values.` };
 
@@ -147,7 +173,6 @@ export function registerProfileRoutes(app: Express) {
     try {
       const { dbUser, tenant: scope } = authedOf(req);
       const userId = dbUser.id;
-      
       // Sanitize data before validation to prevent truncation errors
       const sanitizedBody = sanitizeOnboardingData(req.body);
       
@@ -158,6 +183,9 @@ export function registerProfileRoutes(app: Express) {
       
       const { focusDescription, publications, keywords, influencers, companies, recommendedIndustry } = validation.data;
 
+      // Normalize keywords to weighted format
+      const normalizedKeywords = normalizeKeywords(keywords || []);
+
       if (recommendedIndustry) {
         await db.update(users).set({ industry: recommendedIndustry }).where(eq(users.id, userId));
         console.log(`[Onboarding] Updated user ${userId} industry to: ${recommendedIndustry}`);
@@ -165,24 +193,20 @@ export function registerProfileRoutes(app: Express) {
 
       let profile = await storage.getUserProfile(scope);
       
+      const profileData = {
+        focusDescription,
+        onboardingStatus: "completed" as const,
+        publications: publications || [],
+        keywords: normalizedKeywords,
+        influencers: influencers || [],
+        companies: companies || [],
+        recommendedIndustry: recommendedIndustry || undefined,
+      };
+
       if (!profile) {
-        profile = await storage.createUserProfile(scope, {
-          focusDescription,
-          onboardingStatus: "completed",
-          publications: publications || [],
-          keywords: keywords || [],
-          influencers: influencers || [],
-          companies: companies || [],
-        });
+        profile = await storage.createUserProfile(scope, profileData);
       } else {
-        profile = await storage.updateUserProfile(scope, {
-          focusDescription,
-          onboardingStatus: "completed",
-          publications: publications || [],
-          keywords: keywords || [],
-          influencers: influencers || [],
-          companies: companies || [],
-        });
+        profile = await storage.updateUserProfile(scope, profileData);
       }
 
       const industryToUse = (recommendedIndustry || "other") as IndustrySlug;

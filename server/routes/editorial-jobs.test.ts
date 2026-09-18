@@ -32,6 +32,7 @@ vi.mock("../storage", () => ({ storage: { getUserProfile: mocks.profile, getMedi
 vi.mock("../services/punditBrain", () => ({ generatePlatformReviewsDetailed: mocks.generate }));
 vi.mock("../services/urlFetcher", () => ({ fetchArticleFromUrl: mocks.fetch }));
 import { registerEditorialJobsRoutes } from "./editorial-jobs";
+import { CrawlError } from "../services/crawlerFetch";
 
 const id = "00000000-0000-4000-8000-000000000001";
 const body = { requestIntent: id, url: "https://news.test/a", selectedPlatforms: ["medium"], format: "article" };
@@ -99,6 +100,15 @@ describe("editorial queue HTTP boundary", () => {
     expect((await request(app).post("/api/instant-review/selected").send(body)).body).toEqual({ direct: true });
     const response = await request(app).post("/api/instant-review/selected").set("x-user", "user-a").set("Prefer", "respond-async").send(body);
     expect(response.status).toBe(202); expect(response.headers["preference-applied"]).toBe("respond-async");
+  });
+
+  it("surfaces the specific crawl failure reason instead of a generic message", async () => {
+    mocks.enabled = false;
+    mocks.fetch.mockRejectedValue(new CrawlError("size", "The source response exceeds the crawl size limit."));
+    const response = await post().send(body);
+    expect(response.status).toBe(422);
+    expect(response.body.code).toBe("source_unreadable");
+    expect(response.body.message).toContain("exceeds the crawl size limit");
   });
 
   it("uses synchronous fallback only when local Redis is deliberately absent", async () => {

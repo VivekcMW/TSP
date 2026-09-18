@@ -229,6 +229,7 @@ export class DatabaseStorage implements IStorage {
       const safeData: Record<string, unknown> = { updatedAt: new Date() };
       if (data.focusDescription !== undefined) safeData.focusDescription = data.focusDescription;
       if (data.onboardingStatus !== undefined) safeData.onboardingStatus = data.onboardingStatus;
+      if (data.recommendedIndustry !== undefined) safeData.recommendedIndustry = data.recommendedIndustry;
       if (data.publications !== undefined) safeData.publications = data.publications;
       if (data.keywords !== undefined) safeData.keywords = data.keywords;
       if (data.influencers !== undefined) safeData.influencers = data.influencers;
@@ -327,12 +328,17 @@ export class DatabaseStorage implements IStorage {
   async updateInboxItem(
     scope: TenantScope,
     id: string,
-    data: { status: string },
+    data: Partial<{ status: string; relevanceScore?: number; relevanceReason?: string }>,
   ): Promise<InboxItem | undefined> {
     return scoped(scope, async (tx) => {
+      const updateData: Record<string, unknown> = {};
+      if (data.status !== undefined) updateData.status = data.status;
+      if (data.relevanceScore !== undefined) updateData.relevanceScore = data.relevanceScore;
+      if (data.relevanceReason !== undefined) updateData.relevanceReason = data.relevanceReason;
+
       const [updated] = await tx
         .update(inboxItems)
-        .set({ status: data.status })
+        .set(updateData)
         .where(
           and(
             eq(inboxItems.id, id),
