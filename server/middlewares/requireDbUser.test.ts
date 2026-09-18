@@ -18,10 +18,16 @@ afterAll(async () => { await pool.end(); await ownerPool.end(); });
 
 describe("requireDbUser", () => {
   it("rejects a request with no Better Auth session", async () => { getSession.mockResolvedValue(null); await request(appWithProbe()).get("/probe").expect(401); });
-  it("rejects an unverified Better Auth account", async () => { getSession.mockResolvedValue(session("u", false)); await request(appWithProbe()).get("/probe").expect(403); });
+  it("rejects an unverified Better Auth account", async () => { 
+    await ownerDb.insert(users).values({ id: "u", email: "u@example.test", name: "User", emailVerified: false }); 
+    getSession.mockResolvedValue(session("u", false)); 
+    await request(appWithProbe()).get("/probe").expect(403); 
+  });
   it("resolves a verified Better Auth user", async () => {
-    await ownerDb.insert(users).values({ id: "u", email: "u@example.test", name: "User" }); getSession.mockResolvedValue(session("u"));
-    const res = await request(appWithProbe()).get("/probe").expect(200); expect(res.body).toEqual({ id: "u", email: "u@example.test" });
+    await ownerDb.insert(users).values({ id: "u", email: "u@example.test", name: "User", emailVerified: true }); 
+    getSession.mockResolvedValue(session("u"));
+    const res = await request(appWithProbe()).get("/probe").expect(200); 
+    expect(res.body).toEqual({ id: "u", email: "u@example.test" });
   });
   it("rejects a verified session whose user no longer exists", async () => { getSession.mockResolvedValue(session("missing")); await request(appWithProbe()).get("/probe").expect(401); });
 });
