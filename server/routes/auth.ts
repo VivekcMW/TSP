@@ -79,35 +79,39 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  // Custom endpoint to update firstName/lastName separately, ensuring proper round-trip storage
-  // This complements Better Auth's name field to prevent data corruption from whitespace splitting
+  // Custom endpoint to update user name (accepts full name and parses into firstName/lastName)
+  // This ensures proper round-trip storage without data corruption
   app.post("/api/auth/update-name", requireDbUser, async (req, res) => {
     try {
-      const { firstName, lastName } = req.body;
+      const { fullName } = req.body;
       if (!req.dbUser) {
         return res.status(401).json({ message: "Unauthorized" });
       }
       const userId = req.dbUser.id;
 
-      // Validate inputs
-      if (typeof firstName !== "string" || typeof lastName !== "string") {
-        return res.status(400).json({ message: "firstName and lastName must be strings" });
+      // Validate input
+      if (typeof fullName !== "string") {
+        return res.status(400).json({ message: "fullName must be a string" });
       }
 
-      const trimmedFirst = firstName.trim();
-      const trimmedLast = lastName.trim();
-      if (!trimmedFirst && !trimmedLast) {
+      const trimmedName = fullName.trim();
+      if (!trimmedName) {
         return res.status(400).json({ message: "Name cannot be empty" });
       }
 
-      // Update both the separate firstName/lastName columns and the concatenated name field
-      const fullName = `${trimmedFirst} ${trimmedLast}`.trim();
+      // Parse full name into firstName and lastName
+      // Split on first space: everything before is firstName, everything after is lastName
+      const parts = trimmedName.split(/\s+/);
+      const firstName = parts[0];
+      const lastName = parts.slice(1).join(" ") || null;
+
+      // Update the user record with parsed firstName/lastName and full name
       const updatedUser = await db
         .update(users)
         .set({
-          firstName: trimmedFirst || null,
-          lastName: trimmedLast || null,
-          name: fullName,
+          firstName,
+          lastName,
+          name: trimmedName,
           updatedAt: new Date(),
         })
         .where(eq(users.id, userId))

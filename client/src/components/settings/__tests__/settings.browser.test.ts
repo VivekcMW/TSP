@@ -68,7 +68,14 @@ beforeEach(async () => {
     if (failures.has(`${method} ${url.pathname}`)) return reply({ message: "Fixture request failed" }, 500);
     if (url.pathname === "/api/auth/get-session") return reply({ user, session: { id: "fixture-session", userId: user.id, expiresAt: "2099-01-01T00:00:00Z" } });
     if (url.pathname === "/api/auth/update-user") { user = { ...user, name: body.name }; return reply({ status: true }); }
-    if (url.pathname === "/api/auth/update-name") { const fullName = `${body.firstName || ""} ${body.lastName || ""}`.trim(); user = { ...user, name: fullName, firstName: body.firstName, lastName: body.lastName }; return reply(user); }
+    if (url.pathname === "/api/auth/update-name") { 
+      const fullName = body.fullName?.trim() || "";
+      const parts = fullName.split(/\s+/);
+      const firstName = parts[0] || "";
+      const lastName = parts.slice(1).join(" ") || null;
+      user = { ...user, name: fullName, firstName, lastName }; 
+      return reply(user); 
+    }
     if (url.pathname === "/api/me") return reply({ industry: "other", country: "India" });
     if (url.pathname === "/api/profile") { if (method === "PATCH") profile = { ...profile, ...body }; return reply(profile); }
     if (["/api/profile/social-links", "/api/inbox", "/api/sources", "/api/sources/suggestions"].includes(url.pathname)) return reply([]);
@@ -111,8 +118,8 @@ describe("Settings navigation guard", () => {
     await page.addInitScript(() => Object.defineProperty(window, "navigation", { value: undefined, configurable: true }));
     await page.goto(`${origin}/dashboard`);
     await page.getByRole("link", { name: "Open Settings", exact: true }).click();
-    await browserExpect(page.getByLabel("First Name")).toHaveValue("Original");
-    await page.getByLabel("First Name").fill("Fallback");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original Person");
+    await page.getByLabel("Full Name").fill("Fallback New");
     for (let attempt = 0; attempt < 2; attempt++) {
       decisions.push(false);
       await page.evaluate(() => history.back());
@@ -211,20 +218,19 @@ describe("Settings navigation guard", () => {
 
   it("cancels a real reload without losing edits, then reloads after a successful account save without prompting", async () => {
     await open();
-    await browserExpect(page.getByLabel("First Name")).toHaveValue("Original");
-    await page.getByLabel("First Name").fill("Reload");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original Person");
+    await page.getByLabel("Full Name").fill("Reload Person");
     decisions.push(false);
     await page.evaluate(() => { setTimeout(() => location.reload(), 0); });
     await browserExpect.poll(() => dialogs).toEqual(["beforeunload"]);
-    await browserExpect(page.getByLabel("First Name")).toHaveValue("Reload");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Reload Person");
     expect(dialogs).toEqual(["beforeunload"]);
     expect(await reloadBlocked()).toBe(true);
     await page.getByTestId("button-save-account").click();
     await browserExpect(page.getByText("Account saved", { exact: true })).toBeVisible();
     expect(await reloadBlocked()).toBe(false);
     await page.reload();
-    await browserExpect(page.getByLabel("First Name")).toHaveValue("Reload");
-    await browserExpect(page.getByLabel("Last Name")).toHaveValue("Person");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Reload Person");
     expect(dialogs).toEqual(["beforeunload"]);
   });
 
@@ -242,11 +248,11 @@ describe("Settings navigation guard", () => {
   it("keeps dirty tab history free of prompts and restores repeated Back cancellations before Wouter unmounts", async () => {
     await page.goto(`${origin}/dashboard`);
     await page.getByRole("link", { name: "Open Settings", exact: true }).click();
-    await browserExpect(page.getByLabel("First Name")).toHaveValue("Original");
-    await page.getByLabel("First Name").fill("Back draft");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original Person");
+    await page.getByLabel("Full Name").fill("Back draft Person");
     await page.getByRole("tab", { name: "billing", exact: true }).click();
     await page.goBack();
-    await browserExpect(page.getByLabel("First Name")).toHaveValue("Back draft");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Back draft Person");
     await page.goForward();
     await browserExpect(page.getByRole("tab", { name: "billing", exact: true })).toHaveAttribute("aria-selected", "true");
     await page.goBack();
@@ -257,7 +263,7 @@ describe("Settings navigation guard", () => {
       await page.evaluate(() => history.back());
       await browserExpect.poll(async () => ({ dialogs: dialogs.length, href: page.url(), dirty: await reloadBlocked() })).toEqual({ dialogs: attempt + 1, href: `${origin}/dashboard/settings?tab=account`, dirty: true });
       await browserExpect(page).toHaveURL(/settings\?tab=account$/);
-      await browserExpect(page.getByLabel("First Name")).toHaveValue("Back draft");
+      await browserExpect(page.getByLabel("Full Name")).toHaveValue("Back draft Person");
     }
     expect(await page.evaluate(() => history.length)).toBe(length);
     decisions.push(true);
@@ -272,8 +278,8 @@ describe("Settings navigation guard", () => {
     await page.getByRole("link", { name: "Leave Settings", exact: true }).click();
     await browserExpect(page.getByRole("heading", { name: "Outside Settings" })).toBeVisible();
     await page.goBack();
-    await browserExpect(page.getByLabel("First Name")).toHaveValue("Original");
-    await page.getByLabel("First Name").fill("Forward draft");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original Person");
+    await page.getByLabel("Full Name").fill("Forward draft Person");
     const historyEntries = () => page.evaluate(() => {
       const navigation = (window as unknown as { navigation: { entries: () => Array<{ url: string }>; currentEntry: { index: number; url: string } } }).navigation;
       return { entries: navigation.entries().map((entry) => entry.url), index: navigation.currentEntry.index, url: navigation.currentEntry.url };
@@ -283,22 +289,22 @@ describe("Settings navigation guard", () => {
     await page.evaluate(() => history.forward());
     await browserExpect.poll(async () => ({ dialogs: dialogs.length, href: page.url(), dirty: await reloadBlocked() })).toEqual({ dialogs: 1, href: `${origin}/dashboard/settings?tab=account`, dirty: true });
     await browserExpect(page).toHaveURL(/settings\?tab=account$/);
-    await browserExpect(page.getByLabel("First Name")).toHaveValue("Forward draft");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Forward draft Person");
     expect(await historyEntries()).toEqual(entriesBefore);
     decisions.push(true);
     await page.goForward({ timeout: 5000 });
     await browserExpect.poll(() => ({ dialogs: dialogs.length, href: page.url() })).toEqual({ dialogs: 2, href: `${origin}/dashboard` });
     await browserExpect(page.getByRole("heading", { name: "Outside Settings" })).toBeVisible();
     await page.getByRole("link", { name: "Open Settings", exact: true }).click();
-    await browserExpect(page.getByLabel("First Name")).toHaveValue("Original");
-    await page.getByLabel("First Name").fill("Jump draft");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original Person");
+    await page.getByLabel("Full Name").fill("Jump draft Person");
     await page.getByRole("tab", { name: "billing", exact: true }).click();
     decisions.push(false);
     await page.evaluate(() => history.go(-2));
     await browserExpect.poll(() => dialogs.length).toBe(3);
     await browserExpect(page).toHaveURL(/settings\?tab=billing$/);
     await page.getByRole("tab", { name: "account", exact: true }).click();
-    await browserExpect(page.getByLabel("First Name")).toHaveValue("Jump draft");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Jump draft Person");
     expect(dialogs).toEqual(["confirm", "confirm", "confirm"]);
   });
 });
@@ -324,16 +330,16 @@ describe("Settings consolidation and trust", () => {
 
   it("persists names via auth and removes the fake photo action", async () => {
     await open();
-    await browserExpect(page.getByLabel("First Name")).toHaveValue("Original");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original Person");
     await browserExpect(page.getByTestId("button-save-account")).toBeDisabled();
     await browserExpect(page.getByLabel("Email", { exact: true })).toHaveAttribute("readonly", "");
     await browserExpect(page.getByRole("button", { name: "Change Photo" })).toHaveCount(0);
-    await page.getByLabel("First Name").fill("Updated");
+    await page.getByLabel("Full Name").fill("Updated Person");
     await page.getByTestId("button-save-account").click();
     await browserExpect(page.getByText("Account saved", { exact: true })).toBeVisible();
-    expect(requests.find((req) => req.url === "/api/auth/update-name")?.body).toEqual({ firstName: "Updated", lastName: "Person" });
+    expect(requests.find((req) => req.url === "/api/auth/update-name")?.body).toEqual({ fullName: "Updated Person" });
     await page.reload();
-    await browserExpect(page.getByLabel("First Name")).toHaveValue("Updated");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Updated Person");
   });
 
   it("supports keyboard tabs, section aliases, and preserves unrelated query parameters", async () => {

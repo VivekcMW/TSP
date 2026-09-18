@@ -12,17 +12,17 @@ export function AccountSettings() {
   const { user } = useAuth();
   const cache = useQueryClient();
   const { toast } = useToast();
-  const { draft, setDraft, dirty, acknowledge } = useSettingsDraft({ firstName: user?.firstName ?? "", lastName: user?.lastName ?? "" });
+  const fullNameFromUser = user ? `${user.firstName} ${user.lastName}`.trim() : "";
+  const { draft, setDraft, dirty, acknowledge } = useSettingsDraft({ fullName: fullNameFromUser });
   const mutation = useMutation({
     mutationFn: async (values: typeof draft) => {
-      // Use custom endpoint to update firstName/lastName separately
-      // This ensures proper round-trip storage without name-field corruption
+      // Use custom endpoint to update full name
+      // Server will parse full name into firstName/lastName
       const response = await fetch("/api/auth/update-name", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          firstName: values.firstName.trim(),
-          lastName: values.lastName.trim(),
+          fullName: values.fullName.trim(),
         }),
         credentials: "include",
       });
@@ -35,7 +35,7 @@ export function AccountSettings() {
     onSuccess: (saved) => {
       acknowledge(saved);
       void cache.invalidateQueries({ queryKey: ["/api/me"] });
-      toast({ title: "Account saved", description: "Your account name has been updated." });
+      toast({ title: "Account saved", description: "Your name has been updated." });
     },
     onError: (error: Error) => toast({ title: "Could not save account", description: error.message, variant: "destructive" }),
   });
@@ -44,13 +44,12 @@ export function AccountSettings() {
     <CardContent>
       <form className="space-y-6" onSubmit={(event) => { event.preventDefault(); if (user && dirty && !mutation.isPending) mutation.mutate(draft); }}>
         <Avatar className="h-16 w-16"><AvatarImage src={user?.imageUrl ?? undefined} alt="Account photo" /><AvatarFallback>{user?.firstName?.[0] ?? "U"}</AvatarFallback></Avatar>
-        <fieldset disabled={!user || mutation.isPending} className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2"><Label htmlFor="firstName">First Name</Label><Input className="min-h-11" id="firstName" required maxLength={100} autoComplete="given-name" value={draft.firstName} onChange={(event) => setDraft({ ...draft, firstName: event.target.value })} data-testid="input-first-name" /></div>
-          <div className="space-y-2"><Label htmlFor="lastName">Last Name</Label><Input className="min-h-11" id="lastName" maxLength={100} autoComplete="family-name" value={draft.lastName} onChange={(event) => setDraft({ ...draft, lastName: event.target.value })} data-testid="input-last-name" /></div>
+        <fieldset disabled={!user || mutation.isPending} className="space-y-4">
+          <div className="space-y-2"><Label htmlFor="fullName">Full Name</Label><Input className="min-h-11" id="fullName" required maxLength={200} autoComplete="name" value={draft.fullName} onChange={(event) => setDraft({ ...draft, fullName: event.target.value })} data-testid="input-full-name" /></div>
         </fieldset>
         <div className="space-y-2"><Label htmlFor="email">Email</Label><Input className="min-h-11" id="email" type="email" readOnly value={user?.email ?? ""} aria-describedby="email-help" data-testid="input-email" /><p id="email-help" className="text-sm text-muted-foreground">Email cannot be changed here.</p></div>
         {mutation.isError && <p role="alert" className="text-sm text-destructive">{mutation.error.message}</p>}
-        <Button className="min-h-11" type="submit" disabled={!user || !dirty || !draft.firstName.trim() || mutation.isPending} data-testid="button-save-account">{mutation.isPending ? "Saving…" : "Save Account"}</Button>
+        <Button className="min-h-11" type="submit" disabled={!user || !dirty || !draft.fullName.trim() || mutation.isPending} data-testid="button-save-account">{mutation.isPending ? "Saving…" : "Save Account"}</Button>
       </form>
     </CardContent>
   </Card>;
