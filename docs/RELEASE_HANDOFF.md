@@ -39,6 +39,41 @@ project was linked locally. Git authentication did work: commit
 and its remote SHA was independently verified. No production branch was updated.
 A commit/push is not deployment success.
 
+## Authenticated hosting audit — September 19
+
+- Both Vercel and Render project access are restored. Browser authentication
+  does not establish CLI authentication. Release branch local HEAD and remote
+  `tsp` both match `a5abd15a77c708a691a9437d7b4d99493f6819af`; the worktree
+  was clean before this documentation update.
+- Current Vercel production is **Ready** and Render is **Live**, both showing
+  `598351c` from `feat/enterprise-foundation`. The remote branch resolves to
+  `598351cdee5e4b33e32cb5a31bcd14f6cbd056ff`. The supplied September 17 links
+  identify older successful `d461449` deployments, not the current release.
+- Render TSP (`srv-dal6nae7bikc73eit630`) uses
+  `npm install --include=dev && npm run build`, then `npm run start`.
+  Its pre-deploy command is empty and auto-deploy is **On Commit**. Do not
+  push the new runtime to its production branch before completing migrations.
+- The inspected Render workspace contains the ungrouped TSP web service and
+  `tsp-redis` in the project's Production environment; no isolated staging
+  resource was identified there.
+- Vercel lists Neon `neon-amber-queen` and Upstash
+  `upstash-kv-yellow-lantern`, each connected to **Preview and Production**.
+  This is not evidence of an isolated preview database. Matching the Neon
+  resource to Render's actual database remains unverified; no secret values
+  were revealed or copied to determine that identity.
+- The normal Vercel-to-Neon sign-in handoff reaches **Email Verification**:
+  “You need to verify your email address to activate your account.” No database
+  inspection, backup, branch creation or migration could proceed. The page
+  does not display the recipient, so do not assume which mailbox received it.
+- Fresh anonymous GET-only smoke checks passed **9/9**, zero failures/skips,
+  in 7.9 seconds at `2026-09-19T18:00:46Z`. Report:
+  `/var/folders/p7/7tzcz0851_dc7jgmg7ndmtp00000gn/T/tmp.VRTdpCDKVR/report.json`.
+  This checks the existing deployment, not the new release branch.
+- No production configuration, database, provider or deployment writes were
+  performed. No paid resources were provisioned. Requests for copy scope and
+  staging budget received an unavailable-user response, not specific target
+  or spending instructions.
+
 ## Read-only smoke follow-up
 
 The old deployment suite's unawaited steps, swallowed failures and skipped
@@ -74,8 +109,10 @@ load/cost, queue execution or the deployed SHA. They do not close #29 or #30.
 1. **#27 partial:** supply an approved production-shaped isolated database copy,
    backup/restore evidence and 0022 provenance; coordinate writers and credential
    migration. Agree representative load and cost thresholds before measurement.
-2. **#29 blocked:** authenticate deployment tooling, identify isolated staging
-   frontend/API projects, configure credentials in the platform secret manager,
+2. **#29 blocked:** hosting browser access is restored; complete the Neon
+  activation prompt in the browser, verify database identity and establish
+  isolated staging frontend/API/database/Redis resources. Configure any
+  required deployment tooling and credentials in the platform secret manager,
    and designate provider test accounts, merchant test plans and recipients.
    No real posts, charges or emails are authorized merely by running smoke tests.
 3. **#30 authorized but blocked:** after #27/#29, record the release SHA, rollout
