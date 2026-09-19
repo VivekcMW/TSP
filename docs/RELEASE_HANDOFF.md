@@ -34,8 +34,42 @@ it does **not** supply missing infrastructure access or migration evidence.
 ## Deployment and remaining roadmap gates
 
 At preparation time, GitHub CLI and Vercel CLI were unauthenticated; no Vercel
-project was linked locally. Git remote read access succeeded but does not prove
-push access. A commit/push is not deployment success; verify its result separately.
+project was linked locally. Git authentication did work: commit
+`185d0157ffbe98528c4e01f0cca0a992762fa864` was pushed to the release branch,
+and its remote SHA was independently verified. No production branch was updated.
+A commit/push is not deployment success.
+
+## Read-only smoke follow-up
+
+The old deployment suite's unawaited steps, swallowed failures and skipped
+placeholder journey were replaced with nine explicit anonymous GET checks.
+`playwright.deployment.config.ts` requires both `E2E_BASE_URL` and
+`E2E_API_BASE_URL`, accepts HTTPS origins (HTTP only on loopback), and starts no
+local server. It loads no dotenv or authentication state, follows no redirects,
+and performs no retries. Requests time out after five seconds. Default discovery
+without this dedicated configuration explicitly skips rather than passing.
+
+Run Playwright with `--config=playwright.deployment.config.ts` and the two explicit
+origins in a clean environment. No test credentials are required. Run the local
+negative controls separately with `node --test test/deployment-smoke/controls.test.mjs`.
+
+- **24/24 controls passed**, recorded in `/tmp/tsp-smoke-final.lmV5pF/controls.log`.
+  These verify healthy results, 503/error readiness, HTML fallback, unauthorized
+  endpoint 200/404, redirects, timeouts, invalid/missing origins and no-opt-in
+  skips. All mock traffic is loopback-only; cookies are not reused between checks.
+- **9/9 public checks passed** against the **existing** frontend
+  `https://thesocialpundit.vercel.app` and backend `https://tsp-kr8k.onrender.com`:
+  direct/proxied health/readiness, sign-in HTML and 401/403 responses for anonymous
+  draft/integration access. CLI exit 0, duration 6.4 seconds; output directory
+  `/tmp/tsp-release-http-smoke-185d015`. This was not a deployment of this branch.
+- An earlier shell attempt never launched Playwright because its `PATH` could
+  not resolve `env`; the empty report is not evidence. The successful run used
+  absolute executable paths. Its stray wrong-remote lookup was stopped.
+
+These tests do not verify authenticated workflows, browser rendering, providers,
+load/cost, queue execution or the deployed SHA. They do not close #29 or #30.
+
+## Outstanding operator gates
 
 1. **#27 partial:** supply an approved production-shaped isolated database copy,
    backup/restore evidence and 0022 provenance; coordinate writers and credential
@@ -50,7 +84,5 @@ push access. A commit/push is not deployment success; verify its result separate
 
 Do not start schedulers or run the full local fixture suite against production.
 Do not use the shared localhost dashboard as isolated acceptance evidence.
-The existing deployment smoke suite has skipped flows and swallowed/unawaited
-checks; it is not sufficient proof of authenticated release acceptance.
 
 These gates require operator access/data, not additional synthetic pass counts.
