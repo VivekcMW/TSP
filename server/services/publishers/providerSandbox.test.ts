@@ -29,7 +29,9 @@ describe("provider sandbox", () => {
     expect(result.success).toBe(true);
     expect(result.mode).toBe("sandbox");
     expect(result.provider).toBe("linkedin");
-    expect(result.externalId).toMatch(/linkedin/);
+    expect(result.status).toBe("simulated");
+    expect(result.externalId).toBeUndefined();
+    expect(result.url).toBeUndefined();
   });
 
   it("rejects unsupported providers cleanly", async () => {

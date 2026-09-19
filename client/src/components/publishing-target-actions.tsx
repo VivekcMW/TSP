@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PublishingReconciliation } from "./publishing-reconciliation";
 import { PLATFORMS } from "@/lib/platforms";
 import { invalidatePublishingQueries, recheckPublishingRecovery, type PublishingSchedule, type ScheduleTarget } from "@/lib/publishing";
 
@@ -37,7 +38,7 @@ export function ScheduleTargetActions({ item }: Readonly<{ item: PublishingSched
     {!item.targets?.length && <p className="text-xs text-muted-foreground">Target status unavailable. Check the provider before retrying; delivery could have succeeded.</p>}
     {(item.targets ?? []).map((target) => {
       const label = PLATFORMS.find((platform) => platform.value === target.platform)?.label ?? target.platform;
-      const uncertain = !["scheduled", "queued", "publishing", "published", "failed", "cancelled"].includes(target.status);
+      const uncertain = !["scheduled", "queued", "publishing", "published", "failed", "cancelled", "simulated", "manual_published"].includes(target.status);
       return <div key={target.id} className="space-y-1">
         <Badge variant={target.status === "failed" ? "destructive" : "outline"} className="max-w-full whitespace-normal break-words">{label}: {target.status || "unknown"}</Badge>
         {target.lastError && <p className="break-words text-xs text-destructive">{label}: {target.lastError}</p>}
@@ -47,6 +48,10 @@ export function ScheduleTargetActions({ item }: Readonly<{ item: PublishingSched
         </div>
         {uncertain && <p className="text-xs text-muted-foreground">Check the provider before retrying; delivery could have succeeded. Automatic retry is blocked.</p>}
         {target.status === "publishing" && <p className="text-xs text-muted-foreground">Delivery is in flight. Cancellation is no longer safe.</p>}
+        {target.status === "simulated" && <p className="text-xs">{target.executionMode}: simulation only. No external post.</p>}
+        {target.status === "manual_published" && <p className="text-xs">Manual delivery claim; not provider-verified and excluded from live published counts.</p>}
+        {target.status === "accepted_unverified" && <p className="text-xs">Accepted by provider; delivery receipt unavailable.</p>}
+        <PublishingReconciliation draftId={item.draftId} target={target} />
       </div>;
     })}
     {error && <div role="alert" className="text-xs text-destructive">{error}<Button variant="outline" size="sm" disabled={busy} onClick={async () => {

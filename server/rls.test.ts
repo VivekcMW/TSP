@@ -116,16 +116,19 @@ describe("the database enforces isolation without help from the query", () => {
   it("covers every tenant-scoped table", async () => {
     const expected = [
       "billing_customers",
+      "billing_generation_operations",
       "draft_schedule_targets",
       "draft_schedules",
       "drafts",
       "engine_run_logs",
       "inbox_items",
+      "inbox_refresh_receipts",
       "job_execution_logs",
       "media_assets",
       "payment_methods",
       "payments",
       "profile_social_links",
+      "publication_resolutions",
       "publish_job_logs",
       "publish_metrics",
       "publishing_rules",
@@ -133,8 +136,10 @@ describe("the database enforces isolation without help from the query", () => {
       "scheduled_refreshes",
       "social_accounts",
       "social_analytics",
+      "social_oauth_states",
       "subscriptions",
       "user_profiles",
+      "user_source_deletions",
       "user_sources",
     ];
     const result = await ownerDb.execute(sql`

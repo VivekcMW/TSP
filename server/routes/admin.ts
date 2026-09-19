@@ -4,18 +4,19 @@ import { z } from "zod";
 import { db } from "../db";
 import { requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
-import { storage } from "../storage";
+import { storage, InboxOperationConflictError } from "../storage";
+import { randomUUID, createHash } from "node:crypto";
 import { engineRegistry } from "../services/engines/index.js";
 import { normalizeIndustryToSlug } from "../services/metaEngine";
 import * as adminService from "../services/adminService";
 import { featureFlags, insertFeatureFlagSchema, platformIntegrations } from "@shared/schema";
-import { enqueueInboxRefresh, getInboxRefreshQueue } from "../jobs/queue";
+import { enqueueInboxRefresh, getInboxRefreshQueue, InboxRefreshAdmissionError } from "../jobs/queue";
 
 const createFlagSchema = insertFeatureFlagSchema.pick({ key: true, description: true, enabled: true }).extend({
   key: z.string().trim().min(2).max(80).regex(/^[a-z0-9][a-z0-9_:-]*$/, "Use lowercase letters, numbers, underscores, colons, or hyphens."),
 });
 const updateFlagSchema = z.object({ enabled: z.boolean() });
-const rerunSchema = z.object({ tenantId: z.string().min(1) });
+const rerunSchema = z.object({ tenantId: z.string().min(1), operationId: z.string().uuid().optional() });
 const updateIntegrationSchema = z.object({ enabled: z.boolean(), notes: z.string().max(500).optional() });
 
 export function registerAdminRoutes(app: Express) {
@@ -96,19 +97,23 @@ export function registerAdminRoutes(app: Express) {
       }
 
       const scope = { tenantId, userId: run.userId };
+      const operationId = `admin:${createHash("sha256").update(JSON.stringify([run.id, validation.data.operationId ?? randomUUID()])).digest("hex")}`;
+      const receipt = await storage.getInboxRefreshReceipt(scope, operationId, false);
+      if (receipt) return res.json(receipt);
       const profile = await storage.getUserProfile(scope);
       if (!profile) {
         return res.status(404).json({ message: "User profile not found for this run" });
       }
 
       if (getInboxRefreshQueue()) {
-        const jobId = await enqueueInboxRefresh({ tenantId, userId: run.userId, manual: true, priority: "high", triggeredBy: "manual" });
+        const jobId = await enqueueInboxRefresh({ tenantId, userId: run.userId, manual: true, priority: "high", triggeredBy: "manual", operationId,
+          dedupeKey: createHash("sha256").update(JSON.stringify([tenantId, run.userId, operationId])).digest("hex") });
         if (jobId) return res.status(202).json({ queued: true, jobId, tenantId, userId: run.userId });
       }
 
       const industry = normalizeIndustryToSlug(run.industry);
       const engine = engineRegistry.getEngine(industry);
-      const result = await engine.processForUser(scope, profile);
+      const result = await engine.processForUser(scope, profile, { operationId });
 
       await storage.createEngineRunLog(scope, {
         industry,
@@ -118,11 +123,13 @@ export function registerAdminRoutes(app: Express) {
         errorMessage: result.errors?.join("; ") || null,
         durationMs: result.durationMs,
         completedAt: new Date(),
-      });
+      }).catch(() => { console.warn("Inbox refresh log unavailable"); });
 
-      res.json(result);
+      res.status(result.success ? 200 : 502).json(result);
     } catch (error) {
-      console.error("Error re-running engine:", error);
+      if (error instanceof InboxOperationConflictError) return res.status(409).json({ message: error.message });
+      if (error instanceof InboxRefreshAdmissionError) return res.status(409).json({ status: "failed", success: false, code: error.code, message: error.message });
+      console.error("Error re-running engine");
       res.status(500).json({ message: "Failed to re-run engine" });
     }
   });

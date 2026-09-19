@@ -4,14 +4,15 @@ import { db } from "../db";
 import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
 import { platformIntegrations } from "@shared/schema";
+import { publishingCapability } from "@shared/publishing-capabilities";
 import { toSafeSocialAccount } from "../lib/sanitize";
 import { storage } from "../storage";
 import { PROVIDER_CATALOG, resolveProviderDefinition, runProviderSandbox } from "../services/publishers/providerSandbox";
 import { assessProviderConnection } from "../services/publishers/providerLifecycle";
 import { refreshProviderAccessToken, validateProviderRuntimeConfig } from "../services/publishers/providerAuth";
-import { encryptWebhookUrl } from "../services/webhookSecrets";
 import { resolveHashnodePublication } from "../services/publishers/hashnode";
 import { verifyMastodonAccessToken } from "../services/publishers/mastodon";
+import { publicHttpsInstanceOrigin } from "../services/safeOutbound";
 import { verifyBlueskyAppPassword } from "../services/publishers/bluesky";
 import { verifyDevToApiKey } from "../services/publishers/devto";
 import { verifyTelegramBot } from "../services/publishers/telegram";
@@ -28,7 +29,7 @@ const providerConnectionSchema = z.object({
   accessToken: z.string().min(1).optional(),
   refreshToken: z.string().min(1).optional(),
   scopes: z.array(z.string()).optional(),
-  tokenExpiresAt: z.union([z.string(), z.coerce.date()]).optional(),
+  tokenExpiresAt: z.coerce.date().optional(),
   accountName: z.string().optional(),
   accountHandle: z.string().optional(),
   providerAccountId: z.string().optional(),
@@ -36,11 +37,12 @@ const providerConnectionSchema = z.object({
   isActive: z.boolean().optional(),
 });
 const webhookSchema = z.object({ webhookUrl: z.string().url() });
-const devToKeySchema = z.object({ apiKey: z.string().min(20).max(256) });
-const hashnodeTokenSchema = z.object({ personalAccessToken: z.string().min(20).max(256) });
-const blueskyConnectionSchema = z.object({ handle: z.string().trim().min(3).max(253), appPassword: z.string().trim().min(8).max(128) });
-const mastodonConnectionSchema = z.object({ instanceUrl: z.string().url().max(253), accessToken: z.string().trim().min(20).max(512) });
-const telegramConnectionSchema = z.object({ botToken: z.string().trim().min(20).max(256), chatId: z.string().trim().min(1).max(64) });
+const rawCredential = (min: number, max: number) => z.string().trim().min(min).max(max).refine(value => !value.startsWith("enc:"));
+const devToKeySchema = z.object({ apiKey: rawCredential(20, 256) });
+const hashnodeTokenSchema = z.object({ personalAccessToken: rawCredential(20, 256) });
+const blueskyConnectionSchema = z.object({ handle: z.string().trim().min(3).max(253), appPassword: rawCredential(8, 128) });
+const mastodonConnectionSchema = z.object({ instanceUrl: z.string().url().max(253), accessToken: rawCredential(20, 512) });
+const telegramConnectionSchema = z.object({ botToken: rawCredential(20, 256), chatId: z.string().trim().min(1).max(64) });
 
 function normalizeProviderKey(provider: string): string {
   const resolved = resolveProviderDefinition(provider);
@@ -56,67 +58,68 @@ export function registerIntegrationsRoutes(app: Express) {
   app.post("/api/integrations/mastodon/access-token", requireDbUser, requirePermission("social:connect:own"), async (req, res) => {
     const validation = mastodonConnectionSchema.safeParse(req.body);
     if (!validation.success) return res.status(400).json({ message: "Enter a valid Mastodon instance URL and access token" });
-    const parsedUrl = new URL(validation.data.instanceUrl);
-    if (parsedUrl.protocol !== "https:" || !parsedUrl.hostname.includes(".")) return res.status(400).json({ message: "Mastodon instances must use a public HTTPS URL" });
-    const instanceUrl = parsedUrl.origin;
-    const verified = await verifyMastodonAccessToken(instanceUrl, validation.data.accessToken);
-    if ("error" in verified) return res.status(400).json({ message: verified.error });
+    let instanceUrl: string;
+    try { instanceUrl = publicHttpsInstanceOrigin(validation.data.instanceUrl); }
+    catch { return res.status(400).json({ message: "Mastodon instances must use a public HTTPS hostname" }); }
+    const parsedUrl = new URL(instanceUrl);
     try {
+      const verified = await verifyMastodonAccessToken(instanceUrl, validation.data.accessToken);
+      if ("error" in verified) return res.status(400).json({ message: "Could not verify Mastodon credentials" });
       const scope = authedOf(req).tenant;
       const existing = await storage.getSocialAccountByProvider(scope, "mastodon");
-      const data = { provider: "mastodon", providerAccountId: instanceUrl, accountName: parsedUrl.hostname, accountHandle: parsedUrl.hostname, accessToken: encryptWebhookUrl(validation.data.accessToken), scopes: [], isActive: true };
+      const data = { provider: "mastodon", providerAccountId: instanceUrl, accountName: parsedUrl.hostname, accountHandle: parsedUrl.hostname, accessToken: validation.data.accessToken, scopes: [], isActive: true };
       const connection = existing ? await storage.updateSocialAccount(scope, existing.id, data) : await storage.createSocialAccount(scope, data);
       res.status(201).json({ success: true, instance: connection ? toSafeSocialAccount(connection) : null });
-    } catch (error) {
-      console.error("Mastodon connection failed:", error);
+    } catch {
+      console.error("Mastodon connection failed");
       res.status(500).json({ message: "Could not store Mastodon connection" });
     }
   });
   app.post("/api/integrations/bluesky/app-password", requireDbUser, requirePermission("social:connect:own"), async (req, res) => {
     const validation = blueskyConnectionSchema.safeParse(req.body);
     if (!validation.success) return res.status(400).json({ message: "Enter a valid Bluesky handle and app password" });
-    const verified = await verifyBlueskyAppPassword(validation.data.handle, validation.data.appPassword);
-    if ("error" in verified) return res.status(400).json({ message: verified.error });
     try {
+      const verified = await verifyBlueskyAppPassword(validation.data.handle, validation.data.appPassword);
+      if ("error" in verified) return res.status(400).json({ message: "Could not verify Bluesky credentials" });
       const scope = authedOf(req).tenant;
       const existing = await storage.getSocialAccountByProvider(scope, "bluesky");
-      const data = { provider: "bluesky", providerAccountId: validation.data.handle, accountName: validation.data.handle, accountHandle: `@${validation.data.handle}`, accessToken: encryptWebhookUrl(validation.data.appPassword), scopes: [], isActive: true };
+      const data = { provider: "bluesky", providerAccountId: validation.data.handle, accountName: validation.data.handle, accountHandle: `@${validation.data.handle}`, accessToken: validation.data.appPassword, scopes: [], isActive: true };
       const connection = existing ? await storage.updateSocialAccount(scope, existing.id, data) : await storage.createSocialAccount(scope, data);
       res.status(201).json({ success: true, instance: connection ? toSafeSocialAccount(connection) : null });
-    } catch (error) {
-      console.error("Bluesky connection failed:", error);
+    } catch {
+      console.error("Bluesky connection failed");
       res.status(500).json({ message: "Could not store Bluesky connection" });
     }
   });
   app.post("/api/integrations/telegram/bot-token", requireDbUser, requirePermission("social:connect:own"), async (req, res) => {
     const validation = telegramConnectionSchema.safeParse(req.body);
     if (!validation.success) return res.status(400).json({ message: "Enter a valid Telegram bot token and chat ID" });
-    const verified = await verifyTelegramBot(validation.data.botToken, validation.data.chatId);
-    if ("error" in verified) return res.status(400).json({ message: verified.error });
     try {
+      const verified = await verifyTelegramBot(validation.data.botToken, validation.data.chatId);
+      if ("error" in verified) return res.status(400).json({ message: "Could not verify Telegram credentials and chat access" });
       const scope = authedOf(req).tenant;
       const existing = await storage.getSocialAccountByProvider(scope, "telegram");
-      const data = { provider: "telegram", providerAccountId: validation.data.chatId, accountName: verified.chatTitle, accountHandle: verified.chatTitle, accessToken: encryptWebhookUrl(validation.data.botToken), scopes: [], isActive: true };
+      const data = { provider: "telegram", providerAccountId: validation.data.chatId, accountName: verified.chatTitle, accountHandle: verified.chatTitle, accessToken: validation.data.botToken, scopes: [], isActive: true };
       const connection = existing ? await storage.updateSocialAccount(scope, existing.id, data) : await storage.createSocialAccount(scope, data);
       res.status(201).json({ success: true, instance: connection ? toSafeSocialAccount(connection) : null });
-    } catch (error) {
-      console.error("Telegram connection failed:", error);
+    } catch {
+      console.error("Telegram connection failed");
       res.status(500).json({ message: "Could not store Telegram connection" });
     }
   });
   app.post("/api/integrations/devto/api-key", requireDbUser, requirePermission("social:connect:own"), async (req, res) => {
     const validation = devToKeySchema.safeParse(req.body);
     if (!validation.success) return res.status(400).json({ message: "Invalid Dev.to API key" });
-    const verified = await verifyDevToApiKey(validation.data.apiKey);
-    if ("error" in verified) return res.status(400).json({ message: verified.error });
     try {
+      const verified = await verifyDevToApiKey(validation.data.apiKey);
+      if ("error" in verified) return res.status(400).json({ message: "Could not verify Dev.to credentials" });
       const scope = authedOf(req).tenant;
       const existing = await storage.getSocialAccountByProvider(scope, "devto");
-      const data = { provider: "devto", providerAccountId: "devto", accountName: "Dev.to", accessToken: encryptWebhookUrl(validation.data.apiKey), scopes: ["articles:write"], isActive: true };
+      const data = { provider: "devto", providerAccountId: "devto", accountName: "Dev.to", accessToken: validation.data.apiKey, scopes: ["articles:write"], isActive: true };
       const connection = existing ? await storage.updateSocialAccount(scope, existing.id, data) : await storage.createSocialAccount(scope, data);
       res.status(201).json({ success: true, instance: connection ? toSafeSocialAccount(connection) : null });
-    } catch (error) {
-      console.error("Dev.to API key connection failed:", error);
+    } catch {
+      console.error("Dev.to API key connection failed");
       res.status(500).json({ message: "Could not store Dev.to API key" });
     }
   });
@@ -126,13 +129,13 @@ export function registerIntegrationsRoutes(app: Express) {
     try {
       const scope = authedOf(req).tenant;
       const resolved = await resolveHashnodePublication(validation.data.personalAccessToken);
-      if ("error" in resolved) return res.status(400).json({ message: resolved.error });
+      if ("error" in resolved) return res.status(400).json({ message: "Could not verify Hashnode credentials and publication access" });
       const existing = await storage.getSocialAccountByProvider(scope, "hashnode");
-      const data = { provider: "hashnode", providerAccountId: resolved.publicationId, accountName: "Hashnode", accessToken: encryptWebhookUrl(validation.data.personalAccessToken), scopes: ["post:write"], isActive: true };
+      const data = { provider: "hashnode", providerAccountId: resolved.publicationId, accountName: "Hashnode", accessToken: validation.data.personalAccessToken, scopes: ["post:write"], isActive: true };
       const connection = existing ? await storage.updateSocialAccount(scope, existing.id, data) : await storage.createSocialAccount(scope, data);
       res.status(201).json({ success: true, instance: connection ? toSafeSocialAccount(connection) : null });
-    } catch (error) {
-      console.error("Hashnode connection failed:", error);
+    } catch {
+      console.error("Hashnode connection failed");
       res.status(500).json({ message: "Could not store Hashnode personal access token" });
     }
   });
@@ -144,12 +147,12 @@ export function registerIntegrationsRoutes(app: Express) {
       const scope = authedOf(req).tenant;
       await verifyWebhook(provider, validation.data.webhookUrl);
       const existing = await storage.getSocialAccountByProvider(scope, provider);
-      const data = { provider, providerAccountId: `webhook_${Date.now()}`, accountName: `${provider} webhook`, accessToken: encryptWebhookUrl(validation.data.webhookUrl), scopes: [], isActive: true };
+      const data = { provider, providerAccountId: `webhook_${Date.now()}`, accountName: `${provider} webhook`, accessToken: validation.data.webhookUrl, scopes: [], isActive: true };
       const connection = existing ? await storage.updateSocialAccount(scope, existing.id, data) : await storage.createSocialAccount(scope, data);
       res.status(201).json({ success: true, instance: connection ? toSafeSocialAccount(connection) : null });
-    } catch (error) {
-      console.error("Webhook connection failed:", error);
-      res.status(400).json({ message: error instanceof Error ? error.message : "Could not connect webhook" });
+    } catch {
+      console.error("Webhook connection failed");
+      res.status(400).json({ message: "Could not verify and store webhook connection" });
     }
   });
   app.get("/api/integrations", requireDbUser, async (_req, res) => {
@@ -165,16 +168,17 @@ export function registerIntegrationsRoutes(app: Express) {
       const catalog = PROVIDER_CATALOG.map((provider) => ({
         key: provider.key,
         label: provider.label,
-        enabled: rows.some((row) => row.key === provider.key ? row.enabled : false) || provider.enabledByDefault,
+        enabled: rows.find((row) => row.key === provider.key)?.enabled === true,
         authType: provider.authType,
         requiredScopes: provider.requiredScopes,
         capabilities: provider.capabilities,
         category: provider.category,
+        publishing: publishingCapability(provider.key),
       }));
 
-      res.json([...rows, ...catalog.filter((provider) => !rows.some((row) => row.key === provider.key))]);
-    } catch (error) {
-      console.error("Error listing integrations:", error);
+      res.json(catalog);
+    } catch {
+      console.error("Error listing integrations");
       res.status(500).json({ message: "Failed to list integrations" });
     }
   });
@@ -197,8 +201,8 @@ export function registerIntegrationsRoutes(app: Express) {
         instance: connection ? toSafeSocialAccount(connection) : null,
         assessment,
       });
-    } catch (error) {
-      console.error("Error fetching integration status:", error);
+    } catch {
+      console.error("Error fetching integration status");
       return res.status(500).json({ message: "Failed to fetch integration status" });
     }
   });
@@ -234,13 +238,14 @@ export function registerIntegrationsRoutes(app: Express) {
         assessment,
         valid: assessment.canPublish && runtimeConfig.enabled,
       });
-    } catch (error) {
-      console.error("Error validating integration:", error);
+    } catch {
+      console.error("Error validating integration");
       return res.status(500).json({ message: "Failed to validate integration" });
     }
   });
 
   app.post("/api/integrations/:provider/refresh", requireDbUser, requirePermission("social:connect:own"), async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
     try {
       const { tenant: scope } = authedOf(req);
       const provider = normalizeProviderKey(req.params.provider);
@@ -250,26 +255,32 @@ export function registerIntegrationsRoutes(app: Express) {
       }
 
       const existing = await storage.getSocialAccountByProvider(scope, provider);
+      if (!existing) return res.status(404).json({ message: "No provider connection found" });
+      const credentialVersion = existing.credentialVersion;
+      if (!Number.isSafeInteger(credentialVersion) || credentialVersion < 0) {
+        return res.status(409).json({ message: "Connection version unavailable; reconnect before refreshing" });
+      }
+      let connectionChanged = false;
       const result = await refreshProviderAccessToken(provider, {
         provider,
         accessToken: existing?.accessToken ?? null,
         refreshToken: existing?.refreshToken ?? null,
+      }, async credentials => {
+        const updated = await storage.compareAndSwapSocialCredentials(scope, existing.id, credentialVersion, credentials);
+        if (!updated) {
+          connectionChanged = true;
+          throw new Error("Connection changed while refreshing; reload Connections");
+        }
       });
 
-      if (result.success && existing && result.accessToken) {
-        await storage.updateSocialAccount(scope, existing.id, {
-          accessToken: encryptWebhookUrl(result.accessToken),
-          refreshToken: result.refreshToken ? encryptWebhookUrl(result.refreshToken) : existing.refreshToken,
-          tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
-        });
-      }
-
+      if (connectionChanged) return res.status(409).json({ provider: definition.key,
+        result: { success: false, status: "failed", provider: definition.key, reason: "Connection changed while refreshing; reload Connections before retrying" } });
       return res.json({
         provider: definition.key,
-        result,
+        result: { success: result.success, status: result.status, provider: definition.key, tokenExpiresAt: result.tokenExpiresAt, reason: result.reason },
       });
-    } catch (error) {
-      console.error("Error refreshing integration:", error);
+    } catch {
+      console.error("Error refreshing integration");
       return res.status(500).json({ message: "Failed to refresh integration" });
     }
   });
@@ -283,23 +294,30 @@ export function registerIntegrationsRoutes(app: Express) {
         return res.status(400).json({ message: `Provider ${provider} is not supported` });
       }
 
-      const validation = providerConnectionSchema.safeParse(req.body);
+      // OAuth requires its existing state-bound flow; other providers require
+      // dedicated fields/verification. Never fabricate a manual connection.
+      if (!["devto", "hashnode"].includes(provider)) {
+        return res.status(400).json({ message: "Use the provider-specific verified connection flow; generic connection is not supported" });
+      }
+      const validation = z.object({ accessToken: rawCredential(20, 256) }).strict().safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ message: "Invalid provider connection payload", errors: validation.error.errors });
+        return res.status(400).json({ message: "Invalid provider connection payload" });
       }
 
+      const verified = provider === "devto"
+        ? await verifyDevToApiKey(validation.data.accessToken)
+        : await resolveHashnodePublication(validation.data.accessToken);
+      if ("error" in verified) return res.status(400).json({ message: "Could not verify provider credentials" });
       const existing = await storage.getSocialAccountByProvider(scope, provider);
       const payload = {
         provider,
-        providerAccountId: validation.data.providerAccountId ?? existing?.providerAccountId ?? `manual_${provider}_${Date.now()}`,
-        accountName: validation.data.accountName ?? existing?.accountName ?? undefined,
-        accountHandle: validation.data.accountHandle ?? existing?.accountHandle ?? undefined,
-        profileImageUrl: validation.data.profileImageUrl ?? existing?.profileImageUrl ?? undefined,
-        accessToken: validation.data.accessToken ?? existing?.accessToken ?? null,
-        refreshToken: validation.data.refreshToken ?? existing?.refreshToken ?? null,
-        scopes: validation.data.scopes ?? existing?.scopes ?? [],
-        tokenExpiresAt: validation.data.tokenExpiresAt ? new Date(validation.data.tokenExpiresAt) : existing?.tokenExpiresAt ?? null,
-        isActive: validation.data.isActive ?? true,
+        providerAccountId: "publicationId" in verified ? verified.publicationId : "devto",
+        accountName: definition.label,
+        accessToken: validation.data.accessToken,
+        refreshToken: null,
+        scopes: provider === "devto" ? ["articles:write"] : ["post:write"],
+        tokenExpiresAt: null,
+        isActive: true,
       };
 
       let connection;
@@ -309,6 +327,7 @@ export function registerIntegrationsRoutes(app: Express) {
         connection = await storage.createSocialAccount(scope, payload);
       }
 
+      if (!connection) return res.status(409).json({ message: "Connection changed; retry the verified connection flow" });
       const assessment = assessProviderConnection(provider, connection ?? null);
       return res.json({
         success: true,
@@ -316,8 +335,8 @@ export function registerIntegrationsRoutes(app: Express) {
         instance: connection ? toSafeSocialAccount(connection) : null,
         assessment,
       });
-    } catch (error) {
-      console.error("Error connecting integration:", error);
+    } catch {
+      console.error("Error connecting integration");
       return res.status(500).json({ message: "Failed to connect integration" });
     }
   });
@@ -338,8 +357,8 @@ export function registerIntegrationsRoutes(app: Express) {
 
       await storage.deleteSocialAccount(scope, existing.id);
       return res.json({ success: true, provider: definition.key, message: `${definition.label} disconnected` });
-    } catch (error) {
-      console.error("Error disconnecting integration:", error);
+    } catch {
+      console.error("Error disconnecting integration");
       return res.status(500).json({ message: "Failed to disconnect integration" });
     }
   });
@@ -364,8 +383,8 @@ export function registerIntegrationsRoutes(app: Express) {
       });
 
       return res.json(result);
-    } catch (error) {
-      console.error("Error testing integration:", error);
+    } catch {
+      console.error("Error testing integration");
       return res.status(500).json({ message: "Failed to test integration" });
     }
   });

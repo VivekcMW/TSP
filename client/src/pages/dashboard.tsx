@@ -5,10 +5,10 @@ import { Inbox, RefreshCw, Link2, AlertTriangle, Rss } from "lucide-react";
 import { useIsSignedIn } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { isUsableInboxArticle } from "@/lib/inbox-quality";
 import { useInboxRefreshJob, refreshJobMessage } from "@/hooks/use-inbox-refresh-job";
 import { InboxListRow } from "@/components/dashboard/inbox-list-row";
 import { InboxDetail } from "@/components/dashboard/inbox-detail";
+import { PersonalTrends } from "@/components/dashboard/personal-trends";
 import { useCreatePost } from "@/components/dashboard/create-post-provider";
 import { ignoreDiscoverShortcut } from "@/components/dashboard/create-post-state";
 import { SourcesManagerContent } from "@/components/dashboard/sources-manager";
@@ -32,19 +32,24 @@ export default function DashboardPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isDetailSheetOpen, setIsDetailSheetOpen] = useState(false);
 
-  const { data: inboxItems, isLoading, isError, error, refetch } = useQuery<InboxItem[]>({
+  const history = useQuery<InboxItem[]>({
     queryKey: ["/api/inbox"],
     enabled: !!isSignedIn,
   });
+  const active = useQuery<InboxItem[]>({
+    queryKey: ["/api/inbox", "active"],
+    queryFn: async ({ signal }) => (await apiRequest("GET", "/api/inbox?status=active", undefined, { signal })).json(),
+    enabled: !!isSignedIn,
+  });
+  const { isLoading, isError, error, refetch } = filter === "all" ? active : history;
   
   const refreshInbox = useInboxRefreshJob();
   const needsSetup = refreshInbox.progress.needsSetup;
 
-  const items = inboxItems || [];
-  const activeCandidates = items.filter(item => item.status === "active" && isUsableInboxArticle(item));
-  const hiddenCount = items.filter(item => item.status === "active").length - activeCandidates.length;
-  const filteredItems = items.filter(item => {
-    if (filter === "all") return item.status === "active" && isUsableInboxArticle(item);
+  const items = history.data || [];
+  // Legacy active rows still occupy capacity: keep them visible and actionable.
+  const activeCandidates = (active.data || []).filter(item => item.status === "active");
+  const filteredItems = filter === "all" ? activeCandidates : items.filter(item => {
     if (filter === "saved") return item.status === "saved";
     if (filter === "dismissed") return item.status === "dismissed";
     return true;
@@ -88,6 +93,7 @@ export default function DashboardPage() {
     onSuccess: (_data, { id, status }) => {
       // Only commit triage and advance after the API acknowledges the change.
       queryClient.setQueryData<InboxItem[]>(["/api/inbox"], current => current?.map(item => item.id === id ? { ...item, status } : item));
+      queryClient.setQueryData<InboxItem[]>(["/api/inbox", "active"], current => current?.filter(item => item.id !== id));
       if (activeId === id) advanceSelectionPast(id);
       setIsDetailSheetOpen(false);
       void queryClient.invalidateQueries({ queryKey: ["/api/inbox"] });
@@ -210,13 +216,8 @@ export default function DashboardPage() {
         }
       />
 
-      {!isLoading && !isError && filter === "all" && hiddenCount > 0 && (
-        <output className="shrink-0 border-b px-4 py-3 text-sm text-muted-foreground">
-          {hiddenCount} unavailable or low-quality {hiddenCount === 1 ? "story" : "stories"} hidden from active recommendations. No records were changed. Saved stories are still accessible in Saved.
-        </output>
-      )}
-
-      <main className="flex-1 overflow-hidden">
+      <PersonalTrends />
+      <main className="min-h-0 flex-1 overflow-hidden">
         {isLoading ? (
           <div className="grid gap-4 p-6">
             {[1, 2, 3, 4].map((i) => (

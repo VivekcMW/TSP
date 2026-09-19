@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("./queryClient", async original => ({ ...await original<typeof import("./queryClient")>(), apiRequest: request }));
-import { cancelEditorialRequest, createEditorialRequestState, editorialRequest } from "./editorial-request";
+import { cancelEditorialRequest, createEditorialRequestState, editorialDetachReason, editorialRequest } from "./editorial-request";
 import { ApiError } from "./queryClient";
 
 const id = "00000000-0000-4000-8000-000000000001";
@@ -10,6 +10,62 @@ beforeEach(() => { vi.resetAllMocks(); vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("editorial request transport", () => {
+  it("reconnects using only GETs and cannot admit without a retained job ID", async () => {
+    const state = { ...createEditorialRequestState(), jobId: id };
+    request.mockResolvedValueOnce(response({ status: "completed", progress: {} })).mockResolvedValueOnce(response({ posts: "retained" }));
+    expect(await editorialRequest("/api/instant-review/selected", undefined, { state, reconnectOnly: true })).toEqual({ posts: "retained" });
+    await expect(editorialRequest("/api/instant-review/selected", undefined, { reconnectOnly: true })).rejects.toMatchObject({ status: 404 });
+    expect(request.mock.calls.map(call => call[0])).toEqual(["GET", "GET"]);
+  });
+
+  it("detaches monitoring without DELETE or marking a job cancelled", async () => {
+    const state = { ...createEditorialRequestState(), jobId: id };
+    const controller = new AbortController();
+    request.mockResolvedValueOnce(response({ status: "queued", progress: {} }));
+    const pending = editorialRequest("/api/instant-review/selected", undefined, { state, signal: controller.signal, reconnectOnly: true });
+    const rejected = expect(pending).rejects.toMatchObject({ name: "EditorialDetached" });
+    await vi.advanceTimersByTimeAsync(0); controller.abort(editorialDetachReason()); await rejected;
+    expect(request.mock.calls.map(call => call[0])).toEqual(["GET"]);
+    expect(state.terminal).not.toBe(true);
+  });
+
+  it.each(["status", "result"])("reports missing %s without POST or a second charge", async stage => {
+    const state = { ...createEditorialRequestState(), jobId: id };
+    if (stage === "result") request.mockResolvedValueOnce(response({ status: "completed", progress: {} }));
+    request.mockRejectedValueOnce(new ApiError(404, "Job not found"));
+    await expect(editorialRequest("/api/instant-review/selected", undefined, { state, reconnectOnly: true })).rejects.toThrow("expired or unavailable");
+    expect(state.terminal).toBe(true);
+    expect(request.mock.calls.every(call => call[0] === "GET")).toBe(true);
+  });
+
+  it.each(["queued", "active", "reserved", "waiting", undefined])("does not claim cancellation for %s", async status => {
+    const state = { ...createEditorialRequestState(), jobId: id };
+    request.mockResolvedValueOnce(response({ status }));
+    await expect(cancelEditorialRequest(state)).rejects.toThrow("Cancellation could not be confirmed");
+    expect(state.terminal).not.toBe(true);
+  });
+
+  it("reports completion winning the cancellation race without claiming a refund", async () => {
+    const state = { ...createEditorialRequestState(), jobId: id };
+    request.mockResolvedValueOnce(response({ status: "completed" }));
+    await expect(cancelEditorialRequest(state)).rejects.toThrow("Generation already finished");
+    expect(state.terminal).toBe(false); // Still recoverable until delivery.
+    request.mockResolvedValueOnce(response({ status: "completed", progress: {} })).mockResolvedValueOnce(response({ posts: "retained" }));
+    expect(await editorialRequest("/api/instant-review/selected", undefined, { state, reconnectOnly: true })).toEqual({ posts: "retained" });
+    expect(state.terminal).toBe(true);
+    expect(request.mock.calls.map(call => call[0])).toEqual(["DELETE", "GET", "GET"]);
+  });
+
+  it("bounds reconnect monitoring without cancelling the server job", async () => {
+    const state = { ...createEditorialRequestState(), jobId: id, deadline: Date.now() + 1000 };
+    request.mockRejectedValue(new ApiError(503, "Unavailable", 60000));
+    const pending = editorialRequest("/api/instant-review/selected", undefined, { state, reconnectOnly: true });
+    const rejected = expect(pending).rejects.toMatchObject({ status: 504 });
+    await vi.advanceTimersByTimeAsync(1000); await rejected;
+    expect(request.mock.calls.map(call => call[0])).toEqual(["GET"]);
+    expect(state.terminal).not.toBe(true);
+  });
+
   it("preserves numeric and HTTP-date Retry-After metadata at the real fetch boundary", async () => {
     const { apiRequest } = await vi.importActual<typeof import("./queryClient")>("./queryClient");
     vi.setSystemTime(new Date("2026-09-17T12:00:00Z"));

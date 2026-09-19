@@ -1,4 +1,5 @@
 import { decryptStoredCredential } from "../webhookSecrets";
+import { z } from "zod";
 
 export interface ProviderRuntimeConfigResult {
   provider: string;
@@ -15,106 +16,92 @@ export interface ProviderRefreshRequest {
 
 export interface ProviderRefreshResult {
   success: boolean;
-  status: "ok" | "missing" | "expired" | "failed";
+  status: "ok" | "missing" | "expired" | "failed" | "unsupported";
   provider: string;
-  accessToken?: string;
-  refreshToken?: string;
+  tokenExpiresAt?: Date | null;
   reason?: string;
 }
 
+/** Internal persistence payload. Never returned by refresh or serialized to HTTP. */
+export interface RefreshedCredentials {
+  accessToken: string;
+  refreshToken?: string;
+  tokenExpiresAt: Date | null;
+}
+
 const providerEnvMap: Record<string, string[]> = {
-  linkedin: ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_REDIRECT_URI"],
-  twitter: ["TWITTER_CLIENT_ID", "TWITTER_CLIENT_SECRET", "TWITTER_REDIRECT_URI"],
-  x: ["TWITTER_CLIENT_ID", "TWITTER_CLIENT_SECRET", "TWITTER_REDIRECT_URI"],
-  threads: ["THREADS_CLIENT_ID", "THREADS_CLIENT_SECRET", "THREADS_REDIRECT_URI"],
+  linkedin: ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"],
+  twitter: ["TWITTER_CLIENT_ID", "TWITTER_CLIENT_SECRET"],
+  reddit: ["REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET"],
+  devto: [], hashnode: [], mastodon: [], bluesky: [], telegram: [], discord: [], slack: [],
 };
+const normalize = (provider: string) => provider.trim().toLowerCase() === "x" ? "twitter" : provider.trim().toLowerCase();
 
 export function validateProviderRuntimeConfig(provider: string): ProviderRuntimeConfigResult {
-  const normalized = provider.trim().toLowerCase();
-  const requiredEnvVars = providerEnvMap[normalized] ?? [];
-  const missingEnvVars = requiredEnvVars.filter((key) => !process.env[key]);
+  const normalized = normalize(provider);
+  const supported = Object.hasOwn(providerEnvMap, normalized);
+  const requiredEnvVars = supported ? providerEnvMap[normalized] : [];
+  const missingEnvVars = requiredEnvVars.filter((key) => !process.env[key]?.trim());
 
   return {
     provider: normalized,
-    enabled: missingEnvVars.length === 0,
+    enabled: supported && missingEnvVars.length === 0,
     missingEnvVars,
     requiredEnvVars,
   };
 }
 
+const issuedTokenSchema = z.string().trim().min(1).refine(value => !value.startsWith("enc:"));
+const refreshResponseSchema = z.object({
+  access_token: issuedTokenSchema,
+  refresh_token: issuedTokenSchema.optional(),
+  expires_in: z.number().finite().positive().optional(),
+});
+
+function refreshedCredentials(json: unknown, startedAt: number): RefreshedCredentials {
+  const token = refreshResponseSchema.parse(json);
+  const tokenExpiresAt = token.expires_in === undefined ? null : new Date(startedAt + token.expires_in * 1000);
+  if (tokenExpiresAt && (!Number.isFinite(tokenExpiresAt.getTime()) || tokenExpiresAt.getTime() <= Date.now())) {
+    throw new Error("Invalid provider expiry");
+  }
+  return { accessToken: token.access_token, ...(token.refresh_token === undefined ? {} : { refreshToken: token.refresh_token }), tokenExpiresAt };
+}
+
 export async function refreshProviderAccessToken(
   provider: string,
   request: ProviderRefreshRequest,
+  persist?: (credentials: RefreshedCredentials) => Promise<void>,
 ): Promise<ProviderRefreshResult> {
-  const normalized = provider.trim().toLowerCase();
-  const config = validateProviderRuntimeConfig(normalized);
-
-  if (!config.enabled) {
-    return {
-      success: false,
-      status: "missing",
-      provider: normalized,
-      reason: `Missing runtime configuration for ${normalized}: ${config.missingEnvVars.join(", ")}`,
-    };
-  }
-
-  if (!request.refreshToken) {
-    return {
-      success: false,
-      status: "missing",
-      provider: normalized,
-      reason: `No refresh token available for ${normalized}`,
-    };
-  }
+  const normalized = normalize(provider);
+  const fail = (status: ProviderRefreshResult["status"], reason: string): ProviderRefreshResult => ({ success: false, status, provider: normalized, reason });
+  if (!["linkedin", "twitter"].includes(normalized)) return fail("unsupported", "Token refresh is not supported; reconnect using the provider flow");
+  if (normalize(request.provider) !== normalized) return fail("failed", "Provider mismatch");
+  if (!validateProviderRuntimeConfig(normalized).enabled) return fail("missing", "Provider runtime configuration is missing");
+  if (!request.refreshToken) return fail("missing", "No refresh token available; reconnect the provider");
+  if (!persist) return fail("failed", "Credential persistence is required");
 
   try {
-    const tokenEndpoint =
-      normalized === "linkedin"
-        ? "https://www.linkedin.com/oauth/v2/accessToken"
-        : normalized === "twitter" || normalized === "x"
-          ? "https://api.twitter.com/2/oauth2/token"
-          : "https://example.com/token";
-
-    const refreshResponse = await fetch(tokenEndpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: decryptStoredCredential(request.refreshToken),
-        client_id: process.env[`${normalized.toUpperCase()}_CLIENT_ID`] || "",
-        client_secret: process.env[`${normalized.toUpperCase()}_CLIENT_SECRET`] || "",
-      }).toString(),
-    });
-
-    if (!refreshResponse.ok) {
-      return {
-        success: false,
-        status: "failed",
-        provider: normalized,
-        reason: `Refresh request failed with HTTP ${refreshResponse.status}`,
-      };
+    const envPrefix = normalized === "twitter" ? "TWITTER" : "LINKEDIN";
+    const clientId = process.env[`${envPrefix}_CLIENT_ID`]!;
+    const clientSecret = process.env[`${envPrefix}_CLIENT_SECRET`]!;
+    const refreshToken = issuedTokenSchema.parse(decryptStoredCredential(request.refreshToken));
+    const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken });
+    const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
+    if (normalized === "twitter") {
+      headers.Authorization = "Basic " + Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+    } else {
+      body.set("client_id", clientId);
+      body.set("client_secret", clientSecret);
     }
-
-    const json = (await refreshResponse.json()) as {
-      access_token?: string;
-      refresh_token?: string;
-    };
-
-    return {
-      success: true,
-      status: "ok",
-      provider: normalized,
-      accessToken: json.access_token,
-      refreshToken: json.refresh_token ?? request.refreshToken,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      status: "failed",
-      provider: normalized,
-      reason: error instanceof Error ? error.message : "Unknown refresh error",
-    };
+    const startedAt = Date.now();
+    const response = await fetch(normalized === "linkedin" ? "https://www.linkedin.com/oauth/v2/accessToken" : "https://api.x.com/2/oauth2/token", {
+      method: "POST", headers, body: body.toString(), redirect: "error", signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return fail(response.status === 400 || response.status === 401 ? "expired" : "failed", "Provider rejected token refresh; reconnect or try again later");
+    const credentials = refreshedCredentials(await response.json(), startedAt);
+    await persist(credentials);
+    return { success: true, status: "ok", provider: normalized, tokenExpiresAt: credentials.tokenExpiresAt };
+  } catch {
+    return fail("failed", "Could not refresh and store provider credentials");
   }
 }

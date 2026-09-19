@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type Bull from "bull";
 
-const { storage, publish, assess } = vi.hoisted(() => ({
-  storage: { claimPublishTarget: vi.fn(), finishPublishTarget: vi.fn(), getPublishingRule: vi.fn(), getSocialAccountByProvider: vi.fn(), createPublishLog: vi.fn(), getUser: vi.fn() },
-  publish: vi.fn(), assess: vi.fn(),
+const { storage, publish, email, PolicyError } = vi.hoisted(() => ({
+  storage: { claimPublishTarget: vi.fn(), finishPublishTarget: vi.fn(), authorizePublishClaim: vi.fn(), getPublishingRule: vi.fn(), getSocialAccountByProvider: vi.fn(), createPublishLog: vi.fn(), getUser: vi.fn() },
+  publish: vi.fn(), email: vi.fn(), PolicyError: class PublishingPolicyError extends Error {},
 }));
-vi.mock("../../storage", () => ({ storage }));
+vi.mock("../../storage", () => ({ storage, ScheduleConflictError: class extends Error {} }));
 vi.mock("../../services/publishers", () => ({ publishToPlatform: publish }));
-vi.mock("../../services/publishers/providerLifecycle", () => ({ assessProviderConnection: assess }));
-vi.mock("../../services/email", () => ({ sendAppEmail: vi.fn(), emailTemplates: { postPublished: vi.fn() } }));
+vi.mock("../../services/publishing-policy", () => ({ PublishingPolicyError: PolicyError }));
+vi.mock("../../services/email", () => ({ sendAppEmail: email, emailTemplates: { postPublished: vi.fn() } }));
 import { handlePublishDraft, type PublishDraftJobData } from "./publish-draft";
 
 function job(attemptsMade = 0) {
@@ -19,10 +19,10 @@ function job(attemptsMade = 0) {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubEnv("PUBLISHING_MODE", "live");
-  storage.claimPublishTarget.mockResolvedValue({ id: "d", content: "hello", platformPublishRules: {}, media: [] });
+  storage.claimPublishTarget.mockResolvedValue({ id: "d", content: "hello", platformPublishRules: {}, media: [], publishClaim: { token: "claim", mode: "live", intent: "publish" } });
   storage.finishPublishTarget.mockResolvedValue(true);
-  assess.mockReturnValue({ canPublish: true });
-  publish.mockResolvedValue({ success: true, postId: "post" });
+  storage.authorizePublishClaim.mockResolvedValue(undefined);
+  publish.mockResolvedValue({ success: true, postId: "post", mode: "live", status: "published", receiptKind: "provider_id" });
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -41,7 +41,7 @@ describe("publish delivery safety", () => {
   });
 
   it("marks disconnected providers failed, never published", async () => {
-    assess.mockReturnValue({ canPublish: false, reason: "Reconnect account" });
+    storage.authorizePublishClaim.mockRejectedValue(new PolicyError("Reconnect account"));
     const task = job();
     await expect(handlePublishDraft(task)).rejects.toThrow("Reconnect account");
     expect(storage.finishPublishTarget).toHaveBeenCalledWith(expect.anything(), "target", "failed", expect.objectContaining({ errorMessage: "Reconnect account" }));
@@ -50,8 +50,8 @@ describe("publish delivery safety", () => {
   });
 
   it.each([0, 1, 2])("uses Bull attemptsMade for pre-send retry %i", async (attempt) => {
-    storage.getPublishingRule.mockRejectedValue(new Error("database temporarily unavailable"));
-    await expect(handlePublishDraft(job(attempt))).rejects.toThrow("database");
+    storage.authorizePublishClaim.mockRejectedValue(new Error("database temporarily unavailable"));
+    await expect(handlePublishDraft(job(attempt))).rejects.toThrow("could not be authorized");
     expect(storage.finishPublishTarget).toHaveBeenCalledWith(expect.anything(), "target", attempt < 2 ? "scheduled" : "failed", expect.objectContaining({ attempt: attempt + 1 }));
   });
 
@@ -77,5 +77,27 @@ describe("publish delivery safety", () => {
     storage.getUser.mockRejectedValue(new Error("email lookup failed"));
     expect((await handlePublishDraft(task)).status).toBe("published");
     expect(storage.finishPublishTarget).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["sandbox", "dry-run"])("records %s without receipt or Published email", async mode => {
+    storage.claimPublishTarget.mockResolvedValue({ id: "d", content: "hello", media: [], publishClaim: { token: "claim", mode, intent: "publish" } });
+    publish.mockResolvedValue({ success: true, mode, status: "simulated", receiptKind: "none" });
+    expect((await handlePublishDraft(job())).status).toBe("simulated");
+    expect(storage.finishPublishTarget).toHaveBeenCalledWith(expect.anything(), "target", "simulated", expect.objectContaining({ claimToken: "claim", executionMode: mode, publishedPostId: null }));
+    expect(email).not.toHaveBeenCalled();
+    expect(storage.getUser).not.toHaveBeenCalled();
+  });
+
+  it("keeps Slack acceptance unverified and never sends Published email", async () => {
+    publish.mockResolvedValue({ success: true, mode: "live", status: "accepted_unverified", receiptKind: "unavailable" });
+    expect((await handlePublishDraft(job())).status).toBe("accepted_unverified");
+    expect(email).not.toHaveBeenCalled();
+  });
+
+  it("does not notify after a stale completion CAS", async () => {
+    storage.finishPublishTarget.mockResolvedValue(false);
+    await expect(handlePublishDraft(job())).rejects.toThrow("reconciliation");
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(email).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,5 @@
-import { desc, eq } from "drizzle-orm";
-import { db } from "../db";
-import { billingPlans, subscriptions } from "@shared/schema";
+import type { BillingPlan, Subscription } from "@shared/schema";
+import { readEntitlementState, type BillingTransaction } from "./billing-repository";
 
 export interface TenantEntitlements {
   planKey: string;
@@ -11,26 +10,61 @@ export interface TenantEntitlements {
   canUseAnalytics: boolean;
   maxDailyGenerations: number | null;
   currentPeriodEnd: Date | null;
+  currentPeriodStart?: Date | null;
 }
 
-export async function getTenantEntitlements(tenantId: string): Promise<TenantEntitlements> {
-  const [subscription] = await db.select().from(subscriptions).where(eq(subscriptions.tenantId, tenantId)).orderBy(desc(subscriptions.updatedAt)).limit(1);
-  const planId = subscription?.planId ?? "plan_free";
-  const [plan] = await db.select().from(billingPlans).where(eq(billingPlans.id, planId));
-  const active = !subscription || ["active", "authenticated"].includes(subscription.status);
-  const isPaid = Boolean(plan && plan.amount > 0);
+// Only actual catalog keys seeded by 0014 are mapped. Price is NOT a tier.
+const TIERS: Record<string, Pick<TenantEntitlements, "canPublish" | "canSchedule" | "canUseAnalytics" | "maxDailyGenerations">> = {
+  free: { canPublish: false, canSchedule: false, canUseAnalytics: false, maxDailyGenerations: 3 },
+  pro_monthly: { canPublish: true, canSchedule: true, canUseAnalytics: true, maxDailyGenerations: null },
+};
+const denied = { canPublish: false, canSchedule: false, canUseAnalytics: false, maxDailyGenerations: 0 };
+
+export function subscriptionIsActive(status: string | null | undefined, currentPeriodEnd?: Date | null, now = new Date(), currentPeriodStart?: Date | null): boolean {
+  return status === "active" && !!currentPeriodEnd && currentPeriodEnd.getTime() > now.getTime()
+    && (!currentPeriodStart || currentPeriodStart.getTime() <= now.getTime());
+}
+
+export function resolveTenantEntitlements(plans: BillingPlan[], rows: Subscription[], now = new Date()): TenantEntitlements {
+  const current = rows.find(row => row.currentPeriodStart && subscriptionIsActive(row.status, row.currentPeriodEnd, now, row.currentPeriodStart));
+  const plan = current ? plans.find(candidate => candidate.id === current.planId) : plans.find(candidate => candidate.key === "free" && candidate.isActive && candidate.amount === 0);
+  const limits = plan?.isActive && Object.hasOwn(TIERS, plan.key) ? TIERS[plan.key] : denied;
   return {
-    planKey: plan?.key ?? "free",
-    planName: plan?.name ?? "Free",
-    status: subscription?.status ?? "active",
-    canPublish: active && (isPaid || !subscription),
-    canSchedule: active && isPaid,
-    canUseAnalytics: active,
-    maxDailyGenerations: isPaid ? null : 3,
-    currentPeriodEnd: subscription?.currentPeriodEnd ?? null,
+    planKey: plan?.key ?? "unavailable", planName: plan?.name ?? "Unavailable",
+    status: current?.status ?? (plan ? "free" : "unavailable"),
+    ...limits, currentPeriodStart: current?.currentPeriodStart ?? null, currentPeriodEnd: current?.currentPeriodEnd ?? null,
   };
 }
 
-export function subscriptionIsActive(status: string | null | undefined): boolean {
-  return !status || ["active", "authenticated"].includes(status);
+export async function getTenantEntitlements(tenantId: string, transaction?: BillingTransaction, now = new Date()): Promise<TenantEntitlements> {
+  const state = transaction ? await readEntitlementState(tenantId, transaction) : await readEntitlementState(tenantId);
+  return resolveTenantEntitlements(state.plans, state.subscriptions, now);
+}
+
+export type TenantCapability = "publish" | "schedule" | "analytics" | "generate";
+export class EntitlementError extends Error {
+  readonly statusCode = 403;
+  readonly code = "entitlement_required";
+  constructor(public readonly capability: TenantCapability) { super(`Your current plan does not permit ${capability}`); }
+}
+
+/** Limited generation needs authoritative usage under the caller's atomic quota
+ * reservation lock. This assertion is not itself a usage counter. */
+export function assertResolvedEntitlement(entitlements: TenantEntitlements, capability: TenantCapability, dailyGenerationsUsed?: number): void {
+  if (capability === "generate") {
+    const limit = entitlements.maxDailyGenerations;
+    if (limit === null) return;
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new EntitlementError(capability);
+    if (!Number.isSafeInteger(dailyGenerationsUsed) || dailyGenerationsUsed! < 0 || dailyGenerationsUsed! >= limit) throw new EntitlementError(capability);
+    return;
+  }
+  const key = { publish: "canPublish", schedule: "canSchedule", analytics: "canUseAnalytics" } as const;
+  if (!entitlements[key[capability]]) throw new EntitlementError(capability);
+}
+
+/** Re-resolve server/job access immediately before expensive work. */
+export async function assertTenantEntitlement(tenantId: string, capability: TenantCapability, options: { dailyGenerationsUsed?: number; transaction?: BillingTransaction; now?: Date } = {}): Promise<TenantEntitlements> {
+  const entitlements = await getTenantEntitlements(tenantId, options.transaction, options.now);
+  assertResolvedEntitlement(entitlements, capability, options.dailyGenerationsUsed);
+  return entitlements;
 }

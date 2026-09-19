@@ -1,8 +1,9 @@
-import { eq } from "drizzle-orm";
 import { Resend } from "resend";
 import Bull from "bull";
-import { db } from "../../db";
-import { emailDeliveries, emailPreferences } from "@shared/schema";
+import { randomUUID } from "node:crypto";
+import { getEmailPreferences } from "./preferences";
+import { isEssentialEmail, preferenceEnabled } from "./policy";
+import { beginDelivery, claimDelivery, deliveryKey, finishDelivery, recoverEmailDeliveries } from "./delivery-store";
 
 export type EmailType =
   | "verification" | "password_reset" | "welcome" | "password_changed"
@@ -32,69 +33,98 @@ const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "info@thesocialpundit.com";
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 let emailQueue: Bull.Queue<AppEmail> | undefined;
 let emailWorkerRegistered = false;
+let recoveryTimer: ReturnType<typeof setInterval> | undefined;
+let recovering = false;
+
+async function sendWithDeadline(input: Parameters<Resend["emails"]["send"]>[0]) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([resend!.emails.send(input), new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error("Email dispatch timed out")), 30_000);
+    })]);
+  } finally { if (timer) clearTimeout(timer); }
+}
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ?? character);
 }
 
-function preferenceEnabled(type: EmailType, preference: typeof emailPreferences.$inferSelect | undefined) {
-  if (["verification", "password_reset", "password_changed", "payment_succeeded", "payment_failed", "subscription_cancelled", "token_expired"].includes(type)) return true;
-  if (preference?.unsubscribedAt) return false;
-  if (["daily_digest", "weekly_summary"].includes(type)) return preference?.dailyDigest ?? true;
-  if (type === "content_alert") return preference?.contentAlerts ?? true;
-  if (["product_update", "maintenance", "incident"].includes(type)) return preference?.productUpdates ?? true;
-  return preference?.marketing ?? true;
-}
-
 function wrapEmail(email: AppEmail) {
   const name = email.recipientName ? `Hi ${escapeHtml(email.recipientName)},` : "Hello,";
-  const unsubscribe = `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/email-preferences`;
+  const unsubscribe = `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/dashboard/settings?tab=notifications`;
   const cta = email.primaryCta ? `<p style="margin:24px 0"><a href="${escapeHtml(email.primaryCta.url)}" style="display:inline-block;background:#1b2a4a;color:#fff;padding:13px 22px;border-radius:6px;text-decoration:none;font-weight:700">${escapeHtml(email.primaryCta.label)}</a></p><p style="font-size:12px;color:#667085">If the button does not work, copy this link: ${escapeHtml(email.primaryCta.url)}</p>` : "";
   return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><span style="display:none!important;opacity:0;height:0;width:0">${escapeHtml(email.preheader ?? email.subject)}</span></head><body style="margin:0;background:#f4f6f1;font-family:Arial,sans-serif;color:#17233d"><main style="max-width:600px;margin:32px auto;background:#fff;border:1px solid #e4e7ec;border-radius:8px;overflow:hidden"><header style="background:#1b2a4a;color:#fff;padding:24px 28px;border-bottom:3px solid #c99a3e"><div style="font-size:20px;font-weight:700">TheSocialPundit</div><div style="margin-top:6px;color:#d7b56d;font-size:11px;text-transform:uppercase;letter-spacing:1.5px">Your professional signal</div></header><section style="padding:28px"><p style="margin-top:0;color:#667085;font-size:11px;text-transform:uppercase;letter-spacing:1.4px">${escapeHtml(email.eyebrow ?? "TheSocialPundit")}</p><p>${name}</p>${email.html}${cta}</section><footer style="border-top:1px solid #e4e7ec;padding:18px 28px;color:#667085;font-size:12px">You received this email from TheSocialPundit.<br><a href="${unsubscribe}" style="color:#1b2a4a">Manage email preferences</a> · <a href="${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/privacy" style="color:#1b2a4a">Privacy</a></footer></main></body></html>`;
 }
 
-async function deliverAppEmail(email: AppEmail): Promise<{ skipped?: boolean; messageId?: string }> {
-  const [preference] = email.userId
-    ? await db.select().from(emailPreferences).where(eq(emailPreferences.userId, email.userId)).limit(1)
-    : [];
-  if (!email.required && !preferenceEnabled(email.type, preference)) return { skipped: true };
+async function deliveryAllowed(email: AppEmail) {
+  if (!email.userId && !isEssentialEmail(email.type)) return false;
+  const preference = email.userId ? await getEmailPreferences(email.userId) : undefined;
+  return preferenceEnabled(email.type, preference);
+}
+
+function withDeliveryIdentity(email: AppEmail): AppEmail {
+  return deliveryKey(email) ? email : { ...email, dedupeKey: randomUUID() };
+}
+
+export async function deliverAppEmail(email: AppEmail): Promise<{ skipped?: boolean; messageId?: string }> {
+  // `required` affects transport only; callers cannot bypass category policy.
+  if (!await deliveryAllowed(email)) return { skipped: true };
   if (!resend) {
-    if (process.env.NODE_ENV !== "production") {
-      console.info(`[email:${email.type}] RESEND_API_KEY missing; would send to ${email.recipient}`);
-      return { skipped: true };
-    }
     throw new Error("RESEND_API_KEY is not configured");
   }
-
-  let delivery: { id: string } | undefined;
-  if (email.dedupeKey) {
-    const [existing] = await db.select({ id: emailDeliveries.id, status: emailDeliveries.status }).from(emailDeliveries).where(eq(emailDeliveries.dedupeKey, email.dedupeKey)).limit(1);
-    if (existing?.status === "sent" || existing?.status === "pending") return { skipped: true };
-    if (existing) {
-      [delivery] = await db.update(emailDeliveries).set({ status: "pending", errorMessage: null }).where(eq(emailDeliveries.id, existing.id)).returning({ id: emailDeliveries.id });
-    }
+  // Direct keyless calls are fresh requests (including auth emails), not job
+  // retries. The worker must reject keyless retained payloads BEFORE this point.
+  email = withDeliveryIdentity(email);
+  const claim = await claimDelivery(email);
+  if (!claim) return { skipped: true };
+  // Recheck after claiming, immediately before dispatch, including queued jobs.
+  if (!await deliveryAllowed(email)) {
+    await finishDelivery(claim, "suppressed");
+    return { skipped: true };
   }
-  if (!delivery) {
-    [delivery] = await db.insert(emailDeliveries).values({ userId: email.userId ?? null, recipient: email.recipient, type: email.type, dedupeKey: email.dedupeKey ?? null, status: "pending" }).returning({ id: emailDeliveries.id });
-  }
+  const html = wrapEmail(email);
+  if (!await beginDelivery(claim)) return { skipped: true };
+  let result;
   try {
-    const result = await resend.emails.send({ from: `${FROM_NAME} <${FROM_EMAIL}>`, to: [email.recipient], subject: email.subject, html: wrapEmail(email), text: email.text });
-    if (result.error) throw new Error(result.error.message);
-    await db.update(emailDeliveries).set({ status: "sent", providerMessageId: result.data?.id, sentAt: new Date() }).where(eq(emailDeliveries.id, delivery.id));
-    return { messageId: result.data?.id };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await db.update(emailDeliveries).set({ status: "failed", errorMessage: message }).where(eq(emailDeliveries.id, delivery.id));
-    throw error;
+    result = await sendWithDeadline({ from: `${FROM_NAME} <${FROM_EMAIL}>`, to: [email.recipient], subject: email.subject, html, text: email.text });
+  } catch {
+    await finishDelivery(claim, "unknown");
+    throw new Error("Email delivery outcome is unknown; do not replay");
   }
+  if (result.error) {
+    // Resend also returns application_error for caught network/JSON failures.
+    const rejected = ["validation_error", "missing_required_field", "invalid_access", "invalid_api_key", "restricted_api_key", "rate_limit_exceeded"].includes(result.error.name);
+    await finishDelivery(claim, rejected ? "failed" : "unknown");
+    throw new Error(rejected ? "Email provider rejected delivery" : "Email outcome unknown; do not replay");
+  }
+  if (!result.data?.id) {
+    await finishDelivery(claim, "unknown");
+    throw new Error("Email delivery receipt missing; do not replay");
+  }
+  // If this write fails the stale sending lease becomes unknown, never failed.
+  await finishDelivery(claim, "sent", result.data.id);
+  return { messageId: result.data.id };
 }
 
 export function initializeEmailQueue() {
+  // Recovery also runs when optional queue/digest sending is disabled. It never
+  // sends messages, and therefore cannot turn uncertainty into a blind replay.
+  if (!recoveryTimer) {
+    recoveryTimer = setInterval(async () => {
+      if (recovering) return;
+      recovering = true;
+      try { await recoverEmailDeliveries(); }
+      catch { console.error("[email] Delivery recovery unavailable"); }
+      finally { recovering = false; }
+    }, 60_000);
+    recoveryTimer.unref();
+  }
+  if (emailQueue) return emailQueue;
   if (!process.env.REDIS_URL || process.env.EMAIL_QUEUE_ENABLED !== "true") return undefined;
   const redisUrl = new URL(process.env.REDIS_URL);
   emailQueue = new Bull<AppEmail>("email_delivery", {
     redis: { host: redisUrl.hostname, port: Number(redisUrl.port || 6379), password: redisUrl.password || undefined, tls: redisUrl.protocol === "rediss:" ? {} : undefined },
-    defaultJobOptions: { attempts: 4, backoff: { type: "exponential", delay: 5000 }, removeOnComplete: { age: 86400 }, removeOnFail: { age: 604800 } },
+    defaultJobOptions: { attempts: 4, backoff: { type: "exponential", delay: 65000 }, removeOnComplete: { age: 86400 }, removeOnFail: { age: 604800 } },
   });
   return emailQueue;
 }
@@ -102,19 +132,33 @@ export function initializeEmailQueue() {
 export function registerEmailWorker() {
   if (!emailQueue || emailWorkerRegistered) return;
   emailWorkerRegistered = true;
-  emailQueue.process(3, async (job) => deliverAppEmail(job.data));
-  emailQueue.on("failed", (job, error) => console.error(`[email] delivery job ${job.id} failed:`, error.message));
+  emailQueue.process(3, async (job) => {
+    if (!deliveryKey(job.data)) {
+      // Even attemptsMade=0 cannot prove that a stalled legacy worker never
+      // dispatched. A new UUID or hash of job.id cannot find its old null-key row.
+      // Retain as failed for review, never as a successful send or retryable job.
+      job.discard();
+      console.warn("[email] Job quarantined: missing durable delivery identity; manual reconciliation required; not sent");
+      throw new Error("Email job quarantined: missing durable delivery identity; manual reconciliation required; not sent");
+    }
+    return deliverAppEmail(job.data);
+  });
+  emailQueue.on("failed", () => console.error("[email] Delivery job failed; inspect delivery status"));
 }
 
 export async function closeEmailQueue() {
+  if (recoveryTimer) clearInterval(recoveryTimer);
+  recoveryTimer = undefined;
   if (emailQueue) await emailQueue.close();
   emailQueue = undefined;
   emailWorkerRegistered = false;
 }
 
 export async function sendAppEmail(email: AppEmail): Promise<{ skipped?: boolean; messageId?: string }> {
+  // A queued retry must retain the same identity even for callers without a key.
+  email = withDeliveryIdentity(email);
   if (emailQueue && !email.required) {
-    await emailQueue.add(email, { jobId: email.dedupeKey ?? undefined });
+    await emailQueue.add(email, { jobId: deliveryKey(email) ?? undefined });
     return { skipped: true };
   }
   return deliverAppEmail(email);

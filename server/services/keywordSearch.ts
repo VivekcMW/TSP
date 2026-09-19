@@ -1,6 +1,11 @@
-import Parser from "rss-parser";
+import { getSearchEdition } from "@shared/search-editions";
+import { SEARCH_QUERY_LIMITS } from "@shared/search-query-plan";
 import type { FetchedArticle } from "./engines/types.js";
-import { stripHtml } from "./universalFeedParser.js";
+import { PublicationFeedParser, stripHtml } from "./universalFeedParser.js";
+import { publicationDate } from "./articleDates";
+import { sourceOrigin } from "./inboxDiversity";
+import type { PublicationDate } from "@shared/article-quality";
+import { CrawlError, fetchPublicText } from "./crawlerFetch.js";
 
 /**
  * Live, keyword-driven article discovery. The query is the user's own
@@ -10,13 +15,12 @@ import { stripHtml } from "./universalFeedParser.js";
  */
 
 interface GoogleNewsItem {
-  source?: string | { _: string };
+  source?: string | { _: string; $?: { url?: string } };
+  rawSource?: Array<{ _: string; $?: { url?: string } }>;
 }
 
-const parser: Parser<unknown, GoogleNewsItem> = new Parser({
-  timeout: 8000,
-  headers: { "User-Agent": "TheSocialPundit/1.0 (Keyword Discovery)" },
-  customFields: { item: ["source"] },
+const parser = new PublicationFeedParser({
+  customFields: { item: ["source", ["source", "rawSource", { keepArray: true }]] },
 });
 
 function extractSourceName(item: GoogleNewsItem, fallback: string): string {
@@ -26,26 +30,46 @@ function extractSourceName(item: GoogleNewsItem, fallback: string): string {
   return fallback;
 }
 
-export async function fetchArticlesForQuery(query: string, maxItems: number = 8): Promise<FetchedArticle[]> {
+export async function fetchArticlesForQuery(
+  query: string,
+  maxItems: number = 8,
+  searchEdition: string = "en-US",
+  signal?: AbortSignal,
+): Promise<FetchedArticle[]> {
+  if (signal?.aborted) throw new CrawlError("search", "Article search failed or was cancelled. Please try again.");
+  if (typeof query !== "string" || query.length > SEARCH_QUERY_LIMITS.term) return [];
   const trimmed = query.trim();
   if (!trimmed) return [];
+  const limit = Number.isFinite(maxItems) ? Math.max(0, Math.min(8, Math.floor(maxItems))) : 8;
+  if (!limit) return [];
 
-  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(trimmed)}&hl=en-US&gl=US&ceid=US:en`;
+  const { hl, gl, ceid } = getSearchEdition(searchEdition);
+  const url = new URL("https://news.google.com/rss/search");
+  url.search = new URLSearchParams({ q: trimmed, hl, gl, ceid }).toString();
 
   try {
-    const feed = await parser.parseURL(url);
+    const response = await fetchPublicText(url.href, { signal, timeoutMs: 8000 });
+    signal?.throwIfAborted();
+    const feed = await parser.parseString(response.text);
+    signal?.throwIfAborted();
     const items = feed.items || [];
 
-    return items.slice(0, maxItems).map((item) => ({
+    // Explicit provider fields only: search results never carry trusted source provenance.
+    return items.slice(0, limit).map((item) => {
+      const date = (item as typeof item & { publicationDate?: PublicationDate }).publicationDate ?? publicationDate(item.pubDate, "rss-pubDate");
+      const source = (item as GoogleNewsItem).rawSource?.[0];
+      return ({
       title: item.title || "Untitled",
       link: item.link || "",
-      pubDate: item.pubDate || new Date().toISOString(),
-      source: extractSourceName(item, "Google News"),
+      pubDate: date.publishedAt, publishedAt: date.publishedAt, publicationDate: date,
+      inputKind: "provider_excerpt" as const,
+      sourceOrigin: sourceOrigin(typeof source === "object" ? source.$?.url : null),
+      source: extractSourceName(item as GoogleNewsItem, "Google News"),
       content: stripHtml(item.contentSnippet || item.content || item.summary || ""),
       categories: [trimmed],
-    })).filter((article) => article.link);
-  } catch (error) {
-    console.error(`[keywordSearch] Failed to search for "${trimmed}":`, error instanceof Error ? error.message : error);
-    return [];
+    }); }).filter((article) => article.link);
+  } catch {
+    console.error("[keywordSearch] Search request failed or was cancelled.");
+    throw new CrawlError("search", "Article search failed or was cancelled. Please try again.");
   }
 }

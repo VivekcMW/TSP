@@ -1,3 +1,5 @@
+import { PUBLISHING_PLATFORM_KEYS, publishingCapability, supportedPublishingCapabilities } from "@shared/publishing-capabilities";
+
 export type ProviderExecutionMode = "sandbox" | "dry-run" | "live";
 
 export type ProviderCapability =
@@ -32,11 +34,11 @@ export interface ProviderSandboxResponse {
   mode: ProviderExecutionMode;
   externalId?: string;
   url?: string;
-  status: "accepted" | "queued" | "published" | "failed";
+  status: "simulated" | "failed";
   error?: string;
 }
 
-export const PROVIDER_CATALOG: ProviderDefinition[] = [
+const catalog: ProviderDefinition[] = [
   {
     key: "linkedin",
     label: "LinkedIn",
@@ -183,6 +185,13 @@ export const PROVIDER_CATALOG: ProviderDefinition[] = [
   { key: "slack", label: "Slack", aliases: ["slack"], authType: "webhook", requiredScopes: [], capabilities: ["publish"], enabledByDefault: false, category: "community", notes: "Channel publishing via incoming webhook" },
 ];
 
+export const PROVIDER_CATALOG: ProviderDefinition[] = PUBLISHING_PLATFORM_KEYS.map(key => {
+  const definition = catalog.find(item => item.key === key);
+  return { key, label: key, aliases: [key], requiredScopes: [], enabledByDefault: false, category: "other", ...definition,
+    authType: publishingCapability(key)!.auth,
+    capabilities: supportedPublishingCapabilities(key) as ProviderCapability[] };
+});
+
 export function resolveProviderDefinition(provider: string): ProviderDefinition | undefined {
   const normalized = provider.trim().toLowerCase();
 
@@ -212,8 +221,6 @@ export async function runProviderSandbox(
   }
 
   const mode = getProviderExecutionMode(request.mode);
-  const draftId = typeof request.metadata?.draftId === "string" ? request.metadata.draftId : "draft";
-  const stubId = `${provider.key}_${Date.now()}`;
 
   if (mode === "live") {
     return {
@@ -225,14 +232,10 @@ export async function runProviderSandbox(
     };
   }
 
-  const isDryRun = mode === "dry-run";
-
   return {
     success: true,
     provider: provider.key,
     mode,
-    externalId: isDryRun ? `dryrun_${stubId}` : `sandbox_${stubId}`,
-    url: isDryRun ? `https://sandbox.example/${provider.key}/preview/${draftId}` : `https://sandbox.example/${provider.key}/post/${draftId}`,
-    status: isDryRun ? "queued" : "accepted",
+    status: "simulated",
   };
 }

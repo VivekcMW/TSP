@@ -105,7 +105,7 @@ export function useDraftPublishStatus(draftId: string | null, pollInterval = 100
         setError(null);
         failures = 0;
         const outcome = publicationOutcome(schedule);
-        if (outcome === 'published' || outcome === 'attention') {
+        if (outcome === 'published' || outcome === 'attention' || outcome === 'simulated') {
           clearTimeout(deadline);
           return;
         }

@@ -8,22 +8,15 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { Progress } from "@/components/ui/progress";
-import { normalizeOnboardingChoices, visibleOnboardingChoices } from "@/lib/onboarding-choices";
+import { normalizeOnboardingChoices, normalizeOnboardingRecommendations, visibleOnboardingChoices, type OnboardingData } from "@/lib/onboarding-choices";
+import { normalizeKeywords, reconcileKeywords, type WeightedKeyword } from "@shared/profile-preferences";
+import { reconcilePublicationCandidates, type PublicationCandidate } from "@shared/publication-preferences";
 
 interface OnboardingWizardProps {
   onComplete: (data: OnboardingData) => void;
   isPending?: boolean;
   userIndustry?: string;
   userCountry?: string;
-}
-
-interface OnboardingData {
-  focusDescription: string;
-  publications: string[];
-  keywords: string[];
-  influencers: string[];
-  companies: string[];
-  recommendedIndustry?: string;
 }
 
 interface IndustryData {
@@ -593,7 +586,12 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
   const [currentStep, setCurrentStep] = useState<Step>("identity");
   const [focusDescription, setFocusDescription] = useState("");
   const [selectedPublications, setSelectedPublications] = useState<string[]>([]);
+  const [publicationChoices, setPublicationChoices] = useState<string[]>([]);
+  const [publicationCandidates, setPublicationCandidates] = useState<PublicationCandidate[]>([]);
   const [selectedKeywords, setSelectedKeywords] = useState<string[]>([]);
+  // Keep suggestion metadata even when its label is deselected, so reselecting
+  // an AI topic restores its original weight/category (including weight zero).
+  const [keywordChoices, setKeywordChoices] = useState<WeightedKeyword[]>([]);
   const [selectedInfluencers, setSelectedInfluencers] = useState<string[]>([]);
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
   const [customKeyword, setCustomKeyword] = useState("");
@@ -629,13 +627,21 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
         focusDescription: focusDescription.trim(),
         selectedIndustry: userIndustry,
       }, { signal: controller.signal });
-      const data = await response.json();
+      const result: unknown = await response.json();
       if (controller.signal.aborted) return;
-      setSelectedPublications((items) => normalizeOnboardingChoices([...items, ...normalizeOnboardingChoices(data.publications)]));
-      setSelectedKeywords((items) => normalizeOnboardingChoices([...items, ...normalizeOnboardingChoices(data.keywords)]));
-      setSelectedInfluencers((items) => normalizeOnboardingChoices([...items, ...normalizeOnboardingChoices(data.personalities)]));
-      setSelectedCompanies((items) => normalizeOnboardingChoices([...items, ...normalizeOnboardingChoices(data.companies)]));
-      setRecommendedIndustry(typeof data.recommendedEngine?.industry === "string" ? data.recommendedEngine.industry : undefined);
+      const data = normalizeOnboardingRecommendations(result);
+      setSelectedPublications((items) => normalizeOnboardingChoices([...items, ...data.publications]));
+      setPublicationChoices((items) => visibleOnboardingChoices(items, data.publications));
+      setPublicationCandidates((items) => {
+        const metadata = new Map(items.map(item => [item.name.toLowerCase(), item]));
+        for (const item of data.publicationCandidates ?? []) metadata.set(item.name.toLowerCase(), item);
+        return [...metadata.values()];
+      });
+      setKeywordChoices((items) => normalizeKeywords([...items, ...data.keywords]));
+      setSelectedKeywords((items) => normalizeOnboardingChoices([...items, ...data.keywords.map(({ keyword }) => keyword)]));
+      setSelectedInfluencers((items) => normalizeOnboardingChoices([...items, ...data.influencers]));
+      setSelectedCompanies((items) => normalizeOnboardingChoices([...items, ...data.companies]));
+      setRecommendedIndustry(data.recommendedIndustry);
       toast({
         title: "Suggestions ready to review",
         description: "Keep or remove any selection. These preferences are optional.",
@@ -697,10 +703,12 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
   const handleComplete = () => {
     if (focusDescription.trim().length < 10 || isPending) return;
     cancelRecommendations();
+    const candidates = reconcilePublicationCandidates(selectedPublications, publicationCandidates);
     onComplete({
       focusDescription: focusDescription.trim(),
       publications: selectedPublications,
-      keywords: selectedKeywords,
+      ...(candidates.length ? { publicationCandidates: candidates } : {}),
+      keywords: reconcileKeywords(selectedKeywords, keywordChoices),
       influencers: selectedInfluencers,
       companies: selectedCompanies,
       recommendedIndustry,
@@ -795,7 +803,7 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-2">
-                {visibleOnboardingChoices(industryData.publications, selectedPublications).map((pub) => (
+                {visibleOnboardingChoices([...publicationChoices, ...industryData.publications], selectedPublications).map((pub) => (
                   <Button
                     type="button"
                     aria-pressed={selectedPublications.includes(pub)}
@@ -815,6 +823,14 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
               <p className="text-xs text-muted-foreground mt-4">
                 {selectedPublications.length} selected
               </p>
+              <ul className="mt-3 space-y-2 text-xs text-muted-foreground" aria-label="Selected publication URLs">
+                {selectedPublications.map((name) => {
+                  const candidate = publicationCandidates.find(item => item.name.toLowerCase() === name.toLowerCase());
+                  return <li key={name} className="[overflow-wrap:anywhere]">
+                    <span className="font-medium">{name}</span>: {candidate ? <>{candidate.url} — <span>Unverified URL</span></> : <span>URL needed</span>}
+                  </li>;
+                })}
+              </ul>
             </CardContent>
           </Card>
         )}
@@ -831,7 +847,7 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
-                {visibleOnboardingChoices(industryData.keywords, selectedKeywords).map((keyword) => (
+                {visibleOnboardingChoices([...keywordChoices.map(({ keyword }) => keyword), ...industryData.keywords], selectedKeywords).map((keyword) => (
                   <Button
                     type="button"
                     aria-pressed={selectedKeywords.includes(keyword)}

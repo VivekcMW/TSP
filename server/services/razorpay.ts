@@ -11,6 +11,9 @@ export interface RazorpayOrder {
 export interface RazorpayPayment {
   id: string;
   order_id?: string;
+  invoice_id?: string;
+  customer_id?: string;
+  created_at?: number;
   amount: number;
   currency: string;
   status: string;
@@ -25,6 +28,28 @@ export interface RazorpayCustomer {
   id: string;
   name: string;
   email: string;
+}
+
+export interface RazorpaySubscription {
+  id: string;
+  plan_id: string;
+  customer_id?: string;
+  status: string;
+  current_start: number | null;
+  current_end: number | null;
+  ended_at?: number | null;
+  has_scheduled_changes?: boolean;
+  change_scheduled_at?: number | null;
+  notes?: Record<string, string>;
+}
+
+export interface RazorpayInvoice {
+  id: string;
+  subscription_id?: string;
+  order_id?: string;
+  payment_id?: string;
+  amount: number;
+  currency: string;
 }
 
 export function razorpayConfigured(): boolean {
@@ -51,6 +76,7 @@ async function razorpayRequest<T>(path: string, init: RequestInit = {}): Promise
   const response = await fetch(`https://api.razorpay.com/v1${path}`, {
     ...init,
     headers,
+    signal: AbortSignal.timeout(15_000),
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -83,6 +109,35 @@ export async function fetchOrder(orderId: string): Promise<RazorpayOrder> {
 
 export async function fetchPayment(paymentId: string): Promise<RazorpayPayment> {
   return razorpayRequest<RazorpayPayment>(`/payments/${encodeURIComponent(paymentId)}`);
+}
+
+export function fetchSubscription(id: string): Promise<RazorpaySubscription> {
+  return razorpayRequest(`/subscriptions/${encodeURIComponent(id)}`);
+}
+
+export function fetchInvoice(id: string): Promise<RazorpayInvoice> {
+  return razorpayRequest(`/invoices/${encodeURIComponent(id)}`);
+}
+
+export function fetchPlan(id: string): Promise<{ id: string; period: string; interval: number; item: { amount: number; currency: string } }> {
+  return razorpayRequest(`/plans/${encodeURIComponent(id)}`);
+}
+
+export function createSubscription(input: { plan_id: string; total_count: number; quantity: number; notes: Record<string, string> }): Promise<RazorpaySubscription> {
+  return razorpayRequest("/subscriptions", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function cancelSubscription(id: string): Promise<RazorpaySubscription> {
+  return razorpayRequest(`/subscriptions/${encodeURIComponent(id)}/cancel`, {
+    method: "POST", body: JSON.stringify({ cancel_at_cycle_end: true }),
+  });
+}
+
+export function verifySubscriptionSignature(subscriptionId: string, paymentId: string, signature: string): boolean {
+  const secret = process.env.RAZORPAY_KEY_SECRET;
+  if (!secret || !/^[a-f0-9]{64}$/.test(signature)) return false;
+  const expected = crypto.createHmac("sha256", secret).update(`${paymentId}|${subscriptionId}`).digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
 }
 
 export function verifyCheckoutSignature(orderId: string, paymentId: string, signature: string): boolean {

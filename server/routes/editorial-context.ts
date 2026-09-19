@@ -42,5 +42,5 @@ export async function editorialContext(req: Request, preferences: Pick<Editorial
     defaultTone: profile.defaultTone?.slice(0, 100),
     professionalFocus: profile.focusDescription?.slice(0, 500),
   }) : undefined;
-  return { scope: { tenantId: scope.tenantId }, voice, format: preferences.format, userContext: preferences.userContext, signal };
+  return { scope: { tenantId: scope.tenantId }, voiceScope: { tenantId: scope.tenantId, userId: scope.userId }, voice, format: preferences.format, userContext: preferences.userContext, signal };
 }

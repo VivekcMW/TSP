@@ -7,6 +7,7 @@ vi.mock("../lib/redis", () => ({ get redis() { return mocks.enabled ? { hgetall:
 vi.mock("./queue", () => ({ queueOptions: mocks.options }));
 vi.mock("../services/editorial-request", () => ({ executeEditorialRequest: vi.fn() }));
 vi.mock("../services/tenancy", () => ({ resolveTenantContext: vi.fn() }));
+vi.mock("../services/generation-quota", () => ({ assertGenerationAdmission: vi.fn(), generationAccessFailure: () => undefined, generationOperationId: (id: string) => id, runGeneration: vi.fn() }));
 vi.mock("bull", () => ({ default: class {
   constructor(name: string, options: any) {
     mocks.construct(name, options);

@@ -1,8 +1,12 @@
-// Email service using Resend integration
-import { Resend } from 'resend';
+// Compatibility entry point; all delivery goes through the authoritative service.
+import { eq } from "drizzle-orm";
+import { db } from "../db";
+import { users } from "@shared/schema";
+import { sendAppEmail } from "./email";
+export { sendVerificationEmail, sendPasswordResetEmail } from "./email";
+export const emailEnabled = Boolean(process.env.RESEND_API_KEY);
 
 const APP_URL = process.env.APP_URL || "https://www.thesocialpundit.com";
-const FROM_NAME = "TheSocialPundit";
 
 // Industry-specific content for welcome emails
 interface IndustryContent {
@@ -136,40 +140,6 @@ function getIndustryContent(industry?: string): IndustryContent {
   return industryContentMap.other;
 }
 
-/**
- * Resend client, built from environment configuration.
- *
- * This previously fetched credentials from Replit's connector service using
- * REPL_IDENTITY / WEB_REPL_RENEWAL tokens, which meant email could not work
- * anywhere except inside Replit — including local development. It now reads
- * RESEND_API_KEY and RESEND_FROM_EMAIL directly.
- *
- * Sending requires thesocialpundit.com (or whatever domain RESEND_FROM_EMAIL
- * uses) to be a verified sender in Resend.
- */
-
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "info@thesocialpundit.com";
-
-let cachedClient: Resend | undefined;
-
-export const emailEnabled = Boolean(RESEND_API_KEY);
-
-if (!emailEnabled) {
-  console.warn(
-    "[email] RESEND_API_KEY is not set — transactional email is disabled. " +
-      "Sends will be skipped rather than failing the surrounding request.",
-  );
-}
-
-function getResendClient(): { client: Resend; fromEmail: string } {
-  if (!RESEND_API_KEY) {
-    throw new Error("RESEND_API_KEY is not set");
-  }
-  cachedClient ??= new Resend(RESEND_API_KEY);
-  return { client: cachedClient, fromEmail: RESEND_FROM_EMAIL };
-}
-
 interface EmailResult {
   success: boolean;
   messageId?: string;
@@ -182,12 +152,13 @@ export async function sendWelcomeEmail(
   industry?: string
 ): Promise<EmailResult> {
   try {
-    const { client, fromEmail } = getResendClient();
+    const [user] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+    if (!user) return { success: false, error: "Recipient account unavailable" };
+    firstName = firstName.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
     const industryContent = getIndustryContent(industry);
 
-    const { data, error } = await client.emails.send({
-      from: `${FROM_NAME} <${fromEmail}>`,
-      to: [email],
+    const result = await sendAppEmail({
+      type: "welcome", userId: user.id, recipient: email, dedupeKey: `welcome:${user.id}`,
       subject: "Welcome to TheSocialPundit - Your Voice, Amplified",
       html: `
         <!DOCTYPE html>
@@ -354,7 +325,7 @@ export async function sendWelcomeEmail(
                       <p style="color: #a1a1aa; font-size: 12px; margin: 0;">
                         You received this email because you signed up at TheSocialPundit.
                         <br>
-                        <a href="${APP_URL}/unsubscribe" style="color: #a1a1aa; text-decoration: underline;">Unsubscribe</a>
+                        <a href="${APP_URL}/dashboard/settings?tab=notifications" style="color: #a1a1aa; text-decoration: underline;">Manage email preferences</a>
                       </p>
                     </td>
                   </tr>
@@ -368,84 +339,13 @@ export async function sendWelcomeEmail(
       `,
     });
 
-    if (error) {
-      console.error("Error sending welcome email:", error);
-      return { success: false, error: error.message };
-    }
-
-    return { success: true, messageId: data?.id };
-  } catch (error: any) {
-    console.error("Error sending welcome email:", error);
-    return { success: false, error: error.message };
+    return { success: !!result.messageId, messageId: result.messageId };
+  } catch {
+    return { success: false, error: "Welcome email was not confirmed delivered" };
   }
 }
 
+/** Configuration presence only, never a claim of provider connectivity. */
 export async function testEmailConnection(): Promise<boolean> {
-  try {
-    getResendClient();
-    // Resend doesn't have a ping endpoint, but getting credentials validates the connection
-    console.log("Resend connection test: connected successfully");
-    return true;
-  } catch (error) {
-    console.error("Resend connection failed:", error);
-    return false;
-  }
-}
-
-/** Sends Better Auth's single-use verification link. */
-export async function sendVerificationEmail(
-  email: string,
-  name: string,
-  verificationUrl: string,
-): Promise<void> {
-  if (!emailEnabled && process.env.NODE_ENV !== "production") {
-    // Local-only delivery capture makes the complete verification flow testable
-    // without pretending a message was sent or weakening production behavior.
-    console.info(`[email] Development verification link for ${email}: ${verificationUrl}`);
-    return;
-  }
-  try {
-    const { client, fromEmail } = getResendClient();
-    const { error } = await client.emails.send({
-      from: `${FROM_NAME} <${fromEmail}>`,
-      to: [email],
-      subject: "Verify your TheSocialPundit email address",
-      html: `<p>Hi ${name},</p><p>Please verify your email address to finish creating your TheSocialPundit account.</p><p><a href="${verificationUrl}">Verify email address</a></p><p>This link expires in one hour. If you did not create this account, you can safely ignore this message.</p>`,
-    });
-    if (error) throw new Error(error.message);
-  } catch (error) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(`[email] Resend verification failed; use this development link for ${email}: ${verificationUrl}`, error);
-      return;
-    }
-    throw new Error(`Could not send verification email: ${error instanceof Error ? error.message : "Resend request failed"}`);
-  }
-}
-
-/** Sends Better Auth's single-use password reset link. */
-export async function sendPasswordResetEmail(
-  email: string,
-  name: string,
-  resetUrl: string,
-): Promise<void> {
-  if (!emailEnabled && process.env.NODE_ENV !== "production") {
-    console.info(`[email] Development password reset link for ${email}: ${resetUrl}`);
-    return;
-  }
-  try {
-    const { client, fromEmail } = getResendClient();
-    const { error } = await client.emails.send({
-      from: `${FROM_NAME} <${fromEmail}>`,
-      to: [email],
-      subject: "Reset your TheSocialPundit password",
-      html: `<p>Hi ${name},</p><p>Use the link below to create a new password for your TheSocialPundit account.</p><p><a href="${resetUrl}">Reset password</a></p><p>This link expires soon. If you did not request it, you can safely ignore this message.</p>`,
-    });
-    if (error) throw new Error(error.message);
-  } catch (error) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(`[email] Resend password reset failed; use this development link for ${email}: ${resetUrl}`, error);
-      return;
-    }
-    throw new Error(`Could not send password reset email: ${error instanceof Error ? error.message : "Resend request failed"}`);
-  }
+  return emailEnabled;
 }

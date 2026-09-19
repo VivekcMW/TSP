@@ -1,11 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, apiRequest } from "@/lib/queryClient";
+import { inboxRefreshMessage, type InboxRefreshOutcome } from "@shared/inbox-refresh";
 
 export interface RefreshJobState {
   status: "idle" | "queued" | "waiting" | "delayed" | "active" | "completed" | "failed" | "unavailable";
   jobId?: string;
+  operationId?: string;
   startedAt?: number;
-  progress: { articlesProcessed: number; articlesMatched: number; articlesCreated: number; needsSetup?: boolean; success?: boolean; error?: string; errors?: string[] };
+  progress: { articlesProcessed: number; articlesMatched: number; articlesCreated: number; needsSetup?: boolean; success?: boolean; error?: string; errors?: string[]; outcome?: InboxRefreshOutcome; activeCount?: number; replacedCount?: number };
   message?: string;
 }
 
@@ -17,20 +19,29 @@ export const isRefreshJobRunning = (state: RefreshJobState) => ["queued", "waiti
 
 const uncertainAdmissionMessage = "Couldn't confirm whether the refresh started. It may still be running, but no job ID was received. Check status to reload available articles; another refresh is blocked to avoid duplicates.";
 
+function admissionFailure(error: unknown, operationId: string): RefreshJobState {
+  // Only definite rejections permit another enqueue. Network errors, timeouts
+  // and 5xx may hide an accepted job; a conflict requires a fresh operation.
+  const rejected = error instanceof ApiError && [400, 401, 403, 404, 405, 409, 413, 415, 422, 429].includes(error.status);
+  return { ...emptyState, status: rejected ? "failed" : "unavailable",
+    operationId: error instanceof ApiError && error.status === 409 ? undefined : operationId,
+    message: rejected ? error.message : uncertainAdmissionMessage };
+}
+
 function hasSynchronousResult(result: unknown): boolean {
   if (!result || typeof result !== "object") return false;
   const { jobId, count, needsSetup } = result as { jobId?: unknown; count?: unknown; needsSetup?: unknown };
   return !jobId && ((typeof count === "number" && Number.isFinite(count) && count >= 0) || needsSetup === true);
 }
 
-async function admitRefresh() {
+async function admitRefresh(operationId: string) {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     // Bound both the POST and its response body. Racing also settles the caller
     // if a transport ignores abort; late responses cannot overwrite recovery.
     return await Promise.race([
-      apiRequest("POST", "/api/inbox/refresh", { autoRefresh: false }, { signal: controller.signal }).then(response => response.json()),
+      apiRequest("POST", "/api/inbox/refresh", { autoRefresh: false, operationId }, { signal: controller.signal }).then(response => response.json()),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           controller.abort();
@@ -44,6 +55,7 @@ async function admitRefresh() {
 }
 
 export function refreshJobMessage(state: RefreshJobState): string {
+  if (state.status === "completed" && state.progress.outcome) return inboxRefreshMessage(state.progress.outcome, state.progress.articlesCreated);
   if (state.status === "completed" && state.message) return state.message;
   if (state.status === "completed") return state.progress.needsSetup
     ? "Add a source or topic in Discover to find articles."
@@ -80,12 +92,12 @@ export function useInboxRefreshJob() {
         const result = await response.json();
         // Bull reports numeric zero before a handler has supplied structured progress.
         const hasProgress = result.progress && typeof result.progress === "object";
-        const next: RefreshJobState = { ...previous, status: result.status, progress: hasProgress ? { ...previous.progress, ...result.progress } : previous.progress, message: result.error || undefined };
+        const next: RefreshJobState = { ...previous, status: result.status, progress: hasProgress ? { ...emptyState.progress, ...result.progress } : emptyState.progress, message: result.status === "failed" ? result.error || undefined : undefined };
         if (!["queued", "waiting", "delayed", "active", "completed", "failed"].includes(next.status)) {
           return { ...previous, status: "unavailable", message: "Refresh status is unknown. Check again before starting another." };
         }
         // Bull completion only means the handler returned, not that the engine succeeded.
-        if (next.status === "completed" && next.progress.success === false) next.status = "failed";
+        if (next.status === "completed" && (next.progress.success === false || next.progress.outcome === "failure")) next.status = "failed";
         if (next.status === "failed") next.message = next.message || next.progress.error || next.progress.errors?.join("; ") || "Refresh failed. No successful refresh was reported.";
         if (next.status === "completed") {
           if (!hasProgress) next.message = "Refresh finished. Open Discover to review the available articles; detailed counts are unavailable.";
@@ -103,15 +115,16 @@ export function useInboxRefreshJob() {
   const startRefresh = async () => {
     const current = client.getQueryData<RefreshJobState>(INBOX_REFRESH_JOB_KEY) ?? emptyState;
     if (isRefreshJobRunning(current) || current.status === "unavailable") return;
-    const admission = client.setQueryData<RefreshJobState>(INBOX_REFRESH_JOB_KEY, { ...emptyState, status: "queued", startedAt: Date.now() });
+    const operationId = current.status === "failed" && current.operationId ? current.operationId : crypto.randomUUID();
+    const admission = client.setQueryData<RefreshJobState>(INBOX_REFRESH_JOB_KEY, { ...emptyState, status: "queued", operationId, startedAt: Date.now() });
     try {
-      const result = await admitRefresh();
+      const result = await admitRefresh(operationId);
       // Do not restore old user data if the shared query was cleared/replaced.
       if (client.getQueryData(INBOX_REFRESH_JOB_KEY) !== admission) return;
       if (typeof result?.jobId === "string" && result.jobId.trim()) {
-        client.setQueryData(INBOX_REFRESH_JOB_KEY, { ...emptyState, status: "queued", jobId: result.jobId, startedAt: Date.now() });
+        client.setQueryData(INBOX_REFRESH_JOB_KEY, { ...emptyState, status: "queued", jobId: result.jobId, operationId, startedAt: Date.now() });
       } else if (result?.success === false) {
-        client.setQueryData(INBOX_REFRESH_JOB_KEY, { ...emptyState, status: "failed", message: result.error || result.message || "Refresh failed." });
+        client.setQueryData(INBOX_REFRESH_JOB_KEY, { ...emptyState, status: "failed", operationId, message: result.error || result.message || "Refresh failed." });
       } else if (hasSynchronousResult(result)) {
         client.setQueryData(INBOX_REFRESH_JOB_KEY, {
           status: "completed",
@@ -120,6 +133,9 @@ export function useInboxRefreshJob() {
             articlesMatched: result.articlesMatched ?? 0,
             articlesCreated: result.count ?? 0,
             needsSetup: Boolean(result.needsSetup),
+            outcome: result.outcome,
+            activeCount: result.activeCount,
+            replacedCount: result.replacedCount,
           },
         });
         await invalidateResults();
@@ -128,10 +144,7 @@ export function useInboxRefreshJob() {
       }
     } catch (error) {
       if (client.getQueryData(INBOX_REFRESH_JOB_KEY) !== admission) return;
-      // Only definite request/auth/validation/rate-limit rejections permit a new
-      // enqueue. Network errors, timeouts and 5xx may hide an accepted job.
-      const rejected = error instanceof ApiError && [400, 401, 403, 404, 405, 413, 415, 422, 429].includes(error.status);
-      client.setQueryData(INBOX_REFRESH_JOB_KEY, { ...emptyState, status: rejected ? "failed" : "unavailable", message: rejected ? error.message : uncertainAdmissionMessage });
+      client.setQueryData(INBOX_REFRESH_JOB_KEY, admissionFailure(error, operationId));
     }
   };
 

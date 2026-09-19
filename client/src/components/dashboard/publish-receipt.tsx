@@ -29,7 +29,11 @@ export function PublishReceipt({ draftId }: { draftId: string }) {
       </div> : !logs?.length ? <p>No publish log is available yet. This is not confirmation of delivery.</p> : logs.map(log => <div key={log.id} className="space-y-1 break-words border-b pb-2 last:border-0">
         <p>{getPlatformMeta(log.platform).label} · {log.status} · attempt {log.attempt}/{log.maxAttempts}</p>
         {log.startedAt && <p className="text-muted-foreground">{new Date(log.startedAt).toLocaleString()}</p>}
-        {log.publishedPostId && <p>Post ID: {log.publishedPostId}</p>}
+        <p>Mode: {log.executionMode ?? "legacy / unverified"}</p>
+        {log.executionMode === "live" && log.receiptKind === "provider_id" && log.publishedPostId && <p>Provider post ID: {log.publishedPostId}</p>}
+        {log.status === "simulated" && <p>Simulation only — no external post or provider receipt.</p>}
+        {log.receiptKind === "unavailable" && <p>Provider accepted the request; a delivery receipt is unavailable.</p>}
+        {log.evidence && <div><p>Manual decision: {log.evidence.decision}. Not provider-verified.</p><p>Operator: {log.actorUserId}</p><p>{log.evidence.note}</p>{log.evidence.receipt && <p>Operator-supplied receipt: {log.evidence.receipt}</p>}</div>}
         {log.errorMessage && <p className="text-destructive whitespace-pre-wrap">{log.errorMessage}</p>}
       </div>)}
     </div>}

@@ -1,149 +1,33 @@
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
+import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Check, ArrowRight } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { SEO } from "@/components/seo";
-import { Link } from "wouter";
-import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
-import { fadeUp } from "@/lib/motion";
-
-const earlyAdopterFeatures = [
-  { text: "10 Curated articles per day", included: true },
-  { text: "Unlimited AI post generations", included: true },
-  { text: "All 4 tonality styles", included: true },
-  { text: "23 platforms — LinkedIn to Reddit, Weibo, Mastodon & developer blogs", included: true },
-  { text: "Hot Trends analysis", included: true },
-  { text: "Instant Review (any URL)", included: true },
-];
-
-const comingSoonFeatures = [
-  { text: "One-click scheduling", included: true },
-  { text: "Analytics dashboard", included: true },
-  { text: "Team collaboration", included: true },
-  { text: "Custom RSS feeds", included: true },
-];
+import { formatBillingAmount, type PublicBillingPlan } from "@/lib/billing";
 
 export default function Pricing() {
-  return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <SEO 
-        title="Pricing"
-        canonical="/pricing"
-        description="Simple, value-based pricing for TheSocialPundit. Start free and scale your professional authority with plans starting at $0/month."
-      />
-      <SiteHeader />
-      
-      <main className="flex-1">
-        <section className="py-20 lg:py-28" data-testid="section-pricing">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <Reveal variants={fadeUp} className="text-center mb-16">
-              <Badge className="bg-success/10 text-success border-success/20 text-sm font-bold tracking-wider uppercase px-4 py-2 mb-6">
-                Free for the First 1,000 Subscribers
-              </Badge>
-              <h1 className="heading-display mb-6" data-testid="text-pricing-headline">
-                Start building authority today.
-              </h1>
-              <p className="text-lg text-muted-foreground max-w-xl mx-auto">
-                We're opening TheSocialPundit to early adopters for free. Get full access while we grow together.
-              </p>
-            </Reveal>
-            
-            <StaggerGroup className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-              <StaggerItem>
-              <Card className="p-8 relative bg-surface-ink text-surface-ink-foreground border-surface-ink h-full" data-testid="card-pricing-early-adopter">
-                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-success text-success-foreground">
-                  EARLY ADOPTER
-                </Badge>
-                
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="text-lg font-semibold">Full Access</h3>
-                    <div className="mt-4 flex items-baseline gap-2">
-                      <span className="text-4xl font-bold">$0</span>
-                      <span className="text-surface-ink-foreground/60 line-through">$49/mo</span>
-                    </div>
-                    <p className="mt-4 text-sm text-surface-ink-foreground/60">
-                      Everything you need to build your professional authority. Free while we grow.
-                    </p>
-                  </div>
-                  
-                  <ul className="space-y-3">
-                    {earlyAdopterFeatures.map((feature, index) => (
-                      <li key={index} className="flex items-center gap-3 text-sm">
-                        <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
-                          <Check className="w-3 h-3 text-success-foreground" />
-                        </div>
-                        <span>{feature.text}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  
-                  <Link href="/sign-up">
-                    <Button className="w-full bg-success hover:bg-success/90 text-success-foreground" data-testid="button-start-free">
-                      Start Free Today
-                    </Button>
-                  </Link>
-                </div>
-              </Card>
-              </StaggerItem>
-              
-              <StaggerItem>
-              <Card className="p-8 relative h-full" data-testid="card-pricing-coming-soon">
-                <Badge variant="outline" className="absolute -top-3 left-1/2 -translate-x-1/2">
-                  COMING SOON
-                </Badge>
-                
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="text-lg font-semibold">On the Roadmap</h3>
-                    <p className="mt-4 text-sm text-muted-foreground">
-                      We're building more features based on early adopter feedback. Here's what's next:
-                    </p>
-                  </div>
-                  
-                  <ul className="space-y-3">
-                    {comingSoonFeatures.map((feature, index) => (
-                      <li key={index} className="flex items-center gap-3 text-sm text-muted-foreground">
-                        <div className="w-4 h-4 rounded-full bg-muted flex items-center justify-center">
-                          <Check className="w-3 h-3 text-muted-foreground" />
-                        </div>
-                        <span>{feature.text}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  
-                  <p className="text-xs text-muted-foreground pt-4 border-t">
-                    Early adopters will be grandfathered into premium features as they launch.
-                  </p>
-                </div>
-              </Card>
-              </StaggerItem>
-            </StaggerGroup>
-          </div>
-        </section>
-        
-        <section className="py-16 lg:py-20" data-testid="section-enterprise">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <Reveal>
-            <Card className="p-12 text-center bg-muted/30">
-              <h2 className="heading-section mb-4" data-testid="text-enterprise-headline">
-                Enterprise & Custom Solutions
-              </h2>
-              <p className="text-muted-foreground max-w-xl mx-auto mb-6">
-                Managing more than 10 profiles? We offer custom white-label solutions for agencies and executive teams.
-              </p>
-              <a href="mailto:founders@thesocialpundit.com" className="inline-flex items-center gap-2 text-primary font-medium hover:underline" data-testid="link-speak-founding-team">
-                Speak with our Founding Team <ArrowRight className="w-4 h-4" />
-              </a>
-            </Card>
-            </Reveal>
-          </div>
-        </section>
-      </main>
-      
-      <SiteFooter />
-    </div>
-  );
+  const { data, isPending, isError, refetch } = useQuery<{ plans: PublicBillingPlan[] }>({ queryKey: ["/api/public/billing/plans"] });
+  return <div className="flex min-h-screen flex-col bg-background">
+    <SEO title="Pricing" canonical="/pricing" description="Explore the current TheSocialPundit plan catalog and choose the access you need." />
+    <SiteHeader />
+    <main className="flex-1 px-4 py-20 sm:px-6" data-testid="section-pricing">
+      <div className="mx-auto max-w-5xl space-y-10">
+        <div className="text-center"><h1 className="heading-display mb-4">Choose your plan</h1><p className="text-muted-foreground">Current catalog pricing. No automatic renewal with a one-time purchase.</p></div>
+        {isPending && <p role="status">Loading current plans…</p>}
+        {(isError || (!isPending && !data?.plans.length)) && <Card><CardContent className="space-y-4 p-6"><p role="alert">The plan catalog is unavailable. No prices or access promises can be confirmed right now.</p><Button variant="outline" onClick={() => refetch()}>Retry</Button></CardContent></Card>}
+        {!isError && <div className="grid gap-6 md:grid-cols-2">{data?.plans.map(plan => <Card key={plan.id}>
+          <CardHeader><CardTitle>{plan.name}</CardTitle><p className="text-muted-foreground">{plan.description}</p></CardHeader>
+          <CardContent className="space-y-6"><p className="text-3xl font-semibold">{formatBillingAmount(plan.amount, plan.currency)}<span className="text-sm font-normal text-muted-foreground"> / {plan.interval} interval</span></p>
+            <ul className="space-y-3">{plan.features.map(feature => <li key={feature} className="flex gap-2 text-sm"><Check className="h-4 w-4 shrink-0 text-success" />{feature}</li>)}</ul>
+            <Button asChild className="min-h-11 w-full"><Link href={plan.amount === 0 ? "/sign-up" : "/dashboard/settings?tab=billing"}>{plan.amount === 0 ? "Create an account" : "View checkout options"}</Link></Button>
+          </CardContent>
+        </Card>)}</div>}
+        <p className="text-sm text-muted-foreground">Generation allowances count bounded attempts, including failures after reservation. Free allowances reset at midnight UTC. Recurring checkout is offered only for configured provider plans; choose the number of billing cycles explicitly at checkout.</p>
+      </div>
+    </main>
+    <SiteFooter />
+  </div>;
 }

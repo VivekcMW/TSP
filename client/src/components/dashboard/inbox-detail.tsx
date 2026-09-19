@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SheetTitle } from "@/components/ui/sheet";
 import type { InboxItem } from "@shared/schema";
+import { articleDateLabel } from "@/lib/article-date-label";
 
 interface InboxDetailProps {
   item: InboxItem;
@@ -18,7 +19,11 @@ interface InboxDetailProps {
 /** Full reading + action view for whichever article is selected in Discover's triage list. Shared by the desktop split-pane and the mobile detail sheet. */
 export function InboxDetail({ item, onGeneratePost, onSave, onDismiss, inSheet = false, titleId }: Readonly<InboxDetailProps>) {
   const matchedKeywords = item.matchedKeywords || [];
+  const relevanceReason = item.relevanceReason ?? (matchedKeywords.length > 0 ? `matches ${matchedKeywords.slice(0, 3).join(", ")}` : null);
   const headline = <h2 {...(!inSheet && titleId ? { id: titleId } : {})} className="heading-dashboard mb-3 break-words text-xl leading-snug" data-testid={`text-headline-${item.id}`}>{item.headline}</h2>;
+  let excerptLabel = "Saved excerpt (legacy provenance unavailable)";
+  if (item.qualityMetadata?.summary?.method === "extractive") excerptLabel = "Article excerpt";
+  if (item.qualityMetadata?.summary?.method === "source_excerpt") excerptLabel = "Source excerpt (feed or provider snippet)";
 
   return (
     <div className="dashboard-touch-targets flex h-full min-h-0 min-w-0 flex-col">
@@ -26,7 +31,7 @@ export function InboxDetail({ item, onGeneratePost, onSave, onDismiss, inSheet =
         <div className="mx-auto max-w-2xl">
           <div className={`mb-3 flex flex-wrap items-center gap-2 ${inSheet ? "pr-10" : ""}`}>
             <Badge variant="secondary" className="max-w-full break-words text-xs">{item.source}</Badge>
-            <span className="text-xs tabular-nums text-muted-foreground">{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "Today"}</span>
+            <span className="text-xs tabular-nums text-muted-foreground">{articleDateLabel(item)}</span>
             <a
               href={item.articleUrl}
               target="_blank"
@@ -40,12 +45,15 @@ export function InboxDetail({ item, onGeneratePost, onSave, onDismiss, inSheet =
             </a>
           </div>
           {inSheet ? <SheetTitle asChild>{headline}</SheetTitle> : headline}
-          {matchedKeywords.length > 0 && (
+          {relevanceReason && (
             <p className="mb-4 text-sm text-muted-foreground">
-              <span className="font-medium text-foreground">Why this is relevant:</span> matches {matchedKeywords.slice(0, 3).join(", ")}
+              <span className="font-medium text-foreground">Why this is relevant:</span> {relevanceReason}
             </p>
           )}
-          {item.summary && <p className="mb-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">{item.summary}</p>}
+          {item.summary ? <section aria-label="Article excerpt" className="mb-4">
+            <p className="mb-1 text-xs font-medium text-muted-foreground">{excerptLabel} · Not independently verified</p>
+            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">{item.summary}</p>
+          </section> : <p className="mb-4 text-sm text-muted-foreground">Excerpt unavailable. Open the original for context.</p>}
           {matchedKeywords.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {matchedKeywords.map((keyword) => (

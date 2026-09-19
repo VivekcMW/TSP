@@ -17,21 +17,25 @@ import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import { SourcesManagerContent } from "@/components/dashboard/sources-manager";
 import { getIndustryData } from "@/components/onboarding/onboarding-wizard";
 import type { UserProfile, InboxItem, ProfileSocialLink } from "@shared/schema";
+import { reconcileKeywords } from "@shared/profile-preferences";
+import { getSearchEdition, SEARCH_EDITIONS } from "@shared/search-editions";
+import { publicationCandidatesSchema, reconcilePublicationCandidates, type PublicationCandidate } from "@shared/publication-preferences";
+import { PublicationSourceFeedback } from "@/components/settings/publication-source-feedback";
+import { parsePublicationCandidate } from "@/lib/publication-candidates";
 
 // Helper to extract keyword strings from weighted keywords
 function keywordStrings(keywords: (string | { keyword: string; weight?: number })[]): string[] {
   return keywords.map(kw => typeof kw === 'string' ? kw : kw.keyword);
 }
 
-// Helper to convert string keywords to weighted format
-function toWeightedKeywords(keywords: string[]) {
-  return keywords.map(kw => ({ keyword: kw, weight: 0.7 }));
-}
-
-function contentValues(profile?: UserProfile) {
+function contentValues(profile?: UserProfile & { publicationCandidates?: PublicationCandidate[] }) {
   return {
+    searchEdition: getSearchEdition(profile?.searchEdition).id,
     focusDescription: profile?.focusDescription ?? "",
     publications: profile?.publications ?? [],
+    publicationCandidates: reconcilePublicationCandidates(profile?.publications ?? [], profile?.publicationCandidates ?? []),
+    // Keep this in the draft snapshot: a refetch must not erase an explicit clear.
+    hadPublicationCandidates: Boolean(profile?.publicationCandidates?.length),
     keywords: keywordStrings(profile?.keywords ?? []),
     influencers: profile?.influencers ?? [],
     companies: profile?.companies ?? [],
@@ -72,9 +76,23 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
   const { data: socialLinks = [], isLoading: socialLinksLoading } = useQuery<ProfileSocialLink[]>({ queryKey: ["/api/profile/social-links"] });
 
   const { draft, setDraft, dirty, acknowledge } = useSettingsDraft(contentValues(profile));
-  const { focusDescription, publications, keywords, influencers, companies } = draft;
+  const { searchEdition, focusDescription, publications, publicationCandidates, keywords, influencers, companies } = draft;
   const setFocusDescription = (value: string) => setDraft((current) => ({ ...current, focusDescription: value }));
-  const setPublications = (value: string[]) => setDraft((current) => ({ ...current, publications: value }));
+  const setPublications = (value: string[]) => setDraft((current) => ({
+    ...current, publications: value,
+    publicationCandidates: reconcilePublicationCandidates(value, current.publicationCandidates),
+  }));
+  const setPublicationUrl = (name: string, url: string) => setDraft((current) => {
+    const candidates = current.publicationCandidates;
+    const matches = (item: PublicationCandidate) => item.name.toLowerCase() === name.toLowerCase();
+    let next = candidates.filter(item => !matches(item));
+    if (url.trim()) {
+      next = candidates.some(matches)
+        ? candidates.map(item => matches(item) ? { name: item.name, url } : item)
+        : [...candidates, { name, url }];
+    }
+    return { ...current, publicationCandidates: next };
+  });
   const setKeywords = (value: string[]) => setDraft((current) => ({ ...current, keywords: value }));
   const setInfluencers = (value: string[]) => setDraft((current) => ({ ...current, influencers: value }));
   const setCompanies = (value: string[]) => setDraft((current) => ({ ...current, companies: value }));
@@ -95,10 +113,13 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
 
   const updateMutation = useMutation({
     mutationFn: async (data: typeof draft): Promise<UserProfile> => {
-      // Convert string keywords to weighted format for API
+      // Label-only edits must not reset saved weights or categories.
+      const { publicationCandidates: candidates, hadPublicationCandidates, ...values } = data;
+      const selectedCandidates = publicationCandidatesSchema.parse(reconcilePublicationCandidates(data.publications, candidates));
       const payload = {
-        ...data,
-        keywords: toWeightedKeywords(data.keywords),
+        ...values,
+        ...(hadPublicationCandidates || selectedCandidates.length ? { publicationCandidates: selectedCandidates } : {}),
+        keywords: reconcileKeywords(data.keywords, profile?.keywords ?? []),
       };
       return (await apiRequest("PATCH", "/api/profile", payload)).json();
     },
@@ -106,6 +127,7 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
       acknowledge(submitted, contentValues(saved));
       queryClient.setQueryData(["/api/profile"], saved);
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sources/publications"] });
       toast({
         title: "Profile updated",
         description: "Your preferences have been saved.",
@@ -136,7 +158,8 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
   });
 
   const { mutate: saveContent, isPending: savePending } = updateMutation;
-  const saveDisabled = !dirty || !profile || profileError || profileLoading;
+  const validPublicationUrls = publicationCandidates.length <= 20 && publicationCandidates.every(item => Boolean(parsePublicationCandidate(item)));
+  const saveDisabled = !dirty || !profile || profileError || profileLoading || !validPublicationUrls;
   const handleSave = useCallback(() => {
     if (!saveDisabled && !savePending) saveContent(draft);
   }, [draft, saveContent, saveDisabled, savePending]);
@@ -249,6 +272,23 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader>
+              <CardTitle><label htmlFor="search-edition">Search language &amp; region</label></CardTitle>
+              <CardDescription id="search-edition-description">
+                Choose a provider edition preference for news search. This is not a strict language or location filter and does not translate your queries.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Select value={searchEdition} onValueChange={(value) => setDraft((current) => ({ ...current, searchEdition: getSearchEdition(value).id }))} disabled={savePending}>
+                <SelectTrigger id="search-edition" aria-describedby="search-edition-description"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {SEARCH_EDITIONS.map(({ value, label }) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+
           <Card data-testid="card-profile-social-links">
             <CardHeader>
               <CardTitle>Social profiles</CardTitle>
@@ -303,6 +343,24 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
                 maxItems={20}
               />
               <p className="text-xs text-muted-foreground">Choose from industry suggestions or add your own publication.</p>
+              <p className="text-xs text-muted-foreground">Changing or removing a URL pauses its auto-added source when no other selected publication uses it. Manually added sources stay unchanged; manage them in Custom Sources.</p>
+              {publications.map((name, index) => {
+                const candidate = publicationCandidates.find(item => item.name.toLowerCase() === name.toLowerCase());
+                const invalid = candidate && !parsePublicationCandidate(candidate);
+                const inputId = `publication-url-${index}`;
+                let hint = candidate ? "Unverified URL" : "URL needed";
+                if (invalid) hint = "Use an HTTP(S) URL without credentials, up to 2048 characters.";
+                return <div key={name} className="space-y-1">
+                  <label htmlFor={inputId} className="text-sm font-medium">URL for {name}</label>
+                  <Input id={inputId} type="url" maxLength={2048} placeholder="https://…" value={candidate?.url ?? ""}
+                    onChange={(event) => setPublicationUrl(name, event.target.value)}
+                    aria-invalid={Boolean(invalid)} aria-describedby={`${inputId}-hint`} />
+                  <p id={`${inputId}-hint`} className={`text-xs ${invalid ? "text-destructive" : "text-muted-foreground"}`}>
+                    {hint}
+                  </p>
+                </div>;
+              })}
+              <PublicationSourceFeedback />
             </CardContent>
           </Card>
 
@@ -310,7 +368,7 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
             <CardHeader>
               <CardTitle>Custom Sources</CardTitle>
               <CardDescription>
-                Add any blog, publication, or site — we detect its feed automatically. Discover fetches only from what you add here plus live search on your keywords/companies/influencers below, nothing else.
+                Add a public blog, publication, or site. Discover reads your active sources, selected publication URLs after a successful check, and live search on your keywords, companies and influencers.
               </CardDescription>
             </CardHeader>
             <CardContent>

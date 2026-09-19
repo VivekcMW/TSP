@@ -17,6 +17,7 @@ import { useLocation, useSearch } from "wouter";
 import { PageHeader } from "@/components/dashboard/page-header";
 import type { SettingsPageProps } from "@/components/settings/settings-page-props";
 import { getPlatformMeta, PLATFORMS } from "@/lib/platforms";
+import { DIRECT_PUBLISH_PLATFORMS, publishingCapability } from "@shared/publishing-capabilities";
 
 function Input(props: Readonly<ComponentProps<typeof BaseInput>>) {
   const id = useId();
@@ -335,6 +336,7 @@ function PlatformRow({
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${needsAttention ? "bg-destructive" : connected ? "bg-success" : "bg-muted-foreground/40"}`} />
           </div>
           <p className="break-words text-sm text-muted-foreground">{statusKnown ? description : "Connection status unavailable"}</p>
+          <p className="text-xs text-muted-foreground">{publishingCapability(testId)?.maxMedia ? `Media: up to ${publishingCapability(testId)!.maxMedia} attachments; type and size limits checked before delivery.` : "Text-only publishing; attachments are not supported."} {publishingCapability(testId)?.receipt === "unavailable" ? "Delivery receipt unavailable; acceptance is not verified publication." : "Live publication requires a provider post ID."}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2 [&_button]:min-h-11 [&_button]:min-w-11">
           <Button variant="ghost" size="icon" className="h-11 w-11" onClick={onGuide} aria-label={`${label} guide`} title={`${label} guide`}>
@@ -559,11 +561,10 @@ export default function AnalyticsPage({ embedded = false }: SettingsPageProps = 
     onError: (error: Error) => toast({ title: "Telegram connection failed", description: error.message, variant: "destructive" }),
   });
 
-  // Platforms with a real, fully-configured connect + publish flow in this environment.
-  // Reddit's OAuth code is real but REDDIT_CLIENT_ID/SECRET aren't configured yet, so it
-  // stays hidden here (not deleted) until those credentials are added.
-  const READY_FOR_STAGING = new Set(["linkedin", "twitter", "bluesky", "mastodon", "telegram", "slack", "discord", "devto", "hashnode"]);
-  const connectedAccountPlatforms = new Set(["linkedin", "twitter", "bluesky", "mastodon", "telegram", "slack", "discord", "devto", "hashnode", "reddit"]);
+  // Implemented adapters are visible; connection/global readiness remains a
+  // separate check, not a hardcoded assumption about deployment secrets.
+  const READY_FOR_STAGING = new Set<string>(DIRECT_PUBLISH_PLATFORMS);
+  const connectedAccountPlatforms = new Set<string>(DIRECT_PUBLISH_PLATFORMS);
   const manualPublishingPlatforms = PLATFORMS.filter((platform) => !connectedAccountPlatforms.has(platform.value));
   const manualPlatformCategories = MANUAL_PLATFORM_CATEGORIES.map((category) => ({
     label: category.label,

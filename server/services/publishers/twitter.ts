@@ -8,6 +8,7 @@ import { decryptStoredCredential } from "../webhookSecrets";
 export interface TwitterPublishResult {
   success: boolean;
   postId?: string;
+  status?: string;
   error?: string;
 }
 
@@ -23,7 +24,7 @@ export async function publishToTwitter(
 ): Promise<TwitterPublishResult> {
   try {
     if (process.env.PUBLISHING_MODE !== "live") {
-      return { success: true, postId: `sandbox_twitter_${Date.now()}` };
+      return { success: true, status: "simulated" };
     }
     const account = await storage.getSocialAccountByProvider(scope, "twitter");
     if (!account?.accessToken) return { success: false, error: "X account is not connected" };
@@ -43,8 +44,8 @@ export async function publishToTwitter(
       postId,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("[publisher:twitter] Error publishing to Twitter:", message);
+    const message = "X delivery could not be confirmed";
+    console.error("[publisher:twitter] Delivery could not be confirmed");
     return {
       success: false,
       error: message,

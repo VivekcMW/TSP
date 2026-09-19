@@ -2,7 +2,7 @@ import { storage, type TenantScope } from "../../storage";
 import { decryptWebhookUrl } from "../webhookSecrets";
 
 export async function publishToDiscord(scope: TenantScope, draftId: string, content: string) {
-  if (process.env.PUBLISHING_MODE !== "live") return { success: true, postId: `sandbox_discord_${Date.now()}` };
+  if (process.env.PUBLISHING_MODE !== "live") return { success: true, status: "simulated" };
   const account = await storage.getSocialAccountByProvider(scope, "discord");
   if (!account?.accessToken) return { success: false, error: "Discord webhook is not connected" };
   try {
@@ -17,6 +17,6 @@ export async function publishToDiscord(scope: TenantScope, draftId: string, cont
     if (!message.id) return { success: false, error: "Discord did not return a message ID" };
     return { success: true, postId: message.id, postUrl: message.channel_id ? `https://discord.com/channels/@me/${message.channel_id}/${message.id}` : undefined };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : "Discord publish failed" };
+    return { success: false, error: "Discord delivery could not be confirmed" };
   }
 }

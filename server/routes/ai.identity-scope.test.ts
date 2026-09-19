@@ -161,6 +161,32 @@ describe.each(["analyze-identity", "select-engine"])("%s onboarding validation",
 });
 
 describe("complete onboarding AI output contracts", () => {
+  it("preserves names and sanitizes URL candidates individually without failing recommendations", async () => {
+    const publications = [
+      { ...result.publications[0], name: " Good ", url: " HTTPS://GOOD.test#fragment " },
+      ...["not a URL", "javascript:alert(1)", "ftp://news.test", "https://user:password@news.test", `https://news.test/${"x".repeat(2048)}`]
+        .map((url, i) => ({ ...result.publications[0], name: `Invalid ${i}`, url })),
+      { ...result.publications[0], name: "x".repeat(101) },
+      { ...result.publications[0], name: "good", url: "https://duplicate.test" },
+    ];
+    network.mockResolvedValueOnce(providerResponse(JSON.stringify({ ...result, publications })));
+    const response = await request(app).post("/api/ai/analyze-identity").send(body);
+    expect(response.status).toBe(200);
+    expect(response.body.publications).toEqual(publications.map(item => item.name.trim()));
+    expect(response.body.publicationCandidates).toEqual([{ name: "Good", url: "https://good.test/" }]);
+    expect(network).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds candidate metadata to the twenty returned names", async () => {
+    const publications = Array.from({ length: 25 }, (_, i) => ({ ...result.publications[0], name: `News ${i}`, url: `https://news${i}.test` }));
+    network.mockResolvedValueOnce(providerResponse(JSON.stringify({ ...result, publications })));
+    const response = await request(app).post("/api/ai/analyze-identity").send(body);
+    expect(response.status).toBe(200);
+    expect(response.body.publications).toHaveLength(20);
+    expect(response.body.publicationCandidates).toHaveLength(20);
+    expect(response.body.publicationCandidates.map((item: { name: string }) => item.name)).toEqual(response.body.publications);
+  });
+
   it.each(invalidIdentityOutputs)("rejects identity $label (%#)", async ({ output }) => {
     network.mockResolvedValueOnce(providerResponse(JSON.stringify(output)));
     const response = await request(app).post("/api/ai/analyze-identity").send(body);

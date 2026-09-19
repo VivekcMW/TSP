@@ -23,7 +23,7 @@ function titleFrom(content: string): string {
 }
 
 export async function publishToDevTo(scope: TenantScope, draftId: string, content: string, media: Array<{ id: string }> = []) {
-  if (process.env.PUBLISHING_MODE !== "live") return { success: true, postId: `sandbox_devto_${Date.now()}` };
+  if (process.env.PUBLISHING_MODE !== "live") return { success: true, status: "simulated" };
   const account = await storage.getSocialAccountByProvider(scope, "devto");
   if (!account?.accessToken) return { success: false, error: "Dev.to API key is not connected" };
   try {
@@ -31,7 +31,7 @@ export async function publishToDevTo(scope: TenantScope, draftId: string, conten
     let coverImage: string | undefined;
     for (const item of media) {
       const asset = await storage.getMediaAsset(scope, item.id);
-      if (!asset?.contentType.startsWith("image/")) continue;
+      if (!asset?.contentType.startsWith("image/")) throw new Error("Attached image unavailable");
       const form = new FormData();
       form.append("image", new Blob([await readMedia(asset.storageKey)], { type: asset.contentType }), asset.fileName);
       const upload = await fetch("https://dev.to/api/images", { method: "POST", headers: { "api-key": apiKey, "User-Agent": "TheSocialPundit/1.0" }, body: form });
@@ -49,5 +49,5 @@ export async function publishToDevTo(scope: TenantScope, draftId: string, conten
     if (!response.ok) return { success: false, error: article.error || `Dev.to publish failed (${response.status})` };
     if (!article.id) return { success: false, error: "Dev.to did not return an article ID" };
     return { success: true, postId: String(article.id), postUrl: article.url };
-  } catch (error) { return { success: false, error: error instanceof Error ? error.message : "Dev.to publish failed" }; }
+  } catch { return { success: false, error: "Dev.to delivery could not be confirmed" }; }
 }

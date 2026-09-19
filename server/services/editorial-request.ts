@@ -23,7 +23,7 @@ export const manualReviewSchema = z.object({
 export type EditorialKind = "selected" | "manual";
 export interface PreparedEditorialRequest {
   input: z.infer<typeof selectedReviewSchema> | z.infer<typeof manualReviewSchema>;
-  options: Pick<EditorialOptions, "voice" | "format" | "userContext" | "scope">;
+  options: Pick<EditorialOptions, "voice" | "voiceScope" | "format" | "userContext" | "scope">;
 }
 
 /** Shared by HTTP and queue admission: never persist a Request, user row, or headers. */

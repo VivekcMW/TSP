@@ -46,7 +46,7 @@ describe("deterministic writer segments", () => {
     expect(result.attributions).toEqual(segments.slice(0, 2));
     expect(result.attributions.every(value => result.content.includes(value.text))).toBe(true);
     expect(result.attributions[0].text).not.toBe(result.evidence.excerpts[0].text);
-    expect(Object.keys(result).sort()).toEqual(["content", "evidence", "attributions", "generation", "validation"].sort());
+    expect(Object.keys(result).sort()).toEqual(["content", "evidence", "attributions", "generation", "validation", "claimSupport"].sort());
     expect(result.validation).toMatchObject({ attributionMapping: "passed", factualVerification: "not-performed", requiresHumanReview: true });
     expect(result.generation).toMatchObject({ provider: "openrouter", model: "openai/gpt-4o-mini" });
     expect(provider).toHaveBeenCalledTimes(1);

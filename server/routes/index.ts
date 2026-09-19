@@ -20,6 +20,7 @@ import { registerMediaRoutes } from "./media";
 import { registerBillingRoutes } from "./billing";
 import { registerEmailPreferenceRoutes } from "./email-preferences";
 import { registerProfileSocialLinksRoutes } from "./profile-social-links";
+import { registerEditorialVoiceRoutes } from "./editorial-voice";
 
 /**
  * Mounts the HTTP API.
@@ -50,6 +51,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerBillingRoutes(app);
   registerEmailPreferenceRoutes(app);
   registerProfileSocialLinksRoutes(app);
+  registerEditorialVoiceRoutes(app);
 
   return httpServer;
 }

@@ -8,10 +8,13 @@ import { getAvailableVerticals, normalizeIndustryToSlug, selectIndustryEngine } 
 import { analyzeProfessionalIdentity, generatePostContentDetailed, generatePostSchema, onboardingIdentitySchema } from "../services/punditBrain";
 import { getAIErrorResponse } from "../services/openRouter";
 import { platformIntegrations } from "@shared/schema";
+import { publicationCandidateSchema, publicationCandidatesSchema } from "@shared/publication-preferences";
 import { z } from "zod";
 import { fetchArticleFromUrl } from "../services/urlFetcher";
 import { CrawlError } from "../services/crawlerFetch";
 import { editorialCancellation, editorialContext, editorialPreferences, validateEditorialFormat } from "./editorial-context";
+import { generationAccessFailure } from "../services/generation-quota";
+import { runHttpGeneration } from "./generation-operation";
 
 const detailedPostSchema = generatePostSchema.extend({
   ...editorialPreferences,
@@ -43,6 +46,11 @@ export function registerAiRoutes(app: Express) {
         subDomains: analysis.subDomains,
         keywords: analysis.keywords.slice(0, 20),
         publications: analysis.publications.slice(0, 20).map(p => p.name),
+        // Bad URL metadata must not discard an otherwise successful recommendation.
+        publicationCandidates: publicationCandidatesSchema.parse(analysis.publications.slice(0, 20).flatMap(publication => {
+          const candidate = publicationCandidateSchema.safeParse({ name: publication.name, url: publication.url });
+          return candidate.success ? [candidate.data] : [];
+        })),
         topics: analysis.topics.slice(0, 20).map(t => t.phrase),
         personalities: analysis.personalities.slice(0, 20).map(p => p.name),
         companies: analysis.companies.slice(0, 20).map(c => c.name),
@@ -111,19 +119,16 @@ export function registerAiRoutes(app: Express) {
       }
 
       const options = await editorialContext(req, { format, userContext }, cancellation.signal);
-      const fetched = fetchSource ? await fetchArticleFromUrl(articleUrl!, cancellation.signal) : undefined;
-      const article = fetched ? { headline: fetched.title, summary: fetched.content, source: fetched.source, articleUrl: fetched.url, contentMetadata: fetched.contentMetadata } : { headline, summary, source, articleUrl };
-      const result = await generatePostContentDetailed(
-        article,
-        platform,
-        tone,
-        options,
-      );
+      const { article, result } = await runHttpGeneration(req, res, "generate-post", validation.data, cancellation.signal, async () => {
+        const fetched = fetchSource ? await fetchArticleFromUrl(articleUrl!, cancellation.signal) : undefined;
+        const article = fetched ? { headline: fetched.title, summary: fetched.content, source: fetched.source, articleUrl: fetched.url, contentMetadata: fetched.contentMetadata } : { headline, summary, source, articleUrl };
+        return { article, result: await generatePostContentDetailed(article, platform, tone, options) };
+      });
 
       res.json({ ...result, article, format });
     } catch (error) {
       if (error instanceof CrawlError) return res.status(422).json({ code: "source_unreadable", message: `${error.message} Try another public article or use Write article in Instant Review.` });
-      const failure = getAIErrorResponse(error);
+      const failure = generationAccessFailure(error) ?? getAIErrorResponse(error);
       console.error("Error generating post:", failure.body.code);
       if (failure.retryAfterSeconds) res.setHeader("Retry-After", failure.retryAfterSeconds);
       res.status(failure.status).json(failure.body);

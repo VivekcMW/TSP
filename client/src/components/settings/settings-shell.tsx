@@ -10,6 +10,7 @@ import BillingPage from "@/pages/billing";
 import { AccountSettings } from "./account-settings";
 import { NotificationSettings } from "./notification-settings";
 import { SettingsNavigationGuard } from "./settings-navigation-guard";
+import { EditorialVoiceSettings } from "./editorial-voice-settings";
 
 export const SETTINGS_SECTIONS = ["account", "content", "publishing", "integrations", "notifications", "billing"] as const;
 export type SettingsSection = typeof SETTINGS_SECTIONS[number];
@@ -47,6 +48,7 @@ export function SettingsShell() {
               {section === "content" && <>
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Voice, interests &amp; sources</h2>{contentAction && <Button className="min-h-11" onClick={contentAction.onSave} disabled={contentAction.isPending || contentAction.disabled} data-testid="button-save-content-preferences">{contentAction.isPending ? "Saving…" : "Save Content Preferences"}</Button>}</div>
                 <ProfileSettingsPage embedded onSaveActionChange={setContentAction} />
+                <EditorialVoiceSettings />
               </>}
               {section === "publishing" && <PluginsPage embedded />}
               {section === "integrations" && <ConnectionsPage embedded />}

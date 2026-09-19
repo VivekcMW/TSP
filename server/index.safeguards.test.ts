@@ -21,16 +21,46 @@ import { app, errorHandler, createGracefulShutdown, shutdownTimeout } from "./in
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllEnvs(); });
 
 describe("Express error safeguards", () => {
-  it.each([500, 503, 401, 400, 999, "bad", undefined])("handles status %s without throwing or exposing details", async (status) => {
+  describe.each(["status", "statusCode"])("error.%s", (field) => {
+    const cases: Array<[unknown, number, string]> = [
+      [400, 400, "Bad Request"],
+      [401, 401, "Unauthorized"],
+      [499, 499, "Request failed"],
+      [500, 500, "Internal Server Error"],
+      [503, 503, "Internal Server Error"],
+      [599, 599, "Internal Server Error"],
+      ...[-1, 0, 99, 100, 200, 300, 399, 600, 999, 1000,
+        399.5, 400.5, 599.5, NaN, Infinity, -Infinity,
+        "400", "500", "bad", "", true, false, null, undefined, {}, []]
+        .map((value): [unknown, number, string] => [value, 500, "Internal Server Error"]),
+    ];
+    it.each(cases)("sanitizes %s to HTTP %s (%s)", async (value, expectedStatus, message) => {
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      const testApp = express();
+      testApp.get("/fail", () => { throw Object.assign(new Error("SECRET_DB_PASSWORD"), { [field]: value }); });
+      testApp.get("/ok", (_req, res) => { res.json({ ok: true }); });
+      testApp.use(errorHandler);
+      const failed = await request(testApp).get("/fail");
+      expect(failed.status).toBe(expectedStatus);
+      expect(failed.body).toEqual({ message });
+      expect(failed.text).not.toContain("SECRET_DB_PASSWORD");
+      expect(log).toHaveBeenCalledExactlyOnceWith(`[express] Request failed (${expectedStatus})`);
+      expect((await request(testApp).get("/ok")).status).toBe(200);
+    });
+  });
+  it.each([
+    [undefined, 401, 401, "Unauthorized"],
+    [null, 400, 400, "Bad Request"],
+    [400, 503, 400, "Bad Request"],
+    [999, 401, 500, "Internal Server Error"],
+  ])("validates status=%s with statusCode=%s", (status, statusCode, expectedStatus, message) => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const testApp = express();
-    testApp.get("/fail", () => { throw Object.assign(new Error("SECRET_DB_PASSWORD"), { status }); });
-    testApp.get("/ok", (_req, res) => { res.json({ ok: true }); });
-    testApp.use(errorHandler);
-    const failed = await request(testApp).get("/fail");
-    expect(failed.status).toBe(typeof status === "number" && status < 600 ? status : 500);
-    expect(failed.text).not.toContain("SECRET_DB_PASSWORD");
-    expect((await request(testApp).get("/ok")).status).toBe(200);
+    const res = { headersSent: false, status: vi.fn().mockReturnThis(), json: vi.fn() };
+    const next = vi.fn();
+    errorHandler({ status, statusCode, message: "SECRET" }, {} as Request, res as unknown as Response, next);
+    expect(res.status).toHaveBeenCalledExactlyOnceWith(expectedStatus);
+    expect(res.json).toHaveBeenCalledExactlyOnceWith({ message });
+    expect(next).not.toHaveBeenCalled();
   });
   it("delegates a sanitized error if response headers were already sent", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});

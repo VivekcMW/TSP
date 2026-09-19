@@ -9,9 +9,10 @@ import { AIGenerationError, getAIErrorResponse, getEditorialModelIdentity } from
 import { CrawlError } from "../services/crawlerFetch";
 import { resolveTenantContext } from "../services/tenancy";
 import { can } from "../services/permissions";
+import { assertGenerationAdmission, generationAccessFailure, generationOperationId, runGeneration } from "../services/generation-quota";
 
 // Bump whenever prompts, evidence selection, or response semantics change.
-export const EDITORIAL_VERSION = "grounded-editorial-v1";
+export const EDITORIAL_VERSION = "grounded-editorial-v2-voice-claims";
 export const EDITORIAL_INPUT_TTL = 600;
 export const EDITORIAL_RESULT_TTL = 300;
 export const EDITORIAL_DEADLINE_MS = 300_000;
@@ -108,6 +109,7 @@ export class EditorialJobs {
   async enqueue(scope: TenantScope, prepared: PreparedEditorialRequest): Promise<string> {
     const input = JSON.stringify(prepared);
     if (Buffer.byteLength(input) > 100_000) throw new AIGenerationError("ai_invalid_input");
+    await assertGenerationAdmission(scope.tenantId);
     const id = randomUUID();
     const identity = stable({ model: getEditorialModelIdentity(), version: EDITORIAL_VERSION });
     const dedupe = `${prefix}dedupe:${editorialInputHash(scope, prepared)}`;
@@ -163,7 +165,7 @@ export class EditorialJobs {
   private async fail(id: string, error: unknown) {
     const failure = error instanceof CrawlError
       ? { status: 422, body: { code: "source_unreadable", message: `${error.message} Try another public URL or use Write article.` } }
-      : getAIErrorResponse(error);
+      : generationAccessFailure(error) ?? getAIErrorResponse(error);
     await this.store.eval(editorialScripts.finish, 2, recordKey(id), cancelKey(id), id, "failed", "error", JSON.stringify(failure), EDITORIAL_RESULT_TTL);
   }
 
@@ -195,18 +197,31 @@ export class EditorialJobs {
       await check();
       controller.signal.throwIfAborted();
       const prepared = JSON.parse(record.input) as PreparedEditorialRequest;
+      const scope = { tenantId: record.tenantId, userId: record.userId };
+      // Trusted persisted owner, never a payload-supplied scope.
+      prepared.options.scope = { tenantId: scope.tenantId };
+      prepared.options.voiceScope = scope;
       const completed = new Set<string>();
-      const result = await this.execute(prepared, controller.signal, async platform => {
-        controller.signal.throwIfAborted();
-        completed.add(platform);
-        await this.store.eval(editorialScripts.progress, 1, recordKey(id), JSON.stringify({
-          platformsCompleted: completed.size, platformsTotal: prepared.input.selectedPlatforms.length,
-        }));
-      }, Math.min(remaining, 240_000));
+      const serialized = await runGeneration(scope, generationOperationId(prepared.input.requestIntent ?? id),
+        "url" in prepared.input ? "selected" : "manual", prepared.input, controller.signal, async () => {
+          const result = await this.execute(prepared, controller.signal, async platform => {
+            controller.signal.throwIfAborted();
+            completed.add(platform);
+            await this.store.eval(editorialScripts.progress, 1, recordKey(id), JSON.stringify({
+              platformsCompleted: completed.size, platformsTotal: prepared.input.selectedPlatforms.length,
+            }));
+          }, Math.min(remaining, 240_000));
+          await check();
+          controller.signal.throwIfAborted();
+          const output = JSON.stringify(result);
+          if (Buffer.byteLength(output) > 512_000) throw new AIGenerationError("ai_invalid_output");
+          return output;
+        });
+      // Only expose a completed result AFTER durable generation success commits.
+      // A later Redis failure affects delivery, not the recorded provider outcome.
       controller.signal.throwIfAborted();
-      const serialized = JSON.stringify(result);
-      if (Buffer.byteLength(serialized) > 512_000) throw new AIGenerationError("ai_invalid_output");
-      await this.store.eval(editorialScripts.finish, 2, recordKey(id), cancelKey(id), id, "completed", "result", serialized, EDITORIAL_RESULT_TTL);
+      const saved = await this.store.eval(editorialScripts.finish, 2, recordKey(id), cancelKey(id), id, "completed", "result", serialized, EDITORIAL_RESULT_TTL);
+      if (!saved) { controller.abort(new AIGenerationError("ai_cancelled")); controller.signal.throwIfAborted(); }
     } catch (error) {
       controller.abort();
       await this.fail(id, error);

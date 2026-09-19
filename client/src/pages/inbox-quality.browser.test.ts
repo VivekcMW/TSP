@@ -32,8 +32,23 @@ beforeAll(async () => {
       import Discover from "@/pages/dashboard";
       import { CreatePostProvider } from "@/components/dashboard/create-post-provider";
       window.__calls = [];
-      window.fetch = async (...args) => { window.__calls.push(args); throw new Error("Unexpected request"); };
-      const data = { "/api/inbox": window.__records, "/api/drafts": [],
+      window.fetch = async (url, options = {}) => {
+        window.__calls.push({ url, method: options.method || "GET" });
+        let body;
+        if (url === "/api/inbox?status=active") body = window.__records.filter(item => item.status === "active").slice(0, 500);
+        else if (url === "/api/inbox") body = window.__records.slice(0, 500);
+        else if (url === "/api/trends") {
+          if (window.__trendError) return new Response("Unavailable", { status: 503 });
+          body = window.__trends || [];
+        }
+        else if (options.method === "PATCH" && String(url).startsWith("/api/inbox/")) {
+          const id = String(url).split("/").pop();
+          window.__records = window.__records.map(item => item.id === id ? { ...item, ...JSON.parse(options.body) } : item);
+          body = window.__records.find(item => item.id === id);
+        } else throw new Error("Unexpected request");
+        return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
+      };
+      const data = { "/api/inbox": window.__records.slice(0, 500), "/api/drafts": [],
         "/api/drafts/scheduled": { items: [] }, "/api/me": { firstName: "Reader" },
         "/api/profile": { enabledPlatforms: ["linkedin"], defaultPlatform: "linkedin" }, "/api/integrations": [] };
       for (const [key, value] of Object.entries(data)) queryClient.setQueryData([key], value);
@@ -48,7 +63,7 @@ beforeAll(async () => {
     plugins: [{ name: "mock-auth-and-toasts", setup(builder) {
       builder.onResolve({ filter: /^@\/lib\/(auth|dev-auth)$|^@\/hooks\/use-toast$/ }, args => ({ path: args.path, namespace: "mock" }));
       builder.onLoad({ filter: /.*/, namespace: "mock" }, args => ({ contents: args.path.includes("auth")
-        ? 'export const useIsSignedIn = () => true; export const useAuth = () => ({user: {firstName: "Reader"}});'
+        ? 'export const useIsSignedIn = () => window.__signedIn !== false; export const useAuth = () => ({user: {firstName: "Reader"}});'
         : "export const useToast = () => ({toast: () => {}});", loader: "js" }));
     } }],
   });
@@ -60,21 +75,50 @@ beforeAll(async () => {
 afterEach(async () => { await page?.close(); });
 afterAll(async () => { await browser?.close(); });
 
-async function mount(surface = "discover", items = records) {
+async function mount(surface = "discover", items = records, state: Record<string, unknown> = {}) {
   page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   page.setDefaultTimeout(3000);
   await page.route("**/*", route => route.abort());
   await page.setContent('<div id="root" style="height:100vh"></div>');
-  await page.evaluate(({ surface, items }) => Object.assign(window, { __surface: surface, __records: items }), { surface, items });
+  await page.evaluate(({ surface, items, state }) => Object.assign(window, { __surface: surface, __records: items }, state), { surface, items, state });
   await page.addStyleTag({ content: css });
   await page.addScriptTag({ content: bundle });
 }
 async function expectUnchanged(items = records) {
-  expect(await page.evaluate(() => (window as any).__cachedInbox())).toEqual(items);
-  expect(await page.evaluate(() => (window as any).__calls)).toEqual([]);
+  expect(await page.evaluate(() => (window as any).__cachedInbox())).toEqual(items.slice(0, 500));
+  expect(await page.evaluate(() => (window as any).__calls)).toEqual(
+    await page.evaluate(() => (window as any).__surface) === "home" ? [] : [{ url: "/api/inbox?status=active", method: "GET" }]);
 }
 
 describe("legacy inbox quality UI", () => {
+  it("loads trends only when opened and describes admitted-content limitations", async () => {
+    await mount("discover", records, { __trends: [{ topic: "ai", count: 3, velocityPercent: null, sourceCount: 1, unknownSourceCount: 2,
+      articles: [], coverage: { partial: true, rowLimit: 5000 } }] });
+    await browserExpect(page.getByText("3 active", { exact: true })).toBeVisible();
+    await expectUnchanged();
+    await page.getByRole("button", { name: "Topics in your recent articles" }).click();
+    await browserExpect(page.getByText(/New in this window/)).toBeVisible();
+    await browserExpect(page.getByText(/Partial coverage: first 5000/)).toBeVisible();
+    await browserExpect(page.getByText(/not market trends/)).toBeVisible();
+    await browserExpect(page.getByText(/2 unknown origins/)).toBeVisible();
+  });
+
+  it("shows empty and signed-out trend states without automatic fetch", async () => {
+    await mount();
+    await page.getByRole("button", { name: "Topics in your recent articles" }).click();
+    await browserExpect(page.getByText("No topics with at least two newly discovered articles yet.")).toBeVisible();
+    await page.close();
+    await mount("discover", records, { __signedIn: false });
+    await browserExpect(page.getByRole("button", { name: "Topics in your recent articles" })).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).__calls)).toEqual([]);
+  });
+
+  it("shows a recoverable trend failure instead of treating it as no trends", async () => {
+    await mount("discover", records, { __trendError: true });
+    await page.getByRole("button", { name: "Topics in your recent articles" }).click();
+    await browserExpect(page.getByRole("button", { name: "Retry topics" })).toBeVisible();
+  });
+
   it("Home skips bad active entries and recommends the first usable story", async () => {
     await mount("home");
     await browserExpect(page.getByTestId("card-personalized-briefing")).toContainText("Authentication and DNS research");
@@ -89,12 +133,11 @@ describe("legacy inbox quality UI", () => {
     await expectUnchanged(items);
   });
 
-  it("Discover counts only usable candidates while saved and dismissed records remain accessible", async () => {
+  it("Discover shows all active legacy rows while saved and dismissed records remain accessible", async () => {
     await mount();
-    await browserExpect(page.getByRole("status")).toContainText("2 unavailable or low-quality stories hidden");
-    await browserExpect(page.getByRole("status")).toContainText("Saved stories are still accessible in Saved");
-    await browserExpect(page.getByText("1 active", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText(loginTitle, { exact: true })).toHaveCount(0);
+    await browserExpect(page.getByRole("status")).toHaveCount(0);
+    await browserExpect(page.getByText("3 active", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText(loginTitle, { exact: true }).first()).toBeVisible();
     await page.getByTestId("button-filter-saved").click();
     await browserExpect(page.getByText(loginTitle, { exact: true }).first()).toBeVisible();
     await browserExpect(page.getByRole("status")).toHaveCount(0);
@@ -103,13 +146,28 @@ describe("legacy inbox quality UI", () => {
     await expectUnchanged();
   });
 
-  it("explains an all-hidden active view, including the singular count", async () => {
+  it("keeps a legacy-only active inbox visible with save and dismiss actions", async () => {
     const items = [records[0], records[3]];
     await mount("discover", items);
-    await browserExpect(page.getByRole("status")).toContainText("1 unavailable or low-quality story hidden");
-    await browserExpect(page.getByText("0 active", { exact: true })).toBeVisible();
-    await browserExpect(page.getByRole("heading", { name: "No articles yet" })).toBeVisible();
+    await browserExpect(page.getByText("1 active", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("heading", { name: "No articles yet" })).toHaveCount(0);
+    await browserExpect(page.getByRole("button", { name: "Save story", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: "Dismiss", exact: true })).toBeVisible();
     await expectUnchanged(items);
+  });
+
+  it("fetches active rows beyond 620 historical rows and lets the user dismiss legacy capacity occupants", async () => {
+    const items = [...Array.from({ length: 620 }, (_, index) => story(`history-${index}`, `Historical ${index}`, "dismissed")), records[0], records[2]];
+    await mount("discover", items);
+    await browserExpect(page.getByText("2 active", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText(loginTitle, { exact: true }).first()).toBeVisible();
+    await expectUnchanged(items);
+    await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await browserExpect(page.getByText("1 active", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText(loginTitle, { exact: true })).toHaveCount(0);
+    await browserExpect(page.getByText("Authentication and DNS research", { exact: true }).first()).toBeVisible();
+    expect(await page.evaluate(() => (window as any).__calls.filter((call: any) => call.method === "PATCH")))
+      .toEqual([{ url: "/api/inbox/login", method: "PATCH" }]);
   });
 
   it("composer excludes low-quality candidates without blocking an explicitly opened saved record", async () => {

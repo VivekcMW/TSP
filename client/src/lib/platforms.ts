@@ -1,4 +1,5 @@
-import { Linkedin, Briefcase } from "lucide-react";
+import { Linkedin, Briefcase, MessageSquare } from "lucide-react";
+import { publishingCapability } from "@shared/publishing-capabilities";
 import {
   SiX, SiThreads, SiBluesky, SiSubstack, SiMedium, SiReddit, SiMastodon, SiDevdotto, SiHashnode,
   SiQuora, SiFacebook, SiTelegram, SiDiscord, SiFarcaster, SiXiaohongshu, SiSinaweibo, SiWechat, SiVk, SiLine, SiNaver, SiXing,
@@ -17,7 +18,8 @@ export interface PlatformMeta {
   composeUrl: (text: string, articleUrl?: string) => string;
 }
 
-export const PLATFORMS: PlatformMeta[] = [
+export const PLATFORMS: PlatformMeta[] = ([
+  { value: "slack", label: "Slack", icon: MessageSquare, charLimit: 4000, composeUrl: () => "https://app.slack.com/" },
   {
     value: "linkedin",
     label: "LinkedIn",
@@ -186,8 +188,8 @@ export const PLATFORMS: PlatformMeta[] = [
     charLimit: 2000,
     composeUrl: () => "https://www.xing.com/",
   },
-];
+] satisfies PlatformMeta[]).map(platform => ({ ...platform, charLimit: publishingCapability(platform.value)?.live ? publishingCapability(platform.value)!.maxCharacters : platform.charLimit }));
 
 export function getPlatformMeta(value: string): PlatformMeta {
-  return PLATFORMS.find((p) => p.value === value) ?? PLATFORMS[0];
+  return PLATFORMS.find((p) => p.value === value) ?? PLATFORMS.find(p => p.value === "linkedin")!;
 }

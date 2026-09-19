@@ -1,9 +1,9 @@
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const { storage, enqueue, handle, instant, selected, pass, scope } = vi.hoisted(() => ({
-  storage: { getDraftPublishStatus: vi.fn(), updateDraft: vi.fn(), getDraft: vi.fn(), getDraftSchedule: vi.fn(), getDraftScheduleTargetsForPublishing: vi.fn(), retryDraftScheduleTargets: vi.fn(), cancelDraftScheduleTarget: vi.fn(), scheduleDraftPublish: vi.fn(), getUserProfile: vi.fn() },
-  enqueue: vi.fn(), handle: vi.fn(), instant: vi.fn(), selected: vi.fn(),
+const { storage, enqueue, handle, instant, selected, generation, pass, scope } = vi.hoisted(() => ({
+  storage: { checkDraftPublishingPolicy: vi.fn(), getDraftPublishStatus: vi.fn(), updateDraft: vi.fn(), getDraft: vi.fn(), getDraftSchedule: vi.fn(), getDraftScheduleTargetsForPublishing: vi.fn(), retryDraftScheduleTargets: vi.fn(), cancelDraftScheduleTarget: vi.fn(), scheduleDraftPublish: vi.fn(), getUserProfile: vi.fn() },
+  enqueue: vi.fn(), handle: vi.fn(), instant: vi.fn(), selected: vi.fn(), generation: vi.fn(),
   pass: (_req: unknown, _res: unknown, next: () => void) => next(), scope: { tenantId: "t", userId: "u" },
 }));
 vi.mock("../db", () => ({ db: {} }));
@@ -14,6 +14,13 @@ vi.mock("../middlewares/requireDbUser", () => ({ requireDbUser: pass, authedOf: 
 vi.mock("../middlewares/requirePermission", () => ({ requirePermission: () => pass }));
 vi.mock("../middlewares/rateLimit", () => ({ instantReviewRateLimit: pass }));
 vi.mock("../services/punditBrain", () => ({ generateInstantReviewDetailed: instant, generatePlatformReviewsDetailed: selected }));
+// Exercise real request preparation/execution, but never access the usage ledger.
+vi.mock("../services/generation-quota", () => ({
+  generationOperationId: () => "00000000-0000-4000-8000-000000000001",
+  generationAccessFailure: () => undefined,
+  runGeneration: generation,
+}));
+vi.mock("../services/publishing-policy", () => ({ PublishingPolicyError: class extends Error {} }));
 vi.mock("../lib/redis", () => ({ redis: undefined }));
 vi.mock("../services/urlFetcher", () => ({ fetchArticleFromUrl: async () => ({ title: "Article", source: "News", domain: "news.test", url: "https://news.test/a", content: "Article text" }) }));
 import { QueueUnavailableError } from "../jobs/queue";
@@ -24,9 +31,13 @@ const app = express(); app.use(express.json()); registerDraftsRoutes(app);
 
 beforeEach(() => {
   vi.resetAllMocks();
+  generation.mockImplementation((_scope, _id, _kind, _input, signal: AbortSignal, work: () => Promise<unknown>) => {
+    signal.throwIfAborted();
+    return work();
+  });
   storage.getDraft.mockResolvedValue({ id: "d", platform: "linkedin", publishStatus: "scheduled" });
   storage.getDraftSchedule.mockResolvedValue({ id: "s", draftId: "d", status: "scheduled", scheduledPublishAt: new Date(0) });
-  storage.getDraftScheduleTargetsForPublishing.mockResolvedValue([{ id: "li", platform: "linkedin" }, { id: "tw", platform: "twitter" }]);
+  storage.getDraftScheduleTargetsForPublishing.mockResolvedValue([{ id: "li", platform: "linkedin", executionMode: "sandbox", intent: "publish" }, { id: "tw", platform: "twitter", executionMode: "sandbox", intent: "publish" }]);
   storage.retryDraftScheduleTargets.mockResolvedValue([{ id: "tw", platform: "twitter" }]);
   storage.cancelDraftScheduleTarget.mockResolvedValue({ id: "tw", status: "cancelled" });
   enqueue.mockResolvedValue("job");
@@ -112,15 +123,34 @@ describe("instant review safe AI failures", () => {
     ["/api/instant-review/selected", { url: "https://news.test/a", selectedPlatforms: ["twitter"] }],
     ["/api/instant-review/manual", { title: "Article", content: "A sufficiently long article for generation.", selectedPlatforms: ["twitter"] }],
   ] as const;
+  function expectProviderAttempt(endpoint: string, body: Record<string, unknown>) {
+    const kind = endpoint === "/api/instant-review" ? "instant-review" : endpoint.split("/").at(-1);
+    expect(generation).toHaveBeenCalledExactlyOnceWith(scope, "00000000-0000-4000-8000-000000000001", kind,
+      expect.objectContaining({ ...body, format: "short-post" }), expect.any(AbortSignal), expect.any(Function));
+    const options = expect.objectContaining({ scope: { tenantId: "t" }, voiceScope: scope, format: "short-post", signal: expect.any(AbortSignal) });
+    if (kind === "instant-review") {
+      expect(instant).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ url: body.url }), options);
+      expect(selected).not.toHaveBeenCalled();
+    } else {
+      expect(selected).toHaveBeenCalledExactlyOnceWith(expect.objectContaining(kind === "manual"
+        ? { title: body.title, content: body.content, source: "Your draft" } : { url: body.url }), ["twitter"], options);
+      expect(instant).not.toHaveBeenCalled();
+    }
+  }
   it.each(endpoints)("maps quota and Retry-After safely for %s", async (endpoint, body) => {
     instant.mockRejectedValue(new AIGenerationError("ai_quota", 60)); selected.mockRejectedValue(new AIGenerationError("ai_quota", 60));
     const result = await request(app).post(endpoint).send(body);
+    expectProviderAttempt(endpoint, body);
     expect(result.status).toBe(503); expect(result.body.code).toBe("ai_quota"); expect(result.headers["retry-after"]).toBe("60");
     expect(result.body).not.toHaveProperty("posts");
   });
   it.each(endpoints)("does not leak arbitrary provider errors for %s", async (endpoint, body) => {
     instant.mockRejectedValue(new Error("secret provider response")); selected.mockRejectedValue(new Error("secret provider response"));
     const result = await request(app).post(endpoint).send(body);
-    expect(result.status).toBe(500); expect(JSON.stringify(result.body)).not.toContain("secret");
+    expectProviderAttempt(endpoint, body);
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ code: "ai_generation_failed", message: "AI generation failed. Please try again later." });
+    expect(result.headers["retry-after"]).toBeUndefined();
+    expect(JSON.stringify(result.body)).not.toContain("secret");
   });
 });

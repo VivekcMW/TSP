@@ -74,6 +74,10 @@ beforeAll(async () => {
           if (s.publishError) throw new TypeError("Failed to fetch");
           return new Response(JSON.stringify({ jobId: "first", jobIds: ["first", "second"], status: "queued" }));
         }
+        if (String(url).endsWith("/approve-publishing")) {
+          s.drafts[0].publishApprovedAt = new Date().toISOString();
+          return new Response(JSON.stringify(s.drafts[0]));
+        }
         if (String(url).includes("/targets/")) {
           if (s.recoverySchedules) s.schedules = s.recoverySchedules;
           if (s.recoveryError === "network") throw new TypeError("Failed to fetch");
@@ -144,6 +148,37 @@ async function openPublish(scheduled = false) {
 }
 
 describe("audited publishing UX (isolated browser)", () => {
+  it("shows simulation without a live success message or receipt", async () => {
+    await mount("drafts", { postSchedules: [schedule(["simulated"], "simulated")] });
+    await openPublish(); await page.getByTestId("button-publish-now").click();
+    await browserExpect(page.getByRole("dialog")).toContainText("Simulation completed. Nothing was posted externally");
+    expect(await page.getByText(/All targets are recorded as published/).count()).toBe(0);
+    expect((await calls()).filter((call: any) => call.method === "POST")).toHaveLength(1);
+  });
+  it("requires explicit review before publishing and sends the exact revision", async () => {
+    const reviewed = { ...draft(), updatedAt: "2026-09-17T09:00:00.000Z" };
+    await mount("drafts", { drafts: [reviewed], profile: { ...fixture().profile, requirePublishReview: true } });
+    await page.getByTestId("button-post-d").click();
+    await browserExpect(page.getByTestId("button-publish-now")).toBeDisabled();
+    await page.getByRole("button", { name: "I reviewed this exact draft — approve publishing" }).click();
+    await browserExpect(page.getByTestId("button-publish-now")).toBeEnabled();
+    const writes = (await calls()).filter((call: any) => call.method === "POST");
+    expect(writes).toHaveLength(1); expect(writes[0]).toMatchObject({ url: "/api/drafts/d/approve-publishing", body: { content: reviewed.content, updatedAt: reviewed.updatedAt } });
+  });
+  it("records a manual reconciliation without dispatching a retry", async () => {
+    const pending = schedule(["unknown"], "unknown");
+    Object.assign(pending.targets[0], { revision: 3, executionMode: "live" });
+    await mount("drafts", { drafts: [draft("d", "unknown")], schedules: [pending] });
+    await page.getByTestId("tab-attention").click();
+    await page.getByRole("button", { name: "Record manual reconciliation" }).click();
+    await page.getByRole("combobox", { name: /^Decision/ }).selectOption("delivered", { timeout: 1500 });
+    await page.getByLabel("Evidence note (no credentials)").fill("Inspected the matching provider post manually");
+    await browserExpect(page.getByRole("button", { name: "Save manual decision — do not publish" })).toBeDisabled();
+    await page.getByLabel("Provider post ID or receipt reference").fill("provider-post-123");
+    await page.getByRole("button", { name: "Save manual decision — do not publish" }).click();
+    const writes = (await calls()).filter((call: any) => call.method === "POST");
+    expect(writes).toHaveLength(1); expect(writes[0]).toMatchObject({ url: "/api/drafts/d/schedule/targets/t0/reconcile", body: { expectedRevision: 3, decision: "delivered", receipt: "provider-post-123" } });
+  });
   it("renders draft query failures with retry, not an empty list", async () => {
     await mount("drafts", { draftsError: true });
     await browserExpect(page.getByRole("alert")).toContainText("Content could not be loaded");
@@ -165,9 +200,9 @@ describe("audited publishing UX (isolated browser)", () => {
     await browserExpect(page.getByText(/No publish log is available/)).toBeVisible();
     await change({ deferLogs: false, logError: true }, true);
     await browserExpect(page.getByRole("alert")).toContainText("receipts could not be loaded");
-    await change({ logError: false, logs: [{ id: "log", platform: "twitter", status: "published", attempt: 2, maxAttempts: 3, publishedPostId: "provider-42", startedAt: "2026-09-17T10:00:00Z" }] });
+    await change({ logError: false, logs: [{ id: "log", platform: "twitter", status: "published", executionMode: "live", receiptKind: "provider_id", attempt: 2, maxAttempts: 3, publishedPostId: "provider-42", startedAt: "2026-09-17T10:00:00Z" }] });
     await page.getByRole("button", { name: "Retry receipts" }).click();
-    await browserExpect(page.getByText("Post ID: provider-42")).toBeVisible();
+    await browserExpect(page.getByText("Provider post ID: provider-42")).toBeVisible();
     await browserExpect(page.getByText(/Twitter\/X · published · attempt 2\/3/)).toBeVisible();
   });
   it("disables published edit and only copies safe fields after explicit confirmation", async () => {
@@ -389,7 +424,7 @@ describe("audited publishing UX (isolated browser)", () => {
     expect(await calls()).toHaveLength(1);
     await change({ deferStatus: false, schedules: [schedule(["unknown"], "unknown", action === "Switch draft" ? "other" : "d")] });
     await page.getByRole("button", { name: action, exact: true }).click();
-    await browserExpect(page.locator("output")).toContainText('"outcome":"unknown"');
+    await browserExpect(page.locator("output")).toContainText('"outcome":"attention"');
     await browserExpect.poll(async () => (await calls()).length).toBeGreaterThan(1);
     await page.evaluate(() => (window as any).__pending.shift()());
     await browserExpect(page.locator("output")).toContainText('"status":"unknown"');

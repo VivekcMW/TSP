@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { clearEditorialRecovery, retainEditorialRecoveryForAccount } from "./editorial-recovery";
 
 /** Owns the legacy, unscoped query keys. No tenant-switch UI/protocol is implied. */
 export function createAccountCache(client: QueryClient) {
@@ -25,12 +26,14 @@ export function createAccountCache(client: QueryClient) {
     getSignal: () => lifetime.signal,
     async synchronize(accountId: string | null) {
       if (snapshot.signingOut || snapshot.accountId === accountId) return;
+      retainEditorialRecoveryForAccount(accountId);
       const current = ++revision;
       emit({ accountId, pending: true, signingOut: false });
       await clear();
       if (revision === current) emit({ accountId, pending: false, signingOut: false });
     },
     async beginSignOut() {
+      clearEditorialRecovery();
       ++revision;
       emit({ accountId: undefined, pending: true, signingOut: true });
       await clear();

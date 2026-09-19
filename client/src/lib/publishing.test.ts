@@ -18,7 +18,7 @@ describe("publishing outcome safety", () => {
   it("requires every persisted target and parent to confirm publication", () => {
     expect(publicationOutcome(schedule(["published", "queued"]))).toBe("pending");
     expect(publicationOutcome(schedule(["published", "failed"], "partial"))).toBe("attention");
-    expect(publicationOutcome(schedule(["published", "unknown"], "unknown"))).toBe("unknown");
+    expect(publicationOutcome(schedule(["published", "unknown"], "unknown"))).toBe("attention");
     expect(publicationOutcome(schedule(["skipped"], "completed"))).toBe("unknown");
     expect(publicationOutcome(schedule([], "published"))).toBe("unknown");
     expect(publicationOutcome(schedule(["published", "published"], "published"))).toBe("published");
@@ -76,6 +76,19 @@ describe("publishing outcome safety", () => {
 });
 
 describe("real publishing readiness", () => {
+  it("distinguishes simulation, unverified acceptance and manual claims", () => {
+    expect(publicationOutcome(schedule(["simulated"], "simulated"))).toBe("simulated");
+    for (const state of ["accepted_unverified", "manual_published"]) {
+      expect(publicationOutcome(schedule([state], state))).toBe("attention");
+      expect(draftStatusGroup(state)).not.toBe("published");
+      expect(canChangeSchedule(schedule([state]))).toBe(false);
+    }
+  });
+  it("requires explicit review when preferences require it", () => {
+    const data = ready(); data.profile!.requirePublishReview = true;
+    expect(publishingBlocker("linkedin", draft, data)).toContain("approve");
+    expect(publishingBlocker("linkedin", { ...draft, publishApprovedAt: new Date() }, data)).toBeNull();
+  });
   it("does not hard-disable Bluesky and honors saved defaults", () => {
     expect(publishingBlocker("bluesky", draft, ready())).toBeNull();
     expect(defaultSchedulePlatforms(draft, ready())).toEqual(["twitter"]);

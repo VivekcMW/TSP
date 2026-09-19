@@ -12,6 +12,7 @@ import { DashboardNavbar } from "@/components/dashboard/navbar";
 import { AppFooter } from "@/components/dashboard/app-footer";
 import { CreatePostProvider } from "@/components/dashboard/create-post-provider";
 import { useAuth } from "@/lib/auth";
+import { devAuthEnabled } from "@/lib/dev-auth";
 import { LoadingScreen } from "@/components/loading-screen";
 import { AuthError } from "@/components/auth-error";
 import { resolveGate } from "@/lib/gate";
@@ -107,7 +108,7 @@ function DashboardRouter() {
             <Route path="/dashboard/preferences"><DashboardRedirect to="/dashboard/settings?tab=publishing" /></Route>
             <Route path="/dashboard/plugins"><DashboardRedirect to="/dashboard/settings?tab=publishing" /></Route>
             <Route path="/dashboard/profile"><DashboardRedirect to="/dashboard/settings?tab=content" /></Route>
-            <Route path="/dashboard/profile-setup" component={ProfileSetupPage} />
+            <Route path="/dashboard/profile-setup"><DashboardRedirect to="/dashboard/settings?tab=content" /></Route>
             <Route path="/dashboard/settings" component={SettingsPage} />
             <Route path="/dashboard/billing"><DashboardRedirect to="/dashboard/settings?tab=billing" /></Route>
             <Route path="/dashboard/calendar" component={CalendarPage} />
@@ -180,19 +181,17 @@ function AppRoutes() {
   const authLoaded = !isPending;
   const signedIn = !!user;
 
-  // Always fetch /api/me to handle dev auth bypass mode (where there's no session cookie)
+  // Only explicit local development bypass may replace a Better Auth session.
+  // Otherwise fetching /api/me after logout can recreate cleared private data.
+  const sessionAvailable = signedIn || devAuthEnabled;
   const { data: dbUser, error: dbUserError } = useQuery<DbUser | null>({
     queryKey: ["/api/me"],
-    enabled: authLoaded,
+    enabled: authLoaded && sessionAvailable,
   });
-
-  // In dev auth bypass mode, /api/me returns a user even without a session.
-  // Treat the user as signed in if we got a valid dbUser from the API.
-  const devAuthSignedIn = signedIn || (authLoaded && !!dbUser && !dbUserError);
 
   const { data: profile, error: profileError } = useQuery<UserProfile>({
     queryKey: ["/api/profile"],
-    enabled: authLoaded && devAuthSignedIn,
+    enabled: authLoaded && sessionAvailable,
   });
 
   // `undefined` data means "not resolved yet" — more reliable than isLoading,
@@ -200,7 +199,7 @@ function AppRoutes() {
   // previously let a "registration incomplete" screen flash before the fetch.
   const gate = resolveGate({
     authLoaded,
-    signedIn: devAuthSignedIn,
+    signedIn: sessionAvailable,
     me: {
       status: gateQueryStatus(dbUser, dbUserError),
       registrationCompleted: dbUser?.registrationCompleted ?? null,

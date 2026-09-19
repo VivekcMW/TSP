@@ -10,6 +10,8 @@ import Bull from "bull";
 
 // Never load configured Redis, authentication, DB, or provider execution.
 vi.mock("../lib/redis", () => ({ redis: undefined }));
+vi.mock("../services/generation-quota", () => ({ assertGenerationAdmission: vi.fn(), generationAccessFailure: () => undefined,
+  generationOperationId: (id: string) => id, runGeneration: vi.fn(async (_scope, _id, _kind, _input, _signal, work) => work()) }));
 vi.mock("../services/editorial-request", () => ({ executeEditorialRequest: vi.fn() }));
 vi.mock("../services/tenancy", () => ({ resolveTenantContext: vi.fn() }));
 import { EditorialJobs, editorialInputHash, EDITORIAL_INPUT_TTL, EDITORIAL_RESULT_TTL, EDITORIAL_DEADLINE_MS } from "./editorial";

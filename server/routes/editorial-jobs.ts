@@ -11,6 +11,8 @@ import { prepareEditorialRequest, executeEditorialRequest } from "../services/ed
 import { getAIErrorResponse } from "../services/openRouter";
 import { CrawlError } from "../services/crawlerFetch";
 import { editorialCancellation } from "./editorial-context";
+import { generationAccessFailure, readGenerationOperation } from "../services/generation-quota";
+import { runHttpGeneration } from "./generation-operation";
 
 const statusRedis = redis;
 const operationLimit = (operation: string, limit: number) => rateLimit({ windowMs: 60_000, limit, standardHeaders: true, legacyHeaders: false,
@@ -24,13 +26,22 @@ function admissionError(res: Response, error: unknown) {
   if (error instanceof EditorialQueueUnavailableError) return res.status(503).json({ code: "editorial_queue_unavailable", message: error.message });
   if (error instanceof Error && "status" in error && error.status === 403) return res.status(403).json({ message: "An attached media item is not available to this account" });
   if (error instanceof CrawlError) return res.status(422).json({ code: "source_unreadable", message: `${error.message} Try another public URL or use Write article.` });
-  const failure = getAIErrorResponse(error);
+  const failure = generationAccessFailure(error) ?? getAIErrorResponse(error);
   if (failure.retryAfterSeconds) res.setHeader("Retry-After", String(failure.retryAfterSeconds));
   return res.status(failure.status).json(failure.body);
 }
 
 export function registerEditorialJobsRoutes(app: Express) {
   const guards = [requireDbUser, requirePermission("generation:create:own")];
+  app.get("/api/generation/operations/:id", ...guards, statusLimit, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      const operation = await readGenerationOperation(authedOf(req).tenant, req.params.id);
+      if (!operation) return res.status(404).json({ message: "Operation not found" });
+      res.json({ ...operation, consumed: true, policy: "consumed-attempt", resultRetained: false,
+        outcome: operation.status === "started" ? "in_progress_or_unknown" : operation.status });
+    } catch (error) { admissionError(res, error); }
+  });
   app.post(["/api/editorial/jobs/:kind", "/api/instant-review/selected", "/api/instant-review/manual"], (req, _res, next) => {
     // Non-opt-in callers continue to the unchanged direct HTTP routes.
     if (req.path.startsWith("/api/instant-review/") && req.get("Prefer") !== "respond-async") return next("route");
@@ -45,7 +56,8 @@ export function registerEditorialJobsRoutes(app: Express) {
       const jobs = getEditorialJobs();
       if (!jobs && (redis || process.env.NODE_ENV === "production")) throw new EditorialQueueUnavailableError();
       const prepared = await prepareEditorialRequest(req, kind, cancellation.signal);
-      if (!jobs) return res.json(await executeEditorialRequest(prepared, cancellation.signal));
+      if (!jobs) return res.json(await runHttpGeneration(req, res, kind, prepared.input, cancellation.signal,
+        () => executeEditorialRequest(prepared, cancellation.signal)));
       const jobId = await jobs.enqueue(authedOf(req).tenant, prepared);
       if (cancellation.signal.aborted) {
         await jobs.cancel(authedOf(req).tenant, jobId);

@@ -131,6 +131,12 @@ export default function DraftsPage() {
     },
   });
 
+  const approveDraftMutation = useMutation({
+    mutationFn: async (draft: Draft) => (await apiRequest("POST", `/api/drafts/${encodeURIComponent(draft.id)}/approve-publishing`, { content: draft.content, updatedAt: draft.updatedAt })).json(),
+    onSuccess: () => { void invalidatePublishingQueries(); toast({ title: "Review recorded", description: "This exact draft is approved. Nothing was published." }); },
+    onError: (error: Error) => toast({ title: "Approval not recorded", description: error.message, variant: "destructive" }),
+  });
+
   const dirty = !!editingDraft && editContent !== editingDraft.content;
   const editGuard = useRef({ dirty, saving: updateDraftMutation.isPending });
   editGuard.current = { dirty, saving: updateDraftMutation.isPending };
@@ -313,6 +319,9 @@ export default function DraftsPage() {
     if (!trackedDraftId || !publishStatus.schedule) return;
     if (publishStatus.outcome === "published") {
       setPublishMessage("All targets are recorded as published. Check the platform for the delivered post.");
+      void invalidatePublishingQueries();
+    } else if (publishStatus.outcome === "simulated") {
+      setPublishMessage("Simulation completed. Nothing was posted externally and no live receipt exists.");
       void invalidatePublishingQueries();
     } else if (publishStatus.outcome === "attention") {
       setPublishMessage("Not all targets published. Review the individual outcomes below; retry only failed targets.");
@@ -559,9 +568,11 @@ export default function DraftsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <div className="bg-muted p-4 rounded-md text-sm whitespace-pre-wrap line-clamp-6">
-              {postingDraft?.content}
+            <div className="bg-muted p-4 rounded-md text-sm whitespace-pre-wrap">
+              {currentPostingDraft?.content}
             </div>
+            {!!currentPostingDraft?.media?.length && <ul className="text-sm">{currentPostingDraft.media.map(item => <li key={item.id}>{item.type}: {item.name}</li>)}</ul>}
+            {currentPostingDraft && readiness.profile?.requirePublishReview && !currentPostingDraft.publishApprovedAt && ["draft", "scheduled", "failed"].includes(currentPostingDraft.publishStatus) && <Button className="mt-3" variant="outline" disabled={approveDraftMutation.isPending || draftsError} onClick={() => approveDraftMutation.mutate(currentPostingDraft)}>I reviewed this exact draft — approve publishing</Button>}
           </div>
           {postingWarnings.length > 0 && <ul className="list-disc pl-4 text-sm text-muted-foreground">{postingWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
           {trackedDraftId === postingDraft?.id && <div role="status" className="space-y-2 text-sm"><p>{publishStatus.error || publishMessage || "Delivery is unconfirmed. Check status before retrying."}</p>{publishStatus.schedule && <ScheduleTargetActions item={publishStatus.schedule} />}<Button variant="outline" size="sm" disabled={publishStatus.checking || isPublishing} onClick={publishStatus.recheck}>Check delivery status</Button><Button variant="ghost" size="sm" disabled={isPublishing} onClick={() => { setTrackedDraftId(null); setPostingDraft(null); }}>Dismiss monitor</Button><p>Dismissing does not resolve uncertainty or permit another publication of this draft.</p></div>}

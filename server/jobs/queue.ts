@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { redis } from "../lib/redis";
 import { createRedisClient } from "../lib/redis-options";
 import type { PublishDraftJobData } from "./handlers/publish-draft";
+import type { InboxRefreshResult } from "@shared/inbox-refresh";
 
 /**
  * Configuration for enqueueing an inbox refresh job.
@@ -17,6 +18,7 @@ export interface InboxRefreshJobConfig {
   autoRefresh?: boolean;
   triggeredBy?: "manual" | "cron";
   dedupeKey?: string;
+  operationId?: string;
 }
 
 /**
@@ -29,7 +31,7 @@ export interface InboxRefreshJobData extends InboxRefreshJobConfig {
 /**
  * Job progress tracking.
  */
-export interface InboxRefreshJobProgress {
+export interface InboxRefreshJobProgress extends Partial<InboxRefreshResult> {
   articlesProcessed: number;
   articlesMatched: number;
   articlesCreated: number;
@@ -39,6 +41,29 @@ export interface InboxRefreshJobProgress {
 let inboxRefreshQueue: Bull.Queue<InboxRefreshJobData> | undefined;
 let publishDraftQueue: Bull.Queue<PublishDraftJobData> | undefined;
 const queueClients = new Set<Redis>();
+
+export class InboxRefreshAdmissionError extends Error {
+  constructor(public readonly code: "refresh_operation_conflict" | "refresh_retry_exhausted" | "refresh_job_failed") {
+    super(code === "refresh_operation_conflict"
+      ? "Refresh operation does not match its original request."
+      : "This refresh failed. Its recovery budget is exhausted or it failed again; start a new refresh with a new operationId.");
+    this.name = "InboxRefreshAdmissionError";
+  }
+}
+
+// At most two explicit recovery reservations per retained Bull job, across all
+// API instances. Never reset attemptsMade or remove/recreate a failed job.
+// A lost retry acknowledgement consumes a reservation conservatively. Receipts
+// are checked by both callers and the worker before any replayed engine work.
+const reserveInboxRetry = `
+  if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+  if not redis.call('ZSCORE', KEYS[2], ARGV[1]) then return 0 end
+  if redis.call('EXISTS', KEYS[3]) == 1 then return 0 end
+  local used = tonumber(redis.call('HGET', KEYS[1], 'inboxRecoveryReservations') or '0')
+  if used >= 2 then return -1 end
+  redis.call('HINCRBY', KEYS[1], 'inboxRecoveryReservations', 1)
+  return 1
+`;
 
 export class QueueUnavailableError extends Error {
   constructor() {
@@ -114,12 +139,12 @@ export function initializeQueues(): Bull.Queue<InboxRefreshJobData> | undefined 
     const ERROR_LOG_INTERVAL_MS = 30_000; // Log errors max once per 30s
     
     for (const queue of [inboxRefreshQueue, publishDraftQueue]) {
-      queue.on("error", (error) => {
+      queue.on("error", () => {
         const now = Date.now();
         errorCount++;
         // Reduce error log spam: queue errors are usually transient reconnects
         if (now - lastErrorLog >= ERROR_LOG_INTERVAL_MS) {
-          console.warn(`[queue] ${queue.name} queue error: ${error.message} (${errorCount} errors since last log)`);
+          console.warn(`[queue] Connection unavailable (${errorCount} errors since last log)`);
           lastErrorLog = now;
           errorCount = 0;
         }
@@ -129,9 +154,9 @@ export function initializeQueues(): Bull.Queue<InboxRefreshJobData> | undefined 
     console.log("[queue] Inbox refresh queue initialized");
     console.log("[queue] Publish draft queue initialized");
     return inboxRefreshQueue;
-  } catch (error) {
-    console.error("[queue] Failed to initialize queue:", error);
-    if (backgroundJobsRequired()) throw error;
+  } catch {
+    console.error("[queue] Failed to initialize queue");
+    if (backgroundJobsRequired()) throw new QueueUnavailableError();
     return undefined;
   }
 }
@@ -175,15 +200,44 @@ export async function enqueueInboxRefresh(config: InboxRefreshJobConfig): Promis
   };
 
   try {
-    const job = await enqueueWithDeadline(queue.add(jobData, {
-      priority: priorityMap[config.priority || "normal"],
-      jobId: config.dedupeKey ?? `${config.tenantId}:${config.userId ?? "tenant"}:${randomUUID()}`,
-    }));
-
-    console.log(`[queue] Enqueued inbox_refresh job ${job.id} for tenant ${config.tenantId}`);
-    return String(job.id);
+    return await enqueueWithDeadline((async () => {
+      const added = await queue.add(jobData, {
+        priority: priorityMap[config.priority || "normal"],
+        jobId: config.dedupeKey ?? `${config.tenantId}:${config.userId ?? "tenant"}:${randomUUID()}`,
+      });
+      // Bull.add returns a fresh object even for an existing ID. Its data and
+      // attemptsMade are NOT the persisted job's data/attempts.
+      const job = await queue.getJob(added.id);
+      if (!job) throw new QueueUnavailableError();
+      if (job.data.tenantId !== config.tenantId || job.data.userId !== config.userId
+        || job.data.operationId !== config.operationId || Boolean(job.data.autoRefresh) !== Boolean(config.autoRefresh)) {
+        throw new InboxRefreshAdmissionError("refresh_operation_conflict");
+      }
+      if (await job.getState() === "failed") {
+        // Only explicit user/admin requests with stable operations may recover.
+        if (!config.manual || !config.operationId) throw new InboxRefreshAdmissionError("refresh_job_failed");
+        const reserved = await queue.client.eval(reserveInboxRetry, 3,
+          queue.toKey(String(job.id)), queue.toKey("failed"), queue.toKey(`${job.id}:lock`), String(job.id));
+        if (reserved === -1) throw new InboxRefreshAdmissionError("refresh_retry_exhausted");
+        if (reserved === 1) {
+          try { await job.retry(); } catch {
+            // A concurrent caller may already have retried it, or the retry
+            // acknowledgement was lost. Inspect state; never remove/re-add.
+            if (!["waiting", "active", "delayed", "paused", "completed"].includes(await job.getState())) {
+              throw new QueueUnavailableError();
+            }
+          }
+        }
+      }
+      const state = await job.getState();
+      if (state === "failed") throw new InboxRefreshAdmissionError("refresh_job_failed");
+      if (!["waiting", "active", "delayed", "paused", "completed"].includes(state)) throw new QueueUnavailableError();
+      console.log("[queue] Inbox refresh admitted");
+      return String(job.id);
+    })());
   } catch (error) {
-    console.error("[queue] Failed to enqueue job:", error);
+    if (error instanceof InboxRefreshAdmissionError) throw error;
+    console.error("[queue] Failed to enqueue inbox refresh");
     throw new QueueUnavailableError();
   }
 }
@@ -204,16 +258,16 @@ export async function getJobStatus(jobId: string) {
       return {
         id: job.id,
         state,
-        progress: job.progress(),
+        progress: state === "completed" && job.returnvalue && typeof job.returnvalue === "object" ? job.returnvalue : job.progress(),
         data: job.data,
-        error: job.failedReason,
+        error: state === "failed" ? job.failedReason : null,
         attemptsMade: job.attemptsMade,
         attempts: job.opts.attempts,
       };
     }
     return null;
-  } catch (error) {
-    console.error("[queue] Failed to get job status:", error);
+  } catch {
+    console.error("[queue] Failed to get job status");
     return null;
   }
 }
@@ -242,10 +296,10 @@ export async function enqueuePublishDraft(config: PublishDraftJobData): Promise<
       jobId,
     }));
 
-    console.log(`[queue] Enqueued publish_draft job ${job.id} for draft ${config.draftId}`);
+    console.log("[queue] Publish draft admitted");
     return String(job.id);
-  } catch (error) {
-    console.error("[queue] Failed to enqueue publish job:", error);
+  } catch {
+    console.error("[queue] Failed to enqueue publish job");
     throw new QueueUnavailableError();
   }
 }

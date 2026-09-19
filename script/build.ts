@@ -9,6 +9,8 @@ const allowlist = [
   "nanoid",
   // ESM-only v3 must be bundled: external CJS default interop varies by Node version.
   "node-fetch",
+  // Keep crawler DOM/date parsing self-contained in the compiled artifact.
+  "htmlparser2",
   "@clerk/express",
   "@google/genai",
   "cors",

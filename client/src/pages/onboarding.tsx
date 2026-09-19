@@ -3,15 +3,7 @@ import { useLocation } from "wouter";
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-
-interface OnboardingData {
-  focusDescription: string;
-  publications: string[];
-  keywords: string[];
-  influencers: string[];
-  companies: string[];
-  recommendedIndustry?: string;
-}
+import type { OnboardingData } from "@/lib/onboarding-choices";
 
 interface User {
   id: string;

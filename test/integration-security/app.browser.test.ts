@@ -73,7 +73,7 @@ beforeEach(async () => {
     if (failure) return reply({ message: "Fixture unavailable" }, failure);
     if (url.pathname === "/api/me") return reply({ id: account, name: `Person ${account}`, registrationCompleted: "2026-01-01", platformRole: null });
     if (url.pathname === "/api/profile") return reply({ id: `profile-${account}`, userId: account, tenantId: `tenant-${account}`, onboardingStatus: "completed", focusDescription: `Voice ${account}`, enabledPlatforms: ["linkedin"], defaultPlatform: "linkedin", defaultTone: "professional", timezone: "UTC", preferredPublishTime: "09:00", publications: [], companies: [], keywords: [], influencers: [] });
-    if (["/api/integrations", "/api/inbox", "/api/sources", "/api/sources/suggestions", "/api/profile/social-links", "/api/publishing-rules"].includes(url.pathname)) return reply([]);
+    if (["/api/integrations", "/api/inbox", "/api/sources", "/api/sources/suggestions", "/api/sources/publications", "/api/profile/social-links", "/api/publishing-rules"].includes(url.pathname)) return reply([]);
     if (url.pathname === "/api/analytics/summary") return reply({ connected: {}, linkedin: null, twitter: null });
     if (/\/api\/integrations\/[^/]+\/status/.test(url.pathname)) return reply({ connected: false });
     if (url.pathname === "/api/billing") return reply({ configured: false, plans: [], subscription: null, payments: [], paymentMethods: [] });
@@ -185,6 +185,7 @@ describe("full App integration security (real router, Settings and Create provid
     ["/dashboard/connections?connected=twitter&tab=billing", "integrations"],
     ["/dashboard/connections?error=access_denied&provider=linkedin&tab=content", "integrations"],
     ["/dashboard/profile?tab=account", "content"],
+    ["/dashboard/profile-setup", "content"],
     ["/dashboard/preferences?tab=account", "publishing"],
     ["/dashboard/billing?tab=account", "billing"],
   ])("redirects %s to the destination tab and lets Settings consume OAuth context", async (route, tab) => {

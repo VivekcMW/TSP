@@ -1,6 +1,7 @@
 import type { DetailedPostResult } from "@/lib/editorial";
 import { supportsArticle, type EditorialFormat } from "@shared/editorial";
 import { Button } from "@/components/ui/button";
+import { ClaimSupportReview } from "./claim-support-review";
 
 export function EditorialFormatSelect({ platform, value, onChange, disabled }: Readonly<{ platform: string; value: EditorialFormat; onChange: (value: EditorialFormat) => void; disabled?: boolean }>) {
   return <label className="flex flex-wrap items-center gap-2 text-sm"><span>Format</span>
@@ -19,10 +20,11 @@ export function EditorialProgress({ pending, elapsed, error, cancel, progress }:
   </>;
 }
 
-export function EditorialDetails({ evidence, detail, edited = false }: Readonly<{ evidence?: DetailedPostResult["evidence"]; detail?: Omit<DetailedPostResult, "evidence">; edited?: boolean }>) {
+export function EditorialDetails({ evidence, detail, edited = false, currentContent }: Readonly<{ evidence?: DetailedPostResult["evidence"]; detail?: Omit<DetailedPostResult, "evidence">; edited?: boolean; currentContent?: string }>) {
   return <section className="space-y-2 rounded-md border bg-muted/20 p-3 text-sm" aria-label="Generation evidence">
     <p className="font-medium">Human review required — not fact-checked.</p>
     <p className="text-xs text-muted-foreground">Source matching and structural checks are not independent factual verification.{edited ? " You edited this draft; attribution mappings describe the original generated text only." : ""}</p>
+    {detail && <ClaimSupportReview key={evidence?.sourceId} report={detail.claimSupport} text={detail.content} edited={edited} currentContent={currentContent} />}
     {detail?.generation && <p className="text-xs">Provider: {detail.generation.provider} · Model: {detail.generation.model}{detail.generation.fallbackUsed && <strong className="ml-2">Fallback provider used — review this output carefully.</strong>}</p>}
     {evidence?.warnings.map(warning => <p key={warning.code} className="text-xs text-destructive">{warning.message}</p>)}
     {evidence && <details><summary className="cursor-pointer font-medium">Source evidence excerpts ({evidence.excerpts.length})</summary><div className="mt-2 max-h-64 space-y-3 overflow-y-auto">{evidence.excerpts.map(excerpt => <blockquote key={excerpt.id} className="border-l-2 pl-3"><span className="text-xs font-medium">{excerpt.id}</span><p className="whitespace-pre-wrap">{excerpt.text}</p></blockquote>)}</div></details>}

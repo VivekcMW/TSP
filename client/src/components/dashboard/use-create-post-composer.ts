@@ -3,15 +3,17 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { InboxItem, UserProfile } from "@shared/schema";
 import { supportsArticle, type EditorialFormat } from "@shared/editorial";
 import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth";
 import { getPlatformMeta, PLATFORMS } from "@/lib/platforms";
 import { usablePost, type ReviewResponse } from "@/lib/editorial";
 import { isUsableInboxArticle } from "@/lib/inbox-quality";
 import { useEditorialGeneration } from "@/hooks/use-editorial-generation";
 import { applyReview, CREATE_TONES, emptyArticle, isEdited, isUnsaved, publicSourceUrl, versionKey, type CreateTone, type ManualArticle, type PostVersions } from "./create-post-state";
 
-/** In-memory only. Mount under the authenticated, tenant-scoped provider, never a route. */
+/** Content stays in memory; only the scoped job/intent pointer survives reload. */
 export function useCreatePostComposer(isOpen: boolean) {
   const client = useQueryClient();
+  const { user } = useAuth();
   const profile = useQuery<UserProfile>({ queryKey: ["/api/profile"], enabled: isOpen });
   const integrations = useQuery<{ key: string; enabled: boolean }[]>({ queryKey: ["/api/integrations"], enabled: isOpen });
   const inbox = useQuery<InboxItem[]>({ queryKey: ["/api/inbox"], enabled: isOpen });
@@ -32,7 +34,19 @@ export function useCreatePostComposer(isOpen: boolean) {
   const saveLock = useRef(false);
   const generationLock = useRef(false);
   const lastGeneration = useRef<{ platform: string; inboxItemId?: string }>();
-  const generation = useEditorialGeneration<ReviewResponse>();
+  const generation = useEditorialGeneration<ReviewResponse>({
+    scope: user?.id && profile.data?.tenantId ? { userId: user.id, tenantId: profile.data.tenantId } : undefined,
+    onRecovered: data => {
+      const recoveredPlatform = Object.keys(data?.posts ?? {})[0];
+      if (!PLATFORMS.some(value => value.value === recoveredPlatform)) {
+        setNotice("The recovered job returned no supported platform. Nothing was regenerated."); return;
+      }
+      const snapshot = { platform: recoveredPlatform };
+      lastGeneration.current = snapshot;
+      setPlatform(recoveredPlatform);
+      acceptResult(data, snapshot);
+    },
+  });
   const disabled = new Set((integrations.data ?? []).filter(value => !value.enabled).map(value => value.key));
   const preferencesReady = profile.isSuccess && integrations.isSuccess;
   const platforms = preferencesReady ? PLATFORMS.filter(value => (!profile.data?.enabledPlatforms || profile.data.enabledPlatforms.includes(value.value)) && !disabled.has(value.value)) : [];
@@ -84,6 +98,7 @@ export function useCreatePostComposer(isOpen: boolean) {
   };
   const generate = async (retry = false) => {
     if (generationLock.current || saveLock.current || uploading || (!retry && !canGenerate)) return;
+    if (retry && generation.reattached) { await generation.retry(); return; }
     const snapshot = retry ? lastGeneration.current : { platform, inboxItemId: item?.articleUrl === url && mode !== "manual" ? item?.id : undefined };
     if (!snapshot || !platforms.some(value => value.value === snapshot.platform)) return;
     if (Object.values(versionsRef.current).some(value => value.platform === snapshot.platform && isEdited(value)) &&

@@ -1,6 +1,8 @@
 import { CrawlError, fetchPublicText } from "./crawlerFetch.js";
 import { cleanPageHtml, metaContent, requireReadableHtml, requireUngatedHtml } from "./crawlerHtml.js";
 import { MAX_SOURCE_CHARACTERS, type SourceContentMetadata } from "./editorialEvidence.js";
+import type { PublicationDate } from "@shared/article-quality";
+import { extractPublicationDate } from "./articleDates";
 
 export interface FetchedArticle {
   title: string;
@@ -9,6 +11,8 @@ export interface FetchedArticle {
   url: string;
   domain: string;
   contentMetadata?: SourceContentMetadata;
+  publishedAt?: string | null;
+  publicationDate?: PublicationDate;
 }
 
 /** Real article paragraphs cluster together in the HTML; nav/footer/promo <p> tags are scattered singles separated by large gaps of unrelated markup. Picking the densest cluster (not just "the first N <p> tags on the page") is what actually finds the article body on pages with no semantic <article>/<main> wrapper. */
@@ -77,6 +81,7 @@ export function extractArticleFromHtml(rawHtml: string, url: string): FetchedArt
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 
+  const date = extractPublicationDate(rawHtml, url);
   const html = cleanPageHtml(rawHtml);
   const titleMatch = /<title[^>]*>([^<]+)<\/title>/i.exec(html);
   const title = titleMatch?.[1]?.trim() || "Untitled Article";
@@ -112,6 +117,7 @@ export function extractArticleFromHtml(rawHtml: string, url: string): FetchedArt
   }
   return {
     title: decodeHtmlEntities(ogTitle || title), content, source: sourceName, url, domain,
+    publishedAt: date.publishedAt, publicationDate: date,
     contentMetadata: { extractionMethod, originalLength, retainedLength: content.length, truncated: originalLength > content.length },
   };
 }

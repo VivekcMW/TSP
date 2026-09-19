@@ -5,26 +5,30 @@ import { requirePermission } from "../middlewares/requirePermission";
 import { engineRegistry } from "../services/engines/index.js";
 import { normalizeIndustryToSlug } from "../services/metaEngine";
 import { validateUrl, validateUrlSync } from "../services/urlValidator";
-import { storage } from "../storage";
+import { storage, InboxCapacityError, InboxOperationConflictError } from "../storage";
+import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod";
-import { enqueueInboxRefresh, getJobStatus } from "../jobs/queue";
+import { enqueueInboxRefresh, getJobStatus, InboxRefreshAdmissionError } from "../jobs/queue";
 
 const updateInboxItemSchema = z.object({
   status: z.enum(["active", "saved", "dismissed"]),
 });
+const refreshSchema = z.object({ autoRefresh: z.boolean().optional(), operationId: z.string().uuid().optional() });
 
 const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(200).optional(),
   offset: z.coerce.number().int().min(0).optional(),
+  status: z.enum(["active", "saved", "dismissed"]).optional(),
 });
 
 export function registerInboxRoutes(app: Express) {
   app.get("/api/inbox", requireDbUser, requirePermission("inbox:read:own"), async (req, res) => {
     try {
-      const { dbUser, tenant: scope } = authedOf(req);
-      const userId = dbUser.id;
-      const { limit, offset } = paginationQuerySchema.parse(req.query);
-      const items = await storage.getInboxItems(scope, { limit, offset });
+      const { tenant: scope } = authedOf(req);
+      const parsed = paginationQuerySchema.safeParse(req.query);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid inbox query" });
+      const { limit, offset, status } = parsed.data;
+      const items = await storage.getInboxItems(scope, { limit, offset, order: "relevance", ...(status ? { status } : {}) });
       res.json(items);
     } catch (error) {
       console.error("Error fetching inbox:", error);
@@ -77,7 +81,12 @@ export function registerInboxRoutes(app: Express) {
     try {
       const { dbUser, tenant: scope } = authedOf(req);
       const userId = dbUser.id;
-      const autoRefresh = req.body?.autoRefresh === true;
+      const input = refreshSchema.safeParse(req.body ?? {});
+      if (!input.success) return res.status(400).json({ message: "Invalid refresh request" });
+      const autoRefresh = input.data.autoRefresh ?? false;
+      const operationId = `refresh:${input.data.operationId ?? randomUUID()}`;
+      const receipt = await storage.getInboxRefreshReceipt(scope, operationId, autoRefresh);
+      if (receipt) return res.json(receipt);
 
       // Try to enqueue the job
       const jobId = await enqueueInboxRefresh({
@@ -85,6 +94,8 @@ export function registerInboxRoutes(app: Express) {
         userId,
         manual: true,
         autoRefresh,
+        operationId,
+        dedupeKey: createHash("sha256").update(JSON.stringify([scope.tenantId, userId, operationId])).digest("hex"),
         triggeredBy: "manual",
       });
 
@@ -110,27 +121,7 @@ export function registerInboxRoutes(app: Express) {
       const engine = engineRegistry.getEngine(industry);
       console.log(`[Inbox Refresh] Using ${engine.config.displayName} engine for user ${userId}`);
 
-      const existingItems = await storage.getInboxItems(scope);
-      const activeItems = existingItems.filter((item) => item.status === "active");
-      const activeCount = activeItems.length;
-
-      if (activeCount >= 10) {
-        if (!autoRefresh) {
-          return res.json({
-            message: "You have enough articles to review. Save or dismiss some before refreshing.",
-            count: 0,
-            items: [],
-            engine: engine.config.displayName,
-          });
-        }
-        // Auto-refresh: dismiss all existing active articles to make room for fresh ones
-        for (const item of activeItems) {
-          await storage.updateInboxItem(scope, item.id, { status: "dismissed" });
-        }
-        console.log(`[Inbox Auto-Refresh] Dismissed ${activeCount} stale articles for user ${userId}`);
-      }
-
-      const result = await engine.processForUser(scope, profile);
+      const result = await engine.processForUser(scope, profile, { operationId, autoRefresh });
 
       await storage.createEngineRunLog(scope, {
         industry,
@@ -140,35 +131,13 @@ export function registerInboxRoutes(app: Express) {
         errorMessage: result.errors?.join("; ") || null,
         durationMs: result.durationMs,
         completedAt: new Date(),
-      });
+      }).catch(() => { console.warn("Inbox refresh log unavailable"); });
 
-      if (!result.success) {
-        console.error(`Engine processing failed for user ${userId}:`, result.errors);
-        return res.status(502).json({
-          message: "We couldn't fetch new articles right now. Please try again in a moment.",
-          count: 0,
-          items: [],
-          engine: engine.config.displayName,
-        });
-      }
-
-      const updatedItems = await storage.getInboxItems(scope);
-      const newItems = updatedItems.filter((item) => !existingItems.some((existing) => existing.id === item.id));
-
-      res.json({
-        message: result.needsSetup
-          ? "Add keywords, companies, influencers, or a custom source in your profile to start discovering real, personalized articles."
-          : "Inbox refreshed successfully",
-        count: result.newInboxItems,
-        articlesProcessed: result.articlesProcessed,
-        articlesMatched: result.articlesMatched,
-        items: newItems,
-        engine: engine.config.displayName,
-        durationMs: result.durationMs,
-        needsSetup: result.needsSetup,
-      });
+      res.status(result.success ? 200 : 502).json({ ...result, engine: engine.config.displayName });
     } catch (error) {
-      console.error("Error refreshing inbox:", error);
+      if (error instanceof InboxOperationConflictError) return res.status(409).json({ message: error.message });
+      if (error instanceof InboxRefreshAdmissionError) return res.status(409).json({ status: "failed", success: false, code: error.code, message: error.message });
+      console.error("Error refreshing inbox");
       res.status(500).json({ message: "Failed to refresh inbox" });
     }
   });
@@ -192,10 +161,10 @@ export function registerInboxRoutes(app: Express) {
         progress: jobStatus.progress,
         attemptsMade: jobStatus.attemptsMade,
         totalAttempts: jobStatus.attempts,
-        error: jobStatus.error || null,
+        error: jobStatus.state === "failed" ? "Article fetching could not complete. Please try again." : null,
       });
     } catch (error) {
-      console.error("Error fetching job status:", error);
+      console.error("Error fetching job status");
       res.status(500).json({ message: "Failed to fetch job status" });
     }
   });
@@ -220,23 +189,21 @@ export function registerInboxRoutes(app: Express) {
         return res.status(400).json({ message: urlResult.reason || "URL validation failed" });
       }
       
-      const existingItems = await storage.getInboxItems(scope);
-      const alreadyExists = existingItems.some(item => item.articleUrl === link);
-      if (alreadyExists) {
-        return res.json({ message: "Article already in inbox", alreadyExists: true });
-      }
-      
-      const item = await storage.createInboxItem(scope, {
+      const { item, alreadyExists } = await storage.addInboxItem(scope, {
         headline: title,
         source: source || "Hot Trends",
         articleUrl: link,
         summary: `Trending topic: ${topic || "Industry News"}`,
-        matchedKeywords: topic ? [topic] : [],
+        matchedKeywords: [],
+        relevanceScore: "0",
+        relevanceReason: "Manually added from trends; relevance has not been scored.",
         status: "active",
       });
       
+      if (alreadyExists) return res.json({ message: "Article already in inbox", alreadyExists: true });
       res.json({ message: "Article added to inbox", item });
     } catch (error) {
+      if (error instanceof InboxCapacityError) return res.status(409).json({ message: error.message, outcome: "capacity" });
       console.error("Error adding trend to inbox:", error);
       res.status(500).json({ message: "Failed to add article to inbox" });
     }
@@ -261,6 +228,7 @@ export function registerInboxRoutes(app: Express) {
       
       res.json(updated);
     } catch (error) {
+      if (error instanceof InboxCapacityError) return res.status(409).json({ message: error.message, outcome: "capacity" });
       console.error("Error updating inbox item:", error);
       res.status(500).json({ message: "Failed to update inbox item" });
     }

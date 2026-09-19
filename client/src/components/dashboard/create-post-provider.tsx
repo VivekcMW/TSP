@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { InboxItem } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { InstantReviewPanel } from "./instant-review-panel";
@@ -16,13 +16,14 @@ const CreatePostContext = createContext<CreatePostContextValue | null>(null);
 export function CreatePostProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [isOpen, setOpen] = useState(false);
   const composer = useCreatePostComposer(isOpen);
+  useEffect(() => { if (composer.generation.reattached) setOpen(true); }, [composer.generation.reattached]);
   const openCreate = (item?: InboxItem) => {
     composer.prefill(item);
     setOpen(true);
   };
   const close = () => {
     if ((composer.dirty || composer.busy || composer.generation.recoverable) && !window.confirm(
-      "Close Create? Unsaved work stays in this session across pages, but is lost on reload or sign-out. Generation continues; unfinished uploads are cancelled. Choose Cancel to keep editing.",
+      "Close Create? Unsaved text is lost on reload or sign-out. An admitted generation can reconnect in this tab while its server result is retained. Generation continues; unfinished uploads are cancelled. Choose Cancel to keep editing.",
     )) return false;
     setOpen(false);
     return true;

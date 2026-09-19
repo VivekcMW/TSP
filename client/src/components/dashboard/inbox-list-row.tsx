@@ -1,5 +1,6 @@
 import { Bookmark } from "lucide-react";
 import type { InboxItem } from "@shared/schema";
+import { articleDateLabel } from "@/lib/article-date-label";
 
 const AVATAR_PALETTE = [
   "bg-primary/15 text-primary",
@@ -13,17 +14,6 @@ function avatarClassFor(source: string): string {
   let hash = 0;
   for (let i = 0; i < source.length; i++) hash = (hash * 31 + source.charCodeAt(i)) >>> 0;
   return AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
-}
-
-function relativeTime(date: Date | string | null | undefined): string {
-  if (!date) return "";
-  const parsed = typeof date === "string" ? new Date(date) : date;
-  const diffHrs = Math.floor((Date.now() - parsed.getTime()) / 3600000);
-  if (diffHrs < 1) return "Just now";
-  if (diffHrs < 24) return `${diffHrs}h ago`;
-  const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return parsed.toLocaleDateString();
 }
 
 interface InboxListRowProps {
@@ -55,7 +45,7 @@ export function InboxListRow({ item, isActive, onSelect }: Readonly<InboxListRow
         <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
           <span className="max-w-[110px] truncate">{item.source}</span>
           <span>·</span>
-          <span className="shrink-0">{relativeTime(item.createdAt)}</span>
+          <span className="truncate" title={articleDateLabel(item)}>{articleDateLabel(item)}</span>
           {matchedKeywords[0] && (
             <>
               <span>·</span>

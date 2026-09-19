@@ -1,4 +1,21 @@
 import Parser from "rss-parser";
+import type { ArticleInputKind, PublicationDate } from "@shared/article-quality";
+import { publicationDate } from "./articleDates";
+
+/** rss-parser's Atom adapter substitutes updated and throws on invalid dates.
+ * Call its content adapter with dates removed; retain ONLY raw published here.
+ * This application subclass is covered against actual rss-parser XML fixtures.
+ */
+export class PublicationFeedParser extends Parser {
+  parseItemAtom(entry: Record<string, unknown>) {
+    const { published, updated: _updated, ...content } = entry;
+    const base = Parser.prototype as unknown as { parseItemAtom(value: Record<string, unknown>): Record<string, unknown> };
+    const item = base.parseItemAtom.call(this, content);
+    const raw = Array.isArray(published) ? published[0] : undefined;
+    const date = publicationDate(typeof raw === "object" && raw ? (raw as { _?: string })._ : raw, "atom-published");
+    return { ...item, pubDate: date.publishedAt, publicationDate: date };
+  }
+}
 
 /**
  * One parser for every feed format Discover deals with (RSS 2.0, Atom, and
@@ -10,12 +27,17 @@ import Parser from "rss-parser";
 export interface ParsedFeedItem {
   title: string;
   link: string;
-  pubDate: string;
+  /** Compatibility alias, validated publication only. */
+  pubDate: string | null;
+  publishedAt?: string | null;
+  publicationDate?: PublicationDate;
+  inputKind?: ArticleInputKind;
+  sourceOrigin?: string | null;
   content: string;
   categories: string[];
 }
 
-const rssAtomParser = new Parser({
+const rssAtomParser = new PublicationFeedParser({
   timeout: 8000,
   headers: { "User-Agent": "TheSocialPundit/1.0 (Feed Reader)" },
 });
@@ -24,12 +46,12 @@ export function stripHtml(input: string): string {
   return input.replace(/<[^>]{0,500}>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/** Lowercase, punctuation-stripped title for fuzzy dedup — catches syndicated re-headlines of the same story across outlets that a strict URL match would miss. */
+/** Unicode-preserving normalization, not semantic story equivalence. */
 export function normalizeTitleForDedup(title: string): string {
   return title
-    .toLowerCase()
+    .normalize("NFKC").toLowerCase()
     .replace(/&#\d+;|&[a-z]+;/g, " ")
-    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/[^\p{L}\p{M}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -53,13 +75,15 @@ function parseJsonFeed(text: string): ParsedFeedItem[] | null {
   try {
     const parsed = JSON.parse(text) as { items?: JsonFeedItem[] };
     if (!Array.isArray(parsed.items)) return null;
-    return parsed.items.map((item) => ({
+    return parsed.items.map((item) => {
+      const date = publicationDate(item.date_published, "json-date_published");
+      return ({
       title: item.title || "Untitled",
       link: item.url || item.id || "",
-      pubDate: item.date_published || new Date().toISOString(),
+      pubDate: date.publishedAt, publishedAt: date.publishedAt, publicationDate: date, inputKind: "feed_excerpt" as const,
       content: stripHtml(item.content_text || item.content_html || item.summary || ""),
       categories: item.tags || [],
-    }));
+    }); });
   } catch {
     return null;
   }
@@ -80,13 +104,15 @@ export async function parseFeedContent(text: string): Promise<ParsedFeedItem[] |
     const feed = await rssAtomParser.parseString(text);
     const items = feed.items || [];
     if (items.length === 0) return null;
-    return items.map((item) => ({
+    return items.map((item) => {
+      const date = (item as typeof item & { publicationDate?: PublicationDate }).publicationDate ?? publicationDate(item.pubDate, "rss-pubDate");
+      return ({
       title: item.title || "Untitled",
       link: item.link || "",
-      pubDate: item.pubDate || item.isoDate || new Date().toISOString(),
+      pubDate: date.publishedAt, publishedAt: date.publishedAt, publicationDate: date, inputKind: "feed_excerpt" as const,
       content: stripHtml(item.contentSnippet || item.content || item.summary || ""),
       categories: item.categories || [],
-    }));
+    }); });
   } catch {
     // Last resort: maybe it's JSON Feed without the exact version string we checked for.
     return parseJsonFeed(text);

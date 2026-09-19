@@ -1,9 +1,8 @@
 import fetch, { type Headers } from "node-fetch";
-import { Agent as HttpAgent } from "node:http";
-import { Agent as HttpsAgent } from "node:https";
-import type { LookupFunction } from "node:net";
+import type { Agent as HttpAgent } from "node:http";
 import { Readable } from "node:stream";
-import { resolvePublicHttpUrl } from "./urlValidator.js";
+import { pinnedPublicAgent, SafeOutboundError } from "./safeOutbound.js";
+export { withAbort } from "./safeOutbound.js";
 
 export class CrawlError extends Error {
   constructor(public readonly code: string, message: string) {
@@ -63,16 +62,6 @@ function acquire(host: string, signal: AbortSignal): Promise<() => void> {
   });
 }
 
-/** DNS lookup cannot be cancelled by Node; abandon its result on cancellation. */
-export function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  signal.throwIfAborted();
-  return new Promise((resolve, reject) => {
-    const abort = () => reject(signal.reason);
-    signal.addEventListener("abort", abort, { once: true });
-    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
-  });
-}
-
 export interface CrawlPage { url: string; text: string; status: number; headers: Headers }
 export interface CrawlBudget { requests: number; bytes: number }
 export interface CrawlOptions { signal?: AbortSignal; timeoutMs?: number; maxBytes?: number; method?: "GET" | "HEAD"; budget?: CrawlBudget }
@@ -91,19 +80,6 @@ function parseCrawlUrl(rawUrl: string): URL {
   }
 }
 
-async function pinnedAgent(url: URL, signal: AbortSignal): Promise<HttpAgent> {
-  const target = await withAbort(resolvePublicHttpUrl(url.href), signal);
-  if (!target.ok) throw new CrawlError("blocked", target.reason);
-  signal.throwIfAborted();
-  // No second DNS resolution at connect time. Host header and TLS SNI retain the URL hostname.
-  const record = target.records[0];
-  const lookup: LookupFunction = (_hostname, lookupOptions, callback) => {
-    if (lookupOptions.all) callback(null, [record]);
-    else callback(null, record.address, record.family);
-  };
-  return url.protocol === "https:" ? new HttpsAgent({ lookup, keepAlive: false }) : new HttpAgent({ lookup, keepAlive: false });
-}
-
 async function fetchHop(url: URL, signal: AbortSignal, options: CrawlOptions, maxBytes: number): Promise<CrawlPage | { redirect: string }> {
   const release = await acquire(url.hostname.toLowerCase().replace(/\.$/, ""), signal);
   let agent: HttpAgent | undefined;
@@ -115,7 +91,7 @@ async function fetchHop(url: URL, signal: AbortSignal, options: CrawlOptions, ma
       budget.requests--;
       maxBytes = Math.min(maxBytes, budget.bytes);
     }
-    agent = await pinnedAgent(url, signal);
+    agent = await pinnedPublicAgent(url, signal);
     const response = await fetch(url, {
       method: options.method ?? "GET", redirect: "manual", agent, signal,
       size: maxBytes, highWaterMark: 16 * 1024,
@@ -171,6 +147,7 @@ export async function fetchPublicText(rawUrl: string, options: CrawlOptions = {}
     throw new CrawlError("redirect", "The source has too many redirects.");
   } catch (error) {
     if (signal.aborted) throw new CrawlError("timeout", "The crawl was cancelled or exceeded its time budget.");
+    if (error instanceof SafeOutboundError) throw new CrawlError(error.code, error.message);
     if (error instanceof CrawlError) throw error;
     if ((error as { type?: string })?.type === "max-size") throw new CrawlError("size", "The source response exceeds the crawl size limit.");
     throw new CrawlError("network", "The source could not be reached. It may be offline or block automated access.");

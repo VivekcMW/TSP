@@ -1,10 +1,10 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
-import { pool } from "./db";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { and, eq, sql } from "drizzle-orm";
+import { db, pool } from "./db";
 import { ownerDb, ownerPool } from "../test/db-owner";
 import { users } from "@shared/models/auth";
 import { tenantMembers, tenants } from "@shared/models/tenancy";
-import { drafts, inboxItems, socialAccounts, socialAnalytics, userProfiles } from "@shared/schema";
+import { billingCustomers, billingPlans, drafts, inboxItems, platformIntegrations, socialAccounts, socialAnalytics, subscriptions, userProfiles } from "@shared/schema";
 import { storage, type TenantScope } from "./storage";
 
 /**
@@ -56,6 +56,14 @@ async function joinCorporateTenant(userId: string, name: string): Promise<Tenant
 let a: TenantScope;
 let b: TenantScope;
 
+beforeAll(async () => {
+  const role = await db.execute(sql`select current_user, rolsuper, rolbypassrls from pg_roles where rolname = current_user`);
+  expect(role.rows[0]).toMatchObject({ current_user: "tsp_app", rolsuper: false, rolbypassrls: false });
+  vi.stubEnv("PUBLISHING_MODE", "sandbox");
+  vi.stubEnv("WEBHOOK_ENCRYPTION_SECRET", "tenant-isolation-test-only-key-32-characters");
+  vi.stubEnv("WEBHOOK_ENCRYPTION_PREVIOUS_SECRETS", "[]");
+});
+
 beforeEach(async () => {
   // Order matters: children before parents.
   await ownerDb.delete(socialAnalytics);
@@ -74,6 +82,7 @@ beforeEach(async () => {
 afterAll(async () => {
   await pool.end();
   await ownerPool.end();
+  vi.unstubAllEnvs();
 });
 
 describe("tenant isolation: profiles", () => {
@@ -183,10 +192,27 @@ describe("tenant isolation: drafts", () => {
   });
 
   it("propagates failed schedule state to the draft publish status", async () => {
-    const created = await storage.createDraft(a, draft);
+    // Keep the real admission policy: use existing catalog entries, and create
+    // tenant-owned prerequisites rather than bypassing entitlement or review.
+    const [plan] = await db.select().from(billingPlans).where(and(eq(billingPlans.key, "pro_monthly"), eq(billingPlans.isActive, true)));
+    const [integration] = await db.select().from(platformIntegrations).where(eq(platformIntegrations.key, "mastodon"));
+    expect(plan).toBeDefined();
+    expect(integration?.enabled).toBe(true);
+    const [customer] = await ownerDb.insert(billingCustomers).values({ tenantId: a.tenantId,
+      razorpayCustomerId: `isolation-${a.tenantId}`, email: "alpha@isolation.test", name: "Isolation fixture" }).returning();
+    await ownerDb.insert(subscriptions).values({ tenantId: a.tenantId, billingCustomerId: customer.id,
+      planId: plan.id, status: "active", currentPeriodStart: new Date(Date.now() - 60_000),
+      currentPeriodEnd: new Date(Date.now() + 3_600_000) });
+    await storage.createUserProfile(a, { enabledPlatforms: ["mastodon"], requirePublishReview: true });
+    await storage.createSocialAccount(a, { provider: "mastodon", providerAccountId: "https://instance.test",
+      accessToken: "isolation-test-only-token", scopes: [], isActive: true });
+    const created = await storage.createDraft(a, { ...draft, platform: "mastodon" });
+    await storage.approveDraftForPublishing(a, created.id, created.content, created.updatedAt!.toISOString());
     const schedule = await storage.scheduleDraftPublish(a, created.id, new Date(Date.now() + 60_000));
 
-    await storage.updateDraftScheduleStatus(a, schedule.id, "failed", "LinkedIn rejected the post");
+    expect(await storage.updateDraftScheduleStatus(b, schedule.id, "failed", "Unauthorized")).toBeUndefined();
+    expect((await storage.getDraftSchedule(a, created.id))?.status).toBe("scheduled");
+    await storage.updateDraftScheduleStatus(a, schedule.id, "failed", "Mastodon rejected the post");
 
     const reloaded = await storage.getDrafts(a);
     expect(reloaded.find((item) => item.id === created.id)?.publishStatus).toBe("failed");

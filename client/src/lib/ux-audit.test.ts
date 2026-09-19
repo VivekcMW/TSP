@@ -40,4 +40,10 @@ describe("UX audit data helpers", () => {
     expect(refreshJobMessage(state)).toContain("Waiting for a worker");
     expect(refreshJobMessage({ ...state, status: "completed", progress: { ...state.progress, needsSetup: true } })).toContain("Add a source or topic");
   });
+  it.each([
+    ["capacity", "Your inbox is full"], ["no_new", "No new articles"], ["needs_setup", "Add interests"], ["updated", "3 new articles"],
+  ] as const)("reports the shared %s outcome truthfully", (outcome, message) => {
+    expect(refreshJobMessage({ status: "completed", progress: { articlesProcessed: 12, articlesMatched: 12,
+      articlesCreated: 3, outcome, activeCount: 10, replacedCount: 1 } })).toContain(message);
+  });
 });

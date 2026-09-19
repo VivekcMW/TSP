@@ -121,6 +121,13 @@ export function schedulePublishRefresh(intervalMinutes = 1): string {
   return schedule("publish", intervalMinutes, async (_slot, assertConnected) => publishDueDrafts(assertConnected));
 }
 
+export function scheduleEmailDigest(): string {
+  return schedule("email-digest", 1, async (_slot, assertConnected) => {
+    const { runEmailDigestCycle } = await import("./email-digest");
+    await runEmailDigestCycle(assertConnected);
+  });
+}
+
 export async function initializeScheduler(): Promise<boolean> {
   if (process.env.BACKGROUND_JOBS_ENABLED !== "true" || process.env.NODE_ENV !== "production" || process.env.CRON_SCHEDULER !== "true") return false;
   const active = Number(process.env.CRON_REFRESH_INTERVAL || "360");
@@ -132,6 +139,7 @@ export async function initializeScheduler(): Promise<boolean> {
   scheduleActiveUserRefresh(active);
   scheduleTopUserRefresh(top);
   schedulePublishRefresh(publish);
+  if (process.env.EMAIL_DIGEST_ENABLED === "true") scheduleEmailDigest();
   return true;
 }
 

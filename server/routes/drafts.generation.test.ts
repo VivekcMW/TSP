@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   pass: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 vi.mock("../db", () => ({ db: {} }));
+vi.mock("../services/generation-quota", async original => ({ ...await original<typeof import("../services/generation-quota")>(), runGeneration: vi.fn(async (_scope, _id, _kind, _input, _signal, work) => work()) }));
 vi.mock("../lib/redis", () => ({ redis: undefined }));
 vi.mock("../storage", () => ({ storage: { getUserProfile: mocks.profile, getMediaAsset: mocks.media, createDraft: mocks.save }, ScheduleConflictError: class extends Error {} }));
 vi.mock("../jobs/queue", () => ({ enqueuePublishDraft: mocks.publish, QueueUnavailableError: class extends Error {} }));
@@ -23,6 +24,7 @@ import { registerDraftsRoutes } from "./drafts";
 import { editorialCancellation } from "./editorial-context";
 import { CrawlError } from "../services/crawlerFetch";
 import { buildEvidenceBrief } from "../services/editorialEvidence";
+import { GenerationQuotaError, runGeneration } from "../services/generation-quota";
 
 const article = { title: "Pilot", content: "The publisher reports a pilot result. ".repeat(30), source: "Desk", url: "https://news.test/a", domain: "news.test" };
 const metadata = { extractionMethod: "article" as const, originalLength: article.content.length, retainedLength: article.content.length, truncated: false };
@@ -38,6 +40,17 @@ beforeEach(() => {
 });
 
 describe("detailed review routes", () => {
+  it.each(["/api/instant-review", "/api/instant-review/selected", "/api/instant-review/manual"])("fails closed on usage outage at %s before provider work", async endpoint => {
+    vi.mocked(runGeneration).mockRejectedValueOnce(new GenerationQuotaError(503, "generation_usage_unavailable", "Usage unavailable"));
+    const response = await request(app).post(endpoint).send({ title: "Pilot", content: article.content, url: article.url, selectedPlatforms: ["linkedin"], tenantId: "evil" });
+    expect(response.status).toBe(503); expect(response.body.code).toBe("generation_usage_unavailable");
+    expect(runGeneration).toHaveBeenCalledWith(mocks.scope, expect.any(String), expect.any(String), expect.any(Object), expect.any(AbortSignal), expect.any(Function));
+    expect(mocks.fetchArticle).not.toHaveBeenCalled(); expect(mocks.instant).not.toHaveBeenCalled(); expect(mocks.selected).not.toHaveBeenCalled();
+  });
+  it("rejects invalid retry intent without provider work", async () => {
+    const response = await request(app).post("/api/instant-review").send({ url: article.url, requestIntent: "invalid" });
+    expect(response.status).toBe(400); expect(mocks.instant).not.toHaveBeenCalled();
+  });
   it.each(["/api/instant-review", "/api/instant-review/selected"])("preserves string posts and returns full source metadata at %s", async endpoint => {
     const response = await request(app).post(endpoint).send({ url: article.url, selectedPlatforms: ["linkedin"], tenantId: "evil", scope: { tenantId: "evil" }, voice: "evil" });
     expect(response.status).toBe(200);

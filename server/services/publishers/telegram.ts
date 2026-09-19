@@ -39,7 +39,7 @@ export async function verifyTelegramBot(botToken: string, chatId: string): Promi
 }
 
 export async function publishToTelegram(scope: TenantScope, _draftId: string, content: string) {
-  if (process.env.PUBLISHING_MODE !== "live") return { success: true, postId: `sandbox_telegram_${Date.now()}` };
+  if (process.env.PUBLISHING_MODE !== "live") return { success: true, status: "simulated" };
 
   const account = await storage.getSocialAccountByProvider(scope, "telegram");
   if (!account?.accessToken || !account.providerAccountId) {
@@ -63,6 +63,6 @@ export async function publishToTelegram(scope: TenantScope, _draftId: string, co
       postUrl: chatUsername ? `https://t.me/${chatUsername}/${json.result.message_id}` : undefined,
     };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : "Telegram publish failed" };
+    return { success: false, error: "Telegram delivery could not be confirmed" };
   }
 }

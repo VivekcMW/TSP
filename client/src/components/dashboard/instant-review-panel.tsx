@@ -9,6 +9,7 @@ import { EditorialDetails, EditorialFormatSelect, EditorialProgress } from "./ed
 import { RichArticleEditor } from "./rich-article-editor";
 import { CREATE_TONES, isEdited, publicSourceUrl, type CreateTone } from "./create-post-state";
 import type { CreatePostComposer } from "./use-create-post-composer";
+import { ApproveVoiceEdit } from "./approve-voice-edit";
 
 interface InstantReviewPanelProps {
   isOpen: boolean;
@@ -65,7 +66,7 @@ export function InstantReviewPanel({ isOpen, onClose, composer: c }: Readonly<In
           {c.inboxLoading && <p className="text-sm">Loading stories…</p>}
           {c.inboxError && <Button variant="outline" onClick={() => void c.retryInbox()}>Retry stories</Button>}
           {!c.inboxLoading && !c.inboxError && !c.inbox.length && <p className="text-sm text-muted-foreground">No stories yet. Paste a URL or write an article instead.</p>}
-          {c.item && <div className="rounded-md border p-3 text-sm"><p className="font-medium">{c.item.headline}</p><p className="text-muted-foreground">{c.item.source}</p><p className="mt-2 whitespace-pre-wrap">{c.item.summary}</p><p className="mt-2 text-xs text-muted-foreground">Inbox summary only — the full source is fetched after you click Generate.</p></div>}
+          {c.item && <div className="rounded-md border p-3 text-sm"><p className="font-medium">{c.item.headline}</p><p className="text-muted-foreground">{c.item.source}</p><p className="mt-2 whitespace-pre-wrap">{c.item.summary ?? "Excerpt unavailable."}</p><p className="mt-2 text-xs text-muted-foreground">Inbox excerpt only, not independently verified — the full source is fetched after you click Generate.</p></div>}
         </section>}
         {c.mode === "manual" ? <RichArticleEditor value={c.manual} onChange={c.setManual} isPending={c.busy} onUploadingChange={c.setUploading} /> :
           <label className="block space-y-1 text-sm">Article URL<Input aria-label="Article URL" type="url" value={c.url} disabled={c.busy} onChange={event => c.setUrl(event.target.value)} placeholder="https://…" data-testid="input-instant-review-url" /></label>}
@@ -87,11 +88,12 @@ export function InstantReviewPanel({ isOpen, onClose, composer: c }: Readonly<In
             <details><summary className="cursor-pointer font-medium">{article?.domain === "manual" ? "Your supplied article content" : "Fetched article content"}</summary><p className="max-h-64 overflow-auto whitespace-pre-wrap break-words" data-testid="text-source-content">{article?.content}</p></details>
             {!!article?.media?.length && <p>{article.media.length} attachment(s) included. Media is not inspected as evidence.</p>}
           </div>
-          <EditorialDetails evidence={version.review.evidence} detail={version.review.details?.[version.platform]?.[version.tone]} edited={isEdited(version)} />
+          <EditorialDetails evidence={version.review.evidence} detail={version.review.details?.[version.platform]?.[version.tone]} edited={isEdited(version)} currentContent={version.content} />
           <label className="block space-y-2 text-sm">Post content {isEdited(version) && <span className="font-medium">· Edited</span>}
             <Textarea aria-label="Post content" value={version.content} disabled={c.busy} onChange={event => c.edit(event.target.value)} className="min-h-60 resize-y" data-testid="textarea-post-content" />
           </label>
           <p className="text-xs text-muted-foreground">{version.content.length} / {Math.min(5000, meta.charLimit)} characters. Hashtags may be edited directly in the text.</p>
+          {isEdited(version) && !c.busy && <ApproveVoiceEdit key={`${version.platform}:${version.tone}`} content={version.content} />}
           {!c.canUse && !c.busy && <p role="alert" className="text-sm text-destructive">Enter non-empty text within the platform limit before saving or copying.</p>}
           <div className="flex flex-wrap gap-2">
             <Button disabled={!c.canUse || saved} onClick={() => void c.save()} data-testid="button-save-draft">{saveLabel}</Button>

@@ -1,8 +1,10 @@
 import type { Draft, UserProfile } from "@shared/schema";
 import { PLATFORMS } from "./platforms";
 import { apiRequest, queryClient } from "./queryClient";
+import { DIRECT_PUBLISH_PLATFORMS, publishingCapability } from "@shared/publishing-capabilities";
+export { DIRECT_PUBLISH_PLATFORMS } from "@shared/publishing-capabilities";
 
-export interface ScheduleTarget { id: string; platform: string; status: string; lastError?: string | null; }
+export interface ScheduleTarget { id: string; platform: string; status: string; lastError?: string | null; executionMode?: string | null; revision?: number; receiptKind?: string | null; providerPostId?: string | null; }
 export interface PublishingSchedule {
   id: string;
   draftId: string;
@@ -20,11 +22,13 @@ export function draftStatusGroup(status: string | null | undefined): "ready" | "
   return "attention"; // Includes partial, unknown, skipped and future server states.
 }
 
-export function publicationOutcome(schedule?: PublishingSchedule | null): "pending" | "published" | "attention" | "unknown" {
+export function publicationOutcome(schedule?: PublishingSchedule | null): "pending" | "published" | "simulated" | "attention" | "unknown" {
   if (!schedule) return "unknown";
   const states = schedule.targets?.map((target) => target.status) ?? [];
   if (!states.length) return "unknown"; // Legacy parent status alone is not delivery evidence.
-  if (states.some((state) => !["scheduled", "queued", "publishing", "published", "failed", "cancelled"].includes(state))) return "unknown";
+  if (states.every(state => state === "simulated") && schedule.status === "simulated") return "simulated";
+  if (["accepted_unverified", "manual_published", "unknown", "legacy_unverified"].includes(schedule.status) && states.includes(schedule.status)) return "attention";
+  if (states.some((state) => !["scheduled", "queued", "publishing", "published", "failed", "cancelled", "simulated", "accepted_unverified", "manual_published", "unknown"].includes(state))) return "unknown";
   if (states.every((state) => state === "published") && schedule.status === "published") return "published";
   if (states.some((state) => ["scheduled", "queued", "publishing"].includes(state))) return "pending";
   // A mixed-time read is not a terminal failure (or evidence of success).
@@ -80,7 +84,6 @@ export function recheckPublishingRecovery(draftId: string) {
 // not the broad sandbox catalog. Application scheduling dispatches these same
 // adapters; provider-native `schedule` capability is not required by our queue.
 // /api/integrations DB rows omit capabilities, so catalog flags alone are unsafe.
-export const DIRECT_PUBLISH_PLATFORMS = ["linkedin", "twitter", "bluesky", "mastodon", "telegram", "discord", "devto", "hashnode", "reddit"] as const;
 export interface PublishingIntegration { key: string; enabled: boolean; capabilities?: string[]; }
 export interface PublishingConnection {
   connected: boolean;
@@ -95,7 +98,8 @@ export interface ReadinessData {
   unavailable?: boolean;
 }
 
-export function publishingBlocker(platform: string, draft: Pick<Draft, "content" | "platformPublishRules"> | undefined, data: ReadinessData): string | null {
+type ReadinessDraft = Pick<Draft, "content" | "platformPublishRules"> & Partial<Pick<Draft, "media" | "publishApprovedAt">>;
+export function publishingBlocker(platform: string, draft: ReadinessDraft | undefined, data: ReadinessData): string | null {
   if (!(DIRECT_PUBLISH_PLATFORMS as readonly string[]).includes(platform)) return "Manual copy & open only; direct scheduling is not supported.";
   if (data.unavailable || !data.profile || !data.integrations || !data.rules) return "Publishing readiness is unavailable or still loading. Refresh to check again.";
   const integration = data.integrations.find((item) => item.key === platform);
@@ -108,9 +112,12 @@ export function publishingBlocker(platform: string, draft: Pick<Draft, "content"
   const rule = data.rules.find((item) => item.platform === platform);
   if (rule?.enabled === false || draft?.platformPublishRules?.[platform] === false) return "Disabled by a publishing rule.";
   if (!draft?.content.trim()) return "Choose a draft with content.";
-  const limit = Math.min(PLATFORMS.find((item) => item.value === platform)?.charLimit ?? 0, rule?.maxCharacters ?? Infinity);
+  const capability = publishingCapability(platform)!;
+  const limit = Math.min(capability.maxCharacters, rule?.maxCharacters ?? Infinity);
   if (draft.content.length > limit) return `Too long: ${draft.content.length}/${limit} characters.`;
   if (rule?.minCharacters != null && draft.content.length < rule.minCharacters) return `Needs at least ${rule.minCharacters} characters.`;
+  if ((draft.media?.length ?? 0) > capability.maxMedia || draft.media?.some(item => !capability.mediaTypes.some(mime => mime.startsWith(`${item.type}/`)))) return "Attached media is unsupported by this publishing adapter.";
+  if (data.profile.requirePublishReview && !draft.publishApprovedAt) return "Review and approve this exact draft in Publishing options first.";
   return null;
 }
 
@@ -121,7 +128,7 @@ export function defaultSchedulePlatforms(draft: Pick<Draft, "platform" | "conten
   return !publishingBlocker(draft.platform, draft, data) ? [draft.platform] : [];
 }
 
-export function selectionBlockers(platforms: string[], draft: Pick<Draft, "content" | "platformPublishRules"> | undefined, data: ReadinessData) {
+export function selectionBlockers(platforms: string[], draft: ReadinessDraft | undefined, data: ReadinessData) {
   const errors: string[] = [];
   if (!platforms.length) errors.push("Select at least one ready platform.");
   if (platforms.length > 4) errors.push("Select no more than 4 platforms.");

@@ -5,5 +5,8 @@ server/public
 *.tar.gz
 .env
 .env.*
+!.env.example
 test-results
 uploads
+coverage
+playwright-report

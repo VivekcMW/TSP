@@ -211,6 +211,36 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     await browserExpect(page.getByRole("alert")).toContainText("Worker failed");
     expect((await calls()).filter((call: any) => call.url === "/api/inbox")).toHaveLength(0);
   });
+  it("retries a failed operation with the same UUID and prefers the successful outcome over stale errors", async () => {
+    await mount("refresh", [{ body: { jobId: "recover" } },
+      { body: { status: "failed", progress: { ...progress, success: false }, error: "Old failure" } },
+      { body: { jobId: "recover" } },
+      { body: { status: "completed", progress: { ...progress, success: true, outcome: "no_new" }, error: "Old failure" } }]);
+    await page.getByRole("button", { name: "Start refresh fixture" }).click();
+    await page.clock.runFor(1700);
+    await browserExpect(page.getByTestId("shared-refresh")).toHaveAttribute("data-status", "failed");
+    await page.getByRole("button", { name: "Start refresh fixture" }).click();
+    await page.clock.runFor(1700);
+    await browserExpect(page.getByTestId("shared-refresh")).toHaveAttribute("data-status", "completed");
+    await browserExpect(page.getByTestId("shared-refresh")).toContainText("No new articles found");
+    await browserExpect(page.getByTestId("shared-refresh")).not.toContainText("Old failure");
+    const posts = (await calls()).filter((call: any) => call.method === "POST");
+    expect(posts).toHaveLength(2);
+    expect(posts[0].body.operationId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(posts[1].body.operationId).toBe(posts[0].body.operationId);
+    const count = (await calls()).length;
+    await page.clock.runFor(5000);
+    expect(await calls()).toHaveLength(count);
+  });
+  it("starts a new operation only after a terminal admission conflict is shown", async () => {
+    await mount("refresh", [{ status: 409, body: { message: "Recovery exhausted; use a new operationId." } }, { body: { count: 0, outcome: "no_new", success: true } }]);
+    await page.getByRole("button", { name: "Start refresh fixture" }).click();
+    await browserExpect(page.getByTestId("shared-refresh")).toContainText("Recovery exhausted");
+    await page.getByRole("button", { name: "Start refresh fixture" }).click();
+    await browserExpect(page.getByTestId("shared-refresh")).toHaveAttribute("data-status", "completed");
+    const posts = (await calls()).filter((call: any) => call.method === "POST");
+    expect(posts[1].body.operationId).not.toBe(posts[0].body.operationId);
+  });
   it.each([
     { error: "Source processing failed" },
     { errors: ["Source processing failed", "No usable feeds"] },
@@ -326,6 +356,19 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     await browserExpect(page.getByRole("status")).toContainText("Add a source or topic");
     await browserExpect(page.getByTestId("button-overview-refresh")).toBeEnabled();
     expect((await calls()).filter((call: any) => call.url.includes("/refresh/"))).toEqual([]);
+  });
+  it.each([
+    ["capacity", "Your inbox is full"], ["no_new", "No new articles found"], ["needs_setup", "Add interests"],
+  ])("shows the shared %s outcome for both sync and queued refreshes", async (outcome, message) => {
+    await mount("home", [{ body: { success: true, outcome, count: 0, activeCount: 10, replacedCount: 0 } },
+      { body: { jobId: "outcome-job" } }, { body: { status: "completed", progress: { ...progress, success: true, outcome, articlesCreated: 0 } } }]);
+    await page.getByTestId("button-overview-refresh").click();
+    await browserExpect(page.getByRole("status")).toContainText(message);
+    expect(await page.getByText(/new articles added/).count()).toBe(0);
+    await page.getByTestId("button-overview-refresh").click();
+    await page.clock.runFor(1700);
+    await browserExpect(page.getByRole("status")).toContainText(message);
+    expect(await page.getByText(/new articles added/).count()).toBe(0);
   });
   it("handles initial numeric progress without inventing completion counts", async () => {
     await mount("home", [{ body: { jobId: "job-numeric" } }, { body: { status: "active", progress: 0 } }, { body: { status: "completed", progress: 0 } }]);

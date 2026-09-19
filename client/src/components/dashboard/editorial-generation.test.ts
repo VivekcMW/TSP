@@ -45,6 +45,7 @@ beforeAll(async () => {
         if (url === "/api/media/upload") next = window.__uploadResponses.shift();
         else if (String(url).startsWith("/api/drafts")) next = window.__saveResponses.shift() || { body: { id: "saved" } };
         else if (url === "/api/inbox") next = { body: window.__inbox };
+        else if (url === "/api/inbox?status=active") next = { body: window.__inbox.filter(item => item.status === "active") };
         else if (String(url).startsWith("/api/inbox/refresh")) next = window.__refreshResponses.shift() || { body: { count: 0 } };
         else if (String(url).startsWith("/api/inbox/")) {
           next = window.__triageResponses.shift() || { body: { id: "a" } };
