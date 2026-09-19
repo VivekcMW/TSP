@@ -16,6 +16,8 @@ it does **not** supply missing infrastructure access or migration evidence.
   specifiers match the manifest; the pnpm lockfile is also included.
 - Historical SQL files are unchanged. Fifteen new migrations require the
   approved migration/backfill process before releasing the new runtime.
+  The production ledger audit below also finds historical 0022 unrecorded,
+  making sixteen files pending according to that ledger.
 - Root environment files, uploads, generated reports and local artifacts are
   excluded. Root `.env` was not read. Generated coverage/browser reports are ignored.
 
@@ -58,13 +60,15 @@ A commit/push is not deployment success.
   resource was identified there.
 - Vercel lists Neon `neon-amber-queen` and Upstash
   `upstash-kv-yellow-lantern`, each connected to **Preview and Production**.
-  This is not evidence of an isolated preview database. Matching the Neon
-  resource to Render's actual database remains unverified; no secret values
-  were revealed or copied to determine that identity.
-- The normal Vercel-to-Neon sign-in handoff reaches **Email Verification**:
-  “You need to verify your email address to activate your account.” No database
-  inspection, backup, branch creation or migration could proceed. The page
-  does not display the recipient, so do not assume which mailbox received it.
+  This is not evidence of an isolated preview database. The user subsequently
+  confirmed Render uses this same database; no connection secret was inspected
+  to independently compare endpoints.
+- The initial external Vercel-to-Neon sign-in handoff required email verification.
+  **This is not a blocker for embedded SQL access:** Vercel's own Query editor
+  successfully connects to `neondb` as `neondb_owner`, PostgreSQL 18.6, with
+  read-only transactions. A separate Neon login is unnecessary for this audit.
+  Backup/branch/restore controls were not found in the inspected embedded
+  resource settings, and no backup or recovery procedure has been verified.
 - Fresh anonymous GET-only smoke checks passed **9/9**, zero failures/skips,
   in 7.9 seconds at `2026-09-19T18:00:46Z`. Report:
   `/var/folders/p7/7tzcz0851_dc7jgmg7ndmtp00000gn/T/tmp.VRTdpCDKVR/report.json`.
@@ -73,6 +77,23 @@ A commit/push is not deployment success.
   performed. No paid resources were provisioned. Requests for copy scope and
   staging budget received an unavailable-user response, not specific target
   or spending instructions.
+
+## Production migration audit — September 19, 18:09–18:11 UTC
+
+See [the migration audit](PRODUCTION_MIGRATION_AUDIT_2026-09-19.md).
+The 22 recorded migrations (0000–0021) all match release checksums. Sixteen
+files are unrecorded, including 0022, whose three columns and two indexes already
+exist. This establishes unrecorded schema state, not proof of a fully applied
+migration. Read-only grants inspection confirms write privileges are available;
+no write test or migration was executed. Current keyword shape counts do not
+show mixed arrays, but three profiles would be updated by 0022.
+
+The user explicitly reconfirmed production rollout authorization. The decision
+is to hold execution pending a recoverable backup, copied-data rehearsal and
+coordinated writer shutdown, not to request generic deployment approval again.
+No fake ledger entry, edited historical migration or ad-hoc production repair
+is an acceptable substitute. The audit was made against documentation commit
+`4ca42d113575edbb8fd7f4f1057251cabd49cd80`, whose runtime remains the a5abd15 release.
 
 ## Read-only smoke follow-up
 
@@ -109,10 +130,9 @@ load/cost, queue execution or the deployed SHA. They do not close #29 or #30.
 1. **#27 partial:** supply an approved production-shaped isolated database copy,
    backup/restore evidence and 0022 provenance; coordinate writers and credential
    migration. Agree representative load and cost thresholds before measurement.
-2. **#29 blocked:** hosting browser access is restored; complete the Neon
-  activation prompt in the browser, verify database identity and establish
-  isolated staging frontend/API/database/Redis resources. Configure any
-  required deployment tooling and credentials in the platform secret manager,
+2. **#29 blocked:** hosting and Vercel-native SQL access work. Establish
+  isolated staging frontend/API/database/Redis resources and verified recovery
+  access. Configure any required deployment tooling and credentials in the platform secret manager,
    and designate provider test accounts, merchant test plans and recipients.
    No real posts, charges or emails are authorized merely by running smoke tests.
 3. **#30 authorized but blocked:** after #27/#29, record the release SHA, rollout
