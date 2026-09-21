@@ -29,7 +29,7 @@ export interface AppEmail {
 }
 
 const FROM_NAME = "TheSocialPundit";
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "info@thesocialpundit.com";
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL?.trim() || "hello@thesocialpundit.com";
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 let emailQueue: Bull.Queue<AppEmail> | undefined;
 let emailWorkerRegistered = false;

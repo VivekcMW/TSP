@@ -27,6 +27,24 @@ function worker() {
   return mock.process.mock.calls[0][1];
 }
 describe("email dispatch boundaries", () => {
+  it.each([
+    [undefined, "hello@thesocialpundit.com"],
+    ["", "hello@thesocialpundit.com"],
+    ["   ", "hello@thesocialpundit.com"],
+    ["hello@thesocialpundit.com", "hello@thesocialpundit.com"],
+    [" sender@example.invalid ", "sender@example.invalid"],
+  ])("uses the configured sender or hello fallback for %j", async (configured, expected) => {
+    vi.stubEnv("RESEND_FROM_EMAIL", configured);
+    vi.resetModules();
+    const service = await import("./index");
+    await service.sendVerificationEmail(email.recipient, "Test", "https://example.invalid/verify");
+    await service.sendPasswordResetEmail(email.recipient, "Test", "https://example.invalid/reset");
+    await service.deliverAppEmail(email);
+    expect(mock.send).toHaveBeenCalledTimes(3);
+    for (const [message] of mock.send.mock.calls) {
+      expect(message.from).toBe(`TheSocialPundit <${expected}>`);
+    }
+  });
   it("fails closed for optional mail without an attributable account", async () => {
     expect(await deliverAppEmail({ ...email, userId: undefined })).toEqual({ skipped: true });
     expect(mock.send).not.toHaveBeenCalled(); expect(mock.claim).not.toHaveBeenCalled();

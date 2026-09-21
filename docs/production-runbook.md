@@ -17,6 +17,14 @@ Set these in the deployment secret manager, never in the repository:
 
 For payments also set `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` after the merchant account and webhook endpoint are configured.
 
+### Email sender and replies
+
+- Set `RESEND_FROM_EMAIL=hello@thesocialpundit.com` in the existing local configuration and on every email-sending API/worker service (currently Render). An explicit environment value overrides the code default; updating `.env.example` does not update an existing environment.
+- Restart local processes or redeploy the approved backend release after changing the setting. The sender is read at startup. Missing or blank values default to `hello@thesocialpundit.com`.
+- Verify `thesocialpundit.com` in the Resend account used by `RESEND_API_KEY`, including its required DNS records. Changing the sender within that domain does not create an inbox.
+- Create or confirm the `hello` mailbox/alias with the domain's email host so contact links and replies reach the team. Retain forwarding from the previous address if needed. Do not replace existing inbound-mail MX records just to configure outbound sending.
+- After provider setup and deployment, use an explicitly authorized test recipient to verify delivery, the visible From address, and replies. Mocked unit tests do not establish provider or mailbox readiness.
+
 ## Deploy sequence
 
 1. Provision the managed services listed above and add their secrets to the deployment secret manager.
