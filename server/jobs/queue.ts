@@ -2,7 +2,7 @@ import Bull from "bull";
 import type Redis from "ioredis";
 import { randomUUID } from "node:crypto";
 import { redis } from "../lib/redis";
-import { createRedisClient } from "../lib/redis-options";
+import { createRedisClient, queuePrefix } from "../lib/redis-options";
 import type { PublishDraftJobData } from "./handlers/publish-draft";
 import type { InboxRefreshResult } from "@shared/inbox-refresh";
 
@@ -80,6 +80,7 @@ function disabledQueue(): null {
 
 export function queueOptions(redisUrl: string): Bull.QueueOptions {
   return {
+    prefix: queuePrefix(),
     createClient: (type) => {
       // Preserve auth/TLS/db without letting URL queries override lifecycle policy.
       const client = createRedisClient(redisUrl, type !== "client");

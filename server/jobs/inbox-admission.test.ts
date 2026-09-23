@@ -10,7 +10,7 @@ const f = vi.hoisted(() => ({
   scope: { tenantId: "tenant", userId: "reader" },
 }));
 vi.mock("../lib/redis", () => ({ redis: {} }));
-vi.mock("../lib/redis-options", () => ({ createRedisClient: () => { throw new Error("No Redis allowed"); } }));
+vi.mock("../lib/redis-options", async original => ({ ...await original<typeof import("../lib/redis-options")>(), createRedisClient: () => { throw new Error("No Redis allowed"); } }));
 vi.mock("../db", () => ({ db: new Proxy({}, { get() { throw new Error("No database allowed"); } }) }));
 vi.mock("../storage", () => ({
   storage: { getInboxRefreshReceipt: f.receipt, getUserProfile: f.profile, getUser: async () => ({ industry: "other" }), createEngineRunLog: f.log },

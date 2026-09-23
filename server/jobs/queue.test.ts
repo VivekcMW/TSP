@@ -28,6 +28,14 @@ describe("queue reliability", () => {
     expect(options.defaultJobOptions?.removeOnFail).toEqual({ age: 604800, count: 1000 });
     expect(options.defaultJobOptions?.removeOnComplete).toEqual({ age: 3600, count: 1000 });
   });
+  it("keeps production on Bull's default key prefix and isolates every other environment", () => {
+    // A dev server sharing production's Redis must never claim production jobs
+    // (their tenants exist only in production's database), nor vice versa.
+    vi.stubEnv("NODE_ENV", "production");
+    expect(queueOptions("redis://redis.invalid:6379").prefix).toBe("bull");
+    vi.stubEnv("NODE_ENV", "development");
+    expect(queueOptions("redis://redis.invalid:6379").prefix).toBe("bull-development");
+  });
   it("removes lifecycle query overrides for all three Bull connection types", () => {
     const options = queueOptions("rediss://test-user:test-password@redis.invalid:6380/2?retryStrategy=0&commandTimeout=1&socketTimeout=1&blockingTimeout=1&maxRetriesPerRequest=0&enableReadyCheck=true");
     for (const type of ["client", "bclient", "subscriber"] as const) options.createClient!(type, {});

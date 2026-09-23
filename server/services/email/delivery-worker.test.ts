@@ -5,10 +5,10 @@ import { guardNotificationsMediaNetwork } from "../../../test/notifications-medi
 // Exercise the real worker + sender + delivery store with only in-memory I/O.
 const m = vi.hoisted(() => {
   process.env.RESEND_API_KEY = "test-placeholder-not-real";
-  return { rows: new Map<string, any>(), send: vi.fn(), preferences: vi.fn(), process: vi.fn(), add: vi.fn(), transaction: vi.fn(), insert: vi.fn() };
+  return { rows: new Map<string, any>(), send: vi.fn(), preferences: vi.fn(), process: vi.fn(), add: vi.fn(), transaction: vi.fn(), insert: vi.fn(), bull: vi.fn() };
 });
 vi.mock("resend", () => ({ Resend: class { emails = { send: m.send }; } }));
-vi.mock("bull", () => ({ default: class { process = m.process; add = m.add; on = vi.fn(); close = vi.fn(); } }));
+vi.mock("bull", () => ({ default: class { constructor(...args: unknown[]) { m.bull(...args); } process = m.process; add = m.add; on = vi.fn(); close = vi.fn(); } }));
 vi.mock("./preferences", () => ({ getEmailPreferences: m.preferences }));
 vi.mock("../../db", async () => {
   const { PgDialect } = await import("drizzle-orm/pg-core");
@@ -117,5 +117,13 @@ describe("retained email worker identity with real delivery state transitions", 
     expect(m.rows.get("row-1")).toMatchObject({ status: "sent", attempts: 2 });
     expect(m.send).toHaveBeenCalledTimes(2);
     expect(m.insert).toHaveBeenCalledOnce();
+  });
+});
+describe("email queue isolation", () => {
+  it.each([["production", "bull"], ["development", "bull-development"]])("uses the %s Bull key prefix", (env, prefix) => {
+    // A dev worker on production's Redis would otherwise send production's queued email.
+    vi.stubEnv("NODE_ENV", env);
+    initializeEmailQueue();
+    expect(m.bull).toHaveBeenCalledWith("email_delivery", expect.objectContaining({ prefix }));
   });
 });

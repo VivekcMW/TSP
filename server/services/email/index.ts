@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { getEmailPreferences } from "./preferences";
 import { isEssentialEmail, preferenceEnabled } from "./policy";
 import { beginDelivery, claimDelivery, deliveryKey, finishDelivery, recoverEmailDeliveries } from "./delivery-store";
+import { queuePrefix } from "../../lib/redis-options";
 
 export type EmailType =
   | "verification" | "password_reset" | "welcome" | "password_changed"
@@ -123,6 +124,7 @@ export function initializeEmailQueue() {
   if (!process.env.REDIS_URL || process.env.EMAIL_QUEUE_ENABLED !== "true") return undefined;
   const redisUrl = new URL(process.env.REDIS_URL);
   emailQueue = new Bull<AppEmail>("email_delivery", {
+    prefix: queuePrefix(),
     redis: { host: redisUrl.hostname, port: Number(redisUrl.port || 6379), password: redisUrl.password || undefined, tls: redisUrl.protocol === "rediss:" ? {} : undefined },
     defaultJobOptions: { attempts: 4, backoff: { type: "exponential", delay: 65000 }, removeOnComplete: { age: 86400 }, removeOnFail: { age: 604800 } },
   });

@@ -33,6 +33,17 @@ export function redisOptions(blocking = false): RedisOptions {
   };
 }
 
+/**
+ * Bull key prefix. A worker must only claim jobs enqueued against its own
+ * database: a dev server sharing production's Redis otherwise takes production
+ * jobs (and production takes its jobs), then fails them because the tenant does
+ * not exist on that side. Production keeps Bull's default so queued jobs stay
+ * reachable; every other environment gets its own namespace.
+ */
+export function queuePrefix(): string {
+  return process.env.NODE_ENV === "production" ? "bull" : `bull-${process.env.NODE_ENV || "development"}`;
+}
+
 /** Pure factory: importing options must never connect to the configured Redis. */
 export function createRedisClient(redisUrl: string, blocking = false): Redis {
   const options = redisOptions(blocking);
