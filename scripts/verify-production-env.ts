@@ -8,6 +8,7 @@ const required = [
   "BETTER_AUTH_URL",
   "APP_URL",
   "ALLOWED_ORIGINS",
+  "DIAGNOSTICS_TOKEN",
   "OAUTH_STATE_SECRET",
   "RESEND_API_KEY",
   "RESEND_FROM_EMAIL",
@@ -28,6 +29,7 @@ if (process.env.PUBLISHING_MODE !== "live") failures.push("PUBLISHING_MODE must 
 if (process.env.BACKGROUND_JOBS_ENABLED !== "true") failures.push("BACKGROUND_JOBS_ENABLED must be true");
 if (process.env.PROCESS_ROLE === "scheduler" && process.env.CRON_SCHEDULER !== "true") failures.push("CRON_SCHEDULER must be true on the scheduler instance");
 if (process.env.BETTER_AUTH_SECRET && process.env.BETTER_AUTH_SECRET.length < 32) failures.push("BETTER_AUTH_SECRET must be at least 32 characters");
+if (process.env.DIAGNOSTICS_TOKEN && process.env.DIAGNOSTICS_TOKEN.trim().length < 32) failures.push("DIAGNOSTICS_TOKEN must be at least 32 characters");
 
 if (missing.length || failures.length) {
   if (missing.length) console.error(`Missing production variables: ${missing.join(", ")}`);
