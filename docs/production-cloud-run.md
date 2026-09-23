@@ -72,13 +72,37 @@ OWNER_DATABASE_URL='postgresql://neondb_owner:<password>@ep-quiet-field-azkwtx6k
   pnpm run db:migrate:dry
 ```
 
+## Security settings (2026-09-23)
+
+- The app connects as the restricted `tsp_app` role through secret
+  `DATABASE_URL_APP`, so row-level security isolates tenants. The owner
+  credentials in secret `DATABASE_URL` are kept only for migrations and for
+  rolling back to revisions older than `tsp-app-00013`.
+- `TRUSTED_PROXY_CIDRS=169.254.0.0/16,34.117.52.220,35.191.0.0/16,130.211.0.0/22`
+  trusts Cloud Run's internal proxy (the container sees `169.254.169.126`),
+  the load balancer and Google front ends. Express therefore resolves the
+  real visitor IP, which rate limits and sessions depend on.
+- Stored provider credentials are encrypted with their own secret,
+  `WEBHOOK_ENCRYPTION_SECRET`. Without it they fall back to
+  `BETTER_AUTH_SECRET`. To rotate the key, keep old values in
+  `WEBHOOK_ENCRYPTION_PREVIOUS_SECRETS`.
+
+## Monitoring
+
+Uptime check `TSP readyz` requests `/readyz` every 5 minutes from six regions.
+Alert policies email `hello@thesocialpundit.com` when the site is down, on
+HTTP 5xx errors, on ERROR logs, and on Redis or queue connection failures.
+
 ## Open follow-ups
 
-- `TRUSTED_PROXY_CIDRS` is not set, so Express sees the Google front end as
-  every client. Better Auth's sign-in and sign-up rate limits, and IP-keyed
-  limits for signed-out requests, are therefore shared by all users.
-- The app connects as `neondb_owner`, which bypasses row-level security.
-  It should use the restricted `tsp_app` role.
+- LinkedIn publishing cannot connect until `LINKEDIN_CLIENT_ID` and
+  `LINKEDIN_CLIENT_SECRET` are set. The `LINKEDIN_AUTH_*` keys only cover
+  sign-in. The LinkedIn app needs the Share on LinkedIn product
+  (`w_member_social`) and the redirect URL
+  `https://www.thesocialpundit.com/auth/linkedin/analytics/callback`.
+- Reddit is not configured (`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`). Its
+  redirect URL is `https://www.thesocialpundit.com/auth/reddit/callback`.
+- The X app must register `https://www.thesocialpundit.com/auth/twitter/connect/callback`.
 - Redis Cloud has TLS off, `volatile-lru` eviction and no persistence. Bull
   needs `noeviction`.
 - Local development and production share one Gemini API key. Gemini's
