@@ -62,7 +62,7 @@ gcloud run services update-traffic tsp-app --region asia-south1 --to-revisions <
 
 ## Database migrations
 
-The production database was fully migrated on 2026-09-23 (38 files, 0 pending).
+The production database was fully migrated on 2026-09-23 (39 files, 0 pending).
 Run migrations with the migration tool against the direct (non-pooler)
 endpoint, with an explicit `:5432` and only `sslmode=require` in the URL. The
 tool rejects other parameters and needs a session-level connection:
@@ -87,6 +87,23 @@ OWNER_DATABASE_URL='postgresql://neondb_owner:<password>@ep-quiet-field-azkwtx6k
   `BETTER_AUTH_SECRET`. To rotate the key, keep old values in
   `WEBHOOK_ENCRYPTION_PREVIOUS_SECRETS`.
 
+## Billing (2026-09-23)
+
+- Razorpay runs in live mode from revision `tsp-app-00019`: `RAZORPAY_KEY_ID`,
+  `RAZORPAY_KEY_SECRET` and `RAZORPAY_WEBHOOK_SECRET` reference the
+  `RAZORPAY_LIVE_*` secrets. The unprefixed secrets still hold the test keys
+  that older revisions use. Rolling back past `tsp-app-00019` therefore returns
+  checkout to test mode, where the live plan IDs in the catalog don't exist.
+- Migration 0039 sets the catalog to $20/month and $200/year, with ₹999/month
+  and ₹9,999/year for India. Razorpay plan IDs are linked per environment
+  (`billing_plans.razorpay_plan_id`), not in migrations. Live plans:
+  `pro_monthly_inr` → `plan_TfQTPZIQY7fzvp`, `pro_yearly_inr` →
+  `plan_TfQTPip40kjwRD`.
+- The USD plans (`pro_monthly`, `pro_yearly`) are inactive because Razorpay
+  rejects USD until International Payments is enabled on the live account.
+  While only INR is active, every visitor sees INR and the currency switch is
+  hidden.
+
 ## Monitoring
 
 Uptime check `TSP readyz` requests `/readyz` every 5 minutes from six regions.
@@ -102,6 +119,11 @@ HTTP 5xx errors, on ERROR logs, and on Redis or queue connection failures.
   `/auth/linkedin/analytics/callback` registered: LinkedIn accepted both, and
   it rejected an unregistered redirect and an unauthorized scope in control
   requests. No customer has connected an account yet.
+- To offer USD once Razorpay enables International Payments: create a live
+  plan for USD 2000 monthly and USD 20000 yearly (interval 1), set each plan's
+  ID in `razorpay_plan_id`, and set `is_active = true` for `pro_monthly` and
+  `pro_yearly`. Checkout refuses a plan whose Razorpay amount, currency or
+  period differ from the catalog.
 - Reddit is not configured (`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`). Its
   redirect URL is `https://www.thesocialpundit.com/auth/reddit/callback`.
 - The X app must register `https://www.thesocialpundit.com/auth/twitter/connect/callback`.
