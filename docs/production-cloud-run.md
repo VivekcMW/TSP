@@ -95,11 +95,13 @@ HTTP 5xx errors, on ERROR logs, and on Redis or queue connection failures.
 
 ## Open follow-ups
 
-- LinkedIn publishing cannot connect until `LINKEDIN_CLIENT_ID` and
-  `LINKEDIN_CLIENT_SECRET` are set. The `LINKEDIN_AUTH_*` keys only cover
-  sign-in. The LinkedIn app needs the Share on LinkedIn product
-  (`w_member_social`) and the redirect URL
-  `https://www.thesocialpundit.com/auth/linkedin/analytics/callback`.
+- LinkedIn publishing is configured (revision `tsp-app-00017`).
+  `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET` reference the same secrets
+  as sign-in (`LINKEDIN_AUTH_CLIENT_ID`, `LINKEDIN_AUTH_CLIENT_SECRET`). That
+  LinkedIn app is authorized for `w_member_social` and has
+  `/auth/linkedin/analytics/callback` registered: LinkedIn accepted both, and
+  it rejected an unregistered redirect and an unauthorized scope in control
+  requests. No customer has connected an account yet.
 - Reddit is not configured (`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`). Its
   redirect URL is `https://www.thesocialpundit.com/auth/reddit/callback`.
 - The X app must register `https://www.thesocialpundit.com/auth/twitter/connect/callback`.
