@@ -115,7 +115,12 @@ export function useInboxRefreshJob() {
   const startRefresh = async () => {
     const current = client.getQueryData<RefreshJobState>(INBOX_REFRESH_JOB_KEY) ?? emptyState;
     if (isRefreshJobRunning(current) || current.status === "unavailable") return;
-    const operationId = current.status === "failed" && current.operationId ? current.operationId : crypto.randomUUID();
+    // Reuse an operation only when admission itself failed without a job ID.
+    // Once Bull accepted a job, a terminal failure must get a fresh operation
+    // or the queue will keep returning the same exhausted job (attempt 4/3).
+    const operationId = current.status === "failed" && current.operationId && !current.jobId
+      ? current.operationId
+      : crypto.randomUUID();
     const admission = client.setQueryData<RefreshJobState>(INBOX_REFRESH_JOB_KEY, { ...emptyState, status: "queued", operationId, startedAt: Date.now() });
     try {
       const result = await admitRefresh(operationId);

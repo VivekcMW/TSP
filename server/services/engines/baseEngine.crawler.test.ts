@@ -82,15 +82,15 @@ describe("source refresh reliability", () => {
     expect(articles[0].userSourceProvenance).toEqual({ kind: "active-user-source", sourceId: "webpage" });
   });
 
-  it("never materializes guessed publication names", async () => {
+  it("materializes only verified built-in names and ignores unknown names", async () => {
     await new Engine().processForUser(scope, profile(["Campaign", "Nielsen Insights", "Marketing Week"]));
-    expect(discovery).not.toHaveBeenCalled(); expect(storage.createUserSource).not.toHaveBeenCalled();
+    expect(discovery).toHaveBeenCalledTimes(2); expect(storage.createUserSource).not.toHaveBeenCalled();
   });
-  it("materializes only explicit URLs and caps each attempt at four publications", async () => {
+  it("materializes verified names and explicit URLs, capped at four publications", async () => {
     discovery.mockResolvedValue({ name: "Actual host", feedUrl: "https://news.test/feed", sourceType: "feed" });
     await new Engine().processForUser(scope, profile(["Campaign", ...Array.from({ length: 10 }, (_, i) => `https://news-${i}.test/`)]));
     expect(discovery).toHaveBeenCalledTimes(4); expect(storage.completePublicationResolution).toHaveBeenCalledTimes(4);
-    expect(storage.completePublicationResolution).toHaveBeenCalledWith(scope, "https://news-0.test/", "claim-1", { name: "https://news-0.test/", feedUrl: "https://news.test/feed", sourceType: "feed" });
+    expect(storage.completePublicationResolution).toHaveBeenCalledWith(scope, "https://www.campaignlive.co.uk", "claim-1", { name: "Campaign", feedUrl: "https://news.test/feed", sourceType: "feed" });
     expect(storage.createUserSource).not.toHaveBeenCalled();
   });
   it("does not create sources after the materialization budget expires", async () => {
@@ -257,13 +257,13 @@ describe("source refresh reliability", () => {
     expect(result.success).toBe(true); expect(result.discoveryWarnings?.[0]).toContain("lease expired");
     expect(storage.createUserSource).not.toHaveBeenCalled(); expect(storage.updateUserSource).not.toHaveBeenCalled();
   });
-  it("records real failure status instead of swallowing failure as ok", async () => {
+  it("records failed sources while retaining usable source results", async () => {
     storage.getUserSources.mockResolvedValue([source("blocked"), source("good")]);
     network.mockImplementation(async (url: string) => {
       if (url.endsWith("blocked")) throw new CrawlError("http", "The source returned HTTP 403.");
       return feed(url);
     });
-    await expect(new Engine().fetchSources()).rejects.toThrow("Article sources could not complete");
+    await expect(new Engine().fetchSources()).resolves.toHaveLength(1);
     expect(storage.updateUserSource).toHaveBeenCalledWith(scope, "blocked", expect.objectContaining({ lastFetchStatus: "error", lastFetchError: "The source returned HTTP 403." }));
     expect(storage.updateUserSource).toHaveBeenCalledWith(scope, "good", expect.objectContaining({ lastFetchStatus: "ok", lastFetchError: null }));
   });

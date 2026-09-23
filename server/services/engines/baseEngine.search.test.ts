@@ -254,7 +254,8 @@ describe("engine durable search integration", () => {
       if (failure === "all" || new URL(url).searchParams.get("q") === "Cloud") throw new Error("private provider failure");
       return response(url);
     });
-    await expect(engine.search()).rejects.toThrow("Article search could not complete");
+    if (failure === "all") await expect(engine.search()).rejects.toThrow("Article search could not complete");
+    else await expect(engine.search()).resolves.toHaveLength(1);
     expect(crawl).toHaveBeenCalledTimes(2);
     const failedQueries = fetchedQueries();
     crawl.mockClear(); crawl.mockImplementation(async url => response(url));
@@ -307,11 +308,16 @@ describe("engine durable search integration", () => {
     await vi.advanceTimersByTimeAsync(1);
     const result = await task;
     expect(sourceSettled).toBe(true);
-    expect(result).toMatchObject({ success: false, outcome: "failure", newInboxItems: 0, replacedCount: 0 });
-    expect(result.errors).toEqual([inboxRefreshMessage("failure")]);
-    expect(storage.commitInboxRefresh).not.toHaveBeenCalled();
-    expect(storage.createInboxItem).not.toHaveBeenCalled();
-    expect(JSON.stringify(result.errors)).not.toContain("private");
+    if (sourceFails) {
+      expect(result).toMatchObject({ success: false, outcome: "failure", newInboxItems: 0, replacedCount: 0 });
+      expect(result.errors).toEqual([inboxRefreshMessage("failure")]);
+      expect(storage.commitInboxRefresh).not.toHaveBeenCalled();
+      expect(storage.createInboxItem).not.toHaveBeenCalled();
+    } else {
+      expect(result).toMatchObject({ success: true, outcome: "updated", newInboxItems: 1, replacedCount: 0 });
+      expect(storage.commitInboxRefresh).toHaveBeenCalled();
+    }
+    expect(JSON.stringify(result.errors ?? [])).not.toContain("private");
     expect(storage.updateUserSource).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
   });

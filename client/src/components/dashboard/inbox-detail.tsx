@@ -64,17 +64,16 @@ export function InboxDetail({ item, onGeneratePost, onSave, onDismiss, inSheet =
         </div>
       </div>
       <div className="shrink-0 border-t p-4 sm:px-6">
-      <div className="mx-auto flex max-w-2xl flex-wrap items-center gap-2">
+      <div className="flex w-full flex-wrap items-center justify-end gap-2">
         <Button onClick={() => onGeneratePost(item)} data-testid={`button-generate-${item.id}`}>
           <Sparkles className="mr-2 h-4 w-4" />Create draft
         </Button>
         <Button variant="outline" onClick={() => onSave(item)} disabled={item.status === "saved"} data-testid={`button-save-${item.id}`}>
           <Bookmark className="mr-2 h-4 w-4" />{item.status === "saved" ? "Story saved" : "Save story"}
         </Button>
-        <Button variant="ghost" onClick={() => onDismiss(item)} data-testid={`button-dismiss-${item.id}`}>
+        <Button variant="outline" onClick={() => onDismiss(item)} data-testid={`button-dismiss-${item.id}`}>
           <X className="mr-2 h-4 w-4" />Dismiss
         </Button>
-        <span className="ml-auto hidden text-xs text-muted-foreground lg:block">j/k navigate · s save story · d dismiss · g create draft</span>
       </div>
       </div>
     </div>

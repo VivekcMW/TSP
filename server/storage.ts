@@ -168,6 +168,7 @@ export interface IStorage {
   beginInboxRefresh(scope: TenantScope, operationId: string, autoRefresh: boolean): Promise<{ receipt?: InboxRefreshResult; snapshot: InboxRefreshSnapshot; activeCount: number }>;
   commitInboxRefresh(scope: TenantScope, operationId: string, autoRefresh: boolean, snapshot: InboxRefreshSnapshot, candidates: Scoped<InsertInboxItem>[], metrics: RefreshMetrics): Promise<InboxRefreshResult>;
   getInboxItemByUrl(scope: TenantScope, articleUrl: string): Promise<InboxItem | undefined>;
+  updateInboxArticleUrl(scope: TenantScope, id: string, articleUrl: string): Promise<InboxItem | undefined>;
   createInboxItem(scope: TenantScope, item: Scoped<InsertInboxItem>): Promise<InboxItem>;
   addInboxItem(scope: TenantScope, item: Scoped<InsertInboxItem>): Promise<{ item: InboxItem; alreadyExists: boolean }>;
   updateInboxItem(scope: TenantScope, id: string, data: { status: string }): Promise<InboxItem | undefined>;
@@ -601,10 +602,13 @@ export class DatabaseStorage implements IStorage {
       const versions = new Map(eligible.map(row => [row.id, row.version]));
       const unchanged = snapshot.filter(row => versions.get(row.id) === row.version);
       const free = Math.max(0, INBOX_CAPACITY - activeCount);
-      // Legacy overcapacity: neither grow nor reconcile/destructively replace.
-      const selected = selectDiverse([...unique.values()], activeCount > INBOX_CAPACITY ? 0 : Math.min(INBOX_CAPACITY, free + unchanged.length))
+      // Manual refreshes append every new candidate. Auto-refresh retains the
+      // bounded rolling-window behavior for background refreshes.
+      const selected = (autoRefresh
+        ? selectDiverse([...unique.values()], activeCount > INBOX_CAPACITY ? 0 : Math.min(INBOX_CAPACITY, free + unchanged.length))
+        : selectDiverse([...unique.values()], unique.size))
         .map(item => [canonicalHttpUrl(item.articleUrl)!, item] as const);
-      const replacedCount = Math.max(0, selected.length - free);
+      const replacedCount = autoRefresh ? Math.max(0, selected.length - free) : 0;
       for (const row of unchanged.slice(0, replacedCount)) {
         await tx.update(inboxItems).set({ status: "dismissed", version: sql`${inboxItems.version} + 1` })
           .where(and(inboxScope(scope), eq(inboxItems.id, row.id), eq(inboxItems.status, "active"), eq(inboxItems.version, row.version)));
@@ -615,7 +619,7 @@ export class DatabaseStorage implements IStorage {
         items.push(created);
       }
       const outcome = items.length ? "updated" : metrics.needsSetup ? "needs_setup"
-        : activeCount >= INBOX_CAPACITY && (!autoRefresh || unique.size > 0 || activeCount > INBOX_CAPACITY) ? "capacity" : "no_new";
+        : autoRefresh && activeCount >= INBOX_CAPACITY && (unique.size > 0 || activeCount > INBOX_CAPACITY) ? "capacity" : "no_new";
       const result: InboxRefreshResult = { ...metrics, success: true, outcome, count: items.length,
         newInboxItems: items.length, articlesCreated: items.length, items, activeCount: await inboxCount(tx, scope),
         replacedCount, message: inboxRefreshMessage(outcome, items.length) };
@@ -655,6 +659,16 @@ export class DatabaseStorage implements IStorage {
           ),
         );
       return item || undefined;
+    });
+  }
+
+  async updateInboxArticleUrl(scope: TenantScope, id: string, articleUrl: string): Promise<InboxItem | undefined> {
+    return scoped(scope, async (tx) => {
+      const canonicalUrl = canonicalHttpUrl(articleUrl);
+      if (!canonicalUrl) return undefined;
+      const [updated] = await tx.update(inboxItems).set({ articleUrl, canonicalUrl, version: sql`${inboxItems.version} + 1` })
+        .where(and(inboxScope(scope), eq(inboxItems.id, id))).returning();
+      return updated;
     });
   }
 

@@ -19,6 +19,8 @@ export function useCreatePostComposer(isOpen: boolean) {
   const inbox = useQuery<InboxItem[]>({ queryKey: ["/api/inbox"], enabled: isOpen });
   const [platformChoice, setPlatform] = useState<string>();
   const [toneChoice, setTone] = useState<CreateTone>();
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  const [selectedTones, setSelectedTones] = useState<CreateTone[]>(CREATE_TONES.map(value => value.key));
   const [format, setFormat] = useState<EditorialFormat>("short-post");
   const [mode, setMode] = useState<"url" | "article" | "manual">("url");
   const [url, setUrl] = useState("");
@@ -50,6 +52,11 @@ export function useCreatePostComposer(isOpen: boolean) {
   const disabled = new Set((integrations.data ?? []).filter(value => !value.enabled).map(value => value.key));
   const preferencesReady = profile.isSuccess && integrations.isSuccess;
   const platforms = preferencesReady ? PLATFORMS.filter(value => (!profile.data?.enabledPlatforms || profile.data.enabledPlatforms.includes(value.value)) && !disabled.has(value.value)) : [];
+  useEffect(() => {
+    setSelectedPlatforms(current => current.filter(value => platforms.some(platformValue => platformValue.value === value)).length
+      ? current.filter(value => platforms.some(platformValue => platformValue.value === value))
+      : platforms.slice(0, 4).map(value => value.value));
+  }, [platforms.map(value => value.value).join(",")]);
   const preferred = platformChoice ?? profile.data?.defaultPlatform;
   const platform = platforms.some(value => value.value === preferred) ? preferred! : platforms[0]?.value ?? "";
   const tone = toneChoice ?? CREATE_TONES.find(value => value.value === profile.data?.defaultTone)?.key ?? "thoughtLeader";
@@ -61,7 +68,7 @@ export function useCreatePostComposer(isOpen: boolean) {
   const hasInput = Boolean(url.trim() || manual.title.trim() || manual.content.trim() || manual.media.length);
   const dirty = (hasInput && sourceKey !== savedSourceKey) || Object.values(versions).some(isUnsaved);
   const busy = generation.pending || saving || uploading;
-  const canGenerate = Boolean(platform) && !busy && !generation.recoverable && (mode === "manual"
+  const canGenerate = Boolean(selectedPlatforms.length && selectedTones.length) && !busy && !generation.recoverable && (mode === "manual"
     ? Boolean(manual.title.trim()) && manual.content.trim().length >= 20 && manual.content.length <= 20_000
     : Boolean(publicSourceUrl(url.trim())));
   const canUse = Boolean(platform && version && usablePost(version.content, Math.min(5000, getPlatformMeta(platform).charLimit))) && !busy;
@@ -90,8 +97,7 @@ export function useCreatePostComposer(isOpen: boolean) {
   };
   const acceptResult = (data: ReviewResponse, snapshot: { platform: string; inboxItemId?: string }) => {
     if (!data?.article || !data.posts?.[snapshot.platform]) { setNotice("No usable text was returned. Your previous versions are unchanged."); return; }
-    // Accept only the requested platform, even if the response contains others.
-    updateVersions(current => applyReview(current, { ...data, posts: { [snapshot.platform]: data.posts[snapshot.platform] } }, snapshot.inboxItemId));
+    updateVersions(current => applyReview(current, data, snapshot.inboxItemId));
     if (!Object.values(data.posts[snapshot.platform]).some(content => typeof content === "string" && content.trim())) {
       setNotice("No usable text was returned. Your previous versions are unchanged.");
     } else setNotice("Generation complete. Review and edit before saving; nothing has been published.");
@@ -106,7 +112,7 @@ export function useCreatePostComposer(isOpen: boolean) {
     generationLock.current = true; lastGeneration.current = snapshot; setNotice("");
     try {
       const data = retry ? await generation.retry() : await generation.generate(mode === "manual" ? "/api/instant-review/manual" : "/api/instant-review/selected", {
-        ...(mode === "manual" ? manual : { url: url.trim() }), selectedPlatforms: [platform], format: effectiveFormat,
+        ...(mode === "manual" ? manual : { url: url.trim() }), selectedPlatforms, format: effectiveFormat,
       });
       if (data) acceptResult(data, snapshot);
     } finally { generationLock.current = false; }
@@ -144,7 +150,8 @@ export function useCreatePostComposer(isOpen: boolean) {
   return { platforms, preferencesReady, preferencesError: profile.isError || integrations.isError,
     retryPreferences: () => { void profile.refetch(); void integrations.refetch(); },
     inbox: (inbox.data ?? []).filter(isUsableInboxArticle), inboxLoading: inbox.isLoading, inboxError: inbox.isError, retryInbox: inbox.refetch,
-    platform, setPlatform, tone, setTone, format: effectiveFormat, setFormat, mode, setMode, url, setUrl, item,
+    platform, setPlatform, tone, setTone, selectedPlatforms, setSelectedPlatforms, selectedTones, setSelectedTones,
+    toneOptions: CREATE_TONES, format: effectiveFormat, setFormat, mode, setMode, url, setUrl, item,
     manual, setManual, setUploading, versions, version, edit, generation, generate, save, copy, copyStatus, notice,
     dirty, busy, saving, canGenerate, canUse, prefill };
 }

@@ -109,14 +109,14 @@ describe("atomic inbox storage contract", () => {
     expect((await storage.getInboxItems(scope, { order: "relevance", limit: 1, offset: 2 }))[0].articleUrl).toBe(candidate("high-relevance-old").articleUrl);
   });
 
-  it("excludes historical copies before diverse membership without spending their story slot", async () => {
+  it("excludes historical copies while retaining every fresh manual-refresh result", async () => {
     await seed(9);
     await ownerDb.insert(inboxItems).values({ ...scope, ...candidate("historical"), status: "saved" });
     const pool = ["historical", "new-copy", "other"].map(slug => ({ ...candidate(slug), rankingScore: slug === "other" ? "0.2" : "0.5",
       qualityMetadata: qualityFixture(slug === "other" ? "AI other development" : "AI original report") }));
     const result = await refresh(pool);
-    expect(result.items.map(r => r.articleUrl)).toEqual([candidate("new-copy").articleUrl]);
-    expect(await active()).toBe(10);
+    expect(result.items.map(r => r.articleUrl)).toEqual([candidate("new-copy").articleUrl, candidate("other").articleUrl]);
+    expect(await active()).toBe(11);
   });
 
   it("queries scoped discovery windows across all statuses beyond 200 without admitting manual rows", async () => {
@@ -306,14 +306,14 @@ describe("atomic inbox storage contract", () => {
       ...saved.map(row => storage.updateInboxItem(scope, row.id, { status: "active" })),
       ...Array.from({ length: 10 }, (_, i) => storage.createInboxItem(scope, candidate(`manual/${i}`)))];
     await Promise.allSettled(work);
-    expect(await active()).toBe(10);
+    expect(await active()).toBe(20);
   });
 
   it("serializes duplicate concurrent batches and same-canonical manual additions", async () => {
     const candidates = Array.from({ length: 20 }, (_, i) => candidate(`shared/${i}`));
     await Promise.all([refresh(candidates), refresh(candidates),
       ...Array.from({ length: 6 }, () => storage.createInboxItem(scope, candidate("shared/0")))]);
-    expect(await active()).toBe(10);
+    expect(await active()).toBe(20);
     const rows = await storage.getInboxItems(scope);
     expect(new Set(rows.map(row => row.canonicalUrl)).size).toBe(rows.length);
   });
@@ -422,11 +422,11 @@ describe("atomic inbox storage contract", () => {
     expect(canonicalHttpUrl(invalid.articleUrl)).toBeNull();
   });
 
-  it("clear and concurrent mixed writes cannot exceed capacity", async () => {
+  it("clear and concurrent mixed writes retain bounded manual additions and refresh results", async () => {
     await seed(10);
     await Promise.allSettled([storage.clearUserInboxItems(scope), refresh(Array.from({ length: 20 }, (_, i) => candidate(`batch/${i}`))),
       ...Array.from({ length: 30 }, (_, i) => storage.createInboxItem(scope, candidate(`manual/${i}`)))]);
-    expect(await active()).toBeLessThanOrEqual(10);
+    expect(await active()).toBeLessThanOrEqual(20);
   });
 });
 

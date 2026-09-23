@@ -388,23 +388,25 @@ export default function DraftsPage() {
         icon={FileText}
         title="Content"
         subtitle={draftsError ? "Content is unavailable" : `${draftsList.length} draft${draftsList.length !== 1 ? "s" : ""} saved`}
-        stats={((["ready", "scheduled", "attention", "published"] as const).map((view) => (
-          <Button
-            key={view}
-            size="sm"
-            variant={draftView === view ? "secondary" : "outline"}
-            onClick={() => {
-              if (editingDraft && !confirmLeaveEdit()) return;
-              setDraftView(view);
-              navigate(`${location}?view=${view}`);
-            }}
-            aria-pressed={draftView === view}
-            data-testid={`tab-${view}`}
-          >
-            {statusCounts[view]} {statusLabels[view]}
-          </Button>
-        )))}
-        actions={selectedDraftIds.size > 0 && <Button onClick={() => { setBulkTime(preferredTime); setBulkDate(dateKeyInTimeZone(new Date(), timeZone)); setBulkScheduleOpen(true); }}><CalendarPlus className="mr-2 h-4 w-4" />Schedule {selectedDraftIds.size} selected</Button>}
+          actions={<>
+            <div className="flex flex-wrap items-center gap-2">{((["ready", "scheduled", "attention", "published"] as const).map((view) => (
+              <Button
+                key={view}
+                size="sm"
+                variant={draftView === view ? "secondary" : "outline"}
+                onClick={() => {
+                  if (editingDraft && !confirmLeaveEdit()) return;
+                  setDraftView(view);
+                  navigate(`${location}?view=${view}`);
+                }}
+                aria-pressed={draftView === view}
+                data-testid={`tab-${view}`}
+              >
+                {statusCounts[view]} {statusLabels[view]}
+              </Button>
+            )))}</div>
+            {selectedDraftIds.size > 0 && <Button onClick={() => { setBulkTime(preferredTime); setBulkDate(dateKeyInTimeZone(new Date(), timeZone)); setBulkScheduleOpen(true); }}><CalendarPlus className="mr-2 h-4 w-4" />Schedule {selectedDraftIds.size} selected</Button>}
+          </>}
       />
 
       <main className="flex-1 p-4 sm:p-6 overflow-y-auto">

@@ -1,13 +1,14 @@
 import { Link } from "wouter";
-import { ExternalLink, PenLine } from "lucide-react";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { ChevronDown, ExternalLink, Link2, PenLine, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { getPlatformMeta } from "@/lib/platforms";
-import { EditorialDetails, EditorialFormatSelect, EditorialProgress } from "./editorial-details";
+import { EditorialDetails, EditorialProgress } from "./editorial-details";
 import { RichArticleEditor } from "./rich-article-editor";
-import { CREATE_TONES, isEdited, publicSourceUrl, type CreateTone } from "./create-post-state";
+import { isEdited, publicSourceUrl } from "./create-post-state";
+import { supportsArticle } from "@shared/editorial";
 import type { CreatePostComposer } from "./use-create-post-composer";
 import { ApproveVoiceEdit } from "./approve-voice-edit";
 
@@ -27,34 +28,27 @@ export function InstantReviewPanel({ isOpen, onClose, composer: c }: Readonly<In
   let saveLabel = version?.savedId ? "Save changes" : "Save draft";
   if (saved) saveLabel = "Saved";
   if (version?.status === "saving") saveLabel = "Saving…";
-  return <Sheet open={isOpen} onOpenChange={open => !open && onClose()}>
-    <SheetContent side="right" className="flex h-dvh w-full max-w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl [&>button]:min-h-11 [&>button]:min-w-11">
-      <SheetHeader className="shrink-0 border-b px-4 py-5 pr-16 text-left sm:px-6 sm:pr-16">
-        <SheetTitle className="flex items-center gap-2"><PenLine className="h-5 w-5" />Create draft</SheetTitle>
-        <SheetDescription>Choose a source, generate explicitly, then review and save. Nothing is published or scheduled automatically.</SheetDescription>
-      </SheetHeader>
-      <div className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-6 [&_button]:min-h-11 [&_select]:min-h-11 [&_input]:min-h-11 [&_summary]:min-h-11">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="min-w-0 space-y-1 text-sm"><span>Platform</span>
-            <select aria-label="Platform" className="block w-full min-w-0 rounded-md border bg-background px-3" value={c.platform} disabled={c.busy || !c.platforms.length} onChange={event => c.setPlatform(event.target.value)}>
-              {!c.platforms.length && <option value="">{c.preferencesReady ? "No available platforms" : "Loading preferences…"}</option>}
-              {c.platforms.map(platform => <option key={platform.value} value={platform.value}>{platform.label}</option>)}
-            </select>
-          </label>
-          <label className="min-w-0 space-y-1 text-sm"><span>Tone</span>
-            <select aria-label="Tone" className="block w-full rounded-md border bg-background px-3" value={c.tone} disabled={c.busy} onChange={event => c.setTone(event.target.value as CreateTone)}>
-              {CREATE_TONES.map(tone => <option key={tone.key} value={tone.key}>{tone.label}</option>)}
-            </select>
-          </label>
+  return <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-muted/20">
+      <header className="shrink-0 border-b bg-background px-5 py-3 text-left sm:px-8">
+        <div className="mx-auto w-full max-w-6xl">
+          <h1 className="flex items-center gap-2 text-xl"><PenLine className="h-5 w-5 text-primary" />Create post</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Bring an idea or source. We’ll shape it for your enabled channels, then you choose when it goes live.</p>
         </div>
-        {c.preferencesError && <div role="alert" className="text-sm">Could not load platform preferences. Generation and saving are disabled.<Button variant="outline" onClick={c.retryPreferences}>Retry preferences</Button></div>}
-        {c.preferencesReady && !c.platforms.length && <output className="block text-sm">No enabled platforms are available. Update your publishing preferences in Settings.</output>}
-        <EditorialFormatSelect platform={c.platform} value={c.format} onChange={c.setFormat} disabled={c.busy} />
-        <label className="block space-y-1 text-sm"><span>Source type</span>
-          <select aria-label="Source type" className="block w-full rounded-md border bg-background px-3" value={c.mode} disabled={c.busy} onChange={event => c.setMode(event.target.value as typeof c.mode)}>
-            <option value="url">Article URL</option><option value="article">Discover story</option><option value="manual">Write article</option>
-          </select>
-        </label>
+      </header>
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 sm:px-8 sm:pb-8 [&_button]:min-h-11 [&_select]:min-h-11 [&_input]:min-h-11 [&_summary]:min-h-11">
+        <div className="mx-auto w-full max-w-6xl">
+        <div className="sticky top-0 z-10 -mx-4 mb-5 border-b bg-background/95 px-4 py-2 shadow-sm backdrop-blur sm:-mx-8 sm:px-8 [&_button]:!min-h-9">
+          <div className="flex flex-wrap items-center justify-end gap-2 rounded-lg border bg-background p-1.5">
+            <div className="mr-auto flex h-9 items-center gap-1 rounded-md bg-muted/50 p-1 text-xs font-medium text-muted-foreground"><span className="px-2">Create from</span><Button type="button" size="sm" variant={c.mode === "manual" ? "secondary" : "ghost"} disabled={c.busy} onClick={() => c.setMode("manual")}><Sparkles className="h-3.5 w-3.5" />Idea</Button><Button type="button" size="sm" variant={c.mode !== "manual" ? "secondary" : "ghost"} disabled={c.busy} onClick={() => c.setMode("url")}><Link2 className="h-3.5 w-3.5" />Article</Button></div>
+            <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" size="sm" variant="outline" className="justify-between font-normal" disabled={c.busy || !c.toneOptions.length} aria-label="Select tones"><span>{c.selectedTones.length} tones</span><ChevronDown className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-56"><DropdownMenuLabel>Select tones</DropdownMenuLabel><DropdownMenuSeparator />{c.toneOptions.map(tone => <DropdownMenuCheckboxItem key={tone.key} checked={c.selectedTones.includes(tone.key)} onCheckedChange={() => { const next = c.selectedTones.includes(tone.key) ? c.selectedTones.filter(value => value !== tone.key) : [...c.selectedTones, tone.key]; c.setSelectedTones(next); if (next.length && !next.includes(c.tone)) c.setTone(next[0]); }}>{tone.label}</DropdownMenuCheckboxItem>)}</DropdownMenuContent></DropdownMenu>
+            <label className="sr-only" htmlFor="create-format">Format</label><select id="create-format" aria-label="Format" className="h-9 rounded-md border bg-background px-3 text-sm" value={c.format} disabled={c.busy} onChange={event => c.setFormat(event.target.value as typeof c.format)}><option value="short-post">Short post</option><option value="article" disabled={!supportsArticle(c.platform)}>Article</option></select>
+            <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" size="sm" variant="outline" className="justify-between font-normal" disabled={c.busy || !c.platforms.length} aria-label="Select publish destinations"><span>{c.selectedPlatforms.length} destinations</span><ChevronDown className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="max-h-80 w-[min(calc(100vw-2rem),420px)] overflow-y-auto"><DropdownMenuLabel>Select up to 4 destinations</DropdownMenuLabel><DropdownMenuSeparator />{c.platforms.map(destination => { const Icon = destination.icon; const checked = c.selectedPlatforms.includes(destination.value); const limitReached = !checked && c.selectedPlatforms.length >= 4; return <DropdownMenuCheckboxItem key={destination.value} checked={checked} disabled={limitReached} onCheckedChange={() => c.setSelectedPlatforms(checked ? c.selectedPlatforms.filter(value => value !== destination.value) : [...c.selectedPlatforms, destination.value])}><Icon className="mr-2 h-4 w-4" />{destination.label}</DropdownMenuCheckboxItem>; })}</DropdownMenuContent></DropdownMenu>
+            <Button disabled={!c.canGenerate} onClick={() => void c.generate()} data-testid="button-regenerate"><Sparkles className="h-4 w-4" />{version ? "Regenerate" : "Generate"}</Button>
+          </div>
+          {c.preferencesError && <div role="alert" className="mt-2 text-xs text-destructive">Could not load publishing preferences. <Button variant="outline" size="sm" onClick={c.retryPreferences}>Retry</Button></div>}
+          {c.preferencesReady && !c.platforms.length && <output className="mt-2 block text-xs text-destructive">No enabled platforms are available. Update your publishing preferences in Settings.</output>}
+        </div>
+        <main className="min-w-0 space-y-5">
         {c.mode === "article" && <section aria-label="Choose a story" className="space-y-2">
           <label className="block space-y-1 text-sm"><span>Story</span>
             <select aria-label="Story" className="block w-full min-w-0 rounded-md border bg-background px-3" disabled={c.busy} value={c.item?.id ?? ""} onChange={event => { const item = c.inbox.find(value => value.id === event.target.value); if (item) c.prefill(item); }}>
@@ -70,17 +64,15 @@ export function InstantReviewPanel({ isOpen, onClose, composer: c }: Readonly<In
         </section>}
         {c.mode === "manual" ? <RichArticleEditor value={c.manual} onChange={c.setManual} isPending={c.busy} onUploadingChange={c.setUploading} /> :
           <label className="block space-y-1 text-sm">Article URL<Input aria-label="Article URL" type="url" value={c.url} disabled={c.busy} onChange={event => c.setUrl(event.target.value)} placeholder="https://…" data-testid="input-instant-review-url" /></label>}
-        <Button className="w-full sm:w-auto" disabled={!c.canGenerate} onClick={() => void c.generate()} data-testid="button-regenerate">
-          {version ? "Regenerate" : "Generate"} {c.platform ? meta.label : "posts"} only
-        </Button>
-        <p className="text-xs text-muted-foreground">One platform, four tones per request. Switching platform or tone never generates automatically. Existing versions keep their own source evidence.</p>
         <EditorialProgress {...c.generation} />
-        {c.generation.error && !c.generation.pending && <div className="flex flex-wrap gap-2">
+        {c.generation.error && !c.generation.pending && <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
           <Button variant="outline" disabled={c.saving} onClick={() => void c.generate(true)}>Retry same request</Button>
           {c.generation.recoverable && <Button variant="outline" onClick={() => void c.generation.cancel()}>Cancel generation</Button>}
         </div>}
         {c.notice && <output className="block text-sm">{c.notice}</output>}
         {version ? <section className="min-w-0 space-y-4 border-t pt-5" aria-label="Draft review">
+          <div><p className="text-sm font-semibold">Review your post</p><p className="mt-1 text-sm text-muted-foreground">Choose a destination to see its adapted version. Edit each version independently.</p></div>
+          <div className="flex flex-wrap gap-2">{c.platforms.map(destination => { const Icon = destination.icon; return <Button key={destination.value} type="button" size="sm" variant={c.platform === destination.value ? "secondary" : "outline"} onClick={() => c.setPlatform(destination.value)}><Icon className="mr-1.5 h-4 w-4" />{destination.label}</Button>; })}</div>
           <div className="space-y-2 text-sm">
             <h3 className="font-medium">Source: {article?.title}</h3>
             <p className="text-muted-foreground">{article?.source} · Generated format: {version.review.format}</p>
@@ -107,8 +99,9 @@ export function InstantReviewPanel({ isOpen, onClose, composer: c }: Readonly<In
             <output>Draft saved. Review publishing readiness in Content for direct posting, or choose a time in Calendar.</output>
             <div className="flex flex-wrap gap-3"><Link className="inline-flex min-h-11 items-center underline" href="/dashboard/content" onClick={event => { if (!onClose()) event.preventDefault(); }}>Go to Content</Link><Link className="inline-flex min-h-11 items-center underline" href="/dashboard/calendar" onClick={event => { if (!onClose()) event.preventDefault(); }}>Go to Calendar</Link></div>
           </div>}
-        </section> : <p className="text-sm text-muted-foreground">No version for this platform yet. Choose a source and click Generate when ready.</p>}
+        </section> : <p className="text-sm text-muted-foreground">Your generated content will appear here for review.</p>}
+        </main>
+        </div>
       </div>
-    </SheetContent>
-  </Sheet>;
+  </div>;
 }

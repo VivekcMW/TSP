@@ -1,10 +1,6 @@
 import { useLocation, Link } from "wouter";
-import { Compass, FileText, BarChart3, LayoutDashboard, CalendarDays, Settings } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import { useAuth, useIsSignedIn } from "@/lib/auth";
-import type { User as DbUser } from "@shared/models/auth";
+import { Compass, FileText, BarChart3, LayoutDashboard, CalendarDays } from "lucide-react";
 import { motion } from "framer-motion";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Sidebar,
   SidebarContent,
@@ -14,6 +10,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarTrigger,
 } from "@/components/ui/sidebar";
 
 const mainNav = [
@@ -26,23 +23,6 @@ const mainNav = [
 
 export function AppSidebar() {
   const [location] = useLocation();
-  const { user } = useAuth();
-  const isSignedIn = useIsSignedIn();
-
-  // Falls back to the local users row when Clerk has no loaded user — which is
-  // the case under the dev login bypass. Shares App.tsx's cached "/api/me"
-  // query, so this adds no request.
-  const { data: dbUser } = useQuery<DbUser>({
-    queryKey: ["/api/me"],
-    enabled: isSignedIn,
-  });
-
-  const firstName = user?.firstName ?? dbUser?.firstName ?? "";
-  const lastName = user?.lastName ?? dbUser?.lastName ?? "";
-  const primaryEmail = user?.email ?? dbUser?.email;
-  const initials = firstName && lastName
-    ? `${firstName[0]}${lastName[0]}`
-    : primaryEmail?.[0]?.toUpperCase() || "U";
 
   return (
     <Sidebar collapsible="icon">
@@ -78,26 +58,9 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        <SidebarGroup className="mt-auto">
-          <SidebarMenu><SidebarMenuItem><SidebarMenuButton asChild tooltip="Settings" isActive={location === "/dashboard/settings"} data-testid="nav-settings"><Link href="/dashboard/settings" aria-current={location === "/dashboard/settings" ? "page" : undefined}><Settings className="h-4 w-4" /><span>Settings</span></Link></SidebarMenuButton></SidebarMenuItem></SidebarMenu>
-        </SidebarGroup>
       </SidebarContent>
-      
-      <SidebarFooter className="p-4 group-data-[collapsible=icon]:p-2">
-        <div className="flex items-center gap-3 p-2 rounded-md bg-sidebar-accent group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:bg-transparent">
-          <Avatar className="h-8 w-8 shrink-0">
-            <AvatarImage src={user?.imageUrl || undefined} alt={firstName || "User"} />
-            <AvatarFallback className="text-xs">{initials}</AvatarFallback>
-          </Avatar>
-          <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-            <p className="text-sm font-medium truncate" data-testid="text-user-name">
-              {firstName} {lastName}
-            </p>
-            <p className="text-xs text-muted-foreground truncate" data-testid="text-user-email">
-              {primaryEmail}
-            </p>
-          </div>
-        </div>
+      <SidebarFooter className="border-t p-2">
+        <SidebarTrigger className="w-full" data-testid="button-sidebar-toggle" aria-label="Expand or collapse sidebar" />
       </SidebarFooter>
     </Sidebar>
   );

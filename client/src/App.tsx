@@ -35,6 +35,7 @@ const DraftsPage = lazy(() => import("@/pages/drafts"));
 const PerformancePage = lazy(() => import("@/pages/performance"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const CalendarPage = lazy(() => import("@/pages/calendar"));
+const CreatePostPage = lazy(() => import("@/pages/create-post"));
 const AdminOverviewPage = lazy(() => import("@/pages/admin/overview"));
 const AdminTenantsPage = lazy(() => import("@/pages/admin/tenants"));
 const AdminUsersPage = lazy(() => import("@/pages/admin/users"));
@@ -97,6 +98,7 @@ function DashboardRouter() {
           <Suspense fallback={<LoadingScreen />}>
           <Switch>
             <Route path="/dashboard" component={OverviewPage} />
+            <Route path="/dashboard/create" component={CreatePostPage} />
             <Route path="/dashboard/discover" component={DashboardPage} />
             <Route path="/dashboard/inbox"><DashboardRedirect to="/dashboard/discover" /></Route>
             <Route path="/dashboard/content" component={DraftsPage} />

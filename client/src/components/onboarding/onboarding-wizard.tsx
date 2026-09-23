@@ -10,7 +10,7 @@ import { Link } from "wouter";
 import { Progress } from "@/components/ui/progress";
 import { normalizeOnboardingChoices, normalizeOnboardingRecommendations, visibleOnboardingChoices, type OnboardingData } from "@/lib/onboarding-choices";
 import { normalizeKeywords, reconcileKeywords, type WeightedKeyword } from "@shared/profile-preferences";
-import { reconcilePublicationCandidates, type PublicationCandidate } from "@shared/publication-preferences";
+import { selectedPublicationCandidates, type PublicationCandidate } from "@shared/publication-preferences";
 
 interface OnboardingWizardProps {
   onComplete: (data: OnboardingData) => void;
@@ -703,7 +703,7 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
   const handleComplete = () => {
     if (focusDescription.trim().length < 10 || isPending) return;
     cancelRecommendations();
-    const candidates = reconcilePublicationCandidates(selectedPublications, publicationCandidates);
+    const candidates = selectedPublicationCandidates(selectedPublications, publicationCandidates);
     onComplete({
       focusDescription: focusDescription.trim(),
       publications: selectedPublications,

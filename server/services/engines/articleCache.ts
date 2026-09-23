@@ -110,6 +110,7 @@ function serializeArticles(articles: FetchedArticle[], keyBytes: number): string
 export async function getCachedArticles(
   key: string,
   fetcher: () => Promise<FetchedArticle[]>,
+  shouldCache: (articles: FetchedArticle[]) => boolean = () => true,
 ): Promise<FetchedArticle[]> {
   if (typeof key !== "string" || !key.length || key.length > ARTICLE_CACHE_LIMITS.maxKeyBytes) {
     throw new ArticleCacheError("key");
@@ -134,6 +135,7 @@ export async function getCachedArticles(
     // Register before invoking user code, including synchronously throwing fetchers.
     const promise = Promise.resolve().then(fetcher).then(articles => {
       const json = serializeArticles(articles, keyBytes);
+      if (!shouldCache(articles)) return json;
       const bytes = keyBytes + Buffer.byteLength(json, "utf8");
       // Reject the entire batch, never silently truncate or return an unbounded copy.
       if (bytes > ARTICLE_CACHE_LIMITS.maxEntryBytes) throw new ArticleCacheError("result");

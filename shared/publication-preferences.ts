@@ -45,12 +45,30 @@ export function legacyPublicationUrl(name: string): string | undefined {
   return parsed.success ? parsed.data.url : undefined;
 }
 
+/** Official domains for built-in suggestions only. Custom names still require an explicit URL. */
+export const VERIFIED_PUBLICATION_URLS: Record<string, string> = {
+  "ad age": "https://adage.com", "adweek": "https://www.adweek.com", "digiday": "https://digiday.com",
+  "campaign": "https://www.campaignlive.co.uk", "the drum": "https://www.thedrum.com", "mediapost": "https://www.mediapost.com",
+  "marketing week": "https://www.marketingweek.com", "ad exchanger": "https://www.adexchanger.com", "martech": "https://martech.org",
+  "exchangewire": "https://www.exchangewire.com", "mumbrella": "https://mumbrella.com", "little black book": "https://lbbonline.com",
+  "contagious": "https://www.contagious.com", "warc": "https://www.warc.com", "campaign asia": "https://www.campaignasia.com",
+  "brand equity": "https://brandequity.economictimes.indiatimes.com", "afaqs!": "https://www.afaqs.com", "exchange4media": "https://www.exchange4media.com",
+  "bestmediainfo": "https://bestmediainfo.com", "social samosa": "https://www.socialsamosa.com", "techcrunch": "https://techcrunch.com",
+  "the verge": "https://www.theverge.com", "wired": "https://www.wired.com", "ars technica": "https://arstechnica.com",
+  "venturebeat": "https://venturebeat.com", "financial times": "https://www.ft.com", "wall street journal": "https://www.wsj.com",
+  "bloomberg": "https://www.bloomberg.com", "the economist": "https://www.economist.com", "reuters": "https://www.reuters.com",
+};
+
+export function verifiedPublicationUrl(name: string): string | undefined {
+  return VERIFIED_PUBLICATION_URLS[name.trim().toLowerCase()];
+}
+
 export function selectedPublicationCandidates(names: readonly string[], candidates: readonly PublicationCandidate[] = []): PublicationCandidate[] {
   const metadata = new Map(candidates.map(candidate => [candidate.name.toLowerCase(), candidate]));
   const urls = new Set<string>();
   const result: PublicationCandidate[] = [];
   for (const name of names) {
-    const url = metadata.get(name.trim().toLowerCase())?.url ?? legacyPublicationUrl(name);
+    const url = metadata.get(name.trim().toLowerCase())?.url ?? legacyPublicationUrl(name) ?? verifiedPublicationUrl(name);
     if (!url || urls.has(url)) continue;
     urls.add(url);
     result.push({ name, url });

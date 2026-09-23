@@ -1,10 +1,15 @@
 import Parser from "rss-parser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { crawl, network } = vi.hoisted(() => ({
+const { crawl, network, decode, offline, modernDecode } = vi.hoisted(() => ({
   crawl: vi.fn(), network: vi.fn(() => { throw new Error("Unexpected network request"); }),
+  decode: vi.fn(),
+  offline: vi.fn(),
+  modernDecode: vi.fn(),
 }));
 vi.mock("./crawlerFetch", async original => ({ ...await original<typeof import("./crawlerFetch")>(), fetchPublicText: crawl }));
+vi.mock("decode-google-news-url", () => ({ decodeGoogleNewsUrl: decode, tryOfflineDecode: offline }));
+vi.mock("google-news-decoder", () => ({ default: class { decodeGoogleNewsUrl = modernDecode; } }));
 vi.mock("node-fetch", () => ({ default: network }));
 import { fetchArticlesForQuery } from "./keywordSearch";
 import { CrawlError } from "./crawlerFetch";
@@ -14,6 +19,9 @@ const item = (extra = "", index = 0) => `<item><title>Story ${index}</title><lin
 
 beforeEach(() => {
   vi.resetAllMocks();
+  decode.mockRejectedValue(new Error("Unexpected decoder request"));
+  offline.mockReturnValue(null);
+  modernDecode.mockRejectedValue(new Error("Unexpected decoder request"));
   vi.stubGlobal("fetch", network);
   // Fail closed if direct parser networking is accidentally reintroduced. All
   // fixtures enter through the crawler boundary; parseString stays real.
@@ -101,6 +109,15 @@ describe("bounded Google News search", () => {
       pubDate: null, publishedAt: null, publicationDate: { quality: "missing" },
     }]);
     expect(result[0].publishedAt).toBeNull();
+  });
+
+  it("decodes modern Google News article links before storing them", async () => {
+    const wrapper = "https://news.google.com/rss/articles/opaque-token?oc=5";
+    crawl.mockResolvedValue({ text: rss(`<item><title>Story</title><link>${wrapper}</link></item>`) });
+    decode.mockResolvedValue("https://publisher.test/articles/story");
+    const result = await fetchArticlesForQuery("AI");
+    expect(result[0].link).toBe("https://publisher.test/articles/story");
+    expect(decode).toHaveBeenCalledWith(wrapper);
   });
 
   it("returns an empty result for a successfully parsed empty feed", async () => {

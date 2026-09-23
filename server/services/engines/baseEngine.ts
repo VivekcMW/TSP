@@ -1,7 +1,7 @@
 import { validateUrlSync } from "../urlValidator.js";
 import { resolvePublicationSources } from "../publicationSources.js";
 import { CrawlError, crawlErrorMessage, fetchPublicText, mapCrawlSettled } from "../crawlerFetch.js";
-import { fetchArticlesForQuery } from "../keywordSearch.js";
+import { fetchArticlesForQuery, isGoogleNewsArticleUrl, resolveGoogleNewsArticleUrl } from "../keywordSearch.js";
 import { parseFeedContent } from "../universalFeedParser.js";
 import { scrapeWebpageArticles } from "../webpageScraper.js";
 import { getCachedArticles } from "./articleCache.js";
@@ -104,9 +104,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
           lastFetchedAt: new Date(), lastFetchStatus: errorMessage ? "error" : "ok", lastFetchError: errorMessage,
         }).catch(() => { /* Best-effort status tracking, but never detached work. */ });
       });
-      if (succeeded !== sources.length || controller.signal.aborted || outcomes.some(result => result.status === "rejected")) {
-        throw new CrawlError("sources", "Article sources could not complete. Please try again.");
-      }
+      if (controller.signal.aborted) throw new CrawlError("sources", "Article sources could not complete. Please try again.");
     } finally {
       clearTimeout(timer);
       controller.abort();
@@ -138,6 +136,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
     const edition = getSearchEdition(searchEdition);
     // Preserve query order/case and boundaries; delimiters in labels cannot collide.
     const cacheKey = `keywords:${JSON.stringify([edition.id, queries])}`;
+    let partialFailure = false;
     return getCachedArticles(cacheKey, async () => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), KEYWORD_SEARCH_BUDGET_MS);
@@ -148,8 +147,9 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
           return fetchArticlesForQuery(query, 8, edition.id, controller.signal);
         });
         const failed = results.filter((result) => result.status === "rejected").length;
-        if (failed || controller.signal.aborted) {
-          // Never cache partial/deadline batches or include provider/query details.
+        partialFailure = failed > 0;
+        if ((failed === results.length && results.length > 0) || controller.signal.aborted) {
+          // Never cache a fully failed/deadline batch or include provider/query details.
           throw new CrawlError("search-batch", "Article search could not complete. Please try again.");
         }
         const articles: FetchedArticle[] = [];
@@ -162,7 +162,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
         clearTimeout(timer);
         controller.abort();
       }
-    });
+    }, () => !partialFailure);
   }
 
   async scoreArticles(
@@ -195,7 +195,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       const begin = await storage.beginInboxRefresh(scope, operationId, autoRefresh);
       if (begin.receipt) return begin.receipt;
       activeCount = begin.activeCount;
-      if (activeCount >= INBOX_CAPACITY && (!autoRefresh || activeCount > INBOX_CAPACITY)) {
+      if (autoRefresh && activeCount > INBOX_CAPACITY) {
         return await storage.commitInboxRefresh(scope, operationId, autoRefresh, begin.snapshot, [], {
           articlesProcessed: 0, articlesMatched: 0, durationMs: Date.now() - startTime,
         });
@@ -206,16 +206,24 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       const userProfile = reservation.profile;
       const existingSources = await storage.getUserSources(scope);
       discoveryWarnings = await resolvePublicationSources(scope, userProfile);
+      if (activeCount > 0) await this.repairStoredGoogleNewsUrls(scope);
 
       const [sourceOutcome, searchOutcome] = await Promise.allSettled([
         this.fetchUserSources(scope),
         this.fetchKeywordSearchArticles(reservation),
       ]);
-      if (sourceOutcome.status === "rejected" || searchOutcome.status === "rejected") {
+      const stageWarnings: string[] = [];
+      if (sourceOutcome.status === "rejected") stageWarnings.push("Some saved sources could not be fetched. Check Manage Sources for details.");
+      if (searchOutcome.status === "rejected") stageWarnings.push("Keyword search could not complete. Your saved-source results are still available.");
+      const sourceArticles = sourceOutcome.status === "fulfilled" ? sourceOutcome.value : [];
+      const searchArticles = searchOutcome.status === "fulfilled" ? searchOutcome.value : [];
+      if ((sourceOutcome.status === "rejected" && searchOutcome.status === "rejected")
+        || (sourceOutcome.status === "rejected" && searchArticles.length === 0)
+        || (searchOutcome.status === "rejected" && sourceArticles.length === 0)) {
         throw new CrawlError("refresh-incomplete", inboxRefreshMessage("failure"));
       }
-      const userSourceArticles = sourceOutcome.status === "fulfilled" ? sourceOutcome.value : [];
-      const keywordArticles = searchOutcome.status === "fulfilled" ? searchOutcome.value : [];
+      const userSourceArticles = sourceArticles;
+      const keywordArticles = searchArticles;
 
       const hasAnyInterestSignal =
         existingSources.some(source => source.isActive) ||
@@ -270,7 +278,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
         articlesMatched: scoredArticles.length,
         durationMs: Date.now() - startTime,
         needsSetup: !hasAnyInterestSignal,
-        discoveryWarnings,
+        discoveryWarnings: [...discoveryWarnings, ...stageWarnings],
       });
     } catch (error) {
       if (error instanceof InboxOperationConflictError) throw error;
@@ -287,6 +295,17 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
         message: inboxRefreshMessage("failure"),
       };
     }
+  }
+
+  private async repairStoredGoogleNewsUrls(scope: TenantScope): Promise<void> {
+    const existing = await storage.getInboxItems(scope, { status: "active", limit: 100 });
+    if (!Array.isArray(existing)) return;
+    const wrappers = existing.filter(item => isGoogleNewsArticleUrl(item.articleUrl));
+    if (!wrappers.length) return;
+    await mapCrawlSettled(wrappers, 2, async item => {
+      const direct = await resolveGoogleNewsArticleUrl(item.articleUrl);
+      if (direct !== item.articleUrl && !isGoogleNewsArticleUrl(direct)) await storage.updateInboxArticleUrl(scope, item.id, direct);
+    });
   }
 
   /**

@@ -19,7 +19,7 @@ import { getIndustryData } from "@/components/onboarding/onboarding-wizard";
 import type { UserProfile, InboxItem, ProfileSocialLink } from "@shared/schema";
 import { reconcileKeywords } from "@shared/profile-preferences";
 import { getSearchEdition, SEARCH_EDITIONS } from "@shared/search-editions";
-import { publicationCandidatesSchema, reconcilePublicationCandidates, type PublicationCandidate } from "@shared/publication-preferences";
+import { publicationCandidatesSchema, reconcilePublicationCandidates, selectedPublicationCandidates, type PublicationCandidate } from "@shared/publication-preferences";
 import { PublicationSourceFeedback } from "@/components/settings/publication-source-feedback";
 import { parsePublicationCandidate } from "@/lib/publication-candidates";
 
@@ -115,7 +115,7 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
     mutationFn: async (data: typeof draft): Promise<UserProfile> => {
       // Label-only edits must not reset saved weights or categories.
       const { publicationCandidates: candidates, hadPublicationCandidates, ...values } = data;
-      const selectedCandidates = publicationCandidatesSchema.parse(reconcilePublicationCandidates(data.publications, candidates));
+      const selectedCandidates = publicationCandidatesSchema.parse(selectedPublicationCandidates(data.publications, candidates));
       const payload = {
         ...values,
         ...(hadPublicationCandidates || selectedCandidates.length ? { publicationCandidates: selectedCandidates } : {}),

@@ -19,16 +19,16 @@ interface PageHeaderProps {
 // like four hand-rolled variants of the same icon+title+description block.
 export function PageHeader({ title, subtitle, actions, stats, contentClassName }: Readonly<PageHeaderProps>) {
   return (
-    <header className="dashboard-gutter dashboard-touch-targets sticky top-0 z-10 bg-background border-b py-4 shrink-0">
+    <header className="dashboard-gutter dashboard-touch-targets sticky top-0 z-10 bg-background border-b py-2 shrink-0">
       <div className={cn("dashboard-container flex items-start justify-between gap-4 flex-wrap", contentClassName)}>
         <div className="min-w-0 flex-1 basis-64">
           <h1 className="heading-dashboard break-words" data-testid="text-page-title">
             {title}
           </h1>
-          {subtitle != null && <p className="mt-1 break-words text-sm leading-relaxed text-muted-foreground">{subtitle}</p>}
-          {stats != null && <div className="flex items-center gap-2 mt-2 flex-wrap tabular-nums">{stats}</div>}
+          {subtitle != null && <p className="mt-0.5 break-words text-sm leading-relaxed text-muted-foreground">{subtitle}</p>}
+          {stats != null && <div className="flex items-center gap-2 mt-1 flex-wrap tabular-nums">{stats}</div>}
         </div>
-        {actions && <div className="flex w-full min-w-0 items-center gap-2 flex-wrap sm:w-auto">{actions}</div>}
+        {actions && <div className="flex w-full min-w-0 items-center justify-end gap-2 flex-wrap sm:w-auto">{actions}</div>}
       </div>
     </header>
   );

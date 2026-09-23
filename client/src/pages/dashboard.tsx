@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Inbox, RefreshCw, Link2, AlertTriangle, Rss } from "lucide-react";
+import { Inbox, RefreshCw, AlertTriangle } from "lucide-react";
 import { useIsSignedIn } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -10,12 +10,9 @@ import { InboxListRow } from "@/components/dashboard/inbox-list-row";
 import { InboxDetail } from "@/components/dashboard/inbox-detail";
 import { PersonalTrends } from "@/components/dashboard/personal-trends";
 import { useCreatePost } from "@/components/dashboard/create-post-provider";
-import { ignoreDiscoverShortcut } from "@/components/dashboard/create-post-state";
-import { SourcesManagerContent } from "@/components/dashboard/sources-manager";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { DashboardEmptyState } from "@/components/dashboard/empty-state";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import type { InboxItem } from "@shared/schema";
@@ -26,9 +23,8 @@ export default function DashboardPage() {
   const isSignedIn = useIsSignedIn();
   const { toast } = useToast();
   const [filter, setFilter] = useState<FilterType>("all");
-  const { openCreate, isOpen: isCreateOpen } = useCreatePost();
+  const { openCreate } = useCreatePost();
   const triageLock = useRef(false);
-  const [isSourcesOpen, setIsSourcesOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isDetailSheetOpen, setIsDetailSheetOpen] = useState(false);
 
@@ -42,9 +38,16 @@ export default function DashboardPage() {
     enabled: !!isSignedIn,
   });
   const { isLoading, isError, error, refetch } = filter === "all" ? active : history;
-  
+
   const refreshInbox = useInboxRefreshJob();
   const needsSetup = refreshInbox.progress.needsSetup;
+
+  useEffect(() => {
+    if (refreshInbox.status !== "completed") return;
+    setFilter("all");
+    void active.refetch();
+    void history.refetch();
+  }, [refreshInbox.status]);
 
   const items = history.data || [];
   // Legacy active rows still occupy capacity: keep them visible and actionable.
@@ -71,13 +74,6 @@ export default function DashboardPage() {
     }
     const nextIndex = Math.min(currentIndex, remaining.length - 1);
     setActiveId(remaining[nextIndex].id);
-  };
-
-  const selectRelative = (delta: number) => {
-    if (!activeItem) return;
-    const index = filteredItems.findIndex((i) => i.id === activeItem.id);
-    const nextIndex = Math.min(Math.max(index + delta, 0), filteredItems.length - 1);
-    setActiveId(filteredItems[nextIndex].id);
   };
 
   const handleSelectRow = (item: InboxItem) => {
@@ -118,77 +114,14 @@ export default function DashboardPage() {
   const handleSave = (item: InboxItem) => triage(item, "saved");
   const handleDismiss = (item: InboxItem) => triage(item, "dismissed");
 
-  const activeCount = activeCandidates.length;
-  const savedCount = items.filter((i) => i.status === "saved").length;
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (ignoreDiscoverShortcut(event)) return;
-      if (isCreateOpen || isSourcesOpen || isDetailSheetOpen || triageLock.current) return;
-      if (!activeItem) return;
-
-      switch (event.key.toLowerCase()) {
-        case "j":
-        case "arrowdown":
-          event.preventDefault();
-          selectRelative(1);
-          break;
-        case "k":
-        case "arrowup":
-          event.preventDefault();
-          selectRelative(-1);
-          break;
-        case "s":
-          event.preventDefault();
-          handleSave(activeItem);
-          break;
-        case "d":
-          event.preventDefault();
-          handleDismiss(activeItem);
-          break;
-        case "g":
-        case "enter":
-          event.preventDefault();
-          handleGeneratePost(activeItem);
-          break;
-        default:
-          break;
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeItem, filteredItems, isCreateOpen, isSourcesOpen, isDetailSheetOpen, openCreate]);
-
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <PageHeader
         icon={Inbox}
         title="Discover"
         subtitle={`${filteredItems.length} articles curated from your own sources and interests`}
-        stats={
-          <>
-            <Badge variant="outline" className="text-xs font-normal">{activeCount} active</Badge>
-            <Badge variant="outline" className="text-xs font-normal">{savedCount} saved</Badge>
-          </>
-        }
         actions={
           <>
-            <Button
-              variant="outline"
-              onClick={() => setIsSourcesOpen(true)}
-              data-testid="button-manage-sources"
-            >
-              <Rss className="w-4 h-4 mr-2" />
-              Manage Sources
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => openCreate()}
-              data-testid="button-instant-review"
-            >
-              <Link2 className="w-4 h-4 mr-2" />
-              Create draft
-            </Button>
             <Button
               variant="default"
               onClick={() => void refreshInbox.startRefresh()}
@@ -292,18 +225,6 @@ export default function DashboardPage() {
         )}
       </main>
       
-      <Sheet open={isSourcesOpen} onOpenChange={setIsSourcesOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-[500px] overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>Manage Sources</SheetTitle>
-            <SheetDescription>Add as many blogs, publications, or sites as you want — Discover fetches only from what you add here plus live search on your own keywords, companies, and influencers. No pre-configured sources.</SheetDescription>
-          </SheetHeader>
-          <div className="mt-6">
-            <SourcesManagerContent />
-          </div>
-        </SheetContent>
-      </Sheet>
-
       <Sheet open={isDetailSheetOpen} onOpenChange={setIsDetailSheetOpen}>
         <SheetContent side="right" className="w-full p-0 sm:max-w-lg">
           <SheetHeader className="sr-only"><SheetTitle>Story details</SheetTitle><SheetDescription>Review a story, save it, dismiss it, or create a draft.</SheetDescription></SheetHeader>

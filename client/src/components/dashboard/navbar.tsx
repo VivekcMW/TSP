@@ -5,7 +5,6 @@ import { useCreatePost } from "./create-post-provider";
 import { useQuery } from "@tanstack/react-query";
 import { signOut, useAuth, useIsSignedIn } from "@/lib/auth";
 import type { User as DbUser } from "@shared/models/auth";
-import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -17,6 +16,7 @@ import {
 
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard": "Home",
+  "/dashboard/create": "Create post",
   "/dashboard/discover": "Discover",
   "/dashboard/inbox": "Discover",
   "/dashboard/content": "Content",
@@ -59,7 +59,6 @@ export function DashboardNavbar() {
   return (
     <header className="flex items-center justify-between gap-4 px-3 py-2.5 border-b bg-background sticky top-0 z-10">
       <div className="flex items-center gap-3">
-        <SidebarTrigger data-testid="button-sidebar-toggle" />
         <Link href="/dashboard" className="flex items-center gap-1.5 shrink-0" data-testid="link-navbar-logo">
           <Zap className="w-5 h-5 text-primary fill-primary" />
           <span className="font-bold text-base text-primary hidden sm:inline">TheSocialPundit</span>

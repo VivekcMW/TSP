@@ -211,7 +211,7 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     await browserExpect(page.getByRole("alert")).toContainText("Worker failed");
     expect((await calls()).filter((call: any) => call.url === "/api/inbox")).toHaveLength(0);
   });
-  it("retries a failed operation with the same UUID and prefers the successful outcome over stale errors", async () => {
+  it("retries a failed admitted job with a new UUID and prefers the successful outcome over stale errors", async () => {
     await mount("refresh", [{ body: { jobId: "recover" } },
       { body: { status: "failed", progress: { ...progress, success: false }, error: "Old failure" } },
       { body: { jobId: "recover" } },
@@ -227,7 +227,7 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     const posts = (await calls()).filter((call: any) => call.method === "POST");
     expect(posts).toHaveLength(2);
     expect(posts[0].body.operationId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(posts[1].body.operationId).toBe(posts[0].body.operationId);
+    expect(posts[1].body.operationId).not.toBe(posts[0].body.operationId);
     const count = (await calls()).length;
     await page.clock.runFor(5000);
     expect(await calls()).toHaveLength(count);
