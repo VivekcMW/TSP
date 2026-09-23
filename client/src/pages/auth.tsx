@@ -7,17 +7,18 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
 import { FaLinkedin } from "react-icons/fa";
-import { SiGoogle, SiX } from "react-icons/si";
+import { SiGoogle } from "react-icons/si";
 import { ArrowRight, Eye, EyeOff, Rss, Sparkles, ShieldCheck, Zap } from "lucide-react";
 import type { ComponentType } from "react";
 
 type SocialProvider = "google" | "linkedin" | "twitter";
 type ProviderAvailability = Record<SocialProvider, boolean>;
 
+// X/Twitter OAuth redirect URIs were never registered, so it's left out of
+// this list entirely rather than shown disabled — hidden from sign-in/sign-up.
 const providerMeta: Array<{ id: SocialProvider; label: string; icon: ComponentType<{ className?: string }> }> = [
   { id: "google", label: "Google", icon: SiGoogle },
   { id: "linkedin", label: "LinkedIn", icon: FaLinkedin },
-  { id: "twitter", label: "X", icon: SiX },
 ];
 
 export function SignInPage() {
@@ -208,13 +209,11 @@ function SocialLogin() {
       return "bg-white hover:bg-gray-50 border-gray-300 text-gray-700 hover:shadow-md transition-shadow";
     } else if (id === "linkedin") {
       return "bg-[#0A66C2] hover:bg-[#085399] border-[#0A66C2] text-white hover:shadow-md transition-shadow";
-    } else if (id === "twitter") {
-      return "bg-black hover:bg-neutral-800 border-black text-white hover:shadow-md transition-shadow";
     }
     return "bg-white hover:bg-gray-50 border-gray-300 text-gray-700";
   };
 
-  return <div className="space-y-3"><div><p className="text-sm font-medium">Sign in faster</p><p className="mt-1 text-xs text-muted-foreground">Choose Google, LinkedIn, or X, or continue with email below.</p></div><div className="grid grid-cols-3 gap-3">{providerMeta.map(({ id, label, icon: Icon }) => {
+  return <div className="space-y-3"><div><p className="text-sm font-medium">Sign in faster</p><p className="mt-1 text-xs text-muted-foreground">Choose Google or LinkedIn, or continue with email below.</p></div><div className="grid grid-cols-2 gap-3">{providerMeta.map(({ id, label, icon: Icon }) => {
     const enabled = providers?.[id] === true;
     const status = getProviderStatus(loaded, enabled);
     const isDisabled = !enabled;

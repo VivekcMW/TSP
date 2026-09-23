@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Zap, Clock, Sparkles, Newspaper, ArrowRight } from "lucide-react";
+import { Sparkles, Newspaper, ArrowRight } from "lucide-react";
 import { useIsSignedIn } from "@/lib/dev-auth";
 import { Link } from "wouter";
 import { Reveal } from "@/components/motion/reveal";
@@ -24,21 +24,6 @@ export function Hero() {
             platforms in 60 seconds — no more blank screens, no more wasted hours.
           </p>
 
-          <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-primary" />
-              <span>5 min/day</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-primary" />
-              <span>Gemini 2.5 Flash AI</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-primary" />
-              <span>18 industries</span>
-            </div>
-          </div>
-          
           <div className="flex flex-wrap items-center justify-center gap-4">
             {isSignedIn ? (
               <Link href="/dashboard">
