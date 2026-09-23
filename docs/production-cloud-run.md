@@ -119,6 +119,12 @@ HTTP 5xx errors, on ERROR logs, and on Redis or queue connection failures.
   `/auth/linkedin/analytics/callback` registered: LinkedIn accepted both, and
   it rejected an unregistered redirect and an unauthorized scope in control
   requests. No customer has connected an account yet.
+- Generating for X, Threads or Substack fails: Gemini's writer output doesn't
+  parse as JSON, and the OpenRouter fallback writes 800–1,100 characters,
+  over the 280–600 limits. A multi-platform request fails as a whole when one
+  platform fails. Revision `tsp-app-00022` therefore starts Create with the
+  profile's default platform only. Fix: return the platforms that succeeded
+  and retry over-long posts with a shortening pass.
 - To offer USD once Razorpay enables International Payments: create a live
   plan for USD 2000 monthly and USD 20000 yearly (interval 1), set each plan's
   ID in `razorpay_plan_id`, and set `is_active = true` for `pro_monthly` and
