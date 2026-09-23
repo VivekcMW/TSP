@@ -23,6 +23,8 @@ beforeAll(async () => {
       import { queryClient } from "@/lib/queryClient";
       import Home from "@/pages/overview";
       import { CreatePostProvider } from "@/components/dashboard/create-post-provider";
+      import CreatePostPage from "@/pages/create-post";
+      import { Route } from "wouter";
       import Performance from "@/pages/performance";
       import Onboarding from "@/pages/onboarding";
       import Registration from "@/pages/complete-registration";
@@ -44,7 +46,7 @@ beforeAll(async () => {
       function App() {
         const [surface, setSurface] = useState(window.__surface);
         window.__setSurface = setSurface;
-        return <QueryClientProvider client={queryClient}><CreatePostProvider><div style={{ height: "100vh" }}>{surface === "home" ? <Home /> : surface === "performance" ? <Performance /> : surface === "onboarding" ? <Onboarding /> : surface === "registration" ? <Registration existingFirstName="Taylor" existingLastName="Lee" /> : surface === "refresh" ? <RefreshObserver /> : <OnboardingWizard onComplete={data => window.__completed.push(data)} />}</div></CreatePostProvider></QueryClientProvider>;
+        return <QueryClientProvider client={queryClient}><CreatePostProvider><div style={{ height: "100vh" }}>{surface === "home" ? <Home /> : surface === "performance" ? <Performance /> : surface === "onboarding" ? <Onboarding /> : surface === "registration" ? <Registration existingFirstName="Taylor" existingLastName="Lee" /> : surface === "refresh" ? <RefreshObserver /> : <OnboardingWizard onComplete={data => window.__completed.push(data)} />}<Route path="/dashboard/create" component={CreatePostPage} /></div></CreatePostProvider></QueryClientProvider>;
       }
       createRoot(document.getElementById("root")).render(<App />);
     ` },

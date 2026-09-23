@@ -46,9 +46,11 @@ export function applyReview(previous: PostVersions, review: ReviewResponse, inbo
   const next = { ...previous };
   for (const [platform, posts] of Object.entries(review.posts)) {
     for (const tone of CREATE_TONES) {
+      // Requests may ask for a single tone; tones that were not returned stay as they were.
+      const content = posts[tone.key];
+      if (typeof content !== "string") continue;
       const key = versionKey(platform, tone.key);
       const old = previous[key];
-      const content = typeof posts[tone.key] === "string" ? posts[tone.key] : "";
       // A malformed/empty replacement must not erase useful work.
       if (!content.trim() && old?.content.trim()) continue;
       const saved = old && sameDraftSource(old.review, review) && old.inboxItemId === inboxItemId ? old : undefined;

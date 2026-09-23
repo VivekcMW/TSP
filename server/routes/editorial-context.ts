@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { supportsArticle } from "@shared/editorial";
+import { EDITORIAL_TONES, supportsArticle } from "@shared/editorial";
 import { authedOf } from "../middlewares/requireDbUser";
 import { storage } from "../storage";
 import { AIGenerationError } from "../services/openRouter";
@@ -9,6 +9,7 @@ import type { EditorialOptions } from "../services/punditBrain";
 export const editorialPreferences = {
   format: z.enum(["short-post", "article"]).default("short-post"),
   userContext: z.string().trim().max(4000).optional(),
+  tones: z.array(z.enum(EDITORIAL_TONES)).min(1).max(EDITORIAL_TONES.length).optional(),
 };
 export const reviewUrl = z.string().trim().min(1).max(2048).refine(value => {
   try {

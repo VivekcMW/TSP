@@ -35,7 +35,8 @@ export const PLATFORMS: PlatformMeta[] = ([
     label: "Twitter/X",
     icon: SiX,
     charLimit: 280,
-    composeUrl: (text) => `https://twitter.com/intent/tweet?text=${encodeURIComponent(text.slice(0, 280))}`,
+    // No raw-length cut: X counts links as 23, and the limit is enforced before this link is shown.
+    composeUrl: (text) => `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
   },
   {
     value: "threads",

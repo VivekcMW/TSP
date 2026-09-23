@@ -54,6 +54,7 @@ export async function executeEditorialRequest(prepared: PreparedEditorialRequest
   };
   // Attachments are returned for the editor, never treated as inspected evidence.
   const result = await generatePlatformReviewsDetailed(article, input.selectedPlatforms, { ...options, signal,
+    ...(input.tones ? { tones: input.tones } : {}),
     ...(onPlatformComplete ? { onPlatformComplete } : {}), ...(timeoutMs === undefined ? {} : { timeoutMs }) });
   signal.throwIfAborted();
   return { article: "media" in input ? { ...article, media: input.media, domain: "manual" } : article, ...result, format: input.format };

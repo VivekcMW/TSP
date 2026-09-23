@@ -19,8 +19,6 @@ export function useCreatePostComposer(isOpen: boolean) {
   const inbox = useQuery<InboxItem[]>({ queryKey: ["/api/inbox"], enabled: isOpen });
   const [platformChoice, setPlatform] = useState<string>();
   const [toneChoice, setTone] = useState<CreateTone>();
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
-  const [selectedTones, setSelectedTones] = useState<CreateTone[]>(CREATE_TONES.map(value => value.key));
   const [format, setFormat] = useState<EditorialFormat>("short-post");
   const [mode, setMode] = useState<"url" | "article" | "manual">("url");
   const [url, setUrl] = useState("");
@@ -35,31 +33,24 @@ export function useCreatePostComposer(isOpen: boolean) {
   const copyRevision = useRef(0);
   const saveLock = useRef(false);
   const generationLock = useRef(false);
-  const lastGeneration = useRef<{ platform: string; inboxItemId?: string }>();
+  const lastGeneration = useRef<{ platform: string; tone: CreateTone; inboxItemId?: string }>();
   const generation = useEditorialGeneration<ReviewResponse>({
     scope: user?.id && profile.data?.tenantId ? { userId: user.id, tenantId: profile.data.tenantId } : undefined,
     onRecovered: data => {
       const recoveredPlatform = Object.keys(data?.posts ?? {})[0];
-      if (!PLATFORMS.some(value => value.value === recoveredPlatform)) {
+      const recoveredTone = CREATE_TONES.find(value => typeof data?.posts?.[recoveredPlatform]?.[value.key] === "string")?.key;
+      if (!PLATFORMS.some(value => value.value === recoveredPlatform) || !recoveredTone) {
         setNotice("The recovered job returned no supported platform. Nothing was regenerated."); return;
       }
-      const snapshot = { platform: recoveredPlatform };
+      const snapshot = { platform: recoveredPlatform, tone: recoveredTone };
       lastGeneration.current = snapshot;
-      setPlatform(recoveredPlatform);
+      setPlatform(recoveredPlatform); setTone(recoveredTone);
       acceptResult(data, snapshot);
     },
   });
   const disabled = new Set((integrations.data ?? []).filter(value => !value.enabled).map(value => value.key));
   const preferencesReady = profile.isSuccess && integrations.isSuccess;
   const platforms = preferencesReady ? PLATFORMS.filter(value => (!profile.data?.enabledPlatforms || profile.data.enabledPlatforms.includes(value.value)) && !disabled.has(value.value)) : [];
-  const defaultPlatform = profile.data?.defaultPlatform;
-  useEffect(() => {
-    const available = (value: string) => platforms.some(platformValue => platformValue.value === value);
-    // Start with one destination: one failed platform fails the whole request, so more are opt-in.
-    setSelectedPlatforms(current => current.filter(available).length
-      ? current.filter(available)
-      : defaultPlatform && available(defaultPlatform) ? [defaultPlatform] : platforms.slice(0, 1).map(value => value.value));
-  }, [platforms.map(value => value.value).join(","), defaultPlatform]);
   const preferred = platformChoice ?? profile.data?.defaultPlatform;
   const platform = platforms.some(value => value.value === preferred) ? preferred! : platforms[0]?.value ?? "";
   const tone = toneChoice ?? CREATE_TONES.find(value => value.value === profile.data?.defaultTone)?.key ?? "thoughtLeader";
@@ -71,10 +62,10 @@ export function useCreatePostComposer(isOpen: boolean) {
   const hasInput = Boolean(url.trim() || manual.title.trim() || manual.content.trim() || manual.media.length);
   const dirty = (hasInput && sourceKey !== savedSourceKey) || Object.values(versions).some(isUnsaved);
   const busy = generation.pending || saving || uploading;
-  const canGenerate = Boolean(selectedPlatforms.length && selectedTones.length) && !busy && !generation.recoverable && (mode === "manual"
+  const canGenerate = Boolean(platform) && !busy && !generation.recoverable && (mode === "manual"
     ? Boolean(manual.title.trim()) && manual.content.trim().length >= 20 && manual.content.length <= 20_000
     : Boolean(publicSourceUrl(url.trim())));
-  const canUse = Boolean(platform && version && usablePost(version.content, Math.min(5000, getPlatformMeta(platform).charLimit))) && !busy;
+  const canUse = Boolean(platform && version && usablePost(version.content, Math.min(5000, getPlatformMeta(platform).charLimit), platform)) && !busy;
 
   function updateVersions(update: (current: PostVersions) => PostVersions) {
     const next = update(versionsRef.current);
@@ -98,24 +89,26 @@ export function useCreatePostComposer(isOpen: boolean) {
     setSavedSourceKey(""); setNotice(""); generation.reset();
     return true;
   };
-  const acceptResult = (data: ReviewResponse, snapshot: { platform: string; inboxItemId?: string }) => {
-    if (!data?.article || !data.posts?.[snapshot.platform]) { setNotice("No usable text was returned. Your previous versions are unchanged."); return; }
-    updateVersions(current => applyReview(current, data, snapshot.inboxItemId));
-    if (!Object.values(data.posts[snapshot.platform]).some(content => typeof content === "string" && content.trim())) {
-      setNotice("No usable text was returned. Your previous versions are unchanged.");
-    } else setNotice("Generation complete. Review and edit before saving; nothing has been published.");
+  const acceptResult = (data: ReviewResponse, snapshot: { platform: string; tone: CreateTone; inboxItemId?: string }) => {
+    const content = data?.posts?.[snapshot.platform]?.[snapshot.tone];
+    if (!data?.article || typeof content !== "string") { setNotice("No usable text was returned. Your previous versions are unchanged."); return; }
+    // Accept only the requested platform and tone, even if the response contains others.
+    updateVersions(current => applyReview(current, { ...data, posts: { [snapshot.platform]: { [snapshot.tone]: content } } }, snapshot.inboxItemId));
+    if (!content.trim()) setNotice("No usable text was returned. Your previous versions are unchanged.");
+    else setNotice("Generation complete. Review and edit before saving; nothing has been published.");
   };
   const generate = async (retry = false) => {
     if (generationLock.current || saveLock.current || uploading || (!retry && !canGenerate)) return;
     if (retry && generation.reattached) { await generation.retry(); return; }
-    const snapshot = retry ? lastGeneration.current : { platform, inboxItemId: item?.articleUrl === url && mode !== "manual" ? item?.id : undefined };
+    const snapshot = retry ? lastGeneration.current : { platform, tone, inboxItemId: item?.articleUrl === url && mode !== "manual" ? item?.id : undefined };
     if (!snapshot || !platforms.some(value => value.value === snapshot.platform)) return;
-    if (Object.values(versionsRef.current).some(value => value.platform === snapshot.platform && isEdited(value)) &&
-      !window.confirm("Regenerate all tones for this platform and overwrite your edits? Other platforms stay unchanged. Existing text is kept if generation fails.")) return;
+    const existing = versionsRef.current[versionKey(snapshot.platform, snapshot.tone)];
+    if (existing && isEdited(existing) &&
+      !window.confirm("Regenerate this post and overwrite your edits? Other platforms and tones stay unchanged. Existing text is kept if generation fails.")) return;
     generationLock.current = true; lastGeneration.current = snapshot; setNotice("");
     try {
       const data = retry ? await generation.retry() : await generation.generate(mode === "manual" ? "/api/instant-review/manual" : "/api/instant-review/selected", {
-        ...(mode === "manual" ? manual : { url: url.trim() }), selectedPlatforms, format: effectiveFormat,
+        ...(mode === "manual" ? manual : { url: url.trim() }), selectedPlatforms: [snapshot.platform], tones: [snapshot.tone], format: effectiveFormat,
       });
       if (data) acceptResult(data, snapshot);
     } finally { generationLock.current = false; }
@@ -153,8 +146,8 @@ export function useCreatePostComposer(isOpen: boolean) {
   return { platforms, preferencesReady, preferencesError: profile.isError || integrations.isError,
     retryPreferences: () => { void profile.refetch(); void integrations.refetch(); },
     inbox: (inbox.data ?? []).filter(isUsableInboxArticle), inboxLoading: inbox.isLoading, inboxError: inbox.isError, retryInbox: inbox.refetch,
-    platform, setPlatform, tone, setTone, selectedPlatforms, setSelectedPlatforms, selectedTones, setSelectedTones,
-    toneOptions: CREATE_TONES, format: effectiveFormat, setFormat, mode, setMode, url, setUrl, item,
+    platform, setPlatform, tone, setTone, toneOptions: CREATE_TONES,
+    hasVersion: (value: string, toneKey?: CreateTone) => Object.values(versions).some(version => version.platform === value && (!toneKey || version.tone === toneKey)), format: effectiveFormat, setFormat, mode, setMode, url, setUrl, item,
     manual, setManual, setUploading, versions, version, edit, generation, generate, save, copy, copyStatus, notice,
     dirty, busy, saving, canGenerate, canUse, prefill };
 }

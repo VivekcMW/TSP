@@ -76,6 +76,17 @@ describe("detailed review routes", () => {
     expect(mocks.instant).not.toHaveBeenCalled();
   });
 
+  it.each(["selected", "manual"])("passes the requested tones to %s generation", async kind => {
+    const response = await request(app).post(`/api/instant-review/${kind}`).send({ url: article.url, title: "Pilot", content: article.content, selectedPlatforms: ["twitter"], tones: ["provocateur"] });
+    expect(response.status).toBe(200);
+    expect(mocks.selected).toHaveBeenCalledWith(expect.any(Object), ["twitter"], expect.objectContaining({ tones: ["provocateur"] }));
+  });
+
+  it("rejects unknown tones without provider work", async () => {
+    expect((await request(app).post("/api/instant-review/selected").send({ url: article.url, selectedPlatforms: ["twitter"], tones: ["shouty"] })).status).toBe(400);
+    expect(mocks.fetchArticle).not.toHaveBeenCalled(); expect(mocks.selected).not.toHaveBeenCalled();
+  });
+
   it("manual input is marked manual and media names are not evidence", async () => {
     const response = await request(app).post("/api/instant-review/manual").send({ title: "Manual", content: article.content, media: [{ type: "image", name: "Unverified million dollar result", url: "/test.jpg" }], selectedPlatforms: ["linkedin"], scope: { tenantId: "evil" } });
     expect(response.status).toBe(200);

@@ -1,6 +1,7 @@
 import type { DetailedPostResult, DetailedReviewResult, EditorialArticle } from "../../../server/services/punditBrain";
 import type { FetchedArticle } from "../../../server/services/urlFetcher";
 import type { ArticleMedia } from "@/components/dashboard/rich-article-editor";
+import { platformTextLength } from "@shared/editorial";
 import type { EditorialFormat } from "@shared/editorial";
 
 export type { DetailedPostResult };
@@ -18,6 +19,7 @@ export function mergeReviewSnapshots(previous: ReviewSnapshots, next: ReviewResp
   return snapshots;
 }
 
-export function usablePost(content: string, limit = 5000): boolean {
-  return Boolean(content.trim()) && content.length <= limit;
+/** Counts length the way the target platform does (X counts each link as 23). */
+export function usablePost(content: string, limit = 5000, platform = ""): boolean {
+  return Boolean(content.trim()) && platformTextLength(content, platform) <= limit;
 }

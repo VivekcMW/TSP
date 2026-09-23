@@ -54,7 +54,8 @@ export const aiGenerationRateLimit = recoverableRateLimit({
 // Instant Review fans out to 8 Gemini calls per request — tighter budget.
 export const instantReviewRateLimit = recoverableRateLimit({
   windowMs: 60 * 60 * 1000,
-  limit: 10,
+  // One post per request (one platform, one tone), so 30 still costs less than 10 four-tone requests.
+  limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: keyByUser,

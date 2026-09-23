@@ -251,7 +251,7 @@ describe("safe writer-attempt diagnostics", () => {
     ["publication_missing", "A pilot reported 12% lower latency. " + article.articleUrl],
     ["source_url_missing", "Research Desk reports 12% lower latency. https://elsewhere.test/trial"],
     ["unexpected_url", post + "-invented"],
-    ["length", post + "x".repeat(281)],
+    ["length", post + " " + "x".repeat(281)],
     ["hashtags", post + " #one #two #three"],
     ["placeholder_url", post + " [URL]"],
     ["multiple_urls", post + " " + article.articleUrl],
@@ -538,7 +538,7 @@ describe("metadata-aware editorial pipeline", () => {
     expect(provider).toHaveBeenCalledTimes(8);
     expect(Object.keys(result.posts)).toEqual(["twitter", "linkedin"]);
     expect(result.posts.twitter.thoughtLeader).toBe(post);
-    expect(result.details.twitter.thoughtLeader.content).toBe(post);
+    expect(result.details.twitter.thoughtLeader?.content).toBe(post);
     expect(result.details.twitter.thoughtLeader).not.toHaveProperty("evidence");
     expect(result.usage).toEqual({ inputTokens: 80, outputTokens: 40 });
     expect(result.fallbackUsed).toBe(false);
@@ -629,5 +629,67 @@ describe("metadata-aware editorial pipeline", () => {
     expect(result.posts.twitter.thoughtLeader).toContain("News");
     expect(buildBrief).toHaveBeenCalledTimes(1);
     expect(provider).toHaveBeenCalledTimes(4);
+  });
+});
+describe("short-form platforms and tone selection", () => {
+  const longUrl = `https://news.test/${"story-".repeat(15)}trial`;
+  const longArticle = { ...article, articleUrl: longUrl };
+  const claim = { text: "Research Desk reports 12% lower latency in a 30-store pilot.", excerptIds: ["p1"] };
+  // X counts every link as 23 characters, whatever its real length.
+  const xPost = (weightedLength: number) => [claim,
+    { text: "My view: ".padEnd(weightedLength - claim.text.length - 2 - 2 - 23, "x"), excerptIds: [] },
+    { text: longUrl, excerptIds: [] }];
+  const reviewArticle = { title: article.headline, content: article.summary, source: article.source, url: article.articleUrl };
+
+  it("counts each link as 23 characters on X", async () => {
+    provider.mockResolvedValue(segmentReply(xPost(280)));
+    const result = await generatePostContentDetailed(longArticle, "twitter", "professional");
+    expect(result.content.length).toBeGreaterThan(280);
+    expect(provider).toHaveBeenCalledTimes(1);
+    provider.mockResolvedValue(segmentReply(xPost(281)));
+    await expect(generatePostContentDetailed(longArticle, "twitter", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    expect(diagnostics().map(record => record.validationReasons)).toEqual([["length"], ["length"]]);
+  });
+
+  it("counts links at full length on Threads", async () => {
+    provider.mockResolvedValue(segmentReply([claim, { text: "My view: ".padEnd(500 - claim.text.length - 2 - 2 - 23, "x"), excerptIds: [] }, { text: longUrl, excerptIds: [] }]));
+    await expect(generatePostContentDetailed(longArticle, "threads", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    expect(diagnostics().map(record => record.validationReasons)).toEqual([["length"], ["length"]]);
+  });
+
+  it("tells the writer exactly how much to cut when a post is too long", async () => {
+    provider.mockResolvedValueOnce(segmentReply(xPost(320))).mockResolvedValueOnce(segmentReply(xPost(280)));
+    await generatePostContentDetailed(longArticle, "twitter", "professional");
+    expect(provider).toHaveBeenCalledTimes(2);
+    const retryPrompt = provider.mock.calls[1][1].systemPrompt as string;
+    expect(retryPrompt).toContain("Post is 320 characters (X counts each link as 23); the limit is 280. Cut at least 40 characters");
+  });
+
+  it("states the X link rule in the writer prompt", async () => {
+    await generatePostContentDetailed(article, "twitter", "professional");
+    expect(provider.mock.calls[0][1].systemPrompt).toContain("X counts each link as 23 characters");
+    provider.mockClear();
+    await generatePostContentDetailed(article, "linkedin", "professional");
+    expect(provider.mock.calls[0][1].systemPrompt).not.toContain("counts each link as 23");
+  });
+
+  it.each(["```json\n", "```\n"])("accepts writer JSON wrapped in a %s code fence", async fence => {
+    provider.mockResolvedValue(reply(post, [attribution], { text: `${fence}${JSON.stringify({ segments: [{ text: post, excerptIds: ["p1"] }] })}\n\`\`\`` }));
+    await expect(generatePostContentDetailed(article, "twitter", "professional")).resolves.toMatchObject({ content: post });
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("generates only the requested tones and completes the platform after them", async () => {
+    const onPlatformComplete = vi.fn();
+    const result = await generatePlatformReviewsDetailed(reviewArticle, ["linkedin"], { tones: ["dataDriven"], onPlatformComplete });
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(Object.keys(result.posts.linkedin)).toEqual(["dataDriven"]);
+    expect(onPlatformComplete).toHaveBeenCalledExactlyOnceWith("linkedin");
+  });
+
+  it("rejects unknown tones before calling the provider", async () => {
+    await expect(generatePlatformReviewsDetailed(reviewArticle, ["linkedin"], { tones: ["shouty"] } as unknown as EditorialOptions)).rejects.toMatchObject({ code: "ai_invalid_input" });
+    expect(provider).not.toHaveBeenCalled();
   });
 });

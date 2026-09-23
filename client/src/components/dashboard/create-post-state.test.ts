@@ -36,6 +36,16 @@ describe("creation session state", () => {
     expect(next[key].review).toBe(previous[key].review);
   });
 
+  it("adds only the returned tone and keeps the others as they were", () => {
+    const previous = applyReview({}, review("First"));
+    const single = { ...review(), posts: { linkedin: { provocateur: "Bold take" } } } as unknown as ReviewResponse;
+    const next = applyReview(previous, single);
+    expect(next[versionKey("linkedin", "provocateur")]).toMatchObject({ content: "Bold take", tone: "provocateur" });
+    expect(next[key]).toBe(previous[key]);
+    const fresh = applyReview({}, single);
+    expect(Object.keys(fresh)).toEqual([versionKey("linkedin", "provocateur")]);
+  });
+
   it("keeps other platforms and the saved identity for same-source regeneration", () => {
     const previous = applyReview(applyReview({}, review()), review("Twitter version", undefined, "twitter"));
     previous[key] = { ...previous[key], savedId: "draft-a", savedContent: "Generated", status: "saved" };

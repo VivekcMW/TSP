@@ -31,6 +31,8 @@ beforeAll(async () => {
       import Home from "@/pages/overview";
       import Discover from "@/pages/dashboard";
       import { CreatePostProvider } from "@/components/dashboard/create-post-provider";
+      import CreatePostPage from "@/pages/create-post";
+      import { Route } from "wouter";
       window.__calls = [];
       window.fetch = async (url, options = {}) => {
         window.__calls.push({ url, method: options.method || "GET" });
@@ -56,6 +58,7 @@ beforeAll(async () => {
       createRoot(document.getElementById("root")).render(
         <QueryClientProvider client={queryClient}><CreatePostProvider>
           {window.__surface === "home" ? <Home /> : <Discover />}
+          <Route path="/dashboard/create" component={CreatePostPage} />
         </CreatePostProvider></QueryClientProvider>);
     ` },
     bundle: true, write: false, format: "iife", platform: "browser", jsx: "automatic",
@@ -79,11 +82,14 @@ async function mount(surface = "discover", items = records, state: Record<string
   page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   page.setDefaultTimeout(3000);
   await page.route("**/*", route => route.abort());
-  await page.setContent('<div id="root" style="height:100vh"></div>');
+  // A real origin lets the router navigate to /dashboard/create (about:blank cannot pushState).
+  await page.route("https://discover.test/", route => route.fulfill({ contentType: "text/html", body: '<div id="root" style="height:100vh"></div>' }));
+  await page.goto("https://discover.test/");
   await page.evaluate(({ surface, items, state }) => Object.assign(window, { __surface: surface, __records: items }, state), { surface, items, state });
   await page.addStyleTag({ content: css });
   await page.addScriptTag({ content: bundle });
 }
+const storyRows = () => page.locator('[data-testid^="row-inbox-"]');
 async function expectUnchanged(items = records) {
   expect(await page.evaluate(() => (window as any).__cachedInbox())).toEqual(items.slice(0, 500));
   expect(await page.evaluate(() => (window as any).__calls)).toEqual(
@@ -94,7 +100,7 @@ describe("legacy inbox quality UI", () => {
   it("loads trends only when opened and describes admitted-content limitations", async () => {
     await mount("discover", records, { __trends: [{ topic: "ai", count: 3, velocityPercent: null, sourceCount: 1, unknownSourceCount: 2,
       articles: [], coverage: { partial: true, rowLimit: 5000 } }] });
-    await browserExpect(page.getByText("3 active", { exact: true })).toBeVisible();
+    await browserExpect(storyRows()).toHaveCount(3);
     await expectUnchanged();
     await page.getByRole("button", { name: "Topics in your recent articles" }).click();
     await browserExpect(page.getByText(/New in this window/)).toBeVisible();
@@ -136,7 +142,7 @@ describe("legacy inbox quality UI", () => {
   it("Discover shows all active legacy rows while saved and dismissed records remain accessible", async () => {
     await mount();
     await browserExpect(page.getByRole("status")).toHaveCount(0);
-    await browserExpect(page.getByText("3 active", { exact: true })).toBeVisible();
+    await browserExpect(storyRows()).toHaveCount(3);
     await browserExpect(page.getByText(loginTitle, { exact: true }).first()).toBeVisible();
     await page.getByTestId("button-filter-saved").click();
     await browserExpect(page.getByText(loginTitle, { exact: true }).first()).toBeVisible();
@@ -149,7 +155,7 @@ describe("legacy inbox quality UI", () => {
   it("keeps a legacy-only active inbox visible with save and dismiss actions", async () => {
     const items = [records[0], records[3]];
     await mount("discover", items);
-    await browserExpect(page.getByText("1 active", { exact: true })).toBeVisible();
+    await browserExpect(storyRows()).toHaveCount(1);
     await browserExpect(page.getByRole("heading", { name: "No articles yet" })).toHaveCount(0);
     await browserExpect(page.getByRole("button", { name: "Save story", exact: true })).toBeVisible();
     await browserExpect(page.getByRole("button", { name: "Dismiss", exact: true })).toBeVisible();
@@ -159,11 +165,11 @@ describe("legacy inbox quality UI", () => {
   it("fetches active rows beyond 620 historical rows and lets the user dismiss legacy capacity occupants", async () => {
     const items = [...Array.from({ length: 620 }, (_, index) => story(`history-${index}`, `Historical ${index}`, "dismissed")), records[0], records[2]];
     await mount("discover", items);
-    await browserExpect(page.getByText("2 active", { exact: true })).toBeVisible();
+    await browserExpect(storyRows()).toHaveCount(2);
     await browserExpect(page.getByText(loginTitle, { exact: true }).first()).toBeVisible();
     await expectUnchanged(items);
     await page.getByRole("button", { name: "Dismiss", exact: true }).click();
-    await browserExpect(page.getByText("1 active", { exact: true })).toBeVisible();
+    await browserExpect(storyRows()).toHaveCount(1);
     await browserExpect(page.getByText(loginTitle, { exact: true })).toHaveCount(0);
     await browserExpect(page.getByText("Authentication and DNS research", { exact: true }).first()).toBeVisible();
     expect(await page.evaluate(() => (window as any).__calls.filter((call: any) => call.method === "PATCH")))
@@ -172,17 +178,13 @@ describe("legacy inbox quality UI", () => {
 
   it("composer excludes low-quality candidates without blocking an explicitly opened saved record", async () => {
     await mount();
-    await page.getByTestId("button-instant-review").click();
-    await page.getByLabel("Source type").selectOption("article");
-    expect(await page.getByLabel("Story", { exact: true }).locator("option").allTextContents()).toEqual([
-      "Choose a story (no generation yet)", "Authentication and DNS research",
-    ]);
-    await page.keyboard.press("Escape");
-    await browserExpect(page.getByRole("dialog")).toHaveCount(0);
     await page.getByTestId("button-filter-saved").click();
     await page.getByTestId("button-generate-saved").click();
     await browserExpect(page.getByLabel("Story", { exact: true })).toHaveValue("saved");
     await browserExpect(page.getByTestId("input-instant-review-url")).toHaveValue("https://news.test/saved");
+    expect(await page.getByLabel("Story", { exact: true }).locator("option").allTextContents()).toEqual([
+      "Choose a story (no generation yet)", loginTitle, "Authentication and DNS research",
+    ]);
     await expectUnchanged();
   });
 });

@@ -24,7 +24,7 @@ beforeAll(async () => {
       plugin.onResolve({ filter: /^@\/(pages\/|components\/(app-sidebar|dashboard\/navbar|admin\/admin-layout|public-routes))/ }, args => {
         // Keep real Settings, its child pages, Create provider, motion and router.
         if (!args.importer.endsWith("/App.tsx")) return;
-        if (args.path === "@/pages/settings") return;
+        if (args.path === "@/pages/settings" || args.path === "@/pages/create-post") return;
         return { path: args.path, namespace: "app-mock" };
       });
       plugin.onLoad({ filter: /.*/, namespace: "app-mock" }, args => {
@@ -114,8 +114,10 @@ describe("full App integration security (real router, Settings and Create provid
     // Source input belongs to the real shared composer, not a fixture substitute.
     const input = page.locator('input[type="url"]').first();
     await input.fill("https://example.invalid/story");
-    // Programmatic router navigation while the dialog is open (a modal traps pointer focus).
-    await page.evaluate(() => { history.pushState(null, "", "/dashboard/calendar"); });
+    await page.getByRole("link", { name: "Calendar link" }).click();
+    await browserExpect(page.getByTestId("route-page")).toContainText("calendar");
+    await browserExpect(input).toHaveCount(0);
+    await page.getByRole("button", { name: "Open Create", exact: true }).click();
     await browserExpect(input).toHaveValue("https://example.invalid/story");
     failures.set("/api/profile", 0);
     await refetch("/api/profile");
