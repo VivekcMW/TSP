@@ -9,6 +9,10 @@ RUN corepack use pnpm@$(node -p "require('./package.json').packageManager.split(
   && pnpm install --frozen-lockfile
 
 COPY . .
+# Vite inlines VITE_* values at build time, and .env files are excluded from
+# the context, so browser settings must arrive as build args:
+#   --build-arg VITE_SENTRY_DSN=...   (a browser DSN is public by design)
+ARG VITE_SENTRY_DSN
 RUN pnpm run build
 
 # ---- Production stage ----
