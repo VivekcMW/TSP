@@ -1,5 +1,7 @@
 # Production Runbook
 
+> **Retired hosting (2026-09-23):** production now runs on Cloud Run. Vercel and Render references below describe the retired setup. See [production-cloud-run.md](production-cloud-run.md).
+
 ## Required services
 
 - Managed PostgreSQL with SSL, automated backups, point-in-time recovery, and a separate migration owner role.

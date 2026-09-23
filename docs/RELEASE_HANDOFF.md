@@ -1,5 +1,7 @@
 # Core-brain release handoff — 2026-09-19
 
+> **Retired hosting (2026-09-23):** production now runs on Cloud Run. Vercel and Render references below describe the retired setup. See [production-cloud-run.md](production-cloud-run.md).
+
 The user has now authorized committing, pushing, deploying and testing the fixes.
 This supersedes earlier statements that deployment approval was not requested;
 it does **not** supply missing infrastructure access or migration evidence.

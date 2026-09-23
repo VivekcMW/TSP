@@ -1,5 +1,7 @@
 # Production Deployment Checklist — Status Update
 
+> **Retired hosting (2026-09-23):** production now runs on Cloud Run. Vercel and Render references below describe the retired setup. See [production-cloud-run.md](production-cloud-run.md).
+
 **Session Date**: 2026-09-18  
 **Status**: PRODUCTION READY (7/7 core tasks completed)  
 **Tests Passing**: 26/26 (0 failures)  
