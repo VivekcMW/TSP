@@ -10,7 +10,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { color } from "@/design/tokens";
 import type { SettingsPageProps } from "@/components/settings/settings-page-props";
 import { Input } from "@/components/ui/input";
-import { billingPeriodLabel, billingStatusLabel, canCancelSubscription, checkoutRequest, checkoutVerification, formatBillingAmount as formatAmount, type BillingSubscription, type CheckoutMode, type PublicBillingPlan } from "@/lib/billing";
+import { billingCurrencies, billingPeriodLabel, billingStatusLabel, canCancelSubscription, checkoutRequest, checkoutVerification, defaultBillingCurrency, formatBillingAmount as formatAmount, plansForCurrency, type BillingSubscription, type CheckoutMode, type PublicBillingPlan } from "@/lib/billing";
 export { billingPeriodLabel } from "@/lib/billing";
 
 declare global {
@@ -45,6 +45,9 @@ export function BillingPanel({ compact = false }: Readonly<{ compact?: boolean }
   const [checkoutPending, setCheckoutPending] = useState<string | null>(null);
   const [checkoutMode, setCheckoutMode] = useState<CheckoutMode>("order");
   const [cycles, setCycles] = useState("");
+  const [currency, setCurrency] = useState<string>(() => defaultBillingCurrency({
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, locales: navigator.languages,
+  }));
   const invalidateBilling = () => Promise.all([
     cache.invalidateQueries({ queryKey: ["/api/billing"] }),
     cache.invalidateQueries({ queryKey: ["/api/billing/entitlements"] }),
@@ -90,7 +93,9 @@ export function BillingPanel({ compact = false }: Readonly<{ compact?: boolean }
   if (isError || !data) return <Card><CardContent className="p-6"><p role="alert">Billing information is unavailable right now.</p><Button className="mt-4 min-h-11" variant="outline" onClick={() => refetch()}>Retry</Button></CardContent></Card>;
   const subscription = data.subscription;
   const canCancel = canCancelSubscription(subscription);
-  const paidPlans = data.plans.filter((plan) => plan.amount > 0);
+  const currencies = billingCurrencies(data.plans);
+  const shownCurrency = currencies.includes(currency) ? currency : currencies[0];
+  const paidPlans = shownCurrency ? plansForCurrency(data.plans, shownCurrency) : [];
   const now = Date.now();
   const billingStatus = billingStatusLabel(subscription, now);
   const periodLabel = billingPeriodLabel(subscription, now);
@@ -119,7 +124,10 @@ export function BillingPanel({ compact = false }: Readonly<{ compact?: boolean }
         {checkoutMode === "subscription" && <><label htmlFor="billing-cycles" className="block text-sm font-medium">Number of recurring billing cycles (1–100)</label><Input id="billing-cycles" type="number" min={1} max={100} step={1} value={cycles} disabled={checkoutPending !== null} onChange={event => setCycles(event.target.value)} /><p className="text-sm text-muted-foreground">Charged each catalog interval for the number of cycles you choose. Requires a configured provider plan.</p></>}
         <p className="text-sm text-muted-foreground">One generation attempt covers one bounded request, including its selected platforms. Failed or cancelled attempts after reservation consume allowance; free allowances reset at midnight UTC.</p>
       </CardContent></Card>
-      {paidPlans.length > 0 && <Card><CardHeader><CardTitle>Available plans</CardTitle></CardHeader><CardContent className="grid gap-4 md:grid-cols-2">
+      {paidPlans.length > 0 && <Card><CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0"><CardTitle>Available plans</CardTitle>
+        {currencies.length > 1 && <div role="group" aria-label="Currency" className="inline-flex rounded-md border p-1">{currencies.map((code) =>
+          <Button key={code} type="button" size="sm" variant={code === shownCurrency ? "default" : "ghost"} aria-pressed={code === shownCurrency} className="min-h-9 px-3" disabled={checkoutPending !== null} onClick={() => setCurrency(code)}>{code}</Button>)}</div>}
+      </CardHeader><CardContent className="grid gap-4 md:grid-cols-2">
         {paidPlans.map((plan) => {
           let label = checkoutMode === "order" ? "Buy one interval" : "Start recurring checkout";
           if (data.currentPlan?.id === plan.id) label = "Current plan";

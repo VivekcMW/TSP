@@ -8,6 +8,23 @@ export interface BillingSubscription {
 export function formatBillingAmount(amount: number, currency: string) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount / 100);
 }
+const INDIA_TIME_ZONES = new Set(["Asia/Kolkata", "Asia/Calcutta"]);
+/** INR for visitors in India (time zone or an -IN locale); USD for everyone else. */
+export function defaultBillingCurrency(env: { timeZone?: string; locales?: readonly string[] }): "INR" | "USD" {
+  const inIndia = (env.timeZone !== undefined && INDIA_TIME_ZONES.has(env.timeZone))
+    || (env.locales ?? []).some(locale => /-IN$/i.test(locale));
+  return inIndia ? "INR" : "USD";
+}
+const INTERVAL_ORDER: Record<string, number> = { monthly: 0, quarterly: 1, annual: 2 };
+/** Paid plans in one currency, shortest billing interval first. */
+export function plansForCurrency(plans: PublicBillingPlan[], currency: string) {
+  return plans.filter(plan => plan.amount > 0 && plan.currency === currency)
+    .sort((a, b) => (INTERVAL_ORDER[a.interval] ?? 9) - (INTERVAL_ORDER[b.interval] ?? 9) || a.amount - b.amount);
+}
+/** Currencies that have at least one paid plan, in catalog order. */
+export function billingCurrencies(plans: PublicBillingPlan[]) {
+  return [...new Set(plans.filter(plan => plan.amount > 0).map(plan => plan.currency))];
+}
 export function billingStatusLabel(subscription: BillingSubscription | null, now = Date.now()) {
   if (!subscription) return "No paid subscription";
   if (subscription.status !== "active") return subscription.status;

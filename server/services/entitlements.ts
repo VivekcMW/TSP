@@ -13,10 +13,15 @@ export interface TenantEntitlements {
   currentPeriodStart?: Date | null;
 }
 
-// Only actual catalog keys seeded by 0014 are mapped. Price is NOT a tier.
+// Only actual catalog keys (seeded by 0014 and 0039) are mapped. Price is NOT a
+// tier: every Pro billing interval and currency grants the same Pro access.
+const PRO = { canPublish: true, canSchedule: true, canUseAnalytics: true, maxDailyGenerations: null };
 const TIERS: Record<string, Pick<TenantEntitlements, "canPublish" | "canSchedule" | "canUseAnalytics" | "maxDailyGenerations">> = {
   free: { canPublish: false, canSchedule: false, canUseAnalytics: false, maxDailyGenerations: 3 },
-  pro_monthly: { canPublish: true, canSchedule: true, canUseAnalytics: true, maxDailyGenerations: null },
+  pro_monthly: PRO,
+  pro_yearly: PRO,
+  pro_monthly_inr: PRO,
+  pro_yearly_inr: PRO,
 };
 const denied = { canPublish: false, canSchedule: false, canUseAnalytics: false, maxDailyGenerations: 0 };
 

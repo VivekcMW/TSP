@@ -54,6 +54,11 @@ describe("expiry-aware catalog entitlements", () => {
   });
   it.each(["created", "authenticated", "pending", "halted", "paused", "cancelled", "completed", "expired"])("does not grant paid access for %s", status => expect(resolveTenantEntitlements([free, pro], [{ ...active, status }], now).canSchedule).toBe(false));
   it("does not let a newer unpaid checkout shadow paid access", () => expect(resolveTenantEntitlements([free, pro], [{ ...active, status: "created", currentPeriodStart: null }, active], now).canPublish).toBe(true));
+  it.each(["pro_monthly", "pro_yearly", "pro_monthly_inr", "pro_yearly_inr"])("grants full Pro access for an active %s subscription", key => {
+    const plan = { ...pro, id: `plan_${key}`, key };
+    expect(resolveTenantEntitlements([free, plan], [{ ...active, planId: plan.id }], now))
+      .toMatchObject({ planKey: key, canPublish: true, canSchedule: true, canUseAnalytics: true, maxDailyGenerations: null });
+  });
   it("does not infer a tier from price", () => expect(resolveTenantEntitlements([{ ...pro, key: "unknown_paid" }], [active], now).maxDailyGenerations).toBe(0));
   it.each(["constructor", "__proto__", "toString"])("does not inherit tier or interval %s", key => {
     expect(resolveTenantEntitlements([{ ...pro, key }], [active], now).maxDailyGenerations).toBe(0);
