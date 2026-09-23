@@ -17,7 +17,8 @@ describe("professional identity analysis", () => {
     await expect(analyzeProfessionalIdentity("I build SaaS products and lead technical teams.", "technology_saas", scope))
       .rejects.toMatchObject({ code: "ai_invalid_output" });
 
-    expect(generateText).toHaveBeenCalledWith(expect.any(String), { scope });
+    // A complete answer measured ~3,200 tokens on gpt-4o-mini; the 2,048 default truncated it.
+    expect(generateText).toHaveBeenCalledWith(expect.any(String), { scope, timeoutMs: 45_000, maxTokens: 8192 });
     expect(generateText).toHaveBeenCalledTimes(1);
   });
 

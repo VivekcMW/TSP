@@ -13,7 +13,22 @@ export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5";
 export type AIProvider = "openrouter" | "gemini" | "anthropic" | "openai";
 
 export const AI_REQUEST_TIMEOUT_MS = 20_000;
-export const AI_MAX_CONCURRENT_REQUESTS = 4;
+// Per-process safety valve, in addition to the Redis-backed shared admission
+// lease (AI_SHARED_MAX_CONCURRENT_REQUESTS in aiProviderLimiter.ts). On a
+// single Cloud Run instance this is the binding limit; raise it alongside the
+// shared one, not instead of it. Falls back to 4 on an invalid value rather
+// than crashing the process over a tuning knob.
+function readMaxConcurrentRequests(): number {
+  const raw = process.env.AI_MAX_CONCURRENT_REQUESTS;
+  if (!raw) return 4;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1 || value > 1000) {
+    console.warn(`Invalid AI_MAX_CONCURRENT_REQUESTS="${raw}"; falling back to 4`);
+    return 4;
+  }
+  return value;
+}
+export const AI_MAX_CONCURRENT_REQUESTS = readMaxConcurrentRequests();
 
 const FAILURE_DETAILS = {
   ai_configuration: { status: 503, message: "AI generation is not configured correctly. Ask an administrator to check the provider credentials and model." },
@@ -53,6 +68,9 @@ export interface GenerationOptions {
   signal?: AbortSignal;
   /** Trusted server scope, never a client-supplied tenant identifier. */
   scope?: { tenantId: string };
+  /** Overrides AI_REQUEST_TIMEOUT_MS for calls with a larger expected output
+   * (e.g. onboarding's structured analysis) where the default is too tight. */
+  timeoutMs?: number;
 }
 
 export interface GenerationResult {
@@ -147,7 +165,7 @@ async function generateWithAnthropic(prompt: string, options: GenerationOptions,
   const model = process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL;
   diagnostic.model = model;
   try {
-    const client = new Anthropic({ apiKey, maxRetries: 0, timeout: AI_REQUEST_TIMEOUT_MS, logLevel: "off", baseURL: "https://api.anthropic.com", fetchOptions: { redirect: "error" } });
+    const client = new Anthropic({ apiKey, maxRetries: 0, timeout: options.timeoutMs ?? AI_REQUEST_TIMEOUT_MS, logLevel: "off", baseURL: "https://api.anthropic.com", fetchOptions: { redirect: "error" } });
     const response = await client.messages.create({
       model,
       max_tokens: options.maxTokens ?? 2048,
@@ -304,7 +322,7 @@ async function generateWithGemini(prompt: string, options: GenerationOptions, di
   diagnostic.model = model;
   // No retryOptions: the SDK's default unary path makes exactly one fetch and
   // preserves ApiError.status. Its opt-in retry wrapper discards that status.
-  const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: AI_REQUEST_TIMEOUT_MS } });
+  const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: options.timeoutMs ?? AI_REQUEST_TIMEOUT_MS } });
 
   const response = await ai.models.generateContent({
     model,
@@ -367,7 +385,8 @@ export async function generateTextWithMetadata(prompt: string, options: Generati
     (options.systemPrompt !== undefined && (typeof options.systemPrompt !== "string" || options.systemPrompt.length > 200_000)) ||
     (options.maxTokens !== undefined && (!Number.isSafeInteger(options.maxTokens) || options.maxTokens < 1 || options.maxTokens > 128_000)) ||
     (options.temperature !== undefined && (!Number.isFinite(options.temperature) || options.temperature < 0 || options.temperature > 2)) ||
-    (options.scope !== undefined && (typeof options.scope?.tenantId !== "string" || !options.scope.tenantId.trim() || options.scope.tenantId.length > 256))) {
+    (options.scope !== undefined && (typeof options.scope?.tenantId !== "string" || !options.scope.tenantId.trim() || options.scope.tenantId.length > 256)) ||
+    (options.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1000 || options.timeoutMs > 120_000))) {
     throw new AIGenerationError("ai_invalid_input");
   }
   const provider = getProvider();
@@ -377,7 +396,7 @@ export async function generateTextWithMetadata(prompt: string, options: Generati
   const controller = new AbortController();
   const cancel = () => controller.abort(cancellationFailure(options.signal));
   options.signal?.addEventListener("abort", cancel, { once: true });
-  const timer = setTimeout(() => controller.abort(new AIGenerationError("ai_timeout")), AI_REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(new AIGenerationError("ai_timeout")), options.timeoutMs ?? AI_REQUEST_TIMEOUT_MS);
   let onAbort: () => void = () => undefined;
   const aborted = new Promise<never>((_, reject) => {
     onAbort = () => reject(controller.signal.reason);

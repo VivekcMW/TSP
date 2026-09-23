@@ -53,6 +53,17 @@ describe("deterministic writer segments", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it("appends the article URL as the last paragraph when the writer omits every link", async () => {
+    // gpt-4o-mini routinely drops the link, even after an explicit repair request.
+    const segments = [{ text: "Research Desk reports 12% lower latency in a 30-store pilot.", excerptIds: ["p1"] }];
+    provider.mockResolvedValue(segmentReply(segments));
+    const result = await generatePostContentDetailed(article, "linkedin", "professional");
+    expect(result.content).toBe(`${segments[0].text}\n\n${article.articleUrl}`);
+    expect(result.attributions).toEqual(segments);
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it("repairs source-span confusion, unsupported emphasis quotes, and a missing source label together", async () => {
     const failed = reply('The pilot delivered a "fast lane". ' + article.articleUrl,
       [{ text: article.summary.split("\n\n")[0], excerptIds: ["p1"] }]);
@@ -111,7 +122,6 @@ describe("deterministic writer segments", () => {
     ["blank text", { segments: [{ text: " \n\t ", excerptIds: ["p1"] }] }],
     ["empty text", { segments: [{ text: "", excerptIds: ["p1"] }] }],
     ["non-string text", { segments: [{ text: 42, excerptIds: ["p1"] }] }],
-    ["missing refs", { segments: [{ text: post }] }],
     ["non-array refs", { segments: [{ text: post, excerptIds: "p1" }] }],
     ["malformed ID", { segments: [{ text: post, excerptIds: ["p0"] }] }],
     ["too many refs", { segments: [{ text: post, excerptIds: Array(129).fill("p1") }] }],
@@ -239,7 +249,7 @@ describe("safe writer-attempt diagnostics", () => {
 
   it.each([
     ["publication_missing", "A pilot reported 12% lower latency. " + article.articleUrl],
-    ["source_url_missing", "Research Desk reports 12% lower latency."],
+    ["source_url_missing", "Research Desk reports 12% lower latency. https://elsewhere.test/trial"],
     ["unexpected_url", post + "-invented"],
     ["length", post + "x".repeat(281)],
     ["hashtags", post + " #one #two #three"],
@@ -306,9 +316,10 @@ describe("safe writer-attempt diagnostics", () => {
     const result = await generatePostContentDetailed(article, "linkedin", "professional");
     expect(result.generation.usage).toEqual({ inputTokens: 20, outputTokens: 10 });
     expect(result.generation.attempts).toHaveLength(2);
-    expect(diagnostics()).toEqual([expect.objectContaining({ attempt: 1, stage: "writer_validation", validationReasons: ["publication_missing", "source_url_missing"] })]);
-    expect(provider.mock.calls[1][1].systemPrompt).toContain("Correct these format issues: Article URL missing:");
-    expect(provider.mock.calls[1][1].systemPrompt).toContain("Publication not mentioned: include the literal article.source label");
+    // The dropped link is attached server-side; only the missing label needs repair.
+    expect(diagnostics()).toEqual([expect.objectContaining({ attempt: 1, stage: "writer_validation", validationReasons: ["publication_missing"] })]);
+    expect(provider.mock.calls[1][1].systemPrompt).toContain("Correct these format issues: Publication not mentioned: include the literal article.source label");
+    expect(provider.mock.calls[1][1].systemPrompt).not.toContain("Article URL missing");
     for (const [, options] of provider.mock.calls) {
       expect(options).not.toHaveProperty("maxTokens");
       expect(options).not.toHaveProperty("model");
@@ -457,13 +468,17 @@ describe("trusted manual publication exemption", () => {
 
   it.each([
     ["missing citations", [{ text: content, excerptIds: [] }], "attribution"],
+    // gpt-4o-mini frequently omits the excerptIds key for uncited segments
+    // instead of sending []; the schema now defaults it, so this is an
+    // attribution-stage rejection (no citation), not a schema violation.
+    ["omitted excerptIds key", [{ text: content }], "attribution"],
     ["unknown passage", [{ text: content, excerptIds: ["p99"] }], "attribution"],
     ["unsupported quote", [{ text: 'The pilot reported "guaranteed success".', excerptIds: ["p1"] }], "quotation"],
     ["wrong quote passage", [{ text: 'The pilot reported "12% lower latency".', excerptIds: ["p2"] }], "quotation"],
     ["invented URL", [{ text: content + " " + article.articleUrl, excerptIds: ["p1", "p2"] }], "unexpected_url"],
     ["personal experience", [{ text: "I tested this pilot.", excerptIds: ["p1"] }], "personal_experience"],
   ] as const)("still rejects manual %s on both attempts", async (_label, output, reason) => {
-    provider.mockResolvedValue(segmentReply(output.map(segment => ({ text: segment.text, excerptIds: [...segment.excerptIds] }))));
+    provider.mockResolvedValue(segmentReply(output.map(segment => ({ text: segment.text, excerptIds: "excerptIds" in segment ? [...segment.excerptIds] : [] }))));
     await expect(generatePostContentDetailed(manual, "linkedin", "provocateur")).rejects.toMatchObject({ code: "ai_invalid_output" });
     expect(provider).toHaveBeenCalledTimes(2);
     expect(diagnostics().every(record => (record.validationReasons as string[]).includes(reason) &&

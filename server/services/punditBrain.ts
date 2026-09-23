@@ -415,7 +415,13 @@ USER INPUT: "${input.data.focusDescription}"
 
 Analyze this professional's identity within the ${config.displayName} industry and provide comprehensive recommendations tailored to their specific role and niche. Return valid JSON only.`;
 
-  const text = await generateText(prompt, { scope });
+  // This call asks for 30-40 keywords plus 20 items across 4 categories; real
+  // backend latency for that output size regularly exceeded the 20s default
+  // (confirmed via direct testing: 1.5s-25s+ variance for the same request
+  // shape), causing spurious ai_timeout failures on the onboarding flow.
+  // The answer itself (~3,200 tokens measured on gpt-4o-mini) also outgrew the
+  // 2,048-token default, which truncated it into ai_invalid_output.
+  const text = await generateText(prompt, { scope, timeoutMs: 45_000, maxTokens: 8192 });
   
   let output: unknown;
   try {
@@ -848,7 +854,9 @@ const MAX_REPAIR_RESPONSE_CHARACTERS = 12_000;
 const segmentedWriterResultSchema = z.object({
   segments: z.array(z.object({
     text: z.string().min(1).max(MAX_WRITER_CONTENT_CHARACTERS).refine(value => Boolean(value.trim())),
-    excerptIds: z.array(z.string().regex(/^p[1-9]\d*$/)).max(128),
+    // gpt-4o-mini frequently omits this key entirely for uncited segments
+    // instead of sending an empty array; both mean "no citation".
+    excerptIds: z.array(z.string().regex(/^p[1-9]\d*$/)).max(128).optional().default([]),
   }).strict()).min(1).max(MAX_WRITER_SEGMENTS),
 }).strict();
 // Keep the legacy strict contract for existing clients/tests. Never infer or
@@ -1144,7 +1152,11 @@ async function writeFromEvidence(
     }
     const parsed = parseWriterOutput(rawText, logFailure);
     if (!parsed) continue;
-    const { content, attributions } = parsed;
+    const { attributions } = parsed;
+    // The link is supplied data: attach it when the writer drops every link (gpt-4o-mini
+    // does, even after repair). A wrong link still fails validation, never replaced.
+    const content = article.articleUrl && !/https?:\/\//i.test(parsed.content)
+      ? `${parsed.content}\n\n${article.articleUrl}` : parsed.content;
     const validation = validatePostContent(content, article, platform, isManual);
     const evidenceErrors = validateEvidenceAttributions(content, attributions, evidence);
     if (!validation.errors.length && !evidenceErrors.length) return {
