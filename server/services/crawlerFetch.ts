@@ -104,10 +104,14 @@ async function fetchHop(url: URL, signal: AbortSignal, options: CrawlOptions, ma
       try { return { redirect: new URL(location, url).href }; }
       catch { throw new CrawlError("redirect", "The source returned an invalid redirect."); }
     }
-    if (!response.ok) throw new CrawlError("http", `The source returned HTTP ${response.status}. It may be unavailable or restrict automated access.`);
-    if (response.headers.get("x-amzn-waf-action") === "challenge" || response.headers.get("cf-mitigated") === "challenge") {
-      throw new CrawlError("challenge", "This source requires a browser verification and cannot be crawled.");
+    // Must run before the generic !response.ok check below: a bot-blocked
+    // request is always a non-2xx status, so checking ok first made this
+    // unreachable and every deliberate block surfaced as a generic HTTP error.
+    if (response.headers.get("x-amzn-waf-action") === "challenge" || response.headers.get("cf-mitigated") === "challenge"
+      || response.headers.has("x-datadome") || (response.status === 403 && response.headers.get("server") === "cloudflare")) {
+      throw new CrawlError("challenge", "This publisher actively blocks automated readers, not just this app.");
     }
+    if (!response.ok) throw new CrawlError("http", `The source returned HTTP ${response.status}. It may be unavailable or restrict automated access.`);
     if (Number(response.headers.get("content-length")) > maxBytes) throw new CrawlError("size", "The source response exceeds the crawl size limit.");
     // node-fetch enforces `size` on the decompressed stream, including chunked responses.
     const text = options.method === "HEAD" ? "" : await response.text();
