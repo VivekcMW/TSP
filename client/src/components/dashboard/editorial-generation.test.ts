@@ -32,7 +32,8 @@ beforeAll(async () => {
       import { CreatePostProvider, useCreatePost } from "@/components/dashboard/create-post-provider";
       import { PostGeneratorModal } from "@/components/dashboard/post-generator-modal";
       import Dashboard from "@/pages/dashboard";
-      import { Link, useLocation } from "wouter";
+      import CreatePostPage from "@/pages/create-post";
+      import { Link, Route, useLocation } from "wouter";
       window.__calls = []; window.__actions = []; window.__pending = []; window.__toasts = [];
       window.__queryClient = queryClient;
       Object.defineProperty(navigator, "clipboard", { value: { writeText: async text => {
@@ -73,7 +74,7 @@ beforeAll(async () => {
       function Harness() {
         const [scope, setScope] = useState("account-a:tenant-a");
         window.__setScope = setScope;
-        return <QueryClientProvider client={queryClient}>{window.__surface === "public" ? <Launcher /> : <CreatePostProvider key={scope}><Launcher /></CreatePostProvider>}</QueryClientProvider>;
+        return <QueryClientProvider client={queryClient}>{window.__surface === "public" ? <Launcher /> : <CreatePostProvider key={scope}><Launcher /><Route path="/dashboard/create" component={CreatePostPage} /></CreatePostProvider>}</QueryClientProvider>;
       }
       createRoot(document.getElementById("root")).render(<Harness />);
     ` },

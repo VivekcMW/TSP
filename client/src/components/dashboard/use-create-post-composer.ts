@@ -52,11 +52,14 @@ export function useCreatePostComposer(isOpen: boolean) {
   const disabled = new Set((integrations.data ?? []).filter(value => !value.enabled).map(value => value.key));
   const preferencesReady = profile.isSuccess && integrations.isSuccess;
   const platforms = preferencesReady ? PLATFORMS.filter(value => (!profile.data?.enabledPlatforms || profile.data.enabledPlatforms.includes(value.value)) && !disabled.has(value.value)) : [];
+  const defaultPlatform = profile.data?.defaultPlatform;
   useEffect(() => {
-    setSelectedPlatforms(current => current.filter(value => platforms.some(platformValue => platformValue.value === value)).length
-      ? current.filter(value => platforms.some(platformValue => platformValue.value === value))
-      : platforms.slice(0, 4).map(value => value.value));
-  }, [platforms.map(value => value.value).join(",")]);
+    const available = (value: string) => platforms.some(platformValue => platformValue.value === value);
+    // Start with one destination: one failed platform fails the whole request, so more are opt-in.
+    setSelectedPlatforms(current => current.filter(available).length
+      ? current.filter(available)
+      : defaultPlatform && available(defaultPlatform) ? [defaultPlatform] : platforms.slice(0, 1).map(value => value.value));
+  }, [platforms.map(value => value.value).join(","), defaultPlatform]);
   const preferred = platformChoice ?? profile.data?.defaultPlatform;
   const platform = platforms.some(value => value.value === preferred) ? preferred! : platforms[0]?.value ?? "";
   const tone = toneChoice ?? CREATE_TONES.find(value => value.value === profile.data?.defaultTone)?.key ?? "thoughtLeader";
