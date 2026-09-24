@@ -130,19 +130,25 @@ HTTP 5xx errors, on ERROR logs, and on Redis or queue connection failures.
   call and its OpenRouter fallback share a 20-second budget
   (`AI_REQUEST_TIMEOUT_MS`), so when Gemini stalls the fallback never runs and
   the user sees "AI generation timed out".
-- From revision `tsp-app-00046`, onboarding is agentic. Step 1 calls
-  `POST /api/onboarding/understand` (one short Gemini call) and shows an
+- From revision `tsp-app-00050`, onboarding is one workspace: Pundit's
+  conversation on the left, "Your setup" filling in live on the right (tabs on
+  phones). The user describes their work in the chat box;
+  `POST /api/onboarding/understand` (one short Gemini call) returns the
   editable summary. "Build my setup" opens a server-sent event stream,
-  `POST /api/onboarding/agent`: it researches sources, then topics, then people
-  from Google News (last 30 days), streams real progress, and pre-selects 6
-  sources, 8 topics, 4 people and 4 companies with reasons and a note. A full
-  build takes about 25 seconds and roughly 6 Gemini calls; steering one step
-  takes about 7 seconds. `/api/onboarding/suggestions` still serves "more like
-  your picks" and the finish-screen preview (no AI call). All three routes share
-  a limit of 60 requests per user per hour. Answers are cached for 6 hours in
+  `POST /api/onboarding/agent`, which researches sources, then topics, then
+  people from Google News (last 30 days), streams real progress, and
+  pre-selects 6 sources, 8 topics, 4 people and 4 companies with reasons,
+  evidence, a note and up to three suggested follow-up requests. A full build
+  takes about 25 seconds and roughly 6 Gemini calls; steering one section takes
+  about 7 seconds. `/api/onboarding/suggestions` serves "more like your picks"
+  and the finish-screen headlines (no AI call). "Write a post" on a headline
+  opens Create with the story link (`history.state.createFromUrl`). All three
+  routes share 60 requests per user per hour. Answers are cached for 6 hours in
   Redis (`onboarding:suggestions:v<N>:`, `onboarding:understand:v<N>:`); bump
-  the `CACHE_VERSION` constants when prompts change. The static industry lists
-  are gone from onboarding (Profile Settings still uses `lib/industry-data`).
+  the `CACHE_VERSION` constants when prompts change. A 402/429 from Gemini
+  starts a provider cooldown of at least a minute (`server/services/openRouter.ts`);
+  the agent then says "The AI service is busy right now" and logs
+  `[onboarding-agent] <step> failed: <code>`.
 - To offer USD once Razorpay enables International Payments: create a live
   plan for USD 2000 monthly and USD 20000 yearly (interval 1), set each plan's
   ID in `razorpay_plan_id`, and set `is_active = true` for `pro_monthly` and
