@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { WeightedKeyword } from "@shared/profile-preferences";
 import type { SearchEditionId } from "@shared/search-editions";
 import { parsePublicationCandidate } from "./publication-candidates";
 
@@ -12,12 +13,14 @@ export interface SuggestedChoice {
   reason?: string;
   weight?: number;
   evidence?: SuggestionEvidence;
+  /** A well-known name from the AI's general knowledge, not from a recent headline. */
+  aiOnly?: true;
 }
 export interface SuggestionResult { grounded: boolean; items: SuggestedChoice[] }
 
 const name = z.string().trim().min(1).max(100);
 const evidence = z.object({ count: z.number().int().min(1), headline: z.string().trim().min(1).max(300) });
-const envelope = (step: SuggestionStep) => z.object({ step: z.literal(step), grounded: z.boolean() }).passthrough();
+const envelope = (step: SuggestionStep | "preview") => z.object({ step: z.literal(step), grounded: z.boolean() }).passthrough();
 
 /** Server output is untrusted: drop an invalid entry or field, never its valid siblings. */
 function parseItems(kind: SuggestionKind, value: unknown): SuggestedChoice[] {
@@ -33,6 +36,7 @@ function parseItems(kind: SuggestionKind, value: unknown): SuggestedChoice[] {
     if (typeof item.reason === "string" && item.reason.trim()) choice.reason = item.reason.trim().slice(0, 200);
     const weight = z.number().finite().min(0).max(1).safeParse(item.weight);
     if (kind === "topic" && weight.success) choice.weight = weight.data;
+    if (kind === "leader" && item.aiOnly === true) return [{ ...choice, aiOnly: true }];
     const proof = evidence.safeParse(item.evidence);
     if (proof.success) choice.evidence = proof.data;
     return [choice];
@@ -58,10 +62,39 @@ export function choiceKey(name: string): string {
 }
 
 export function evidenceLabel(choice: SuggestedChoice): string | undefined {
+  if (choice.aiOnly) return "AI suggestion";
   const count = choice.evidence?.count;
   if (!count) return undefined;
   if (choice.kind === "source") return `${count} recent article${count === 1 ? "" : "s"}`;
   return `in ${count} headline${count === 1 ? "" : "s"}`;
+}
+
+export interface PreviewHeadline { title: string; source: string; link: string | null; publishedAt: string | null; topic: string }
+
+const previewHeadline = z.object({
+  title: z.string().trim().min(1).max(300),
+  source: z.string().trim().min(1).max(100),
+  // Only Google News article pages; anything else renders as plain text.
+  link: z.string().nullable().optional().transform(value => {
+    try { const url = new URL(value ?? ""); return url.protocol === "https:" && url.hostname === "news.google.com" ? url.href : null; } catch { return null; }
+  }),
+  publishedAt: z.string().datetime().nullable().optional().catch(null).transform(value => value ?? null),
+  topic: z.string().trim().min(1).max(100),
+});
+
+export function parsePreviewHeadlines(value: unknown): PreviewHeadline[] {
+  const data = envelope("preview").parse(value);
+  return (Array.isArray(data.headlines) ? data.headlines : []).flatMap(entry => {
+    const parsed = previewHeadline.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  }).slice(0, 3);
+}
+
+/** Discover favours higher-weighted topics, so the preview searches the top three. */
+export function previewTopics(keywords: readonly WeightedKeyword[]): string[] {
+  return keywords.map((keyword, index) => ({ keyword, index }))
+    .sort((a, b) => b.keyword.weight - a.keyword.weight || a.index - b.index)
+    .slice(0, 3).map(({ keyword }) => keyword.keyword);
 }
 
 const COUNTRY_EDITIONS: Record<string, SearchEditionId> = {

@@ -42,7 +42,7 @@ export function SuggestionPanel({ state, kinds, searching, isSelected, isDisable
                         key={item.name}
                         aria-pressed={selected}
                         aria-label={`${selected ? "Remove" : "Select"} ${label} ${item.name}`}
-                        title={item.evidence ? `Latest: ${item.evidence.headline}` : item.reason}
+                        title={item.evidence && !item.aiOnly ? `Latest: ${item.evidence.headline}` : item.reason}
                         disabled={isDisabled(kind, item.name)}
                         variant={selected ? "default" : "outline"}
                         className="h-auto min-h-11 whitespace-normal text-left"
@@ -58,6 +58,9 @@ export function SuggestionPanel({ state, kinds, searching, isSelected, isDisable
               </div>
             );
           })}
+          {batch.items.some(item => item.aiOnly) && (
+            <p className="text-xs text-muted-foreground">People marked “AI suggestion” come from the AI's general knowledge, not recent news.</p>
+          )}
           {index === 0 && (
             <p className="text-xs text-muted-foreground">
               {!batch.items.length ? "No recent coverage matched your focus yet. Pick from the list below."

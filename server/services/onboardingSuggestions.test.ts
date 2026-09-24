@@ -4,14 +4,15 @@ const { headlines, generateText } = vi.hoisted(() => ({ headlines: vi.fn(), gene
 vi.mock("../lib/redis", () => ({ redis: undefined }));
 vi.mock("./keywordSearch", () => ({ fetchNewsHeadlines: headlines }));
 vi.mock("./openRouter", async original => ({ ...await original<typeof import("./openRouter")>(), generateText }));
-import { clearOnboardingSuggestionCache, suggestOnboardingItems, type OnboardingSuggestionResponse } from "./onboardingSuggestions";
+import { clearOnboardingSuggestionCache, suggestOnboardingItems, type EntitySuggestion, type OnboardingSuggestionResponse } from "./onboardingSuggestions";
 // Step-specific shape for assertions; the response type is a union keyed by step.
-type AnyResult = OnboardingSuggestionResponse & { items: Array<{ name: string; reason?: string }>; people: unknown[]; companies: unknown[] };
+type AnyResult = OnboardingSuggestionResponse & { items: Array<{ name: string; reason?: string }>; people: EntitySuggestion[]; companies: EntitySuggestion[] };
 const suggest = async (...args: Parameters<typeof suggestOnboardingItems>): Promise<AnyResult> => await suggestOnboardingItems(...args) as AnyResult;
 
 const scope = { tenantId: "tenant-a" };
 const focus = "I lead marketing at an out-of-home advertising company focused on programmatic DOOH.";
-const news = (title: string, source: string, url: string | null = `https://${source.toLowerCase().replace(/\W+/g, "")}.test`, publishedAt = "2026-09-21T10:00:00.000Z") => ({ title, source, sourceUrl: url, publishedAt });
+const news = (title: string, source: string, url: string | null = `https://${source.toLowerCase().replace(/\W+/g, "")}.test`, publishedAt = "2026-09-21T10:00:00.000Z") =>
+  ({ title, source, sourceUrl: url, publishedAt, link: `https://news.google.com/rss/articles/${encodeURIComponent(title)}` });
 const corpus = [
   news("Vistar Media expands programmatic DOOH in India", "ExchangeWire"),
   news("Programmatic DOOH spend rises for retail brands", "ExchangeWire"),
@@ -30,7 +31,7 @@ function replies(map: { phrases?: string[]; curate?: unknown; topics?: unknown; 
     throw new Error("unexpected prompt");
   });
 }
-const request = (step: "publications" | "topics" | "people", extra: object = {}) => ({ step, focusDescription: focus, publications: [], topics: [], exclude: [], ...extra });
+const request = (step: "publications" | "topics" | "people" | "preview", extra: object = {}) => ({ step, focusDescription: focus, publications: [], topics: [], exclude: [], ...extra });
 
 beforeEach(() => { vi.resetAllMocks(); clearOnboardingSuggestionCache(); headlines.mockResolvedValue(corpus); });
 
@@ -84,6 +85,74 @@ describe("people and company suggestions grounded in headlines", () => {
       { name: "Moving Walls", reason: "DOOH measurement", evidence: { count: 1, headline: "Moving Walls wins DOOH measurement award" } },
     ]);
     expect(headlines.mock.calls.map(call => call[0])).toContain("Programmatic DOOH");
+  });
+});
+
+describe("finish preview from live news", () => {
+  const link = (title: string) => `https://news.google.com/rss/articles/${encodeURIComponent(title)}`;
+  it("shows recent headlines for the top topics, preferring picked publications, without calling the model", async () => {
+    headlines.mockImplementation(async (query: string) => query === "Programmatic DOOH" ? [
+      news("Older DOOH story", "Generic Daily", undefined, "2026-09-20T10:00:00.000Z"),
+      news("Newest DOOH story", "Other Desk", undefined, "2026-09-22T10:00:00.000Z"),
+      news("Picked outlet DOOH story", "ExchangeWire", "https://www.exchangewire.com/", "2026-09-19T10:00:00.000Z"),
+    ] : query === "Retail media" ? [news("Retail media advertising story", "Adweek")] : []);
+    const result = await suggestOnboardingItems(request("preview", {
+      topics: ["Programmatic DOOH", "Retail media", "Measurement", "Fourth topic"], publications: [{ name: "ExchangeWire", url: "https://www.exchangewire.com/" }],
+    }), scope);
+    expect(result).toEqual({ step: "preview", grounded: true, headlines: [
+      { title: "Picked outlet DOOH story", source: "ExchangeWire", link: link("Picked outlet DOOH story"), publishedAt: "2026-09-19T10:00:00.000Z", topic: "Programmatic DOOH" },
+      { title: "Retail media advertising story", source: "Adweek", link: link("Retail media advertising story"), publishedAt: "2026-09-21T10:00:00.000Z", topic: "Retail media" },
+      { title: "Newest DOOH story", source: "Other Desk", link: link("Newest DOOH story"), publishedAt: "2026-09-22T10:00:00.000Z", topic: "Programmatic DOOH" },
+    ] });
+    expect(headlines.mock.calls.map(call => call[0])).toEqual(["Programmatic DOOH", "Retail media", "Measurement"]);
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it("leaves out headlines that share nothing with the user's focus unless a picked publication ran them", async () => {
+    headlines.mockImplementation(async (query: string) => query === "Legislative framework" ? [
+      news("Stamp taxes framework modernisation consultation", "Tax Desk"),
+      news("Airport slot framework white paper", "Travel Radar"),
+      news("Framework update from a picked outlet", "ExchangeWire", "https://www.exchangewire.com/"),
+      news("Regulators modernise programmatic advertising rules", "Adweek"),
+    ] : []);
+    const result = await suggestOnboardingItems(request("preview", {
+      topics: ["Legislative framework"], publications: [{ name: "ExchangeWire", url: "https://www.exchangewire.com/" }],
+    }), scope);
+    expect(result).toMatchObject({ headlines: [{ title: "Framework update from a picked outlet" }, { title: "Regulators modernise programmatic advertising rules" }] });
+  });
+
+  it("returns no headlines and searches nothing when no topics are picked", async () => {
+    expect(await suggestOnboardingItems(request("preview"), scope)).toEqual({ step: "preview", grounded: true, headlines: [] });
+    expect(headlines).not.toHaveBeenCalled();
+    expect(generateText).not.toHaveBeenCalled();
+  });
+});
+
+describe("people when headlines name few individuals", () => {
+  it("adds widely known leaders, marked as AI suggestions, skipping excluded and duplicate names", async () => {
+    replies({ people: {
+      people: [], companies: [{ name: "Vistar Media", why: "DOOH platform", headlines: [1] }],
+      knownPeople: [{ name: "Jane Leader", role: "Founder of a DOOH network" }, { name: "Removed Person", role: "Analyst" }, { name: "Vistar Media", role: "Company" }, { name: "Sam Analyst" }],
+    } });
+    const result = await suggest(request("people", { topics: ["Programmatic DOOH"], exclude: ["removed person"] }), scope);
+    expect(result.people).toEqual([
+      { name: "Jane Leader", reason: "Founder of a DOOH network", aiOnly: true },
+      { name: "Sam Analyst", reason: "", aiOnly: true },
+    ]);
+    expect(result.companies.map(company => company.name)).toEqual(["Vistar Media"]);
+  });
+
+  it("uses only people from the news when the headlines name at least three", async () => {
+    headlines.mockResolvedValue([
+      news("Ana Rao joins DOOH board", "ExchangeWire"), news("Ben Ode on retail screens", "Adweek"), news("Cy Park launches measurement", "Campaign India"),
+    ]);
+    replies({ people: {
+      people: [{ name: "Ana Rao", role: "Board member", headlines: [1] }, { name: "Ben Ode", role: "Retail media lead", headlines: [2] }, { name: "Cy Park", role: "Founder", headlines: [3] }],
+      companies: [], knownPeople: [{ name: "Jane Leader", role: "Founder" }],
+    } });
+    const result = await suggest(request("people", { topics: ["Programmatic DOOH"] }), scope);
+    expect(result.people.map(person => person.name)).toEqual(["Ana Rao", "Ben Ode", "Cy Park"]);
+    expect(result.people.some(person => person.aiOnly)).toBe(false);
   });
 });
 

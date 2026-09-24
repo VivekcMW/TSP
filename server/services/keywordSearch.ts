@@ -77,7 +77,15 @@ export async function resolveGoogleNewsArticleUrl(value: string, signal?: AbortS
   return value;
 }
 
-export interface NewsHeadline { title: string; source: string; sourceUrl: string | null; publishedAt: string | null }
+/** `link` is the Google News article page, which a browser follows to the story; it is never fetched here. */
+export interface NewsHeadline { title: string; source: string; sourceUrl: string | null; publishedAt: string | null; link: string | null }
+
+function googleNewsLink(value?: string): string | null {
+  try {
+    const url = new URL(value ?? "");
+    return url.protocol === "https:" && url.hostname === "news.google.com" ? url.href : null;
+  } catch { return null; }
+}
 
 /** Recent headlines with their publication, for onboarding suggestions. Article links are not resolved. */
 export async function fetchNewsHeadlines(query: string, searchEdition = "en-US", signal?: AbortSignal): Promise<NewsHeadline[]> {
@@ -95,7 +103,7 @@ export async function fetchNewsHeadlines(query: string, searchEdition = "en-US",
     // Google appends " - <publication>" to every headline.
     const title = (item.title || "").endsWith(` - ${source}`) ? (item.title || "").slice(0, -(source.length + 3)).trim() : (item.title || "").trim();
     if (!title || !source) return [];
-    return [{ title, source, sourceUrl: rawUrl ? canonicalHttpUrl(rawUrl) ?? null : null, publishedAt: publicationDate(item.pubDate, "rss-pubDate").publishedAt }];
+    return [{ title, source, sourceUrl: rawUrl ? canonicalHttpUrl(rawUrl) ?? null : null, publishedAt: publicationDate(item.pubDate, "rss-pubDate").publishedAt, link: googleNewsLink(item.link) }];
   });
 }
 

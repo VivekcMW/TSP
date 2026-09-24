@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
+import { OnboardingFinish } from "@/components/onboarding/onboarding-finish";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { OnboardingData } from "@/lib/onboarding-choices";
@@ -17,6 +19,7 @@ interface User {
 export default function OnboardingPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const [saved, setSaved] = useState<OnboardingData | null>(null);
 
   const { data: user } = useQuery<User>({
     queryKey: ["/api/me"],
@@ -26,13 +29,9 @@ export default function OnboardingPage() {
     mutationFn: async (data: OnboardingData) => {
       return await apiRequest("POST", "/api/profile/complete-onboarding", data);
     },
-    onSuccess: () => {
+    onSuccess: (_response, data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
-      toast({
-        title: "Preferences saved",
-        description: "Create a post now, or add sources and refresh Discover when you're ready.",
-      });
-      setLocation("/dashboard");
+      setSaved(data);
     },
     onError: () => {
       toast({
@@ -46,6 +45,18 @@ export default function OnboardingPage() {
   const handleComplete = (data: OnboardingData) => {
     completeOnboardingMutation.mutate(data);
   };
+
+  if (saved) {
+    return (
+      <OnboardingFinish
+        data={saved}
+        userIndustry={user?.industry}
+        userCountry={user?.country}
+        onOpenDashboard={() => setLocation("/dashboard")}
+        onOpenDiscover={() => setLocation("/dashboard/discover")}
+      />
+    );
+  }
 
   return (
     <OnboardingWizard 

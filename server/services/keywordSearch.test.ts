@@ -172,8 +172,8 @@ describe("news headlines for onboarding suggestions", () => {
     crawl.mockResolvedValue({ text: rss(entry("Vistar expands programmatic DOOH", "ExchangeWire", "https://www.exchangewire.com") + entry("Retail media grows", "Campaign India", "https://www.campaignindia.in")) });
     const result = await fetchNewsHeadlines("programmatic DOOH", "en-IN");
     expect(result).toEqual([
-      { title: "Vistar expands programmatic DOOH", source: "ExchangeWire", sourceUrl: "https://www.exchangewire.com/", publishedAt: "2026-09-21T10:00:00.000Z" },
-      { title: "Retail media grows", source: "Campaign India", sourceUrl: "https://www.campaignindia.in/", publishedAt: "2026-09-21T10:00:00.000Z" },
+      { title: "Vistar expands programmatic DOOH", source: "ExchangeWire", sourceUrl: "https://www.exchangewire.com/", publishedAt: "2026-09-21T10:00:00.000Z", link: "https://news.google.com/rss/articles/x32?oc=5" },
+      { title: "Retail media grows", source: "Campaign India", sourceUrl: "https://www.campaignindia.in/", publishedAt: "2026-09-21T10:00:00.000Z", link: "https://news.google.com/rss/articles/x18?oc=5" },
     ]);
     const url = new URL(crawl.mock.calls[0][0]);
     expect(url.searchParams.get("q")).toBe("programmatic DOOH when:30d");
@@ -181,9 +181,13 @@ describe("news headlines for onboarding suggestions", () => {
     expect(decode).not.toHaveBeenCalled(); expect(modernDecode).not.toHaveBeenCalled();
   });
 
-  it("keeps items without a trustworthy website but never invents one", async () => {
-    crawl.mockResolvedValue({ text: rss(`<item><title>Story - Desk</title><link>https://news.test/a</link><source url="javascript:alert(1)">Desk</source></item>`) });
-    expect(await fetchNewsHeadlines("pilot")).toEqual([{ title: "Story", source: "Desk", sourceUrl: null, publishedAt: null }]);
+  it("keeps items without a trustworthy website or Google News link but never invents one", async () => {
+    crawl.mockResolvedValue({ text: rss(`<item><title>Story - Desk</title><link>https://news.test/a</link><source url="javascript:alert(1)">Desk</source></item>`
+      + `<item><title>Other - Desk</title><link>http://news.google.com/rss/articles/b</link><source url="https://desk.test">Desk</source></item>`) });
+    expect(await fetchNewsHeadlines("pilot")).toEqual([
+      { title: "Story", source: "Desk", sourceUrl: null, publishedAt: null, link: null },
+      { title: "Other", source: "Desk", sourceUrl: "https://desk.test/", publishedAt: null, link: null },
+    ]);
   });
 
   it("returns nothing for a blank or overlong query without searching", async () => {

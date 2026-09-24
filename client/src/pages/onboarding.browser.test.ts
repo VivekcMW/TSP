@@ -32,7 +32,11 @@ const people = { step: "people", grounded: true,
   people: [{ name: "Ana Rao", reason: "SRE lead at Acme Cloud", evidence: { count: 1, headline: "Ana Rao on resilience" } }],
   companies: [{ name: "Acme Cloud", reason: "Cloud provider", evidence: { count: 2, headline: "Acme Cloud outage" } }],
 };
+const preview = { step: "preview", grounded: true, headlines: [
+  { title: "Outage lessons from 2026", source: "Cloud Weekly", link: "https://news.google.com/rss/articles/outage", publishedAt: "2026-09-22T10:00:00.000Z", topic: "Incident response" },
+] };
 function defaultRespond(body: Body): Reply {
+  if (body.step === "preview") return { data: preview };
   if (body.step === "publications") return { data: (body.exclude as string[]).length ? moreSources : sources };
   return { data: body.step === "topics" ? topics : people };
 }
@@ -128,6 +132,12 @@ async function continueWithAi() {
 
 const chip = (name: string) => page.getByRole("button", { name, exact: true });
 
+async function finishToDashboard() {
+  await browserExpect(page.getByRole("heading", { name: "Your Discover is ready" })).toBeVisible();
+  await page.getByRole("button", { name: "Go to dashboard", exact: true }).click();
+  await browserExpect(page).toHaveURL(`${origin}/dashboard`);
+}
+
 describe("onboarding suggestions from live news", () => {
   it("loads source suggestions on Step 2 with news evidence and selects nothing for the user", async () => {
     await open();
@@ -188,7 +198,7 @@ describe("onboarding suggestions from live news", () => {
     await page.getByTestId("button-continue").click();
     completionStatus = 200;
     await page.getByTestId("button-complete-onboarding").click();
-    await browserExpect(page).toHaveURL(`${origin}/dashboard`);
+    await finishToDashboard();
     expect(completions).toHaveLength(2);
     expect(completions[0]).toEqual(completions[1]);
     expect(completions[1]).toEqual({
@@ -214,6 +224,42 @@ describe("onboarding suggestions from live news", () => {
     await browserExpect(chip("Select source Cloud Weekly")).toBeVisible();
     await browserExpect(page.getByText("AI suggestions: the news search didn't respond, so these aren't checked against recent coverage.", { exact: true })).toBeVisible();
     expect(stepRequests("publications")[1]).toMatchObject({ publications: [{ name: "TechCrunch", url: "https://techcrunch.com" }], exclude: ["TechCrunch"] });
+  });
+
+  it("labels people who come from the AI's general knowledge instead of the news", async () => {
+    respond = (body) => body.step === "people"
+      ? { data: { ...people, people: [{ name: "Jane Leader", reason: "Founder of a cloud company", aiOnly: true }] } }
+      : defaultRespond(body);
+    await open(); await continueWithAi();
+    await page.getByTestId("button-continue").click();
+    await page.getByTestId("button-continue").click();
+    await browserExpect(chip("Select leader Jane Leader")).toContainText("AI suggestion");
+    await browserExpect(chip("Select company Acme Cloud")).toContainText("in 2 headlines");
+    await browserExpect(page.getByText("People marked “AI suggestion” come from the AI's general knowledge, not recent news.", { exact: true })).toBeVisible();
+  });
+
+  it("shows a taste of Discover with real headlines for the saved topics after finishing", async () => {
+    await open(); await continueWithAi();
+    await chip("Select source Cloud Weekly").click();
+    await page.getByTestId("button-continue").click();
+    await chip("Select topic Chaos engineering").click();
+    await chip("Select topic Incident response").click();
+    await page.getByTestId("button-continue").click();
+    await page.getByTestId("button-complete-onboarding").click();
+    await browserExpect(page.getByRole("heading", { name: "Your Discover is ready" })).toBeVisible();
+    await browserExpect(page.getByText("1 source · 2 topics", { exact: true })).toBeVisible();
+    const headline = page.getByRole("region", { name: "Discover preview" }).getByRole("link", { name: "Outage lessons from 2026" });
+    await browserExpect(headline).toHaveAttribute("href", "https://news.google.com/rss/articles/outage");
+    await browserExpect(headline).toHaveAttribute("target", "_blank");
+    await browserExpect(headline).toHaveAttribute("rel", "noopener noreferrer");
+    // React StrictMode starts effects twice in development, so repeats must be identical.
+    expect(stepRequests("preview").length).toBeGreaterThan(0);
+    for (const body of stepRequests("preview")) expect(body).toEqual({
+      step: "preview", focusDescription: "I build reliable cloud infrastructure.", industry: "technology-saas", searchEdition: "en-IN",
+      publications: [{ name: "Cloud Weekly", url: "https://cloudweekly.invalid/" }], topics: ["Incident response", "Chaos engineering"], exclude: [],
+    });
+    await page.getByRole("button", { name: "Open Discover", exact: true }).click();
+    await browserExpect(page).toHaveURL(`${origin}/dashboard/discover`);
   });
 
   it("hides a built-in source that a news suggestion already covers", async () => {
@@ -275,7 +321,8 @@ describe("onboarding suggestions from live news", () => {
     await page.getByRole("button", { name: "Skip sources", exact: true }).click();
     await page.getByRole("button", { name: "Skip topics", exact: true }).click();
     await page.getByRole("button", { name: "Skip inspiration and finish", exact: true }).click();
-    await browserExpect(page).toHaveURL(`${origin}/dashboard`);
+    await browserExpect(page.getByText("Pick a few topics in Settings so Discover knows what to look for.", { exact: true })).toBeVisible();
+    await finishToDashboard();
     expect(requests).toEqual([]);
     expect(completions).toEqual([{
       focusDescription: "I build reliable cloud infrastructure.", publications: [], keywords: [], influencers: [], companies: [],
@@ -299,6 +346,6 @@ describe("onboarding suggestions from live news", () => {
       await browserExpect.poll(() => completions.length).toBe(1);
       expect(completions[0].keywords).toEqual([{ keyword: "Chaos engineering", weight: 0.6 }, { keyword: "Custom topic", weight: 0.7 }]);
     } finally { release(); }
-    await browserExpect(page).toHaveURL(`${origin}/dashboard`);
+    await finishToDashboard();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { choiceKey, defaultSearchEdition, evidenceLabel, parseOnboardingSuggestions } from "./onboarding-suggestions";
+import { choiceKey, defaultSearchEdition, evidenceLabel, parseOnboardingSuggestions, parsePreviewHeadlines, previewTopics } from "./onboarding-suggestions";
 
 describe("onboarding suggestion responses", () => {
   it("keeps valid publications with safe URLs and drops malformed entries individually", () => {
@@ -30,6 +30,18 @@ describe("onboarding suggestion responses", () => {
       { kind: "leader", name: "Ana Rao", reason: "CEO", evidence: { count: 2, headline: "Ana Rao on DOOH" } },
       { kind: "company", name: "Vistar Media" },
     ]);
+  });
+
+  it("marks people from the AI's general knowledge and never shows evidence for them", () => {
+    expect(parseOnboardingSuggestions("people", { step: "people", grounded: true,
+      people: [{ name: "Jane Leader", reason: "Founder", aiOnly: true, evidence: { count: 2, headline: "x" } }, { name: "Ana Rao", evidence: { count: 1, headline: "Ana Rao on DOOH" } }],
+      companies: [{ name: "Acme", aiOnly: "yes" }],
+    }).items).toEqual([
+      { kind: "leader", name: "Jane Leader", reason: "Founder", aiOnly: true },
+      { kind: "leader", name: "Ana Rao", evidence: { count: 1, headline: "Ana Rao on DOOH" } },
+      { kind: "company", name: "Acme" },
+    ]);
+    expect(evidenceLabel({ kind: "leader", name: "Jane Leader", aiOnly: true })).toBe("AI suggestion");
   });
 
   it("rejects an envelope for a different step", () => {
@@ -74,5 +86,25 @@ describe("matching suggestion names to built-in choices", () => {
     expect(choiceKey("Exchange4Media")).toBe(choiceKey("exchange4media"));
     expect(choiceKey("The Drum")).not.toBe(choiceKey("Drum Media"));
     expect(choiceKey("Ad Age")).not.toBe(choiceKey("Adage.io News"));
+  });
+});
+
+describe("finish preview", () => {
+  it("keeps safe headlines with Google News links and drops malformed ones", () => {
+    expect(parsePreviewHeadlines({ step: "preview", grounded: true, headlines: [
+      { title: " DOOH spend rises ", source: "ExchangeWire", link: "https://news.google.com/rss/articles/a", publishedAt: "2026-09-22T10:00:00.000Z", topic: "DOOH" },
+      { title: "Unsafe link", source: "Desk", link: "javascript:alert(1)", publishedAt: null, topic: "DOOH" },
+      { title: "", source: "Desk", link: null, topic: "DOOH" }, null,
+    ] })).toEqual([
+      { title: "DOOH spend rises", source: "ExchangeWire", link: "https://news.google.com/rss/articles/a", publishedAt: "2026-09-22T10:00:00.000Z", topic: "DOOH" },
+      { title: "Unsafe link", source: "Desk", link: null, publishedAt: null, topic: "DOOH" },
+    ]);
+    expect(() => parsePreviewHeadlines({ step: "topics", grounded: true, items: [] })).toThrow();
+  });
+
+  it("previews the three highest-weighted topics, keeping the user's order for ties", () => {
+    expect(previewTopics([{ keyword: "Low", weight: 0.2 }, { keyword: "First tie", weight: 0.7 }, { keyword: "Top", weight: 1 }, { keyword: "Second tie", weight: 0.7 }]))
+      .toEqual(["Top", "First tie", "Second tie"]);
+    expect(previewTopics([])).toEqual([]);
   });
 });
