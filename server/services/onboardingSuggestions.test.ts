@@ -42,8 +42,8 @@ describe("publication suggestions from live news", () => {
     const result = await suggest(request("publications"), scope);
     expect(result).toMatchObject({ step: "publications", grounded: true });
     expect(result.items).toEqual([
-      { name: "Campaign India", url: "https://campaignindia.test/", reason: "India ad industry news", evidence: { count: 1, headline: "Moving Walls wins DOOH measurement award" } },
-      { name: "ExchangeWire", url: "https://exchangewire.test/", reason: "Programmatic trade coverage", evidence: { count: 2, headline: "Vistar Media expands programmatic DOOH in India" } },
+      { name: "Campaign India", url: "https://campaignindia.test/", reason: "India ad industry news", evidence: { count: 1, headline: "Moving Walls wins DOOH measurement award", headlines: ["Moving Walls wins DOOH measurement award"] } },
+      { name: "ExchangeWire", url: "https://exchangewire.test/", reason: "Programmatic trade coverage", evidence: { count: 2, headline: "Vistar Media expands programmatic DOOH in India", headlines: ["Vistar Media expands programmatic DOOH in India", "Programmatic DOOH spend rises for retail brands"] } },
     ]);
     expect(headlines.mock.calls.map(call => call[0])).toEqual(["programmatic DOOH", "retail media"]);
   });
@@ -156,6 +156,28 @@ describe("the agent's picks, note and progress", () => {
     const cachedResult = await suggestOnboardingItems(request("publications"), scope, undefined, message => progress.push(message)) as AnyResult & { picks: string[]; note: string };
     expect(cachedResult).toMatchObject({ picks: ["ExchangeWire"], note: "Trade press first." });
     expect(progress).toEqual(["Using research from the last few hours", "Picked 1 source"]);
+  });
+});
+
+describe("follow-up requests and the headlines behind a source", () => {
+  it("offers up to three short, distinct follow-up requests from the model", async () => {
+    replies({ curate: { outlets: [{ name: "ExchangeWire", reason: "Programmatic trade news" }], note: "Trade press first.",
+      followUps: ["  More India-focused ", "more india-focused", "Less event news", "x", "Add retail media", "A fourth request"] } });
+    const result = await suggest(request("publications"), scope) as AnyResult & { followUps: string[] };
+    expect(result.followUps).toEqual(["More India-focused", "Less event news", "Add retail media"]);
+  });
+
+  it("has no follow-ups when the model could not be asked", async () => {
+    replies({ curate: new Error("provider down") });
+    const result = await suggest(request("publications"), scope) as AnyResult & { followUps: string[] };
+    expect(result.followUps).toEqual([]);
+  });
+
+  it("lists up to three recent headlines for each source", async () => {
+    headlines.mockResolvedValue(["One", "Two", "Three", "Four"].map(n => news(`DOOH story ${n}`, "ExchangeWire")));
+    replies({ curate: { outlets: [{ name: "ExchangeWire", reason: "Programmatic trade news" }] } });
+    const result = await suggest(request("publications"), scope) as AnyResult & { items: Array<{ evidence: { count: number; headline: string; headlines: string[] } }> };
+    expect(result.items[0].evidence).toEqual({ count: 4, headline: "DOOH story One", headlines: ["DOOH story One", "DOOH story Two", "DOOH story Three"] });
   });
 });
 
