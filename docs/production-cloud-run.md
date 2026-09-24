@@ -76,6 +76,16 @@ OWNER_DATABASE_URL='postgresql://neondb_owner:<password>@ep-quiet-field-azkwtx6k
   pnpm run db:migrate:dry
 ```
 
+### 0041: empty duplicate personal workspaces
+
+A race on a user's first sign-in could create two personal workspaces (one production
+user was affected; their data is in the newer one). Code from `fix(tenancy)` onward
+serialises creation and looks up the personal workspace deterministically, so **apply
+0041 before sending traffic to a revision with that code**: 0041 deletes only duplicates
+holding no data (besides the membership and an untouched pending profile) and leaves
+users whose duplicates both hold data unchanged, with a NOTICE. Rehearsed on the local
+dev database on 2026-09-24 (5 users repaired, no data rows changed).
+
 ## Security settings (2026-09-23)
 
 - The app connects as the restricted `tsp_app` role through secret
