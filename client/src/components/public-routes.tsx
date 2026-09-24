@@ -30,9 +30,9 @@ import { ResetPasswordPage } from "@/pages/auth";
  * the gate decides *whether* to render this tree, this component decides which
  * page within it.
  */
-export function PublicRoutes({ signInRoutes }: { signInRoutes?: React.ReactNode }) {
+export function PublicRoutes({ signInRoutes, location }: { signInRoutes?: React.ReactNode; location?: string }) {
   return (
-    <Switch>
+    <Switch location={location}>
       <Route path="/" component={LandingPage} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/how-it-works" component={HowItWorksPage} />

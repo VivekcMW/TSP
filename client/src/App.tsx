@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
 import { Switch, Route, useLocation, useSearch, Router as WouterRouter } from "wouter";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { HelmetProvider } from "react-helmet-async";
@@ -28,6 +27,7 @@ import OnboardingPage from "@/pages/onboarding";
 import NotFound from "@/pages/not-found";
 import { AdminLayout } from "@/components/admin/admin-layout";
 import { DecorativeIcons } from "@/components/decorative-icons";
+import { RouteTransition } from "@/components/route-transition";
 import { SignInPage, SignUpPage, VerifyEmailPage } from "@/pages/auth";
 
 const OverviewPage = lazy(() => import("@/pages/overview"));
@@ -82,22 +82,13 @@ function DashboardRedirect({ to }: { to: string }) {
 }
 
 function DashboardRouter() {
-  const [location] = useLocation();
-  const shouldReduceMotion = useReducedMotion();
 
   return (
     <AuthenticatedLayout>
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={location}
-          initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
-          transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          className="h-full"
-        >
+      <RouteTransition transitionKey={path => path} className="h-full">
+        {location => (
           <Suspense fallback={<LoadingScreen />}>
-          <Switch>
+          <Switch location={location}>
             <Route path="/dashboard" component={OverviewPage} />
             <Route path="/dashboard/create" component={CreatePostPage} />
             <Route path="/dashboard/discover" component={DashboardPage} />
@@ -118,29 +109,20 @@ function DashboardRouter() {
             <Route component={NotFound} />
           </Switch>
           </Suspense>
-        </motion.div>
-      </AnimatePresence>
+        )}
+      </RouteTransition>
     </AuthenticatedLayout>
   );
 }
 
 function AdminRouter() {
-  const [location] = useLocation();
-  const shouldReduceMotion = useReducedMotion();
 
   return (
     <AdminLayout>
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={location}
-          initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
-          transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          className="h-full"
-        >
+      <RouteTransition transitionKey={path => path} className="h-full">
+        {location => (
           <Suspense fallback={<LoadingScreen />}>
-          <Switch>
+          <Switch location={location}>
             <Route path="/admin" component={AdminOverviewPage} />
             <Route path="/admin/tenants" component={AdminTenantsPage} />
             <Route path="/admin/users" component={AdminUsersPage} />
@@ -152,28 +134,9 @@ function AdminRouter() {
             <Route component={NotFound} />
           </Switch>
           </Suspense>
-        </motion.div>
-      </AnimatePresence>
+        )}
+      </RouteTransition>
     </AdminLayout>
-  );
-}
-
-/** Wraps a page in the shared enter/exit transition. */
-function PageTransition({ transitionKey, children }: { transitionKey: string; children: React.ReactNode }) {
-  const shouldReduceMotion = useReducedMotion();
-
-  return (
-    <AnimatePresence mode="wait">
-      <motion.div
-        key={transitionKey}
-        initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
-        transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-      >
-        {children}
-      </motion.div>
-    </AnimatePresence>
   );
 }
 
@@ -221,11 +184,8 @@ function AppRoutes() {
     if (gate === "redirect-signin") setLocation("/sign-in", { replace: true });
   }, [gate, setLocation]);
 
-  const transitionKey = location.startsWith("/sign-in")
-    ? "/sign-in"
-    : location.startsWith("/sign-up")
-      ? "/sign-up"
-      : location;
+  // Sign-in and sign-up sub-steps stay one page, so their forms keep state.
+  const transitionKey = (path: string) => path.startsWith("/sign-in") ? "/sign-in" : path.startsWith("/sign-up") ? "/sign-up" : path;
 
   switch (gate) {
     case "loading":
@@ -239,8 +199,9 @@ function AppRoutes() {
 
     case "public":
       return (
-        <PageTransition transitionKey={transitionKey}>
-          <PublicRoutes
+        <RouteTransition transitionKey={transitionKey}>
+          {path => <PublicRoutes
+            location={path}
             signInRoutes={
               signedIn ? undefined : (
                 <>
@@ -250,8 +211,8 @@ function AppRoutes() {
                 </>
               )
             }
-          />
-        </PageTransition>
+          />}
+        </RouteTransition>
       );
 
     case "register":
