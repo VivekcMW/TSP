@@ -7,6 +7,9 @@ export const publicationCandidateSchema = z.object({
     try {
       const url = new URL(value);
       if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Invalid URL");
+      // Browsers percent-encode a host with spaces instead of rejecting it; servers reject it.
+      // Allow only letters, digits, dots and hyphens (punycode included) or an IPv6 literal.
+      if (!/^[a-z0-9.-]+$/i.test(url.hostname) && !/^\[[0-9a-f:.]+\]$/i.test(url.hostname)) throw new Error("Invalid host");
       url.hash = "";
       // Percent-encoding may expand a valid short input past our storage limit.
       if (url.href.length > 2048) throw new Error("URL too long");

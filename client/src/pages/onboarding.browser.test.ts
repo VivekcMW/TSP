@@ -346,6 +346,19 @@ describe("setting up manually", () => {
     expect(sent("agent")).toEqual([]);
   });
 
+  it("rejects a website the server would refuse, so saving never fails on it", async () => {
+    await open();
+    await page.getByRole("button", { name: "Set up manually", exact: true }).click();
+    await page.getByLabel("Source name").fill("Bad Site");
+    await page.getByLabel("Source website (optional)").fill("not a website!");
+    await page.getByRole("button", { name: "Add source", exact: true }).click();
+    await browserExpect(page.getByText("Enter a valid website, or leave it empty.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: /source Bad Site$/ })).toHaveCount(0);
+    await page.getByLabel("Source website (optional)").fill("");
+    await page.getByRole("button", { name: "Add source", exact: true }).click();
+    await browserExpect(page.getByRole("list", { name: "Selected publication URLs", exact: true })).toContainText("Bad Site: URL needed");
+  });
+
   it("lets the agent take over from a manual step", async () => {
     await open();
     await page.getByRole("button", { name: "Set up manually", exact: true }).click();
