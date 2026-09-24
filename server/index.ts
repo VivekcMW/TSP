@@ -6,6 +6,7 @@ import cors from "cors";
 import { toNodeHandler } from "better-auth/node";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
+import { apiNotFound } from "./middlewares/apiNotFound";
 import { createServer, STATUS_CODES } from "node:http";
 import type { Socket } from "node:net";
 import { randomUUID, timingSafeEqual } from "node:crypto";
@@ -373,6 +374,8 @@ export async function startServer(): Promise<void> {
   console.log("[startup] Registering routes...");
   await registerRoutes(httpServer, app);
   if (shuttingDown) return;
+  // Before the web app's catch-all, so an unknown API path is a JSON 404, not the page.
+  app.use("/api", apiNotFound);
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
