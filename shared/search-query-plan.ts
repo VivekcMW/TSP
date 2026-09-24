@@ -21,6 +21,14 @@ export interface SearchQueryPlan {
 }
 
 export const SEARCH_QUERY_LIMITS = { queries: 8, signalsPerType: 100, term: 100 } as const;
+/**
+ * Topics fill half of each refresh's searches: slots follow a repeating topic, company,
+ * topic, people pattern (4/2/2 of eight when every group has terms). Topic searches find
+ * the stories that match a topic; company and people searches mostly find mentions.
+ */
+const SLOT_PATTERN = [0, 1, 0, 2] as const;
+/** Where the pattern starts for each leading group, so the FIRST slot still rotates evenly. */
+const PATTERN_START = [0, 1, 3] as const;
 const canonical = (label: string) => label.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();
 const compare = (a: string, b: string) => a === b ? 0 : a < b ? -1 : 1;
 
@@ -63,8 +71,9 @@ function restoredState(value: unknown, signature: string, groups: WeightedKeywor
 
 /**
  * Pure, bounded deterministic planning. Weights prioritize order WITHIN a cycle,
- * not probability or long-run frequency. Round robin balances the three groups;
- * empty/exhausted slots are redistributed. Local cursors fill each window, but
+ * not probability or long-run frequency. Slots follow SLOT_PATTERN (topics get half);
+ * the leading slot rotates evenly across the three groups; empty/exhausted slots are
+ * redistributed. Local cursors fill each window, but
  * ONLY the first served group's persisted start advances by one AFTER selection.
  * The next turn starts after that actual group, skipping empty groups on service.
  * For unchanged selections and G nonempty groups, every term in a group of n
@@ -105,10 +114,16 @@ export function planSearchQueries(profile: SearchQueryProfile, previousState: un
   const localCursors = [...state.cursors];
   const queries: string[] = [];
   const seen = new Set<string>();
-  let groupIndex = state.groupStart;
+  // The leader rotates in plain group order, skipping empty groups, exactly as before;
+  // only the slots after it follow the topic-weighted pattern.
+  let leader = state.groupStart;
+  for (let i = 0; i < 3 && !groups[leader].length; i++) leader = (leader + 1) % 3;
+  let slot = PATTERN_START[leader];
   let firstGroup = -1;
   let misses = 0;
-  while (queries.length < SEARCH_QUERY_LIMITS.queries && misses < 3) {
+  // A full pattern of misses means every group is empty or exhausted.
+  while (queries.length < SEARCH_QUERY_LIMITS.queries && misses < SLOT_PATTERN.length) {
+    const groupIndex = SLOT_PATTERN[slot];
     const group = groups[groupIndex];
     let next: WeightedKeyword | undefined;
     // Scan the FULL list for the next nonseen term, not just the allocated
@@ -124,7 +139,7 @@ export function planSearchQueries(profile: SearchQueryProfile, previousState: un
       seen.add(canonical(next.keyword));
       misses = 0;
     } else misses++;
-    groupIndex = (groupIndex + 1) % 3;
+    slot = (slot + 1) % SLOT_PATTERN.length;
   }
   if (firstGroup >= 0) {
     state.cursors[firstGroup] = (state.cursors[firstGroup] + 1) % groups[firstGroup].length;

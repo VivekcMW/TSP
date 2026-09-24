@@ -8,7 +8,7 @@ const full = () => ({ keywords: labels("k").map((keyword, i) => ({ keyword, weig
 const key = (label: string) => label.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();
 
 describe("search query planning", () => {
-  it("caps unique queries at eight and rotates the extra group allocations", () => {
+  it("caps unique queries at eight and gives topics half of them", () => {
     let state: unknown = {};
     const counts: number[][] = [];
     for (let i = 0; i < 3; i++) {
@@ -18,7 +18,7 @@ describe("search query planning", () => {
       counts.push(["k", "c", "i"].map(prefix => plan.queries.filter(query => query.startsWith(prefix)).length));
       state = plan.state;
     }
-    expect(counts).toEqual([[3, 3, 2], [2, 3, 3], [3, 2, 3]]);
+    expect(counts).toEqual([[4, 2, 2], [4, 2, 2], [4, 2, 2]]);
   });
 
   it("visits all twenty selections per group within sixty refreshes", () => {
@@ -57,7 +57,7 @@ describe("search query planning", () => {
 
   it("redistributes sparse-group slots without repeating the small groups", () => {
     const plan = planSearchQueries({ keywords: labels("k"), companies: ["company"], influencers: ["person"] });
-    expect(plan.queries).toEqual(["k00", "company", "person", "k01", "k02", "k03", "k04", "k05"]);
+    expect(plan.queries).toEqual(["k00", "company", "k01", "person", "k02", "k03", "k04", "k05"]);
     expect(plan.state.cursors).toEqual([1, 0, 0]);
   });
 
@@ -65,7 +65,7 @@ describe("search query planning", () => {
     const profile = { keywords: labels("k", 9), companies: labels("c", 2), influencers: ["i"] };
     const first = planSearchQueries(profile);
     const next = planSearchQueries(profile, { ...first.state, cursors: [8, 1, 0] });
-    expect(next.queries).toEqual(["c01", "i", "k08", "c00", "k00", "k01", "k02", "k03"]);
+    expect(next.queries).toEqual(["c01", "k08", "i", "k00", "c00", "k01", "k02", "k03"]);
     expect(next.state.cursors).toEqual([8, 0, 0]);
     expect(next.state.groupStart).toBe(2);
     expect(new Set(next.queries).size).toBe(8);
@@ -163,7 +163,7 @@ describe("search query planning", () => {
         expect(plan.queries).toHaveLength(8);
         expect(new Set(plan.queries).size).toBe(8);
         if (groups === 3) {
-          expect(["k", "c", "i"].map(prefix => plan.queries.filter(query => query.startsWith(prefix)).length).sort()).toEqual([2, 3, 3]);
+          expect(["k", "c", "i"].map(prefix => plan.queries.filter(query => query.startsWith(prefix)).length)).toEqual([4, 2, 2]);
         }
         for (const prefix of prefixes) {
           plan.queries.slice(0, prefix.size).forEach(query => prefix.attempted.add(query));
@@ -199,10 +199,10 @@ describe("search query planning", () => {
           expect(plan.queries).toHaveLength(8);
           expect(new Set(plan.queries).size).toBe(8);
           if (groups === 3) {
-            expect(["k", "c", "i"].map(prefix => plan.queries.filter(query => query.startsWith(prefix)).length).sort()).toEqual([2, 3, 3]);
+            expect(["k", "c", "i"].map(prefix => plan.queries.filter(query => query.startsWith(prefix)).length)).toEqual([4, 2, 2]);
           }
           if (run === 0) expect(plan.queries).toEqual(groups === 1 ? labels("k", count).slice(0, 8)
-            : ["k00", "c00", "i00", "k01", "c01", "i01", "k02", "c02"]);
+            : ["k00", "c00", "k01", "i00", "k02", "c01", "k03", "i01"]);
           // Simulates a durable reservation surviving failure/process restart.
           state = JSON.parse(JSON.stringify(plan.state));
           const controller = new AbortController();
@@ -258,10 +258,11 @@ describe("search query planning", () => {
     const first = planSearchQueries(full());
     expect(first.state.cursors).toEqual([1, 0, 0]);
     const second = planSearchQueries(full(), first.state);
-    expect(second.queries).toEqual(["c00", "i00", "k01", "c01", "i01", "k02", "c02", "i02"]);
+    expect(first.queries).toEqual(["k00", "c00", "k01", "i00", "k02", "c01", "k03", "i01"]);
+    expect(second.queries).toEqual(["c00", "k01", "i00", "k02", "c01", "k03", "i01", "k04"]);
     expect(second.state.cursors).toEqual([1, 1, 0]);
     const third = planSearchQueries(full(), second.state);
-    expect(third.queries).toEqual(["i00", "k01", "c01", "i01", "k02", "c02", "i02", "k03"]);
+    expect(third.queries).toEqual(["i00", "k01", "c01", "k02", "i01", "k03", "c02", "k04"]);
     expect(third.state.cursors).toEqual([1, 1, 1]);
     expect([first, second, third].map(plan => plan.state.groupStart)).toEqual([1, 2, 0]);
   });

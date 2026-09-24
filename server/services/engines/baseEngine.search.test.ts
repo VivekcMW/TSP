@@ -94,7 +94,7 @@ describe("engine durable search integration", () => {
     expect(storage.createInboxItem).toHaveBeenCalledWith(scope, expect.objectContaining({ matchedKeywords: ["Current"] }));
   });
 
-  it("cycles beyond eight and balances all three groups across new engine instances", async () => {
+  it("cycles beyond eight, gives topics half, and covers all three groups across new engine instances", async () => {
     const keywords = labels("k", 12), companies = labels("c", 12), influencers = labels("i", 12);
     save({ keywords, companies, influencers });
     const seen = new Set<string | null>();
@@ -110,7 +110,7 @@ describe("engine durable search integration", () => {
       expect(queries).toHaveLength(8);
       expect(new Set(queries).size).toBe(8);
       const counts = ["k", "c", "i"].map(prefix => queries.filter(q => q!.startsWith(prefix)).length);
-      expect([...counts].sort()).toEqual([2, 3, 3]);
+      expect(counts).toEqual([4, 2, 2]);
       expect(queries).toEqual(expected.queries);
       queries.forEach(q => seen.add(q));
       firstDispatched.add(queries[0]);
