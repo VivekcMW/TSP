@@ -5,18 +5,20 @@ import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { toNodeHandler } from "better-auth/node";
 import { configureProxy, CLIENT_IP_HEADER } from "./lib/proxy";
-import { sendPasswordResetEmail, sendVerificationEmail } from "./services/email";
+import { sendExistingAccountEmail, sendPasswordResetEmail, sendVerificationEmail } from "./services/email";
 
-const { evalRedis, fakeRedis } = vi.hoisted(() => {
-  const evalRedis = vi.fn();
-  return { evalRedis, fakeRedis: { eval: evalRedis } };
+const { evalRedis, setRedis, fakeRedis } = vi.hoisted(() => {
+  const evalRedis = vi.fn(), setRedis = vi.fn();
+  return { evalRedis, setRedis, fakeRedis: { eval: evalRedis, set: setRedis } };
 });
 vi.mock("./db", async () => ({ pool: (await import("better-auth/adapters/memory")).memoryAdapter({}) }));
 vi.mock("./lib/redis", () => ({ redis: fakeRedis }));
-vi.mock("./services/email", () => ({ sendPasswordResetEmail: vi.fn(), sendVerificationEmail: vi.fn() }));
+vi.mock("./services/email", () => ({ sendPasswordResetEmail: vi.fn(), sendVerificationEmail: vi.fn(), sendExistingAccountEmail: vi.fn() }));
 
 beforeEach(() => {
   evalRedis.mockReset().mockResolvedValue([1, 0]);
+  setRedis.mockReset().mockResolvedValue("OK");
+  vi.mocked(sendExistingAccountEmail).mockReset();
   vi.mocked(sendPasswordResetEmail).mockReset();
   vi.mocked(sendVerificationEmail).mockReset();
 });
@@ -69,6 +71,60 @@ describe("Better Auth safeguards", () => {
       expect(signedIn.headers["set-cookie"]).toBeUndefined();
       expect((await request(app).get("/api/auth/get-session")).body).toBeNull();
     });
+
+  describe("sign-up with an email that already has an account", () => {
+    const origin = "http://localhost:4300";
+    const owner = { email: "owner@example.com", password: "auth-regression-password", name: "Owner" };
+    async function signUpTwice(verify: boolean) {
+      const { app, instance } = await authApp();
+      const fresh = await request(app).post("/api/auth/sign-up/email").set("Origin", origin).send(owner);
+      const context = await instance.$context;
+      const stored = (await context.internalAdapter.findUserByEmail(owner.email))!.user;
+      if (verify) await context.internalAdapter.updateUser(stored.id, { emailVerified: true });
+      vi.mocked(sendVerificationEmail).mockReset();
+      const again = await request(app).post("/api/auth/sign-up/email").set("Origin", origin).send({ ...owner, password: "a-different-password-123" });
+      return { app, context, stored, fresh, again };
+    }
+
+    it("emails a verified owner a sign-in link and answers exactly like a new sign-up", async () => {
+      const { fresh, again } = await signUpTwice(true);
+      expect(again.status).toBe(fresh.status);
+      expect(again.body.token).toBeNull();
+      expect(Object.keys(again.body).sort()).toEqual(Object.keys(fresh.body).sort());
+      expect(sendExistingAccountEmail).toHaveBeenCalledExactlyOnceWith(owner.email, owner.name, `${origin}/sign-in`);
+      expect(sendVerificationEmail).not.toHaveBeenCalled();
+    });
+
+    it("sends an unverified owner a verification link that works", async () => {
+      const { app, context, stored } = await signUpTwice(false);
+      expect(sendExistingAccountEmail).not.toHaveBeenCalled();
+      expect(sendVerificationEmail).toHaveBeenCalledTimes(1);
+      const [email, name, url] = vi.mocked(sendVerificationEmail).mock.calls[0];
+      expect([email, name]).toEqual([owner.email, owner.name]);
+      const link = new URL(url);
+      expect(link.origin + link.pathname).toBe(`${origin}/api/auth/verify-email`);
+      expect(link.searchParams.get("callbackURL")).toBe(`${origin}/complete-registration`);
+      await request(app).get(link.pathname + link.search);
+      expect((await context.internalAdapter.findUserById(stored.id))?.emailVerified).toBe(true);
+    });
+
+    it("still answers like a new sign-up when the notice cannot be sent", async () => {
+      vi.mocked(sendExistingAccountEmail).mockRejectedValue(new Error("PRIVATE email outage"));
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const { fresh, again } = await signUpTwice(true);
+      expect(again.status).toBe(fresh.status);
+      expect(Object.keys(again.body).sort()).toEqual(Object.keys(fresh.body).sort());
+      expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(owner.email);
+    });
+
+    it("sends at most one such email per account per hour", async () => {
+      setRedis.mockResolvedValueOnce("OK").mockResolvedValueOnce(null);
+      const { app, stored } = await signUpTwice(true);
+      await request(app).post("/api/auth/sign-up/email").set("Origin", origin).send(owner);
+      expect(sendExistingAccountEmail).toHaveBeenCalledTimes(1);
+      expect(setRedis).toHaveBeenCalledWith(expect.stringContaining(stored.id), "1", "EX", 3600, "NX");
+    });
+  });
 
   it("resets through real HTTP endpoints once, without verifying an unverified email", async () => {
     const { app, instance } = await authApp();

@@ -7,7 +7,7 @@ import { beginDelivery, claimDelivery, deliveryKey, finishDelivery, recoverEmail
 import { queuePrefix } from "../../lib/redis-options";
 
 export type EmailType =
-  | "verification" | "password_reset" | "welcome" | "password_changed"
+  | "verification" | "password_reset" | "existing_account" | "welcome" | "password_changed"
   | "payment_succeeded" | "payment_failed" | "subscription_cancelled"
   | "draft_generated" | "draft_failed" | "post_scheduled"
   | "post_published" | "post_failed" | "daily_digest" | "content_alert"
@@ -168,6 +168,11 @@ export async function sendAppEmail(email: AppEmail): Promise<{ skipped?: boolean
 
 export async function sendVerificationEmail(email: string, name: string, verificationUrl: string): Promise<void> {
   await sendAppEmail({ type: "verification", recipient: email, recipientName: name, subject: "Verify your TheSocialPundit email", eyebrow: "Account security", html: `<p>Please verify your email address to finish creating your account.</p><p>This link expires in one hour. If you did not create this account, you can safely ignore this message.</p>`, primaryCta: { label: "Verify email address", url: verificationUrl }, required: true, dedupeKey: `verification:${email}:${verificationUrl}` });
+}
+
+/** Sent when someone signs up with this address; the sign-up response itself stays generic. */
+export async function sendExistingAccountEmail(email: string, name: string, signInUrl: string): Promise<void> {
+  await sendAppEmail({ type: "existing_account", recipient: email, recipientName: name, subject: "You already have a TheSocialPundit account", eyebrow: "Account security", html: `<p>Someone tried to create a TheSocialPundit account with this email address. You already have an account, so no new one was created.</p><p>If this was you, sign in instead. If you have forgotten your password, choose "Forgot password" on the sign-in page.</p><p>If it was not you, you can ignore this email. Your account has not changed.</p>`, primaryCta: { label: "Sign in", url: signInUrl }, required: true });
 }
 
 export async function sendPasswordResetEmail(email: string, name: string, resetUrl: string): Promise<void> {
