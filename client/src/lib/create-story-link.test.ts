@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { storyLinkFromState, withoutStoryLink } from "./create-story-link";
+import { storyLinkFromSearch, storyLinkFromState, withoutArticleParam, withoutStoryLink } from "./create-story-link";
 
 describe("opening Create with a story link", () => {
   it("accepts only an https link passed in navigation state", () => {
@@ -13,5 +13,17 @@ describe("opening Create with a story link", () => {
   it("removes the link from the state so a reload does not reopen it", () => {
     expect(withoutStoryLink({ createFromUrl: "https://a.test/", other: 1 })).toEqual({ other: 1 });
     expect(withoutStoryLink(null)).toBeNull();
+  });
+
+  it("accepts an https story link from a reminder email's ?article= parameter", () => {
+    expect(storyLinkFromSearch(`?article=${encodeURIComponent("https://news.test/a?b=1&c=2")}`)).toBe("https://news.test/a?b=1&c=2");
+    for (const search of ["", "?article=", `?article=${encodeURIComponent("javascript:alert(1)")}`, `?article=${encodeURIComponent("http://plain.test/")}`]) {
+      expect(storyLinkFromSearch(search)).toBeUndefined();
+    }
+  });
+
+  it("drops the article parameter from the address and keeps the rest", () => {
+    expect(withoutArticleParam("/dashboard/create", "?article=x&ref=email")).toBe("/dashboard/create?ref=email");
+    expect(withoutArticleParam("/dashboard/create", "?article=x")).toBe("/dashboard/create");
   });
 });

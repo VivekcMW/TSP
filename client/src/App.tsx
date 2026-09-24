@@ -29,6 +29,7 @@ import { AdminLayout } from "@/components/admin/admin-layout";
 import { DecorativeIcons } from "@/components/decorative-icons";
 import { RouteTransition } from "@/components/route-transition";
 import { CookieConsent } from "@/components/cookie-consent";
+import { rememberReturnTo, takeReturnTo } from "@/lib/return-to";
 import { SignInPage, SignUpPage, VerifyEmailPage } from "@/pages/auth";
 
 const OverviewPage = lazy(() => import("@/pages/overview"));
@@ -181,8 +182,11 @@ function AppRoutes() {
   // Redirects run in an effect. The old code called setLocation() in the render
   // body, which React warns about and which duplicated an existing effect.
   useEffect(() => {
-    if (gate === "redirect-dashboard") setLocation("/dashboard", { replace: true });
-    if (gate === "redirect-signin") setLocation("/sign-in", { replace: true });
+    if (gate === "redirect-dashboard") setLocation(takeReturnTo() ?? "/dashboard", { replace: true });
+    if (gate === "redirect-signin") {
+      rememberReturnTo(window.location.pathname + window.location.search);
+      setLocation("/sign-in", { replace: true });
+    }
   }, [gate, setLocation]);
 
   // Sign-in and sign-up sub-steps stay one page, so their forms keep state.

@@ -18,3 +18,15 @@ export function withoutStoryLink(state: unknown): unknown {
   const { [STORY_LINK_KEY]: _link, ...rest } = state as Record<string, unknown>;
   return rest;
 }
+
+/** Reminder emails open Create at /dashboard/create?article=<story URL>. */
+export function storyLinkFromSearch(search: string): string | undefined {
+  return storyLinkFromState({ [STORY_LINK_KEY]: new URLSearchParams(search).get("article") ?? undefined });
+}
+
+export function withoutArticleParam(pathname: string, search: string): string {
+  const params = new URLSearchParams(search);
+  params.delete("article");
+  const rest = params.toString();
+  return rest ? `${pathname}?${rest}` : pathname;
+}

@@ -10,6 +10,7 @@ import { FaLinkedin } from "react-icons/fa";
 import { SiGoogle } from "react-icons/si";
 import { ArrowRight, Eye, EyeOff, Rss, Sparkles, ShieldCheck, Zap } from "lucide-react";
 import type { ComponentType } from "react";
+import { takeReturnTo } from "@/lib/return-to";
 
 type SocialProvider = "google" | "linkedin" | "twitter";
 type ProviderAvailability = Record<SocialProvider, boolean>;
@@ -34,7 +35,8 @@ export function SignInPage() {
     const result = await authClient.signIn.email({ email, password });
     setPending(false);
     if (result.error) return setError(result.error.message || "Unable to sign in.");
-    setLocation("/dashboard");
+    // The gate may already have moved on to the remembered page.
+    if (window.location.pathname.startsWith("/sign-in")) setLocation(takeReturnTo() ?? "/dashboard");
   }
   async function requestReset() {
     if (resetPending) return;
@@ -217,7 +219,7 @@ function SocialLogin() {
     const enabled = providers?.[id] === true;
     const status = getProviderStatus(loaded, enabled);
     const isDisabled = !enabled;
-    return <Button key={id} type="button" className={`h-11 w-full font-medium flex items-center justify-center gap-2 ${getButtonStyle(id)} ${isDisabled ? "opacity-60 cursor-not-allowed" : ""}`} disabled={isDisabled} title={enabled ? `Continue with ${label}` : `${label} login is ${status.toLowerCase()}`} aria-label={enabled ? `Continue with ${label}` : `${label} login is ${status.toLowerCase()}`} onClick={() => { if (enabled) authClient.signIn.social({ provider: id, callbackURL: `${window.location.origin}/dashboard` }); }} data-testid={`button-social-${id}`}><Icon className="h-5 w-5" /><span className="text-sm">{label}</span></Button>;
+    return <Button key={id} type="button" className={`h-11 w-full font-medium flex items-center justify-center gap-2 ${getButtonStyle(id)} ${isDisabled ? "opacity-60 cursor-not-allowed" : ""}`} disabled={isDisabled} title={enabled ? `Continue with ${label}` : `${label} login is ${status.toLowerCase()}`} aria-label={enabled ? `Continue with ${label}` : `${label} login is ${status.toLowerCase()}`} onClick={() => { if (enabled) authClient.signIn.social({ provider: id, callbackURL: `${window.location.origin}${takeReturnTo() ?? "/dashboard"}` }); }} data-testid={`button-social-${id}`}><Icon className="h-5 w-5" /><span className="text-sm">{label}</span></Button>;
   })}</div>{loaded && !anyEnabled && <p className="text-center text-xs text-muted-foreground">Social login will activate when credentials are configured. Email login is ready now.</p>}</div>;
 }
 

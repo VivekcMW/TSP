@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import type { InboxItem } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useCreatePostComposer, type CreatePostComposer } from "./use-create-post-composer";
-import { storyLinkFromState, withoutStoryLink } from "@/lib/create-story-link";
+import { storyLinkFromSearch, storyLinkFromState, withoutArticleParam, withoutStoryLink } from "@/lib/create-story-link";
 
 export interface CreatePostContextValue {
   openCreate: (item?: InboxItem) => void;
@@ -22,12 +22,15 @@ export function CreatePostProvider({ children }: Readonly<{ children: ReactNode 
   const composer = useCreatePostComposer(isOpen);
   const onCreateRoute = location === "/dashboard/create";
   useEffect(() => { if (onCreateRoute) setOpen(true); }, [onCreateRoute]);
-  // Onboarding's "Write a post" arrives with a story link; use it once, then drop it from history.
+  // Onboarding's "Write a post" (navigation state) and reminder emails (?article=) arrive with a story link;
+  // use it once, then drop it from history.
   useEffect(() => {
     if (!onCreateRoute) return;
-    const link = storyLinkFromState(window.history.state);
+    const { pathname, search } = window.location;
+    const link = storyLinkFromState(window.history.state) ?? storyLinkFromSearch(search);
+    if (!link && !new URLSearchParams(search).has("article")) return;
+    window.history.replaceState(withoutStoryLink(window.history.state), "", withoutArticleParam(pathname, search));
     if (!link) return;
-    window.history.replaceState(withoutStoryLink(window.history.state), "");
     if (composer.busy || composer.dirty) return;
     composer.setMode("article");
     composer.setUrl(link);
