@@ -6,6 +6,7 @@ import { getEmailPreferences } from "../services/email/preferences";
 import { digestSlot, preferenceEnabled } from "../services/email/policy";
 import { deliverAppEmail, emailTemplates } from "../services/email";
 import { recoverEmailDeliveries } from "../services/email/delivery-store";
+import { sendReminderForScope } from "./email-reminders";
 
 export async function sendDigestForScope(scope: TenantScope, now = new Date()) {
   const preference = await getEmailPreferences(scope.userId);
@@ -44,6 +45,9 @@ export async function runEmailDigestCycle(assertConnected: () => Promise<void> =
     await assertConnected();
     try { await sendDigestForScope(scope); }
     catch { console.error("[email:digest] Scoped delivery failed; retry or reconciliation pending"); }
+    // Independent of the digest preference and outcome; see services/email/reengagement.ts.
+    try { await sendReminderForScope(scope); }
+    catch { console.error("[email:reminder] Scoped delivery failed; retry or reconciliation pending"); }
     cursor = scope;
   }
 }

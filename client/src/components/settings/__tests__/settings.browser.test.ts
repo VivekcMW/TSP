@@ -741,6 +741,32 @@ describe("Settings consolidation and trust", () => {
     await browserExpect(page.getByLabel("Daily digest time", { exact: true })).toHaveValue("10:15");
   });
 
+  it("turns posting reminders off like any other category", async () => {
+    await open("notifications");
+    await page.getByRole("switch", { name: /Posting reminders/ }).uncheck();
+    await page.getByTestId("button-save-notifications").click();
+    await browserExpect(page.getByTestId("button-save-notifications")).toBeDisabled();
+    expect(emailPreferences.reminders).toBe(false);
+  });
+
+  it("pauses reminders for a month from the email link, once, and resumes on request", async () => {
+    await page.goto(`${origin}/dashboard/settings?tab=notifications&pause=reminders`);
+    const paused = page.getByText(/^Reminders are paused until \d{1,2} \w+ \d{4}\.$/);
+    await browserExpect(paused).toBeVisible();
+    await browserExpect.poll(() => new URL(page.url()).search).toBe("?tab=notifications");
+    const pauses = requests.filter(item => item.method === "PATCH");
+    expect(pauses).toHaveLength(1);
+    const days = (Date.parse(String(pauses[0].body.remindersPausedUntil)) - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(29.9); expect(days).toBeLessThan(30.1);
+    await browserExpect(page.getByTestId("button-save-notifications")).toBeDisabled();
+    await page.reload();
+    await browserExpect(paused).toBeVisible();
+    expect(requests.filter(item => item.method === "PATCH")).toHaveLength(1);
+    await page.getByRole("button", { name: "Resume reminders" }).click();
+    await browserExpect(paused).toBeHidden();
+    expect(emailPreferences.remindersPausedUntil).toBeNull();
+  });
+
   it("repairs globally disabled defaults and retains publishing edits after failed saves", async () => {
     profile = { ...profile, enabledPlatforms: ["bluesky", "twitter"], defaultPlatform: "bluesky" };
     await open("publishing");

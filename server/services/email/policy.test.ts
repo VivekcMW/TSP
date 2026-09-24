@@ -26,6 +26,21 @@ describe("authoritative notification contract", () => {
   it.each([{ marketing: "false" }, { unknown: true }, { userId: "other" }, { digestTime: "24:00" }, { digestTimezone: "invalid" }, { unsubscribeAll: true, dailyDigest: true }])("rejects invalid input %#", input => {
     expect(emailPreferencePatch.safeParse(input).success).toBe(false);
   });
+  it("gives reminders their own switch: on by default, off when turned off or unsubscribed", () => {
+    expect(emailPreferenceDefaults.reminders).toBe(true);
+    expect(preferenceEnabled("re_engagement", emailPreferenceDefaults)).toBe(true);
+    expect(preferenceEnabled("re_engagement", { ...emailPreferenceDefaults, reminders: false })).toBe(false);
+    expect(preferenceEnabled("re_engagement", { ...emailPreferenceDefaults, marketing: false })).toBe(true);
+    expect(preferenceEnabled("re_engagement", { ...emailPreferenceDefaults, unsubscribedAt: new Date() })).toBe(false);
+  });
+  it("accepts a reminder pause of up to a year, or clearing it", () => {
+    const day = 86_400_000;
+    expect(emailPreferencePatch.parse({ remindersPausedUntil: new Date(Date.now() + 30 * day).toISOString() }).remindersPausedUntil).toBeInstanceOf(Date);
+    expect(emailPreferencePatch.safeParse({ remindersPausedUntil: null }).success).toBe(true);
+    expect(emailPreferencePatch.safeParse({ reminders: false }).success).toBe(true);
+    expect(emailPreferencePatch.safeParse({ remindersPausedUntil: new Date(Date.now() + 400 * day).toISOString() }).success).toBe(false);
+    expect(emailPreferencePatch.safeParse({ remindersPausedUntil: "next month" }).success).toBe(false);
+  });
   it("allows explicit category opt-in and all opt-out", () => {
     expect(emailPreferencePatch.safeParse({ marketing: false, dailyDigest: true }).success).toBe(true);
     expect(emailPreferencePatch.safeParse({ unsubscribeAll: true }).success).toBe(true);

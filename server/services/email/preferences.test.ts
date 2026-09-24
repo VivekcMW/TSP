@@ -31,6 +31,15 @@ describe("authoritative preference persistence", () => {
     expect(saved.publishing).toBe(true); expect(saved.unsubscribedAt).toBeNull(); expect(saved.marketing).toBe(false); expect(saved.dailyDigest).toBe(false);
     expect(Object.keys(m.conflict.mock.calls[0][0].set).sort()).toEqual(["publishing", "unsubscribedAt", "updatedAt"]);
   });
+  it("unsubscribing from everything also stops reminders", async () => {
+    const saved = await updateEmailPreferences("user", { unsubscribeAll: true });
+    expect(saved.reminders).toBe(false);
+  });
+  it("stores a reminder pause without touching other choices", async () => {
+    const until = new Date(Date.now() + 30 * 86_400_000);
+    await updateEmailPreferences("user", { remindersPausedUntil: until.toISOString() });
+    expect(m.conflict.mock.calls[0][0].set).toEqual({ remindersPausedUntil: until, updatedAt: expect.any(Date) });
+  });
   it("timezone change does not revoke global opt-out", async () => {
     m.row = { ...emailPreferenceDefaults, unsubscribedAt: new Date() };
     const saved = await updateEmailPreferences("user", { digestTimezone: "Asia/Kolkata" });

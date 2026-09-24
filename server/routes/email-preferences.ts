@@ -13,9 +13,9 @@ export function registerEmailPreferenceRoutes(app: Express) {
 
   app.patch("/api/email-preferences", requireDbUser, requirePermission("profile:write:own"), async (req, res) => {
     res.set("Cache-Control", "no-store");
-    const parsed = emailPreferencePatch.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ message: "Invalid email preferences" });
-    try { res.json(await updateEmailPreferences(authedOf(req).dbUser.id, parsed.data)); }
+    // Pass the raw body on: the service parses it itself, and parsed output (dates) can't be parsed twice.
+    if (!emailPreferencePatch.safeParse(req.body).success) return res.status(400).json({ message: "Invalid email preferences" });
+    try { res.json(await updateEmailPreferences(authedOf(req).dbUser.id, req.body)); }
     catch { res.status(503).json({ message: "Could not save email preferences" }); }
   });
 }

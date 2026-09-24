@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { emailPreferenceDefaults } from "@shared/email-preferences";
 import { guardNotificationsMediaNetwork } from "../../test/notifications-media-network";
-const m = vi.hoisted(() => ({ preferences: vi.fn(), send: vi.fn(), template: vi.fn(), execute: vi.fn(), select: vi.fn(), articleLimit: vi.fn(), scopes: vi.fn(), recover: vi.fn() }));
+const m = vi.hoisted(() => ({ preferences: vi.fn(), send: vi.fn(), template: vi.fn(), execute: vi.fn(), select: vi.fn(), articleLimit: vi.fn(), scopes: vi.fn(), recover: vi.fn(), reminder: vi.fn() }));
 vi.mock("../storage", () => ({ storage: { getSchedulerScopes: m.scopes } }));
 vi.mock("../db", () => ({ db: {
   select: (fields: unknown) => { m.select(fields); return { from: () => ({ where: () => ({ limit: async () => [{ email: "test@example.invalid", name: "Arjun Mehta" }] }) }) }; },
@@ -11,6 +11,7 @@ vi.mock("../db", () => ({ db: {
 vi.mock("../services/email/preferences", () => ({ getEmailPreferences: m.preferences }));
 vi.mock("../services/email", () => ({ deliverAppEmail: m.send, emailTemplates: { dailyDigest: m.template } }));
 vi.mock("../services/email/delivery-store", () => ({ recoverEmailDeliveries: m.recover }));
+vi.mock("./email-reminders", () => ({ sendReminderForScope: m.reminder }));
 import { runEmailDigestCycle, sendDigestForScope } from "./email-digest";
 guardNotificationsMediaNetwork();
 const scope = { tenantId: "tenant", userId: "user" };
@@ -43,4 +44,11 @@ it("scheduler runs recovery and only one keyset page per tick", async () => {
   const connected = vi.fn();
   await runEmailDigestCycle(connected);
   expect(m.recover).toHaveBeenCalledTimes(1); expect(m.scopes).toHaveBeenCalledTimes(1); expect(connected).toHaveBeenCalledTimes(1);
+});
+it("sends each person's reminder too, whether or not their digest goes out", async () => {
+  m.preferences.mockResolvedValueOnce({ ...emailPreferenceDefaults, dailyDigest: false });
+  await runEmailDigestCycle();
+  m.preferences.mockRejectedValueOnce(new Error("digest failed"));
+  await runEmailDigestCycle();
+  expect(m.reminder).toHaveBeenCalledTimes(2); expect(m.reminder).toHaveBeenCalledWith(scope);
 });

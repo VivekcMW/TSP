@@ -390,6 +390,8 @@ export const emailPreferences = pgTable("email_preferences", {
   publishing: boolean("publishing").notNull().default(true),
   accountAlerts: boolean("account_alerts").notNull().default(true),
   weeklySummary: boolean("weekly_summary").notNull().default(false),
+  reminders: boolean("reminders").notNull().default(true),
+  remindersPausedUntil: timestamp("reminders_paused_until"),
   digestTimezone: varchar("digest_timezone").notNull().default("UTC"),
   digestTime: varchar("digest_time").notNull().default("09:00"),
   unsubscribedAt: timestamp("unsubscribed_at"),

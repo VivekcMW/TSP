@@ -11,6 +11,7 @@ export function preferenceEnabled(type: EmailType, preference: (EmailPreferenceV
   if (type === "daily_digest") return preference.dailyDigest;
   if (type === "weekly_summary") return preference.weeklySummary;
   if (type === "content_alert") return preference.contentAlerts;
+  if (type === "re_engagement") return preference.reminders;
   if (["product_update", "maintenance", "incident"].includes(type)) return preference.productUpdates;
   if (["draft_generated", "draft_failed", "post_scheduled", "post_published", "post_failed"].includes(type)) return preference.publishing;
   if (["oauth_connected", "usage_warning"].includes(type)) return preference.accountAlerts;

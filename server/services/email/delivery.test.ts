@@ -59,6 +59,19 @@ describe("email dispatch boundaries", () => {
     await deliverAppEmail({ ...email, recipientName: "Priya", text: "Handwritten text", primaryCta: { label: "Open Discover", url: "https://example.invalid/d" } });
     expect(mock.send.mock.calls[0][0].text).toBe("Hi Priya,\n\nHandwritten text\n\nOpen Discover: https://example.invalid/d\n\nTheSocialPundit");
   });
+  it("puts a second button beside the main one, in the HTML and the plain text", async () => {
+    await deliverAppEmail({ ...email, text: "Body", primaryCta: { label: "Keep me posting", url: "https://example.invalid/d" },
+      secondaryCta: { label: "Pause for a month", url: "https://example.invalid/p?a=1&b=2" } });
+    const { html, text } = mock.send.mock.calls[0][0];
+    const primary = html.indexOf(">Keep me posting<"), secondary = html.indexOf(">Pause for a month<"), fallback = html.indexOf("If the button does not work");
+    expect(primary).toBeGreaterThan(0); expect(secondary).toBeGreaterThan(primary); expect(fallback).toBeGreaterThan(secondary);
+    expect(html).toContain('href="https://example.invalid/p?a=1&amp;b=2"');
+    expect(text).toContain("Keep me posting: https://example.invalid/d\n\nPause for a month: https://example.invalid/p?a=1&b=2");
+  });
+  it("lets long fallback links wrap on narrow screens", async () => {
+    await deliverAppEmail({ ...email, primaryCta: { label: "Write my post", url: `https://example.invalid/${"x".repeat(200)}` } });
+    expect(mock.send.mock.calls[0][0].html).toMatch(/<p style="[^"]*overflow-wrap:anywhere[^"]*">If the button does not work/);
+  });
   it("fails closed for optional mail without an attributable account", async () => {
     expect(await deliverAppEmail({ ...email, userId: undefined })).toEqual({ skipped: true });
     expect(mock.send).not.toHaveBeenCalled(); expect(mock.claim).not.toHaveBeenCalled();
