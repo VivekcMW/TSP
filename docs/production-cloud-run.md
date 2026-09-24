@@ -130,6 +130,13 @@ HTTP 5xx errors, on ERROR logs, and on Redis or queue connection failures.
   call and its OpenRouter fallback share a 20-second budget
   (`AI_REQUEST_TIMEOUT_MS`), so when Gemini stalls the fallback never runs and
   the user sees "AI generation timed out".
+- From revision `tsp-app-00042`, onboarding Steps 2–4 suggest sources, topics,
+  people and companies from Google News (last 30 days) through
+  `POST /api/onboarding/suggestions`. Each request makes about two Gemini
+  calls. Answers are cached for 6 hours in Redis (`onboarding:suggestions:v<N>:`;
+  bump `CACHE_VERSION` when prompts change), and each user can make 60 requests
+  an hour. People suggestions are often empty, because a name must appear in a
+  headline. The wizard no longer calls `/api/ai/analyze-identity`.
 - To offer USD once Razorpay enables International Payments: create a live
   plan for USD 2000 monthly and USD 20000 yearly (interval 1), set each plan's
   ID in `razorpay_plan_id`, and set `is_active = true` for `pro_monthly` and
