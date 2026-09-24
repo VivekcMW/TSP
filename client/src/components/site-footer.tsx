@@ -111,7 +111,7 @@ export function SiteFooter() {
           </div>
         </div>
         
-        <div className="mt-12 pt-8 border-t border-surface-ink-foreground/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-surface-ink-foreground/40">
+        <div className="mt-12 pt-8 border-t border-surface-ink-foreground/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-surface-ink-foreground/60">
           <p data-testid="text-copyright">&copy; 2026 TheSocialPundit. All rights reserved.</p>
           <p>Built for professionals, worldwide.</p>
         </div>

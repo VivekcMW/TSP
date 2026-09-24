@@ -59,7 +59,7 @@ export function DashboardNavbar() {
   return (
     <header className="flex items-center justify-between gap-4 px-3 py-2.5 border-b bg-background sticky top-0 z-10">
       <div className="flex items-center gap-3">
-        <Link href="/dashboard" className="flex items-center gap-1.5 shrink-0" data-testid="link-navbar-logo">
+        <Link href="/dashboard" className="flex items-center gap-1.5 shrink-0" aria-label="TheSocialPundit dashboard" data-testid="link-navbar-logo">
           <Zap className="w-5 h-5 text-primary fill-primary" />
           <span className="font-bold text-base text-primary hidden sm:inline">TheSocialPundit</span>
         </Link>

@@ -27,6 +27,7 @@ import CompleteRegistrationPage from "@/pages/complete-registration";
 import OnboardingPage from "@/pages/onboarding";
 import NotFound from "@/pages/not-found";
 import { AdminLayout } from "@/components/admin/admin-layout";
+import { DecorativeIcons } from "@/components/decorative-icons";
 import { SignInPage, SignUpPage, VerifyEmailPage } from "@/pages/auth";
 
 const OverviewPage = lazy(() => import("@/pages/overview"));
@@ -281,7 +282,7 @@ function App() {
   return (
     <WouterRouter base={basePath}>
       <QueryClientProvider client={queryClient}>
-        <HelmetProvider><TooltipProvider><AccountBoundary><Toaster /><AppRoutes /></AccountBoundary></TooltipProvider></HelmetProvider>
+        <HelmetProvider><TooltipProvider><DecorativeIcons><AccountBoundary><Toaster /><AppRoutes /></AccountBoundary></DecorativeIcons></TooltipProvider></HelmetProvider>
       </QueryClientProvider>
     </WouterRouter>
   );

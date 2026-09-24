@@ -60,7 +60,7 @@ export function AIPov() {
               <TabsContent key={example.id} value={example.id} className="mt-0">
                 <StaggerGroup className="grid md:grid-cols-2 gap-6 lg:gap-8 items-stretch">
                   <StaggerItem>
-                    <Card className="h-full border-dashed bg-muted/40 opacity-80">
+                    <Card className="h-full border-dashed bg-muted/40">
                       <CardContent className="p-6 lg:p-8 h-full flex flex-col">
                         <div className="flex items-center gap-2 mb-4">
                           <div className="w-5 h-5 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">

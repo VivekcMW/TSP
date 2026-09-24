@@ -72,16 +72,16 @@ export default function HowItWorks() {
               
               <Reveal variants={fadeUp}>
               <div className="grid lg:grid-cols-2 gap-12 items-center" data-testid="section-step-2">
-                <Card className="p-0 bg-foreground text-background order-2 lg:order-1 overflow-hidden">
+                <Card className="p-0 bg-surface-ink text-surface-ink-foreground order-2 lg:order-1 overflow-hidden">
                   <div className="p-4 space-y-3">
-                    <div className="flex items-center justify-between gap-2 p-3 bg-background/10 rounded-md flex-wrap">
-                      <span className="text-xs font-medium text-primary uppercase">TechCrunch</span>
+                    <div className="flex items-center justify-between gap-2 p-3 bg-surface-ink-foreground/10 rounded-md flex-wrap">
+                      <span className="text-xs font-semibold text-secondary uppercase">TechCrunch</span>
                       <span className="text-xs opacity-70">2m ago</span>
                     </div>
                     <p className="text-sm px-3">Stripe expands to 5 new markets in SE Asia.</p>
                     
-                    <div className="flex items-center justify-between gap-2 p-3 bg-background/10 rounded-md flex-wrap">
-                      <span className="text-xs font-medium text-primary uppercase">WSJ</span>
+                    <div className="flex items-center justify-between gap-2 p-3 bg-surface-ink-foreground/10 rounded-md flex-wrap">
+                      <span className="text-xs font-semibold text-secondary uppercase">WSJ</span>
                       <span className="text-xs opacity-70">9h ago</span>
                     </div>
                     <p className="text-sm px-3">New regulatory framework for stablecoins proposed.</p>
