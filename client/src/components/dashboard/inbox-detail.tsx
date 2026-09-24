@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { SheetTitle } from "@/components/ui/sheet";
 import type { InboxItem } from "@shared/schema";
 import { articleDateLabel } from "@/lib/article-date-label";
+import { relevanceSummary } from "@/lib/relevance-summary";
 
 interface InboxDetailProps {
   item: InboxItem;
@@ -19,7 +20,7 @@ interface InboxDetailProps {
 /** Full reading + action view for whichever article is selected in Discover's triage list. Shared by the desktop split-pane and the mobile detail sheet. */
 export function InboxDetail({ item, onGeneratePost, onSave, onDismiss, inSheet = false, titleId }: Readonly<InboxDetailProps>) {
   const matchedKeywords = item.matchedKeywords || [];
-  const relevanceReason = item.relevanceReason ?? (matchedKeywords.length > 0 ? `matches ${matchedKeywords.slice(0, 3).join(", ")}` : null);
+  const relevanceReason = relevanceSummary(item);
   const headline = <h2 {...(!inSheet && titleId ? { id: titleId } : {})} className="heading-dashboard mb-3 break-words text-xl leading-snug" data-testid={`text-headline-${item.id}`}>{item.headline}</h2>;
   let excerptLabel = "Saved excerpt (legacy provenance unavailable)";
   if (item.qualityMetadata?.summary?.method === "extractive") excerptLabel = "Article excerpt";

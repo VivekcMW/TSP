@@ -68,7 +68,7 @@ describe("inbox detail relevance explanations", () => {
   it("shows stored evidence types and exact labels instead of reconstructing the reason from tags", async () => {
     await mount({ relevanceReason: storedReason, matchedKeywords: ["Ada Lovelace", "AI", "Meta"] });
     await browserExpect(page.locator("p").filter({ hasText: "Why this is relevant:" }))
-      .toHaveText(`Why this is relevant: ${storedReason}`);
+      .toHaveText("Why this is relevant: Matches your topic AI. Mentions Meta, a company you follow. Mentions Ada Lovelace, who you follow.");
     for (const label of ["Ada Lovelace", "AI", "Meta"]) await browserExpect(page.getByText(label, { exact: true })).toBeVisible();
     expect(await page.locator("body").innerText()).not.toMatch(/confidence|%|0\.9/i);
   });
@@ -76,7 +76,7 @@ describe("inbox detail relevance explanations", () => {
   it.each([false, true])("shows source-only explanations without keyword tags (sheet=%s)", async inSheet => {
     await mount({ relevanceScore: "0.1", relevanceReason: sourceReason, matchedKeywords: [] }, inSheet);
     await browserExpect(page.locator("p").filter({ hasText: "Why this is relevant:" }))
-      .toHaveText(`Why this is relevant: ${sourceReason}`);
+      .toHaveText("Why this is relevant: From one of your saved sources.");
     await browserExpect(page.locator('[class*="border-secondary/40"]')).toHaveCount(0);
     expect(await page.locator("body").innerText()).not.toMatch(/confidence|%|0\.1|matches /i);
     if (inSheet) await browserExpect(page.getByRole("dialog", { name: "Research news" })).toBeVisible();
@@ -85,7 +85,7 @@ describe("inbox detail relevance explanations", () => {
   it.each([null, undefined])("uses the legacy top-three reason only when absent (%s), preserving all tags", async relevanceReason => {
     await mount({ relevanceReason, relevanceScore: null, matchedKeywords: ["AI", "Cloud", "Meta", "Ada Lovelace"] });
     await browserExpect(page.locator("p").filter({ hasText: "Why this is relevant:" }))
-      .toHaveText("Why this is relevant: matches AI, Cloud, Meta");
+      .toHaveText("Why this is relevant: Matches AI, Cloud, Meta and 1 more.");
     for (const label of ["AI", "Cloud", "Meta", "Ada Lovelace"]) await browserExpect(page.getByText(label, { exact: true })).toBeVisible();
     expect(await page.locator("body").innerText()).not.toMatch(/confidence|%/i);
   });
@@ -107,7 +107,8 @@ describe("inbox detail relevance explanations", () => {
   it("renders stored text safely and preserves action callbacks", async () => {
     const reason = 'Matched article text: keyword "<img src=x onerror=alert(1)>".';
     await mount({ relevanceReason: reason });
-    await browserExpect(page.locator("p").filter({ hasText: "Why this is relevant:" })).toHaveText(`Why this is relevant: ${reason}`);
+    // The stored label is shown as text inside the plain summary, never as markup.
+    await browserExpect(page.locator("p").filter({ hasText: "Why this is relevant:" })).toHaveText("Why this is relevant: Matches your topic <img src=x onerror=alert(1)>.");
     await browserExpect(page.locator("img")).toHaveCount(0);
     await page.getByRole("button", { name: "Create draft", exact: true }).click();
     await page.getByRole("button", { name: "Save story", exact: true }).click();
