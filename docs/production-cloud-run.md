@@ -135,6 +135,12 @@ HTTP 5xx errors, on ERROR logs, and on Redis or queue connection failures.
   redirect URL is `https://www.thesocialpundit.com/auth/reddit/callback`.
 - The X app must register `https://www.thesocialpundit.com/auth/twitter/connect/callback`.
 - Redis Cloud has TLS off, `volatile-lru` eviction and no persistence. Bull
-  needs `noeviction`.
+  needs `noeviction`. The plan allows 30 connections and each app instance uses
+  about 10 (three Bull queues at three connections each, plus one shared), so a
+  deploy briefly needs about 20. On 2026-09-24 the retired Render service still
+  held the rest, and new revisions failed `/readyz` with `ERR max number of
+  clients reached` until it was suspended. Nothing else may connect to this
+  database. After switching traffic, remove every `rc-*` tag: a tagged revision
+  can keep its own instance, scheduler and Redis connections alive.
 - Local development and production share one Gemini API key. Gemini's
   free-tier quota is per Google Cloud project.
