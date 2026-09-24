@@ -142,5 +142,10 @@ HTTP 5xx errors, on ERROR logs, and on Redis or queue connection failures.
   clients reached` until it was suspended. Nothing else may connect to this
   database. After switching traffic, remove every `rc-*` tag: a tagged revision
   can keep its own instance, scheduler and Redis connections alive.
-- Local development and production share one Gemini API key. Gemini's
-  free-tier quota is per Google Cloud project.
+- Production's `GEMINI_API_KEY` (secret version 2, pinned on the service since
+  revision `tsp-app-00036`) is the `TSPAIPRO` key from the AI Studio project
+  `TSPAI` (`gen-lang-client-0282627825`), which bills to "TSP Google Billing
+  Account" (014828-788CA6-B9FDD3). Version 1 was a free-tier key (20 requests
+  a day) from another Google account's project; local `.env` still uses it.
+  To check a key's tier, make one small request and read
+  `error.details[].violations[].quotaId`: a `-FreeTier` suffix means unbilled.
