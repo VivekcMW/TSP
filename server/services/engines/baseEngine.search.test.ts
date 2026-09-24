@@ -322,6 +322,28 @@ describe("engine durable search integration", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("keeps finished search results when the budget runs out, so a refresh without active sources still succeeds", async () => {
+    vi.useFakeTimers();
+    save({ keywords: labels("k", 12) });
+    storage.getUserSources.mockResolvedValue([]);
+    let calls = 0;
+    crawl.mockImplementation(async (url: string, options: CrawlOptions) => {
+      // The first two queries answer quickly; the rest are slower than the whole budget.
+      if (++calls <= 2) return response(url);
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 30_000);
+        options.signal!.addEventListener("abort", () => { clearTimeout(timer); reject(options.signal!.reason); }, { once: true });
+      });
+      return response(url);
+    });
+    const task = (await makeEngine()).processForUser(scope, profile());
+    await vi.advanceTimersByTimeAsync(20_000);
+    const result = await task;
+    expect(result).toMatchObject({ success: true, articlesProcessed: 2 });
+    expect(storage.commitInboxRefresh).toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("uses the reserved snapshot throughout even when the profile changes during crawling", async () => {
     save({ keywords: ["Current"], publications: ["Current publication"] });
     const reserved = structuredClone(profiles.get(scopeKey(scope))!);
@@ -346,7 +368,7 @@ describe("engine durable search integration", () => {
     expect(crawl).not.toHaveBeenCalled();
   });
 
-  it("bounds workers to two, aborts at 20s, skips queued queries and awaits all started work", async () => {
+  it("bounds workers to two, stops at 20s, keeps finished queries (uncached) and awaits all started work", async () => {
     vi.useFakeTimers();
     save({ keywords: labels("k", 12) });
     const engine = await makeEngine();
@@ -365,12 +387,13 @@ describe("engine durable search integration", () => {
         return response(url);
       } finally { active--; settled++; }
     });
-    const task = expect(engine.search()).rejects.toThrow("Article search could not complete");
+    const task = engine.search();
     await vi.advanceTimersByTimeAsync(19999);
     expect(crawl).toHaveBeenCalledTimes(6);
     expect(active).toBe(2); expect(settled).toBe(4);
     await vi.advanceTimersByTimeAsync(1);
-    await task;
+    // The four queries that finished before the deadline are kept.
+    expect((await task).map(article => article.categories?.[0])).toEqual(firstPlan.queries.slice(0, 4));
     expect(maximum).toBe(2); expect(active).toBe(0); expect(settled).toBe(6); expect(aborted).toBe(2);
     expect(fetchedQueries()).toEqual(firstPlan.queries.slice(0, 6));
     expect(states.get(scopeKey(scope))).toEqual(firstPlan.state);

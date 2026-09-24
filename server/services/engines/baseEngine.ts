@@ -147,9 +147,11 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
           return fetchArticlesForQuery(query, 8, edition.id, controller.signal);
         });
         const failed = results.filter((result) => result.status === "rejected").length;
-        partialFailure = failed > 0;
-        if ((failed === results.length && results.length > 0) || controller.signal.aborted) {
-          // Never cache a fully failed/deadline batch or include provider/query details.
+        // A deadline keeps what finished (uncached), so slow queries cannot discard fast ones;
+        // the next refresh reaches the rest. Only a batch with nothing finished fails.
+        partialFailure = failed > 0 || controller.signal.aborted;
+        if (failed === results.length && results.length > 0) {
+          // Never include provider/query details.
           throw new CrawlError("search-batch", "Article search could not complete. Please try again.");
         }
         const articles: FetchedArticle[] = [];
