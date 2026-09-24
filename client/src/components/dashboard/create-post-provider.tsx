@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import type { InboxItem } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useCreatePostComposer, type CreatePostComposer } from "./use-create-post-composer";
+import { storyLinkFromState, withoutStoryLink } from "@/lib/create-story-link";
 
 export interface CreatePostContextValue {
   openCreate: (item?: InboxItem) => void;
@@ -21,6 +22,17 @@ export function CreatePostProvider({ children }: Readonly<{ children: ReactNode 
   const composer = useCreatePostComposer(isOpen);
   const onCreateRoute = location === "/dashboard/create";
   useEffect(() => { if (onCreateRoute) setOpen(true); }, [onCreateRoute]);
+  // Onboarding's "Write a post" arrives with a story link; use it once, then drop it from history.
+  useEffect(() => {
+    if (!onCreateRoute) return;
+    const link = storyLinkFromState(window.history.state);
+    if (!link) return;
+    window.history.replaceState(withoutStoryLink(window.history.state), "");
+    if (composer.busy || composer.dirty) return;
+    composer.setMode("article");
+    composer.setUrl(link);
+    // Runs only on arrival at Create; the composer's later state must not re-apply the link.
+  }, [onCreateRoute]);
   useEffect(() => { if (composer.generation.reattached) setOpen(true); }, [composer.generation.reattached]);
   const openCreate = (item?: InboxItem) => {
     composer.prefill(item);
