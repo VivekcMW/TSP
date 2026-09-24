@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Check, Sparkles, ArrowLeft, ArrowRight, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { apiRequest } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { Progress } from "@/components/ui/progress";
-import { normalizeOnboardingChoices, normalizeOnboardingRecommendations, visibleOnboardingChoices, type OnboardingData } from "@/lib/onboarding-choices";
-import { normalizeKeywords, reconcileKeywords, type WeightedKeyword } from "@shared/profile-preferences";
+import { normalizeOnboardingChoices, visibleOnboardingChoices, type OnboardingData } from "@/lib/onboarding-choices";
+import { browserSearchEdition, choiceKey, type SuggestionKind, type SuggestionStep } from "@/lib/onboarding-suggestions";
+import { useOnboardingSuggestions } from "@/hooks/use-onboarding-suggestions";
+import { SuggestionPanel } from "@/components/onboarding/suggestion-panel";
+import { reconcileKeywords, type WeightedKeyword } from "@shared/profile-preferences";
 import { selectedPublicationCandidates, type PublicationCandidate } from "@shared/publication-preferences";
 
 interface OnboardingWizardProps {
@@ -582,94 +583,51 @@ type Step = "identity" | "publications" | "topics" | "connections";
 
 const STEPS: Step[] = ["identity", "publications", "topics", "connections"];
 
+const SUGGESTION_STEPS: Partial<Record<Step, SuggestionStep>> = { publications: "publications", topics: "topics", connections: "people" };
+
 export function OnboardingWizard({ onComplete, isPending = false, userIndustry, userCountry }: Readonly<OnboardingWizardProps>) {
   const [currentStep, setCurrentStep] = useState<Step>("identity");
   const [focusDescription, setFocusDescription] = useState("");
   const [selectedPublications, setSelectedPublications] = useState<string[]>([]);
-  const [publicationChoices, setPublicationChoices] = useState<string[]>([]);
-  const [publicationCandidates, setPublicationCandidates] = useState<PublicationCandidate[]>([]);
   const [selectedKeywords, setSelectedKeywords] = useState<string[]>([]);
-  // Keep suggestion metadata even when its label is deselected, so reselecting
-  // an AI topic restores its original weight/category (including weight zero).
-  const [keywordChoices, setKeywordChoices] = useState<WeightedKeyword[]>([]);
   const [selectedInfluencers, setSelectedInfluencers] = useState<string[]>([]);
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
   const [customKeyword, setCustomKeyword] = useState("");
   const [customInfluencer, setCustomInfluencer] = useState("");
   const [customCompany, setCustomCompany] = useState("");
-  const [isGeneratingRecommendations, setIsGeneratingRecommendations] = useState(false);
-  const [recommendedIndustry, setRecommendedIndustry] = useState<string | undefined>();
-  const recommendationRequest = useRef<AbortController | null>(null);
-  useEffect(() => () => {
-    recommendationRequest.current?.abort();
-    recommendationRequest.current = null;
-  }, []);
-  const { toast } = useToast();
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [suggestionFocus, setSuggestionFocus] = useState<string>();
+  const searchEdition = useMemo(() => browserSearchEdition(userCountry), [userCountry]);
 
   const industryData = getIndustryData(userIndustry, userCountry);
   const currentStepIndex = STEPS.indexOf(currentStep);
   const progress = ((currentStepIndex + 1) / STEPS.length) * 100;
+  const suggestionStep = SUGGESTION_STEPS[currentStep];
 
-  const generateRecommendations = async () => {
-    if (focusDescription.trim().length < 10 || recommendationRequest.current || isPending) return;
-    const controller = new AbortController();
-    recommendationRequest.current = controller;
-    setIsGeneratingRecommendations(true);
-    const timeout = setTimeout(() => {
-      controller.abort();
-      if (recommendationRequest.current !== controller) return;
-      recommendationRequest.current = null;
-      setIsGeneratingRecommendations(false);
-      toast({ title: "Suggestions took too long", description: "Continue without AI or try again when you're ready." });
-    }, 15000);
-    try {
-      const response = await apiRequest("POST", "/api/ai/analyze-identity", {
-        focusDescription: focusDescription.trim(),
-        selectedIndustry: userIndustry,
-      }, { signal: controller.signal });
-      const result: unknown = await response.json();
-      if (controller.signal.aborted) return;
-      const data = normalizeOnboardingRecommendations(result);
-      setSelectedPublications((items) => normalizeOnboardingChoices([...items, ...data.publications]));
-      setPublicationChoices((items) => visibleOnboardingChoices(items, data.publications));
-      setPublicationCandidates((items) => {
-        const metadata = new Map(items.map(item => [item.name.toLowerCase(), item]));
-        for (const item of data.publicationCandidates ?? []) metadata.set(item.name.toLowerCase(), item);
-        return [...metadata.values()];
-      });
-      setKeywordChoices((items) => normalizeKeywords([...items, ...data.keywords]));
-      setSelectedKeywords((items) => normalizeOnboardingChoices([...items, ...data.keywords.map(({ keyword }) => keyword)]));
-      setSelectedInfluencers((items) => normalizeOnboardingChoices([...items, ...data.influencers]));
-      setSelectedCompanies((items) => normalizeOnboardingChoices([...items, ...data.companies]));
-      setRecommendedIndustry(data.recommendedIndustry);
-      toast({
-        title: "Suggestions ready to review",
-        description: "Keep or remove any selection. These preferences are optional.",
-      });
-      setCurrentStep("publications");
-    } catch {
-      if (controller.signal.aborted) return;
-      toast({
-        title: "Suggestions unavailable",
-        description: "Your choices haven't changed. Continue without AI or try again.",
-      });
-    } finally {
-      clearTimeout(timeout);
-      if (recommendationRequest.current === controller) {
-        recommendationRequest.current = null;
-        setIsGeneratingRecommendations(false);
-      }
+  const suggestions = useOnboardingSuggestions(suggestionStep, aiEnabled, {
+    focusDescription,
+    industry: userIndustry,
+    searchEdition,
+    publications: selectedPublications,
+    topics: selectedKeywords,
+    picks: { publications: selectedPublications, topics: selectedKeywords, people: [...selectedInfluencers, ...selectedCompanies] },
+  });
+  // Suggestion metadata outlives deselection, so reselecting restores a source's URL
+  // or a topic's weight (including weight zero).
+  const { catalog } = suggestions;
+  const publicationCandidates = useMemo<PublicationCandidate[]>(() => catalog.flatMap(item => item.kind === "source" && item.url ? [{ name: item.name, url: item.url }] : []), [catalog]);
+  const keywordChoices = useMemo<WeightedKeyword[]>(() => catalog.flatMap(item => item.kind === "topic" ? [{ keyword: item.name, weight: item.weight ?? 0.7 }] : []), [catalog]);
+
+  const startSuggestions = () => {
+    const focus = focusDescription.trim();
+    if (focus !== suggestionFocus) {
+      suggestions.reset();
+      setSuggestionFocus(focus);
     }
-  };
-
-  const cancelRecommendations = () => {
-    recommendationRequest.current?.abort();
-    recommendationRequest.current = null;
-    setIsGeneratingRecommendations(false);
+    setAiEnabled(true);
   };
 
   const goToNextStep = () => {
-    cancelRecommendations();
     const nextIndex = currentStepIndex + 1;
     if (nextIndex < STEPS.length) {
       setCurrentStep(STEPS[nextIndex]);
@@ -702,7 +660,6 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
 
   const handleComplete = () => {
     if (focusDescription.trim().length < 10 || isPending) return;
-    cancelRecommendations();
     const candidates = selectedPublicationCandidates(selectedPublications, publicationCandidates);
     onComplete({
       focusDescription: focusDescription.trim(),
@@ -711,8 +668,44 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
       keywords: reconcileKeywords(selectedKeywords, keywordChoices),
       influencers: selectedInfluencers,
       companies: selectedCompanies,
-      recommendedIndustry,
     });
+  };
+
+  // Chips the suggestion panel shows are left out of the static lists below it.
+  const suggestedNames = aiEnabled && suggestionStep ? suggestions.state[suggestionStep].batches.flatMap(batch => batch.items.map(item => item.name)) : [];
+  const shown = new Set(suggestedNames.map(name => name.toLowerCase()));
+  const lookalikes = new Set(suggestedNames.map(choiceKey));
+  // A built-in choice that looks like a suggestion is hidden too, unless the user already picked it.
+  const notSuggested = (list: string[]) => (name: string) => !shown.has(name.toLowerCase()) && (list.includes(name) || !lookalikes.has(choiceKey(name)));
+  const choiceLists: Record<SuggestionKind, [string[], (items: string[]) => void]> = {
+    source: [selectedPublications, setSelectedPublications],
+    topic: [selectedKeywords, setSelectedKeywords],
+    leader: [selectedInfluencers, setSelectedInfluencers],
+    company: [selectedCompanies, setSelectedCompanies],
+  };
+  const suggestionPanel = (kinds: Array<{ kind: SuggestionKind; label: string; heading?: string }>, searching: string) => {
+    if (!suggestionStep) return null;
+    if (!aiEnabled) {
+      return (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3">
+          <p className="text-sm text-muted-foreground">Want suggestions from recent news about your focus?</p>
+          <Button type="button" variant="outline" size="sm" onClick={startSuggestions} disabled={isPending}>
+            <Sparkles className="mr-2 h-4 w-4" />Suggest from recent news
+          </Button>
+        </div>
+      );
+    }
+    return (
+      <SuggestionPanel
+        state={suggestions.state[suggestionStep]}
+        kinds={kinds}
+        searching={searching}
+        isSelected={(kind, name) => choiceLists[kind][0].includes(name)}
+        isDisabled={(kind, name) => isPending || (!choiceLists[kind][0].includes(name) && choiceLists[kind][0].length >= 20)}
+        onToggle={(kind, name) => toggleItem(name, ...choiceLists[kind])}
+        onRetry={() => suggestions.retry(suggestionStep)}
+      />
+    );
   };
 
   const canProceedFromIdentity = focusDescription.trim().length >= 10;
@@ -767,7 +760,7 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
                 aria-label="Professional focus"
                 aria-describedby="focus-hint"
                 required
-                disabled={isGeneratingRecommendations || isPending}
+                disabled={isPending}
                 value={focusDescription}
                 onChange={(e) => setFocusDescription(e.target.value)}
                 placeholder="e.g., I'm a product leader at a fintech startup. I focus on product strategy, growth metrics, and building user-centric teams."
@@ -780,13 +773,9 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
                   {focusDescription.length} / 200 {focusDescription.trim().length < 10 && "(min 10 characters)"}
                 </span>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={generateRecommendations} disabled={!canProceedFromIdentity || isGeneratingRecommendations || isPending}>
-                  <Sparkles className="mr-2 h-4 w-4" />{isGeneratingRecommendations ? "Generating suggestions…" : "Suggest preferences with AI"}
-                </Button>
-                {isGeneratingRecommendations && <Button variant="ghost" onClick={cancelRecommendations}>Cancel suggestions</Button>}
-              </div>
-              <p className="text-xs text-muted-foreground">AI runs only when requested. Cancel stops waiting and discards late results; server processing may already have started.</p>
+              <p className="text-xs text-muted-foreground">
+                With AI suggestions, each next step searches recent news for sources, topics and people that match your focus, and refines them as you pick. Nothing is selected for you.
+              </p>
             </CardContent>
           </Card>
         )}
@@ -801,9 +790,11 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
                 </CardDescription>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              {suggestionPanel([{ kind: "source", label: "source" }], "Searching recent news for sources that cover your focus…")}
+              {aiEnabled && <p className="text-sm font-medium">Popular in your industry</p>}
               <div className="flex flex-wrap gap-2">
-                {visibleOnboardingChoices([...publicationChoices, ...industryData.publications], selectedPublications).map((pub) => (
+                {visibleOnboardingChoices(industryData.publications, selectedPublications).filter(notSuggested(selectedPublications)).map((pub) => (
                   <Button
                     type="button"
                     aria-pressed={selectedPublications.includes(pub)}
@@ -820,10 +811,10 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
                   </Button>
                 ))}
               </div>
-              <p className="text-xs text-muted-foreground mt-4">
+              <p className="text-xs text-muted-foreground">
                 {selectedPublications.length} selected
               </p>
-              <ul className="mt-3 space-y-2 text-xs text-muted-foreground" aria-label="Selected publication URLs">
+              <ul className="space-y-2 text-xs text-muted-foreground" aria-label="Selected publication URLs">
                 {selectedPublications.map((name) => {
                   const candidate = publicationCandidates.find(item => item.name.toLowerCase() === name.toLowerCase());
                   return <li key={name} className="[overflow-wrap:anywhere]">
@@ -846,8 +837,10 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
+              {suggestionPanel([{ kind: "topic", label: "topic" }], "Finding topics in recent news about your focus and sources…")}
+              {aiEnabled && <p className="text-sm font-medium">Popular in your industry</p>}
               <div className="flex flex-wrap gap-2">
-                {visibleOnboardingChoices([...keywordChoices.map(({ keyword }) => keyword), ...industryData.keywords], selectedKeywords).map((keyword) => (
+                {visibleOnboardingChoices(industryData.keywords, selectedKeywords).filter(notSuggested(selectedKeywords)).map((keyword) => (
                   <Button
                     type="button"
                     aria-pressed={selectedKeywords.includes(keyword)}
@@ -902,10 +895,11 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
+              {suggestionPanel([{ kind: "leader", label: "leader", heading: "People" }, { kind: "company", label: "company", heading: "Companies" }], "Finding people and companies in the news on your topics…")}
               <div>
                 <p className="text-sm font-medium mb-3">Industry Leaders</p>
                 <div className="flex flex-wrap gap-2 mb-3">
-                  {visibleOnboardingChoices(industryData.influencers, selectedInfluencers).map((influencer) => (
+                  {visibleOnboardingChoices(industryData.influencers, selectedInfluencers).filter(notSuggested(selectedInfluencers)).map((influencer) => (
                     <Button
                       type="button"
                       aria-pressed={selectedInfluencers.includes(influencer)}
@@ -947,7 +941,7 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
               <div>
                 <p className="text-sm font-medium mb-3">Companies & Organizations</p>
                 <div className="flex flex-wrap gap-2 mb-3">
-                  {visibleOnboardingChoices(industryData.companies, selectedCompanies).map((company) => (
+                  {visibleOnboardingChoices(industryData.companies, selectedCompanies).filter(notSuggested(selectedCompanies)).map((company) => (
                     <Button
                       type="button"
                       aria-pressed={selectedCompanies.includes(company)}
@@ -1009,16 +1003,29 @@ export function OnboardingWizard({ onComplete, isPending = false, userIndustry, 
             )}
             
             {currentStep === "identity" && (
-              <Button
-                size="lg"
-                className="flex-1"
-                onClick={goToNextStep}
-                disabled={!canProceedFromIdentity || isPending}
-                data-testid="button-continue"
-              >
-                Continue without AI
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
+              <>
+                <Button
+                  size="lg"
+                  className="flex-1"
+                  onClick={() => { startSuggestions(); goToNextStep(); }}
+                  disabled={!canProceedFromIdentity || isPending}
+                  data-testid="button-continue-ai"
+                >
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Continue with AI suggestions
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => { setAiEnabled(false); goToNextStep(); }}
+                  disabled={!canProceedFromIdentity || isPending}
+                  data-testid="button-continue"
+                >
+                  Continue without AI
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </>
             )}
 
             {currentStep === "publications" && (

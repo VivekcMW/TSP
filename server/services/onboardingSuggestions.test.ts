@@ -87,6 +87,30 @@ describe("people and company suggestions grounded in headlines", () => {
   });
 });
 
+describe("tolerant parsing of model replies", () => {
+  it("keeps entities whose optional reason is missing and drops only malformed entries", async () => {
+    replies({ people: {
+      people: [{ name: "Vistar Media", headlines: ["1"] }],
+      companies: [{ name: "Vistar Media", headlines: [1] }, { name: "Moving Walls", role: "DOOH measurement", headlines: [3] }, { headlines: [2] }],
+    } });
+    const result = await suggest(request("people", { topics: ["Programmatic DOOH"] }), scope);
+    expect(result.people).toEqual([]);
+    expect(result.companies).toEqual([
+      { name: "Vistar Media", reason: "", evidence: { count: 1, headline: "Vistar Media expands programmatic DOOH in India" } },
+      { name: "Moving Walls", reason: "DOOH measurement", evidence: { count: 1, headline: "Moving Walls wins DOOH measurement award" } },
+    ]);
+  });
+
+  it("gives a topic without a weight the default and skips a malformed topic", async () => {
+    replies({ topics: { topics: [{ topic: "Programmatic DOOH", headlines: [1] }, { topic: "X", weight: 0.9, headlines: [2] }, { topic: "Retail media screens", weight: 0.7, headlines: [4] }] } });
+    const result = await suggest(request("topics"), scope);
+    expect(result.items).toEqual([
+      { name: "Retail media screens", weight: 0.7, evidence: { count: 1, headline: "Retail media networks add in-store screens" } },
+      { name: "Programmatic DOOH", weight: 0.6, evidence: { count: 1, headline: "Vistar Media expands programmatic DOOH in India" } },
+    ]);
+  });
+});
+
 describe("resilience and cost", () => {
   it("falls back to model-only suggestions, marked ungrounded, when the news search fails", async () => {
     headlines.mockRejectedValue(new Error("search down"));

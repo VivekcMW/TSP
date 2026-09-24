@@ -11,7 +11,10 @@ let bundle: string;
 let css: string;
 const root = path.resolve(import.meta.dirname, "../../..");
 const progress = { articlesProcessed: 8, articlesMatched: 4, articlesCreated: 2 };
-const suggestions = { publications: ["Unlisted AI source"], keywords: ["Unlisted AI topic"], personalities: ["Unlisted AI leader"], companies: ["Unlisted AI company"] };
+const sources = { step: "publications", grounded: true, items: [{ name: "Unlisted AI source", url: null, reason: "" }] };
+// Step 2 loads, then prefetches Step 3, which prefetches Step 4 when it opens.
+const suggestions = [{ body: sources }, { body: { step: "topics", grounded: true, items: [{ name: "Unlisted AI topic", weight: 0.8 }] } },
+  { body: { step: "people", grounded: true, people: [{ name: "Unlisted AI leader", reason: "" }], companies: [{ name: "Unlisted AI company", reason: "" }] } }];
 
 beforeAll(async () => {
   const result = await build({
@@ -33,8 +36,11 @@ beforeAll(async () => {
       window.__calls = []; window.__completed = []; window.__pending = []; window.__toasts = []; window.__settled = 0;
       window.fetch = async (url, options = {}) => {
         window.__calls.push({ url, method: options.method || "GET", body: options.body ? JSON.parse(options.body) : null, signal: options.signal });
-        const targeted = String(url).includes("/refresh") || String(url).includes("analyze-identity");
-        const next = targeted ? (window.__responses.shift() || { body: { status: "active", progress: { articlesProcessed: 0, articlesMatched: 0, articlesCreated: 0 } } }) : (window.__errors[url] ? { status: 500, body: { message: "Fixture error" } } : { body: window.__data[url] ?? {} });
+        const targeted = String(url).includes("/refresh") || String(url).includes("/api/onboarding/suggestions");
+        // Suggestion calls take the next reply for their step (or one without a step), so prefetches can't reorder them.
+        const step = String(url).includes("/api/onboarding/suggestions") && options.body ? JSON.parse(options.body).step : undefined;
+        const index = step ? window.__responses.findIndex(next => !next.body?.step || next.body.step === step) : 0;
+        const next = targeted ? ((index >= 0 ? window.__responses.splice(index, 1)[0] : undefined) || { body: { status: "active", progress: { articlesProcessed: 0, articlesMatched: 0, articlesCreated: 0 } } }) : (window.__errors[url] ? { status: 500, body: { message: "Fixture error" } } : { body: window.__data[url] ?? {} });
         if (next.defer) await new Promise(resolve => window.__pending.push(resolve));
         if (next.networkError) throw new TypeError("Fixture network error");
         const response = new Response(next.rawBody ?? JSON.stringify(next.body), { status: next.status || 200, headers: { "Content-Type": "application/json" } });
@@ -105,42 +111,51 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     expect(await page.evaluate(() => (window as any).__completed)).toHaveLength(1);
     expect(await calls()).toEqual([]);
   });
-  it("renders and removes every out-of-catalog AI choice and custom choice", async () => {
-    await mount("wizard", [{ body: suggestions }]);
+  it("selects and removes news suggestions and custom choices without preselecting any", async () => {
+    await mount("wizard", suggestions);
     await page.getByLabel("Professional focus").fill("Product strategy for small teams");
-    await page.getByRole("button", { name: "Suggest preferences with AI" }).click();
+    await page.getByRole("button", { name: "Continue with AI suggestions" }).click();
+    await page.getByRole("button", { name: "Select source Unlisted AI source" }).click();
     await page.getByRole("button", { name: "Remove source Unlisted AI source" }).click();
     await page.getByRole("button", { name: "Skip sources" }).click();
+    await page.getByRole("button", { name: "Select topic Unlisted AI topic" }).click();
     await page.getByRole("button", { name: "Remove topic Unlisted AI topic" }).click();
     await page.getByLabel("Custom topic").fill("My own topic");
     await page.getByTestId("button-add-keyword").click();
     await page.getByRole("button", { name: "Remove topic My own topic" }).click();
     await page.getByRole("button", { name: "Skip topics" }).click();
+    await page.getByRole("button", { name: "Select leader Unlisted AI leader" }).click();
     await page.getByRole("button", { name: "Remove leader Unlisted AI leader" }).click();
+    await page.getByRole("button", { name: "Select company Unlisted AI company" }).click();
     await page.getByRole("button", { name: "Remove company Unlisted AI company" }).click();
     await page.getByRole("button", { name: "Skip inspiration and finish" }).click();
     expect(await page.evaluate(() => (window as any).__completed[0])).toMatchObject({ publications: [], keywords: [], influencers: [], companies: [] });
+    expect((await calls()).map((call: any) => call.body.step)).toEqual(["publications", "topics", "people"]);
   });
-  it("aborts suggestions and ignores late results after cancellation", async () => {
-    await mount("wizard", [{ defer: true, body: suggestions }]);
+  it("aborts suggestions when AI is turned off and ignores late results", async () => {
+    await mount("wizard", [{ defer: true, body: sources }]);
     await page.getByLabel("Professional focus").fill("Product strategy for small teams");
-    await page.getByRole("button", { name: "Suggest preferences with AI" }).click();
-    await page.getByRole("button", { name: "Cancel suggestions" }).click();
-    expect((await calls())[0].aborted).toBe(true);
-    await resolvePending();
-    await browserExpect(page.getByTestId("section-identity")).toBeVisible();
+    await page.getByRole("button", { name: "Continue with AI suggestions" }).click();
+    await browserExpect(page.getByRole("status")).toContainText("Searching recent news");
+    await page.getByTestId("button-back").click();
     await page.getByRole("button", { name: "Continue without AI" }).click();
-    expect(await page.getByRole("button", { name: "Remove source Unlisted AI source" }).count()).toBe(0);
-  });
-  it("times out AI without auto-selecting defaults or advancing", async () => {
-    await mount("wizard", [{ defer: true, body: suggestions }]);
-    await page.getByLabel("Professional focus").fill("Product strategy for small teams");
-    await page.getByRole("button", { name: "Suggest preferences with AI" }).click();
-    await page.clock.runFor(15_100);
-    await browserExpect(page.getByTestId("section-identity")).toBeVisible();
     expect((await calls())[0].aborted).toBe(true);
     await resolvePending();
-    expect(await page.evaluate(() => (window as any).__toasts.map((toast: any) => toast.title))).toContain("Suggestions took too long");
+    await browserExpect(page.getByRole("button", { name: "Suggest from recent news" })).toBeVisible();
+    expect(await page.getByRole("button", { name: /source Unlisted AI source$/ }).count()).toBe(0);
+  });
+  it("times out slow suggestions with a Retry and keeps the step usable", async () => {
+    await mount("wizard", [{ defer: true, body: sources }]);
+    await page.getByLabel("Professional focus").fill("Product strategy for small teams");
+    await page.getByRole("button", { name: "Continue with AI suggestions" }).click();
+    await page.clock.runFor(25_100);
+    await browserExpect(page.getByRole("alert")).toContainText("Suggestions took too long.");
+    expect((await calls())[0].aborted).toBe(true);
+    await resolvePending();
+    expect(await page.getByRole("button", { name: /source Unlisted AI source$/ }).count()).toBe(0);
+    await browserExpect(page.getByRole("button", { name: "Retry suggestions" })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: "Skip sources" })).toBeEnabled();
+    expect(await page.evaluate(() => (window as any).__toasts)).toEqual([]);
   });
   it("doesn't demand LinkedIn and collapses the optional Home checklist", async () => {
     await mount("home");
@@ -151,41 +166,46 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     await page.getByText("Optional setup and shortcuts", { exact: true }).click();
     await browserExpect(page.getByRole("link", { name: "Connect an account for direct publishing (optional)" })).toBeVisible();
   });
-  it("aborts on navigation without a late timeout toast", async () => {
-    await mount("wizard", [{ defer: true, body: suggestions }]);
+  it("aborts on navigation without a late timeout message", async () => {
+    await mount("wizard", [{ defer: true, body: sources }]);
     await page.getByLabel("Professional focus").fill("Product strategy for small teams");
-    await page.getByRole("button", { name: "Suggest preferences with AI" }).click();
+    await page.getByRole("button", { name: "Continue with AI suggestions" }).click();
     await page.evaluate(() => (window as any).__setSurface("home"));
     await browserExpect(page.getByTestId("button-overview-refresh")).toBeVisible();
     expect((await calls())[0].aborted).toBe(true);
-    await page.clock.runFor(16_000);
+    await page.clock.runFor(26_000);
     await resolvePending();
     expect(await page.evaluate(() => (window as any).__toasts)).toEqual([]);
   });
   it("keeps AI failure optional and does not claim registration is the last step", async () => {
     await mount("wizard", [{ status: 500, body: { message: "Fixture unavailable" } }]);
     await page.getByLabel("Professional focus").fill("Product strategy for small teams");
-    await page.getByRole("button", { name: "Suggest preferences with AI" }).click();
-    await browserExpect(page.getByRole("button", { name: "Suggest preferences with AI" })).toBeEnabled();
+    await page.getByRole("button", { name: "Continue with AI suggestions" }).click();
+    await browserExpect(page.getByRole("alert")).toContainText("Suggestions are unavailable right now.");
+    await page.getByTestId("button-back").click();
     await page.getByRole("button", { name: "Skip optional preferences and finish" }).click();
     expect(await page.evaluate(() => (window as any).__completed[0].publications)).toEqual([]);
     await page.evaluate(() => (window as any).__setSurface("registration"));
     await browserExpect(page.getByText("Workspace basics", { exact: true })).toBeVisible();
     expect(await page.getByText(/One last step/).count()).toBe(0);
   });
-  it("wraps long selected labels and final onboarding actions at 320px", async () => {
-    await mount("wizard", [{ body: { ...suggestions, publications: ["A".repeat(100)] } }]);
+  it("wraps long suggestion labels and final onboarding actions at 320px", async () => {
+    // Picking a source may refresh Step 2 and prefetch Step 3 again, so every step has spare replies.
+    await mount("wizard", [{ body: { ...sources, items: [{ name: "A".repeat(100), url: null, evidence: { count: 12, headline: "Headline" } }] } }, ...suggestions.slice(1), ...suggestions]);
     await page.setViewportSize({ width: 320, height: 844 });
     await page.getByLabel("Professional focus").fill("Product strategy for small teams");
-    await page.getByRole("button", { name: "Suggest preferences with AI" }).click();
+    await page.getByRole("button", { name: "Continue with AI suggestions" }).click();
+    await page.getByRole("button", { name: `Select source ${"A".repeat(100)}` }).click();
     await browserExpect(page.getByRole("button", { name: `Remove source ${"A".repeat(100)}` })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.getByTestId("button-continue").click();
     await page.getByTestId("button-continue").click();
+    await page.getByRole("button", { name: "Select leader Unlisted AI leader" }).click();
+    await page.getByRole("button", { name: "Select company Unlisted AI company" }).click();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.getByRole("button", { name: "Remove leader Unlisted AI leader" }).click();
     await page.getByRole("button", { name: "Remove company Unlisted AI company" }).click();
     await browserExpect(page.getByRole("button", { name: "Skip inspiration and finish" })).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
   it("sorts upcoming records and reports real target failures only once", async () => {
     const schedule = (id: string, day: number) => ({ id, draftId: id, status: "scheduled", scheduledPublishAt: new Date(2026, 8, day).toISOString(), draft: { content: id, platform: "twitter" } });

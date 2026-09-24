@@ -12,12 +12,31 @@ let context: BrowserContext;
 let page: Page;
 let origin: string;
 let errors: string[];
-let suggestions: unknown;
-let suggestionStatus: number;
+type Body = Record<string, unknown>;
+type Reply = { status?: number; data: unknown };
+let respond: (body: Body) => Reply;
+let requests: Body[];
 let completionStatus: number;
-let completions: Array<Record<string, unknown>>;
-let analyses: Array<Record<string, unknown>>;
+let completions: Body[];
 let completeGate: Promise<void> | undefined;
+
+const sources = { step: "publications", grounded: true, items: [
+  { name: "Cloud Weekly", url: "https://cloudweekly.invalid/", reason: "Covers cloud reliability", evidence: { count: 3, headline: "Outage lessons from 2026" } },
+  { name: "SRE Digest", url: null, reason: "Practitioner newsletter", evidence: { count: 1, headline: "On-call without burnout" } },
+] };
+const moreSources = { step: "publications", grounded: true, items: [{ name: "Infra News", url: "https://infranews.invalid/", reason: "", evidence: { count: 2, headline: "Kubernetes ships a major release" } }] };
+const topics = { step: "topics", grounded: true, items: [
+  { name: "Incident response", weight: 0.9, evidence: { count: 2, headline: "Outage lessons from 2026" } }, { name: "Chaos engineering", weight: 0.6 },
+] };
+const people = { step: "people", grounded: true,
+  people: [{ name: "Ana Rao", reason: "SRE lead at Acme Cloud", evidence: { count: 1, headline: "Ana Rao on resilience" } }],
+  companies: [{ name: "Acme Cloud", reason: "Cloud provider", evidence: { count: 2, headline: "Acme Cloud outage" } }],
+};
+function defaultRespond(body: Body): Reply {
+  if (body.step === "publications") return { data: (body.exclude as string[]).length ? moreSources : sources };
+  return { data: body.step === "topics" ? topics : people };
+}
+const stepRequests = (step: string) => requests.filter(body => body.step === step);
 
 beforeAll(async () => {
   const root = path.resolve(import.meta.dirname, "../../..");
@@ -62,23 +81,21 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  errors = []; completions = []; analyses = [];
-  suggestionStatus = 200; completionStatus = 200; completeGate = undefined;
-  suggestions = {
-    publications: ["AI Publication"],
-    keywords: [{ keyword: "Cloud", weight: 0, category: "Infrastructure" }, { keyword: "Models", weight: 0.95, category: "AI" }, "Legacy"],
-    personalities: ["AI Leader"], companies: ["AI Company"], recommendedEngine: { industry: "technology_saas" },
-  };
+  errors = []; completions = []; requests = [];
+  completionStatus = 200; completeGate = undefined; respond = defaultRespond;
   context = await browser.newContext();
   await context.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.origin !== origin) { errors.push(`External request blocked: ${url.origin}`); await route.abort(); return; }
     if (!url.pathname.startsWith("/api/")) { await route.continue(); return; }
-    const reply = (data: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) });
+    // The page may abandon a superseded prefetch before its reply arrives.
+    const reply = (data: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) }).catch(() => undefined);
     if (url.pathname === "/api/me") return reply({ id: "fixture-user", industry: "technology-saas", country: "India" });
-    if (url.pathname === "/api/ai/analyze-identity") {
-      analyses.push(route.request().postDataJSON());
-      return reply(suggestions, suggestionStatus);
+    if (url.pathname === "/api/onboarding/suggestions") {
+      const body = route.request().postDataJSON() as Body;
+      requests.push(body);
+      const { status = 200, data } = respond(body);
+      return reply(data, status);
     }
     if (url.pathname === "/api/profile/complete-onboarding") {
       completions.push(route.request().postDataJSON());
@@ -104,43 +121,69 @@ async function open() {
   await page.getByLabel("Professional focus").fill("  I build reliable cloud infrastructure.  ");
 }
 
-async function generate() {
-  await page.getByRole("button", { name: "Suggest preferences with AI", exact: true }).click();
+async function continueWithAi() {
+  await page.getByRole("button", { name: "Continue with AI suggestions", exact: true }).click();
   await browserExpect(page.getByText("Step 2 of 4: News Sources", { exact: true })).toBeVisible();
 }
 
-describe("original onboarding weighted preferences", () => {
-  it("retains unverified URL metadata through deselection/reselection and completion retry", async () => {
-    suggestions = {
-      publications: ["AI Publication", "Name only", "Invalid URL", "Remove me"],
-      publicationCandidates: [
-        null, { name: "AI Publication", url: "https://publication.invalid/news#fragment" },
-        { name: "Invalid URL", url: "not a URL" },
-        { name: "Remove me", url: "https://removed.invalid/" },
-        { name: " ", url: "https://blank.invalid/" },
-      ],
-      keywords: [{ keyword: "Cloud", weight: 0, category: "Infrastructure" }],
-    };
-    await open(); await generate();
+const chip = (name: string) => page.getByRole("button", { name, exact: true });
+
+describe("onboarding suggestions from live news", () => {
+  it("loads source suggestions on Step 2 with news evidence and selects nothing for the user", async () => {
+    await open();
+    expect(requests).toEqual([]);
+    await continueWithAi();
+    await browserExpect(chip("Select source Cloud Weekly")).toHaveAttribute("aria-pressed", "false");
+    await browserExpect(chip("Select source Cloud Weekly")).toContainText("3 recent articles");
+    await browserExpect(chip("Select source SRE Digest")).toContainText("1 recent article");
+    await browserExpect(page.getByText("From news published in the last 30 days. Suggestions update as you pick.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("0 selected", { exact: true })).toBeVisible();
+    expect(stepRequests("publications")).toEqual([{
+      step: "publications", focusDescription: "I build reliable cloud infrastructure.", industry: "technology-saas",
+      searchEdition: "en-IN", publications: [], topics: [], exclude: [],
+    }]);
+  });
+
+  it("refreshes from the user's picks and has the next step ready on arrival", async () => {
+    await open(); await continueWithAi();
+    await chip("Select source Cloud Weekly").click();
+    await browserExpect(page.getByText("1 new suggestion based on your picks", { exact: true })).toBeVisible();
+    await browserExpect(chip("Select source Infra News")).toBeVisible();
+    const picked = [{ name: "Cloud Weekly", url: "https://cloudweekly.invalid/" }];
+    expect(stepRequests("publications")[1]).toMatchObject({ publications: picked, exclude: ["Cloud Weekly", "SRE Digest"] });
+    await browserExpect.poll(() => stepRequests("topics").at(-1)?.publications).toEqual(picked);
+    const prefetched = stepRequests("topics").length;
+    await page.getByTestId("button-continue").click();
+    await browserExpect(chip("Select topic Incident response")).toContainText("in 2 headlines");
+    expect(stepRequests("topics")).toHaveLength(prefetched);
+  });
+
+  it("builds each step on earlier picks and saves suggestion URLs and weights", async () => {
+    await open(); await continueWithAi();
+    await chip("Select source Cloud Weekly").click();
+    await chip("Select source SRE Digest").click();
     const selected = page.getByRole("list", { name: "Selected publication URLs", exact: true });
-    await browserExpect(selected.getByRole("listitem").filter({ hasText: "AI Publication:" })).toHaveText("AI Publication: https://publication.invalid/news — Unverified URL");
-    await browserExpect(selected.getByRole("listitem").filter({ hasText: "Invalid URL:" })).toHaveText("Invalid URL: URL needed");
-    await browserExpect(selected.getByRole("listitem").filter({ hasText: "Name only:" })).toHaveText("Name only: URL needed");
-    await browserExpect(selected.getByRole("link")).toHaveCount(0);
-    await page.getByRole("button", { name: "Remove source AI Publication", exact: true }).click();
-    await browserExpect(selected.getByText("https://publication.invalid/news", { exact: false })).toHaveCount(0);
-    await page.getByRole("button", { name: "Select source AI Publication", exact: true }).click();
-    await browserExpect(selected).toContainText("https://publication.invalid/news — Unverified URL");
-    await page.getByRole("button", { name: "Remove source Remove me", exact: true }).click();
+    await browserExpect(selected.getByRole("listitem").filter({ hasText: "Cloud Weekly:" })).toHaveText("Cloud Weekly: https://cloudweekly.invalid/ — Unverified URL");
+    await browserExpect(selected.getByRole("listitem").filter({ hasText: "SRE Digest:" })).toHaveText("SRE Digest: URL needed");
+    await chip("Remove source Cloud Weekly").click();
+    await browserExpect(selected.getByText("https://cloudweekly.invalid/", { exact: false })).toHaveCount(0);
+    await chip("Select source Cloud Weekly").click();
+    await browserExpect(selected).toContainText("https://cloudweekly.invalid/ — Unverified URL");
     await page.getByTestId("button-continue").click();
+    await chip("Select topic Incident response").click();
     await page.getByTestId("button-continue").click();
+    await browserExpect(page.getByText("Step 4 of 4: Inspiration", { exact: true })).toBeVisible();
+    await chip("Select leader Ana Rao").click();
+    await chip("Select company Acme Cloud").click();
+    expect(stepRequests("people").at(-1)).toMatchObject({
+      topics: ["Incident response"], publications: [{ name: "SRE Digest" }, { name: "Cloud Weekly", url: "https://cloudweekly.invalid/" }],
+    });
     completionStatus = 500;
     await page.getByTestId("button-complete-onboarding").click();
     await browserExpect(page.getByText("Something went wrong", { exact: true })).toBeVisible();
     await page.getByTestId("button-back").click();
     await page.getByTestId("button-back").click();
-    await browserExpect(selected).toContainText("https://publication.invalid/news — Unverified URL");
-    await browserExpect(page.getByRole("button", { name: "Select source Remove me", exact: true })).toHaveAttribute("aria-pressed", "false");
+    await browserExpect(selected).toContainText("https://cloudweekly.invalid/ — Unverified URL");
     await page.getByTestId("button-continue").click();
     await page.getByTestId("button-continue").click();
     completionStatus = 200;
@@ -148,201 +191,114 @@ describe("original onboarding weighted preferences", () => {
     await browserExpect(page).toHaveURL(`${origin}/dashboard`);
     expect(completions).toHaveLength(2);
     expect(completions[0]).toEqual(completions[1]);
-    expect(completions[1].publications).toEqual(["Name only", "Invalid URL", "AI Publication"]);
-    expect(completions[1].publicationCandidates).toEqual([{ name: "AI Publication", url: "https://publication.invalid/news" }]);
-    expect(completions[1].keywords).toEqual([{ keyword: "Cloud", weight: 0, category: "Infrastructure" }]);
-  });
-
-  it("caps valid publication selections and candidate payloads at 20 while preserving malformed-URL names", async () => {
-    suggestions = {
-      publications: [null, " ", "x".repeat(101), "Legacy"],
-      publicationCandidates: [
-        { name: "Broken", url: "garbage" }, { name: "Script", url: "javascript:alert(1)" },
-        { name: "Credentials", url: "https://user:pass@site.invalid" },
-        ...Array.from({ length: 25 }, (_, i) => ({ name: `Publication ${i}`, url: `https://source${i}.invalid/` })),
-      ],
-    };
-    await open(); await generate();
-    await browserExpect(page.getByRole("button", { name: /^Remove source / })).toHaveCount(20);
-    await browserExpect(page.getByRole("button", { name: "Select source TechCrunch", exact: true })).toBeDisabled();
-    await browserExpect(page.getByRole("button", { name: "Remove source Broken", exact: true })).toBeVisible();
-    await page.getByTestId("button-continue").click();
-    await page.getByTestId("button-continue").click();
-    await page.getByTestId("button-complete-onboarding").click();
-    await browserExpect(page).toHaveURL(`${origin}/dashboard`);
-    expect(completions[0].publications).toHaveLength(20);
-    expect(completions[0].publicationCandidates).toHaveLength(16);
-    expect((completions[0].publicationCandidates as Array<{ name: string }>).at(-1)?.name).toBe("Publication 15");
-  });
-
-  it("keeps metadata after a failed AI retry but omits it when all candidate sources are deselected", async () => {
-    suggestions = { publications: ["Candidate", "Plain name"], publicationCandidates: [{ name: "Candidate", url: "https://candidate.invalid/" }] };
-    await open(); await generate();
-    await page.getByTestId("button-back").click();
-    suggestionStatus = 502;
-    await page.getByRole("button", { name: "Suggest preferences with AI", exact: true }).click();
-    await browserExpect(page.getByText("Suggestions unavailable", { exact: true })).toBeVisible();
-    await page.getByTestId("button-continue").click();
-    await browserExpect(page.getByRole("list", { name: "Selected publication URLs", exact: true })).toContainText("https://candidate.invalid/ — Unverified URL");
-    await page.getByRole("button", { name: "Remove source Candidate", exact: true }).click();
-    await page.getByTestId("button-continue").click();
-    await page.getByTestId("button-continue").click();
-    await page.getByTestId("button-complete-onboarding").click();
-    await browserExpect(page).toHaveURL(`${origin}/dashboard`);
-    expect(completions[0].publications).toEqual(["Plain name"]);
-    expect(completions[0]).not.toHaveProperty("publicationCandidates");
-  });
-
-  it.each(["Infrastructure", "primary"])("keeps all four steps and completes with weighted metadata after deselection/reselection (%s)", async (category) => {
-    suggestions = {
-      publications: ["AI Publication"],
-      keywords: [{ keyword: "Cloud", weight: 0, category }, { keyword: "Models", weight: 0.95 }, "Legacy"],
-      personalities: ["AI Leader"], companies: ["AI Company"], recommendedEngine: { industry: "technology_saas" },
-    };
-    await open();
-    expect(analyses).toEqual([]);
-    await generate();
-    await page.getByRole("button", { name: "Remove source AI Publication", exact: true }).click();
-    await page.getByTestId("button-continue").click();
-    await browserExpect(page.getByText("Step 3 of 4: Topics", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Remove topic Cloud", exact: true }).click();
-    await browserExpect(page.getByRole("button", { name: "Select topic Cloud", exact: true })).toHaveAttribute("aria-pressed", "false");
-    await page.getByRole("button", { name: "Select topic Cloud", exact: true }).click();
-    await page.getByRole("button", { name: "Remove topic Models", exact: true }).click();
-    await page.getByLabel("Custom topic").fill("Custom topic");
-    await page.getByTestId("button-add-keyword").click();
-    await page.getByTestId("button-continue").click();
-    await browserExpect(page.getByText("Step 4 of 4: Inspiration", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Remove company AI Company", exact: true }).click();
-    await page.getByTestId("button-back").click();
-    await browserExpect(page.getByRole("button", { name: "Remove topic Cloud", exact: true })).toHaveAttribute("aria-pressed", "true");
-    await page.getByTestId("button-continue").click();
-    await page.getByTestId("button-complete-onboarding").click();
-    await browserExpect(page).toHaveURL(`${origin}/dashboard`);
-    expect(completions).toEqual([{
-      focusDescription: "I build reliable cloud infrastructure.", publications: [],
-      keywords: [{ keyword: "Legacy", weight: 0.7 }, { keyword: "Cloud", weight: 0, category }, { keyword: "Custom topic", weight: 0.7 }],
-      influencers: ["AI Leader"], companies: [], recommendedIndustry: "technology_saas",
-    }]);
-    expect(analyses).toHaveLength(1);
-  });
-
-  it("filters mixed invalid suggestions and limits the selected weighted payload to 20", async () => {
-    suggestions = { keywords: [null, {}, { keyword: "Bad", weight: 2 }, "x".repeat(101),
-      { keyword: "Cloud", weight: 0, category: "Infrastructure" }, " cloud ", "Legacy",
-      ...Array.from({ length: 25 }, (_, i) => ({ keyword: `Topic ${i}`, weight: 0.4, category: "AI" })),
-    ] };
-    await open(); await generate();
-    await page.getByTestId("button-continue").click();
-    await browserExpect(page.getByRole("button", { name: /^Remove topic / })).toHaveCount(20);
-    await browserExpect(page.getByRole("button", { name: "Select topic Cloud Computing", exact: true })).toBeDisabled();
-    await browserExpect(page.getByRole("button", { name: /topic Bad$/, exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Remove topic Topic 17", exact: true }).click();
-    await page.getByRole("button", { name: "Select topic Cloud Computing", exact: true }).click();
-    await page.getByTestId("button-continue").click();
-    await page.getByTestId("button-complete-onboarding").click();
-    await browserExpect(page).toHaveURL(`${origin}/dashboard`);
-    const keywords = completions[0].keywords as Array<{ keyword: string; weight: number; category?: string }>;
-    expect(keywords).toHaveLength(20);
-    expect(keywords[0]).toEqual({ keyword: "Cloud", weight: 0, category: "Infrastructure" });
-    expect(keywords[1]).toEqual({ keyword: "Legacy", weight: 0.7 });
-    expect(keywords[19]).toEqual({ keyword: "Cloud Computing", weight: 0.7 });
-    expect(keywords.some(({ keyword }) => keyword === "Topic 17")).toBe(false);
-  });
-
-  it("retains weighted selections after a failed completion and disables actions during retry", async () => {
-    completionStatus = 500;
-    await open(); await generate();
-    await page.getByTestId("button-continue").click();
-    await page.getByTestId("button-continue").click();
-    await page.getByTestId("button-complete-onboarding").click();
-    await browserExpect(page.getByText("Something went wrong", { exact: true })).toBeVisible();
-    await browserExpect(page).toHaveURL(`${origin}/onboarding`);
-    await page.getByTestId("button-back").click();
-    await browserExpect(page.getByRole("button", { name: "Remove topic Cloud", exact: true })).toHaveAttribute("aria-pressed", "true");
-    await page.getByTestId("button-continue").click();
-    completionStatus = 200;
-    let release!: () => void;
-    completeGate = new Promise<void>((resolve) => { release = resolve; });
-    try {
-      await page.getByTestId("button-complete-onboarding").click();
-      await browserExpect(page.getByTestId("button-complete-onboarding")).toBeDisabled();
-      await browserExpect(page.getByTestId("button-back")).toBeDisabled();
-      await browserExpect(page.getByRole("button", { name: "Remove leader AI Leader", exact: true })).toBeDisabled();
-      await browserExpect.poll(() => completions.length).toBe(2);
-      expect(completions[1]).toEqual(completions[0]);
-      expect(completions[1].keywords).toEqual([
-        { keyword: "Cloud", weight: 0, category: "Infrastructure" }, { keyword: "Models", weight: 0.95, category: "AI" }, { keyword: "Legacy", weight: 0.7 },
-      ]);
-    } finally { release(); }
-    await browserExpect(page).toHaveURL(`${origin}/dashboard`);
-  });
-
-  it.each(["Cancel suggestions", "Continue without AI"])("discards late AI results after %s and retains manual choices", async (action) => {
-    // Delay JSON decoding after fetch succeeds, deliberately ignoring abort,
-    // to exercise the wizard's own late-result guard after response.json().
-    await page.addInitScript(() => {
-      const originalFetch = window.fetch.bind(window);
-      window.fetch = (input, init) => {
-        if (String(input) !== "/api/ai/analyze-identity") return originalFetch(input, init);
-        const response = new Response("{}", { status: 200 });
-        response.json = () => new Promise((resolve) => {
-          (window as unknown as { resolveSuggestions: () => void }).resolveSuggestions = () => resolve({
-            keywords: [{ keyword: "Late topic", weight: 0, category: "Infrastructure" }],
-          });
-        });
-        return Promise.resolve(response);
-      };
+    expect(completions[1]).toEqual({
+      focusDescription: "I build reliable cloud infrastructure.",
+      publications: ["SRE Digest", "Cloud Weekly"],
+      publicationCandidates: [{ name: "Cloud Weekly", url: "https://cloudweekly.invalid/" }],
+      keywords: [{ keyword: "Incident response", weight: 0.9 }],
+      influencers: ["Ana Rao"], companies: ["Acme Cloud"],
     });
-    await open();
-    await page.getByTestId("button-continue").click();
-    await page.getByTestId("button-continue").click();
-    await page.getByRole("button", { name: "Select topic Cloud Computing", exact: true }).click();
-    await page.getByTestId("button-back").click();
-    await page.getByTestId("button-back").click();
-    await page.getByRole("button", { name: "Suggest preferences with AI", exact: true }).click();
-    await browserExpect(page.getByRole("button", { name: "Cancel suggestions", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: action, exact: true }).click();
-    await page.evaluate(() => (window as unknown as { resolveSuggestions: () => void }).resolveSuggestions());
-    if (action === "Cancel suggestions") {
-      await browserExpect(page.getByTestId("section-identity")).toBeVisible();
-      await page.getByTestId("button-continue").click();
+  });
+
+  it("shows an inline error with Retry, keeps the static list usable, and marks AI-only results", async () => {
+    let failed = false;
+    respond = (body) => {
+      if (body.step === "publications" && !failed) { failed = true; return { status: 503, data: { code: "ai_unavailable", message: "Provider down" } }; }
+      return body.step === "publications" ? { data: { ...sources, grounded: false } } : defaultRespond(body);
+    };
+    await open(); await continueWithAi();
+    await browserExpect(page.getByRole("alert")).toContainText("Suggestions are unavailable right now.");
+    await chip("Select source TechCrunch").click();
+    await browserExpect(chip("Remove source TechCrunch")).toHaveAttribute("aria-pressed", "true");
+    await chip("Retry suggestions").click();
+    await browserExpect(chip("Select source Cloud Weekly")).toBeVisible();
+    await browserExpect(page.getByText("AI suggestions: the news search didn't respond, so these aren't checked against recent coverage.", { exact: true })).toBeVisible();
+    expect(stepRequests("publications")[1]).toMatchObject({ publications: [{ name: "TechCrunch", url: "https://techcrunch.com" }], exclude: ["TechCrunch"] });
+  });
+
+  it("hides a built-in source that a news suggestion already covers", async () => {
+    respond = (body) => body.step === "publications"
+      ? { data: { step: "publications", grounded: true, items: [{ name: "techcrunch.com", url: "https://techcrunch.com/", evidence: { count: 4, headline: "AI infra funding" } }] } }
+      : defaultRespond(body);
+    await open(); await continueWithAi();
+    await browserExpect(chip("Select source techcrunch.com")).toBeVisible();
+    await browserExpect(chip("Select source TechCrunch")).toHaveCount(0);
+    await browserExpect(chip("Select source The Verge")).toBeVisible();
+  });
+
+  it("stops refreshing after three rounds of picks on a step", async () => {
+    let count = 0;
+    respond = (body) => body.step === "publications"
+      ? { data: { step: "publications", grounded: true, items: [{ name: `Source ${++count}`, url: null }] } }
+      : defaultRespond(body);
+    await open(); await continueWithAi();
+    await browserExpect(chip("Select source Source 1")).toBeVisible();
+    for (const [index, name] of ["TechCrunch", "The Verge", "Wired"].entries()) {
+      await chip(`Select source ${name}`).click();
+      await browserExpect.poll(() => stepRequests("publications").length).toBe(index + 2);
+      await browserExpect(chip(`Select source Source ${index + 2}`)).toBeVisible();
     }
-    await page.getByTestId("button-continue").click();
-    await browserExpect(page.getByRole("button", { name: "Remove topic Cloud Computing", exact: true })).toHaveAttribute("aria-pressed", "true");
-    await browserExpect(page.getByRole("button", { name: /topic Late topic$/ })).toHaveCount(0);
-    await page.getByTestId("button-continue").click();
-    await page.getByTestId("button-complete-onboarding").click();
-    await browserExpect(page).toHaveURL(`${origin}/dashboard`);
-    expect(completions[0].keywords).toEqual([{ keyword: "Cloud Computing", weight: 0.7 }]);
-  });
+    await chip("Select source Ars Technica").click();
+    await page.waitForTimeout(2500);
+    expect(stepRequests("publications")).toHaveLength(4);
+    await browserExpect(page.getByText("1 new suggestion based on your picks", { exact: true })).toHaveCount(3);
+  }, 20_000);
 
-  it.each(["request failure", "invalid envelope"])("keeps prior weighted selections on AI %s and allows optional-step completion", async (failure) => {
-    await open(); await generate();
+  it("reloads suggestions when the focus changes and keeps earlier picks with their URLs", async () => {
+    await open(); await continueWithAi();
+    await chip("Select source Cloud Weekly").click();
     await page.getByTestId("button-back").click();
-    if (failure === "request failure") { suggestionStatus = 502; suggestions = { message: "AI unavailable" }; }
-    else suggestions = null;
-    await page.getByRole("button", { name: "Suggest preferences with AI", exact: true }).click();
-    await browserExpect(page.getByText("Suggestions unavailable", { exact: true })).toBeVisible();
-    await browserExpect(page.getByTestId("section-identity")).toBeVisible();
-    await browserExpect(page.getByLabel("Professional focus")).toHaveValue("  I build reliable cloud infrastructure.  ");
-    await page.getByRole("button", { name: "Skip optional preferences and finish", exact: true }).click();
-    await browserExpect(page).toHaveURL(`${origin}/dashboard`);
-    expect(completions[0].keywords).toEqual([
-      { keyword: "Cloud", weight: 0, category: "Infrastructure" }, { keyword: "Models", weight: 0.95, category: "AI" }, { keyword: "Legacy", weight: 0.7 },
-    ]);
+    await page.getByLabel("Professional focus").fill("I run growth marketing for B2B SaaS.");
+    await continueWithAi();
+    await browserExpect(chip("Select source Infra News")).toBeVisible();
+    await browserExpect(chip("Select source SRE Digest")).toHaveCount(0);
+    await browserExpect(chip("Remove source Cloud Weekly")).toHaveAttribute("aria-pressed", "true");
+    await browserExpect(page.getByRole("list", { name: "Selected publication URLs", exact: true })).toContainText("https://cloudweekly.invalid/ — Unverified URL");
+    expect(stepRequests("publications").at(-1)).toMatchObject({
+      focusDescription: "I run growth marketing for B2B SaaS.", publications: [{ name: "Cloud Weekly", url: "https://cloudweekly.invalid/" }], exclude: ["Cloud Weekly"],
+    });
   });
 
-  it("allows the original no-AI four-step skip path without selecting hidden defaults", async () => {
+  it("can turn suggestions on from a later step after continuing without AI", async () => {
+    await open();
+    await page.getByRole("button", { name: "Continue without AI", exact: true }).click();
+    await browserExpect(page.getByText("Step 2 of 4: News Sources", { exact: true })).toBeVisible();
+    expect(requests).toEqual([]);
+    await page.getByRole("button", { name: "Suggest from recent news", exact: true }).click();
+    await browserExpect(chip("Select source Cloud Weekly")).toBeVisible();
+    expect(stepRequests("publications")).toHaveLength(1);
+  });
+
+  it("allows the no-AI four-step skip path without selecting hidden defaults", async () => {
     await open();
     await page.getByRole("button", { name: "Continue without AI", exact: true }).click();
     await page.getByRole("button", { name: "Skip sources", exact: true }).click();
     await page.getByRole("button", { name: "Skip topics", exact: true }).click();
     await page.getByRole("button", { name: "Skip inspiration and finish", exact: true }).click();
     await browserExpect(page).toHaveURL(`${origin}/dashboard`);
-    expect(analyses).toEqual([]);
+    expect(requests).toEqual([]);
     expect(completions).toEqual([{
       focusDescription: "I build reliable cloud infrastructure.", publications: [], keywords: [], influencers: [], companies: [],
     }]);
+  });
+
+  it("keeps custom topics at the default weight and disables actions while saving", async () => {
+    await open(); await continueWithAi();
+    await page.getByTestId("button-continue").click();
+    await chip("Select topic Chaos engineering").click();
+    await page.getByLabel("Custom topic").fill("Custom topic");
+    await page.getByTestId("button-add-keyword").click();
+    await page.getByTestId("button-continue").click();
+    await chip("Select leader Ana Rao").click();
+    let release!: () => void;
+    completeGate = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      await page.getByTestId("button-complete-onboarding").click();
+      await browserExpect(page.getByTestId("button-complete-onboarding")).toBeDisabled();
+      await browserExpect(page.getByTestId("button-back")).toBeDisabled();
+      await browserExpect.poll(() => completions.length).toBe(1);
+      expect(completions[0].keywords).toEqual([{ keyword: "Chaos engineering", weight: 0.6 }, { keyword: "Custom topic", weight: 0.7 }]);
+    } finally { release(); }
+    await browserExpect(page).toHaveURL(`${origin}/dashboard`);
   });
 });
