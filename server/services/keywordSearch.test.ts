@@ -120,6 +120,15 @@ describe("bounded Google News search", () => {
     expect(decode).toHaveBeenCalledWith(wrapper);
   });
 
+  it("leaves out stories whose Google News link cannot be resolved", async () => {
+    const unresolved = "https://news.google.com/rss/articles/unresolvable?oc=5";
+    const resolvable = "https://news.google.com/rss/articles/resolvable?oc=5";
+    crawl.mockResolvedValue({ text: rss(`<item><title>Hidden</title><link>${unresolved}</link></item><item><title>Kept</title><link>${resolvable}</link></item>${item("", 3)}`) });
+    decode.mockImplementation(async (url: string) => url === resolvable ? "https://publisher.test/kept" : url);
+    const result = await fetchArticlesForQuery("AI");
+    expect(result.map(article => [article.title, article.link])).toEqual([["Kept", "https://publisher.test/kept"], ["Story 3", "https://news.test/3"]]);
+  });
+
   it("returns an empty result for a successfully parsed empty feed", async () => {
     crawl.mockResolvedValue({ text: rss("") });
     expect(await fetchArticlesForQuery("AI")).toEqual([]);

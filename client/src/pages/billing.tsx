@@ -122,7 +122,7 @@ export function BillingPanel({ compact = false }: Readonly<{ compact?: boolean }
           <option value="subscription">Recurring subscription</option>
         </select>
         {checkoutMode === "subscription" && <><label htmlFor="billing-cycles" className="block text-sm font-medium">Number of recurring billing cycles (1–100)</label><Input id="billing-cycles" type="number" min={1} max={100} step={1} value={cycles} disabled={checkoutPending !== null} onChange={event => setCycles(event.target.value)} /><p className="text-sm text-muted-foreground">Charged each catalog interval for the number of cycles you choose. Requires a configured provider plan.</p></>}
-        <p className="text-sm text-muted-foreground">One generation attempt covers one bounded request, including its selected platforms. Failed or cancelled attempts after reservation consume allowance; free allowances reset at midnight UTC.</p>
+        <p className="text-sm text-muted-foreground">One generation attempt makes one post. Attempts that fail before any AI work (an unreadable link or an AI provider outage) don't count; other failed or cancelled attempts do. Free allowances reset at midnight UTC.</p>
       </CardContent></Card>
       {paidPlans.length > 0 && <Card><CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0"><CardTitle>Available plans</CardTitle>
         {currencies.length > 1 && <div role="group" aria-label="Currency" className="inline-flex rounded-md border p-1">{currencies.map((code) =>

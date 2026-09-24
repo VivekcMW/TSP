@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({ tenantBilling: vi.fn(), readEntitlementState: 
 vi.mock("./billing-repository", () => mocks);
 import { assertGenerationAdmission, finishGeneration, generationInputHash, generationOperationId, generationPeriod, readGenerationOperation, reserveGeneration, runGeneration } from "./generation-quota";
 import { resolveTenantEntitlements } from "./entitlements";
+import { AIGenerationError } from "./openRouter";
+import { CrawlError } from "./crawlerFetch";
 import type { BillingPlan, Subscription } from "@shared/schema";
 
 // Transactional double, NOT PostgreSQL lock/RLS proof. Real DB tests are opt-in.
@@ -18,10 +20,11 @@ const free = { id: "free", key: "free", name: "Free", amount: 0, isActive: true 
 const pro = { id: "pro", key: "pro_monthly", name: "Pro", amount: 4900, isActive: true } as BillingPlan;
 function matches(row: Row, predicate: SQL) {
   const query = dialect.sqlToQuery(predicate);
-  return [...query.sql.matchAll(/"[^\"]+"\."([^\"]+)" (=|>=|<) \$(\d+)/g)].every(([, column, operator, index]) => {
+  return [...query.sql.matchAll(/"[^\"]+"\."([^\"]+)" (=|>=|<>|<) \$(\d+)/g)].every(([, column, operator, index]) => {
     const key = column.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
     const expected = query.params[Number(index) - 1];
     const actual = row[key] instanceof Date ? row[key].toISOString() : row[key];
+    if (operator === "<>") return actual !== expected;
     return operator === "=" ? actual === expected : operator === ">=" ? actual >= expected! : actual < expected!;
   });
 }
@@ -133,6 +136,26 @@ describe("consumed attempt reservations", () => {
     for (let i = 0; i < 3; i++) await expect(runGeneration(scope, randomUUID(), "manual", input, new AbortController().signal, work)).rejects.toThrow("private provider error");
     await expect(runGeneration(scope, randomUUID(), "manual", input, new AbortController().signal, work)).rejects.toMatchObject({ statusCode: 429 });
     expect(work).toHaveBeenCalledTimes(3); expect(rows.every(row => row.status === "failed")).toBe(true);
+  });
+  it.each([
+    ["provider quota", () => new AIGenerationError("ai_quota", 60)],
+    ["provider outage", () => new AIGenerationError("ai_unavailable")],
+    ["provider configuration", () => new AIGenerationError("ai_configuration")],
+    ["unreadable source", () => new CrawlError("quality", "No readable article body was found.")],
+  ])("does not count a %s failure that happens before any AI work", async (_label, failure) => {
+    const work = vi.fn(async () => { throw failure(); });
+    for (let i = 0; i < 4; i++) await expect(runGeneration(scope, randomUUID(), "manual", input, new AbortController().signal, work)).rejects.toBeDefined();
+    expect(work).toHaveBeenCalledTimes(4);
+    expect(rows.map(row => row.status)).toEqual(Array(4).fill("failed_uncharged"));
+  });
+  it.each([
+    ["timeout", () => new AIGenerationError("ai_timeout")],
+    ["unusable output", () => new AIGenerationError("ai_invalid_output")],
+  ])("still counts an AI %s failure", async (_label, failure) => {
+    const work = vi.fn(async () => { throw failure(); });
+    for (let i = 0; i < 3; i++) await expect(runGeneration(scope, randomUUID(), "manual", input, new AbortController().signal, work)).rejects.toBeDefined();
+    await expect(runGeneration(scope, randomUUID(), "manual", input, new AbortController().signal, work)).rejects.toMatchObject({ statusCode: 429 });
+    expect(rows.map(row => row.status)).toEqual(Array(3).fill("failed"));
   });
   it("does not call providers on reserve or commit failure", async () => {
     const work = vi.fn();

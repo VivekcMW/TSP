@@ -7,6 +7,20 @@ import { editorialContext, editorialPreferences, reviewUrl, validateEditorialFor
 import { AIGenerationError } from "./openRouter";
 import { generatePlatformReviewsDetailed, type EditorialOptions } from "./punditBrain";
 import { fetchArticleFromUrl } from "./urlFetcher";
+import { CrawlError } from "./crawlerFetch";
+import { isGoogleNewsArticleUrl, resolveGoogleNewsArticleUrl } from "./keywordSearch";
+
+// One link, so it can wait longer than the per-result budget during Discover refreshes.
+const GOOGLE_NEWS_RESOLVE_TIMEOUT_MS = 5000;
+const GOOGLE_NEWS_LINK_MESSAGE = "Google News hides the original link for this story. Open it, copy the publisher's link, and paste it here.";
+
+/** Google News pages have no article body; read the publisher's page instead. */
+async function publisherUrl(url: string, signal: AbortSignal): Promise<string> {
+  if (!isGoogleNewsArticleUrl(url)) return url;
+  const resolved = await resolveGoogleNewsArticleUrl(url, signal, GOOGLE_NEWS_RESOLVE_TIMEOUT_MS);
+  if (isGoogleNewsArticleUrl(resolved)) throw new CrawlError("google-news", GOOGLE_NEWS_LINK_MESSAGE);
+  return resolved;
+}
 
 const selection = z.array(z.enum(ALL_PLATFORM_KEYS)).min(1).max(4);
 const requestIntent = z.string().uuid().optional();
@@ -48,7 +62,7 @@ export async function prepareEditorialRequest(req: Request, kind: EditorialKind,
 export async function executeEditorialRequest(prepared: PreparedEditorialRequest, signal: AbortSignal, onPlatformComplete?: EditorialOptions["onPlatformComplete"], timeoutMs?: number) {
   signal.throwIfAborted();
   const { input, options } = prepared;
-  const article = "url" in input ? await fetchArticleFromUrl(input.url, signal) : {
+  const article = "url" in input ? await fetchArticleFromUrl(await publisherUrl(input.url, signal), signal) : {
     title: input.title, content: input.content, source: "Your draft", url: "",
     contentMetadata: { extractionMethod: "manual" as const, originalLength: input.content.length, retainedLength: input.content.length, truncated: false },
   };

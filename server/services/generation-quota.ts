@@ -1,10 +1,20 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { and, eq, gte, lt, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { billingGenerationOperations as operations } from "@shared/schema";
 import type { TenantScope } from "../storage";
 import { tenantBilling, type BillingTransaction } from "./billing-repository";
 import { assertTenantEntitlement, EntitlementError, getTenantEntitlements, type TenantEntitlements } from "./entitlements";
+import { AIGenerationError } from "./openRouter";
+import { CrawlError } from "./crawlerFetch";
+
+// These failures happen before any AI work is billed: the source could not be read, or
+// the provider refused the call. They are recorded but do not use up the allowance.
+const UNCHARGED_AI_FAILURES = new Set(["ai_configuration", "ai_quota", "ai_unavailable", "ai_busy", "ai_rate_limit", "ai_budget", "ai_invalid_input"]);
+function consumesAllowance(error: unknown): boolean {
+  if (error instanceof CrawlError) return false;
+  return !(error instanceof AIGenerationError && UNCHARGED_AI_FAILURES.has(error.code));
+}
 
 export class GenerationQuotaError extends Error {
   constructor(public readonly statusCode: number, public readonly code: string, message: string,
@@ -63,6 +73,7 @@ async function allowance(tx: BillingTransaction, tenantId: string) {
   const period = generationPeriod(access, now);
   const [usage] = await tx.select({ used: sql<string>`count(*)::text` }).from(operations).where(and(
     eq(operations.tenantId, tenantId), gte(operations.createdAt, period.start), lt(operations.createdAt, period.end),
+    ne(operations.status, "failed_uncharged"),
   ));
   const used = Number(usage?.used);
   if (typeof usage?.used !== "string" || !/^\d+$/.test(usage.used) || !Number.isSafeInteger(used) || used < 0) throw unavailable();
@@ -96,7 +107,7 @@ export async function reserveGeneration(scope: TenantScope, operationId: string,
   }));
 }
 
-export async function finishGeneration(scope: TenantScope, operationId: string, status: "succeeded" | "failed" | "cancelled") {
+export async function finishGeneration(scope: TenantScope, operationId: string, status: "succeeded" | "failed" | "failed_uncharged" | "cancelled") {
   await dbSafe(() => tenantBilling(scope.tenantId, async tx => {
     const rows = await tx.update(operations).set({ status, completedAt: new Date() }).where(and(
       eq(operations.tenantId, scope.tenantId), eq(operations.userId, scope.userId), eq(operations.operationId, operationId), eq(operations.status, "started"),
@@ -105,7 +116,8 @@ export async function finishGeneration(scope: TenantScope, operationId: string, 
   }));
 }
 
-/** One bounded whole-operation attempt; failures/cancellation are NOT refunded.
+/** One bounded whole-operation attempt. Cancellation and failures after AI work are NOT
+ * refunded; failures before any AI work (see consumesAllowance) do not use the allowance.
  * Provider-internal retries remain bounded by the existing editorial pipeline.
  * Crashes/commit uncertainty retain started, never authorize automatic replay. */
 export async function runGeneration<T>(scope: TenantScope, operationId: string, kind: string, input: unknown,
@@ -118,7 +130,7 @@ export async function runGeneration<T>(scope: TenantScope, operationId: string, 
     result = await work();
     signal.throwIfAborted();
   } catch (error) {
-    await finishGeneration(scope, operationId, signal.aborted ? "cancelled" : "failed");
+    await finishGeneration(scope, operationId, signal.aborted ? "cancelled" : consumesAllowance(error) ? "failed" : "failed_uncharged");
     throw error;
   }
   // A failed success-commit must not be mislabeled as provider failure.

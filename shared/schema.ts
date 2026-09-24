@@ -526,7 +526,7 @@ export const billingGenerationOperations = pgTable("billing_generation_operation
   planKey: varchar("plan_key").notNull(),
   periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
   periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
-  status: varchar("status").$type<"started" | "succeeded" | "failed" | "cancelled">().notNull(),
+  status: varchar("status").$type<"started" | "succeeded" | "failed" | "failed_uncharged" | "cancelled">().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 }, table => [

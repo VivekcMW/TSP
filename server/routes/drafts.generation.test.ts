@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   scope: { tenantId: "tenant-a", userId: "user-a" },
-  profile: vi.fn(), fetchArticle: vi.fn(), instant: vi.fn(), selected: vi.fn(), media: vi.fn(), publish: vi.fn(), save: vi.fn(),
+  profile: vi.fn(), fetchArticle: vi.fn(), instant: vi.fn(), selected: vi.fn(), media: vi.fn(), publish: vi.fn(), save: vi.fn(), resolveGoogleNews: vi.fn(),
   pass: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 vi.mock("../db", () => ({ db: {} }));
@@ -20,6 +20,7 @@ vi.mock("../middlewares/requirePermission", () => ({ requirePermission: () => mo
 vi.mock("../middlewares/rateLimit", () => ({ instantReviewRateLimit: mocks.pass }));
 vi.mock("../services/punditBrain", () => ({ generateInstantReviewDetailed: mocks.instant, generatePlatformReviewsDetailed: mocks.selected }));
 vi.mock("../services/urlFetcher", () => ({ fetchArticleFromUrl: mocks.fetchArticle }));
+vi.mock("../services/keywordSearch", async original => ({ ...await original<typeof import("../services/keywordSearch")>(), resolveGoogleNewsArticleUrl: mocks.resolveGoogleNews }));
 import { registerDraftsRoutes } from "./drafts";
 import { editorialCancellation } from "./editorial-context";
 import { CrawlError } from "../services/crawlerFetch";
@@ -36,6 +37,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.profile.mockResolvedValue(undefined);
   mocks.fetchArticle.mockResolvedValue({ ...article, contentMetadata: metadata });
+  mocks.resolveGoogleNews.mockImplementation(async (url: string) => url);
   mocks.instant.mockResolvedValue(result); mocks.selected.mockResolvedValue(result);
 });
 
@@ -112,6 +114,22 @@ describe("detailed review routes", () => {
   it("rejects article format on the legacy two-platform endpoint", async () => {
     expect((await request(app).post("/api/instant-review").send({ url: article.url, format: "article" })).status).toBe(400);
     expect(mocks.instant).not.toHaveBeenCalled();
+  });
+
+  const googleNews = "https://news.google.com/rss/articles/CBMiWkFVX3lxTE9fake?oc=5";
+  it("resolves a Google News link to the publisher before reading the article", async () => {
+    mocks.resolveGoogleNews.mockResolvedValue("https://publisher.test/story");
+    const response = await request(app).post("/api/instant-review/selected").send({ url: googleNews, selectedPlatforms: ["linkedin"] });
+    expect(response.status).toBe(200);
+    expect(mocks.resolveGoogleNews).toHaveBeenCalledWith(googleNews, expect.any(AbortSignal), expect.any(Number));
+    expect(mocks.fetchArticle).toHaveBeenCalledWith("https://publisher.test/story", expect.any(AbortSignal));
+  });
+
+  it("explains an unresolvable Google News link without reading it or calling the AI", async () => {
+    const response = await request(app).post("/api/instant-review/selected").send({ url: googleNews, selectedPlatforms: ["linkedin"] });
+    expect(response.status).toBe(422);
+    expect(response.body.message).toContain("Google News hides the original link for this story");
+    expect(mocks.fetchArticle).not.toHaveBeenCalled(); expect(mocks.selected).not.toHaveBeenCalled();
   });
 
   it("returns actionable crawl failures without successful posts", async () => {

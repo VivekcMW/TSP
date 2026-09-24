@@ -36,14 +36,14 @@ function extractSourceName(item: GoogleNewsItem, fallback: string): string {
 export function isGoogleNewsArticleUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.hostname === "news.google.com" && url.pathname.startsWith("/rss/articles/");
+    return url.hostname === "news.google.com" && /^\/(rss\/)?(articles|read)\//.test(url.pathname);
   } catch {
     return false;
   }
 }
 
 /** Google News RSS exposes an opaque tracking article URL; resolve it before persisting it in Discover. */
-export async function resolveGoogleNewsArticleUrl(value: string, signal?: AbortSignal): Promise<string> {
+export async function resolveGoogleNewsArticleUrl(value: string, signal?: AbortSignal, timeoutMs = 1500): Promise<string> {
   if (!isGoogleNewsArticleUrl(value)) return value;
   const articleId = new URL(value).pathname.split("/").pop() ?? "";
   const offline = canonicalHttpUrl(tryOfflineDecode(articleId) ?? "");
@@ -52,7 +52,7 @@ export async function resolveGoogleNewsArticleUrl(value: string, signal?: AbortS
     signal?.throwIfAborted();
     const decoded = await Promise.race([
       new GoogleNewsDecoder().decodeGoogleNewsUrl(value),
-      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("Google News decoder timed out")), 1500)),
+      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("Google News decoder timed out")), timeoutMs)),
     ]);
     const decodedUrl = typeof decoded === "string" ? decoded : decoded?.decodedUrl;
     const direct = decodedUrl ? canonicalHttpUrl(decodedUrl) : null;
@@ -65,7 +65,7 @@ export async function resolveGoogleNewsArticleUrl(value: string, signal?: AbortS
     signal?.throwIfAborted();
     const decoded = await Promise.race([
       decodeGoogleNewsUrl(value),
-      new Promise<string>((_, reject) => { decoderTimer = setTimeout(() => reject(new Error("Google News decode timed out")), 1500); }),
+      new Promise<string>((_, reject) => { decoderTimer = setTimeout(() => reject(new Error("Google News decode timed out")), timeoutMs); }),
     ]);
     const direct = canonicalHttpUrl(decoded);
     if (direct && !isGoogleNewsArticleUrl(direct)) return direct;
@@ -117,8 +117,10 @@ export async function fetchArticlesForQuery(
         categories: [trimmed],
       };
     });
+    // A story whose Google News link could not be resolved cannot be read or written about,
+    // so it is left out; a later refresh can find and resolve it again.
     return resolved.flatMap(result => result.status === "fulfilled" ? [result.value] : [])
-      .filter(article => article.link);
+      .filter(article => article.link && !isGoogleNewsArticleUrl(article.link));
   } catch {
     console.error("[keywordSearch] Search request failed or was cancelled.");
     throw new CrawlError("search", "Article search failed or was cancelled. Please try again.");
