@@ -45,6 +45,10 @@ const MARKET_WORDING = new RegExp([
   String.raw`\bshares (?:rose|rise|rises|fell|fall|falls|jump|jumps|jumped|drop|drops|dropped|surge|surges|surged|slide|slides|slid|gain|gains|gained|climb|climbs|climbed|hit|hits|trade|traded|tumble|tumbled|plunge|plunged|soar|soared)\b`,
   String.raw`\b(?:q[1-4] )?earnings (?:call|report|beat|miss|season|results?)\b`,
   String.raw`\banalysts? (?:upgrade|downgrade|rating)s?\b`,
+  // Corporate investor notices: meetings, AGMs, record dates, quarterly/annual results.
+  String.raw`\b(?:analyst|investor)s?(?: and (?:analyst|investor)s?)? (?:meet(?:ing)?s?|calls?|days?|presentations?)\b`,
+  String.raw`\b(?:board meeting|annual general meeting|agm|record date)\b`,
+  String.raw`\b(?:q[1-4]|quarterly|half-yearly|annual)(?: fy ?\d{2,4})? results\b`,
   String.raw`\b(?:falls?|drops?|jumps?|rises?|surges?|slides?|plunges?|soars?|gains?|climbs?|tumbles?|sinks?|rall(?:y|ies))\s+\d+(?:\.\d+)?\s?%`,
 ].join("|"), "i");
 const looksLikeMarketCoverage = (title: string) => MARKET_TICKER.test(title) || MARKET_WORDING.test(title);

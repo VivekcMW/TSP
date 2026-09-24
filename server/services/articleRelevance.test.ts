@@ -186,11 +186,20 @@ describe("topic words, market noise and name placement (default mode)", () => {
     "Magnite (MGNI) Stock May Be 11% Undervalued Following Fresh AI Ad News",
     "Trade Desk Falls 4% as Index-Removal Flows Keep Pressure On; Magnite Drops 3%",
     "Magnite shares hit a 52-week high after analyst upgrade",
+    "Magnite Schedules Analyst and Investor Meeting on September 28",
+    "Magnite announces board meeting to consider Q2 results",
+    "Magnite AGM on October 5; record date set for dividend",
+    "Magnite investor presentation: Q3 FY27 results",
   ])("halves a company-only match on market coverage: %s", title => {
     const result = scoreArticleRelevance(headline(title), { companies: ["Magnite"] });
     expect(result.relevanceScore).toBe(0.2059);
     expect(result.relevanceReason).toContain("stock-market coverage");
   });
+
+  it.each(["Magnite launches a new CTV marketplace for Indian publishers", "Magnite results: what 30 publishers learned about attention"])
+    ("does not treat ordinary company news as market coverage: %s", title => {
+      expect(scoreArticleRelevance(headline(title), { companies: ["Magnite"] }).relevanceScore).toBe(0.4118);
+    });
 
   it("keeps market coverage at full score when it also matches a topic", () => {
     const result = scoreArticleRelevance(headline("Magnite shares rise as CTV measurement improves"), { companies: ["Magnite"], ...topic("CTV Measurement Metrics") });
