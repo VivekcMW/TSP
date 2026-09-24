@@ -4,7 +4,7 @@ import { guardNotificationsMediaNetwork } from "../../test/notifications-media-n
 const m = vi.hoisted(() => ({ preferences: vi.fn(), send: vi.fn(), template: vi.fn(), execute: vi.fn(), select: vi.fn(), articleLimit: vi.fn(), scopes: vi.fn(), recover: vi.fn() }));
 vi.mock("../storage", () => ({ storage: { getSchedulerScopes: m.scopes } }));
 vi.mock("../db", () => ({ db: {
-  select: (fields: unknown) => { m.select(fields); return { from: () => ({ where: () => ({ limit: async () => [{ email: "test@example.invalid" }] }) }) }; },
+  select: (fields: unknown) => { m.select(fields); return { from: () => ({ where: () => ({ limit: async () => [{ email: "test@example.invalid", name: "Arjun Mehta" }] }) }) }; },
   transaction: async (work: any) => work({ execute: m.execute,
     select: (fields: unknown) => { m.select(fields); return { from: () => ({ where: () => ({ orderBy: () => ({ limit: m.articleLimit }) }) }) }; } }),
 } }));
@@ -23,9 +23,10 @@ beforeEach(() => {
 it("invokes the real delivery path with minimal bounded scoped data", async () => {
   await sendDigestForScope(scope, new Date("2026-09-19T10:00:00Z"));
   expect(m.articleLimit).toHaveBeenCalledWith(5); expect(m.execute).toHaveBeenCalledTimes(1);
-  expect(Object.keys(m.select.mock.calls[0][0])).toEqual(["email"]);
+  // Only what the email needs: the address and the name for the greeting.
+  expect(Object.keys(m.select.mock.calls[0][0])).toEqual(["email", "name"]);
   expect(Object.keys(m.select.mock.calls[1][0])).toEqual(["source", "headline", "summary", "url"]);
-  expect(m.send).toHaveBeenCalledWith(expect.objectContaining({ userId: "user", type: "daily_digest", dedupeKey: '["daily-digest-v1","tenant","user","2026-09-19"]' }));
+  expect(m.send).toHaveBeenCalledWith(expect.objectContaining({ userId: "user", type: "daily_digest", recipientName: "Arjun Mehta", dedupeKey: '["daily-digest-v1","tenant","user","2026-09-19"]' }));
 });
 it("does not select inbox or users before a due opted-in slot", async () => {
   await sendDigestForScope(scope, new Date("2026-09-19T08:59:00Z"));

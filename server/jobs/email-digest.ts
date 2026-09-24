@@ -12,7 +12,7 @@ export async function sendDigestForScope(scope: TenantScope, now = new Date()) {
   if (!preferenceEnabled("daily_digest", preference)) return;
   const slot = digestSlot(now, preference.digestTimezone, preference.digestTime);
   if (!slot) return;
-  const [user] = await db.select({ email: users.email }).from(users).where(eq(users.id, scope.userId)).limit(1);
+  const [user] = await db.select({ email: users.email, name: users.name }).from(users).where(eq(users.id, scope.userId)).limit(1);
   if (!user?.email) return;
   const articles = await db.transaction(async tx => {
     await tx.execute(sql`select set_config('app.tenant_id', ${scope.tenantId}, true)`);
@@ -27,7 +27,7 @@ export async function sendDigestForScope(scope: TenantScope, now = new Date()) {
     catch { return false; }
   });
   if (!safe.length) return;
-  await deliverAppEmail({ type: "daily_digest", userId: scope.userId, recipient: user.email,
+  await deliverAppEmail({ type: "daily_digest", userId: scope.userId, recipient: user.email, recipientName: user.name ?? undefined,
     dedupeKey: JSON.stringify(["daily-digest-v1", scope.tenantId, scope.userId, slot]), ...emailTemplates.dailyDigest(safe) });
 }
 

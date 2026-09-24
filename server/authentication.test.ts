@@ -5,7 +5,7 @@ import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { toNodeHandler } from "better-auth/node";
 import { configureProxy, CLIENT_IP_HEADER } from "./lib/proxy";
-import { sendExistingAccountEmail, sendPasswordResetEmail, sendVerificationEmail } from "./services/email";
+import { sendExistingAccountEmail, sendPasswordChangedEmail, sendPasswordResetEmail, sendVerificationEmail } from "./services/email";
 
 const { evalRedis, setRedis, fakeRedis } = vi.hoisted(() => {
   const evalRedis = vi.fn(), setRedis = vi.fn();
@@ -13,7 +13,7 @@ const { evalRedis, setRedis, fakeRedis } = vi.hoisted(() => {
 });
 vi.mock("./db", async () => ({ pool: (await import("better-auth/adapters/memory")).memoryAdapter({}) }));
 vi.mock("./lib/redis", () => ({ redis: fakeRedis }));
-vi.mock("./services/email", () => ({ sendPasswordResetEmail: vi.fn(), sendVerificationEmail: vi.fn(), sendExistingAccountEmail: vi.fn() }));
+vi.mock("./services/email", () => ({ sendPasswordResetEmail: vi.fn(), sendVerificationEmail: vi.fn(), sendExistingAccountEmail: vi.fn(), sendPasswordChangedEmail: vi.fn() }));
 
 beforeEach(() => {
   evalRedis.mockReset().mockResolvedValue([1, 0]);
@@ -21,6 +21,7 @@ beforeEach(() => {
   vi.mocked(sendExistingAccountEmail).mockReset();
   vi.mocked(sendPasswordResetEmail).mockReset();
   vi.mocked(sendVerificationEmail).mockReset();
+  vi.mocked(sendPasswordChangedEmail).mockReset();
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
@@ -142,7 +143,11 @@ describe("Better Auth safeguards", () => {
     expect(token).toBeTruthy();
     const body = { token, newPassword: "replacement-password" };
     await request(app).post("/api/auth/reset-password").send({ ...body, newPassword: "short" }).expect(400);
+    expect(sendPasswordChangedEmail).not.toHaveBeenCalled();
     const reset = await request(app).post("/api/auth/reset-password").send(body).expect(200);
+    // The owner is told their password changed, once.
+    expect(sendPasswordChangedEmail).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendPasswordChangedEmail).mock.calls[0].slice(0, 2)).toEqual([email, "Reset regression"]);
     expect(reset.body.status).toBe(true);
     expect(reset.headers["set-cookie"]).toBeUndefined();
     const repeated = await request(app).post("/api/auth/reset-password").send(body).expect(400);
@@ -153,6 +158,20 @@ describe("Better Auth safeguards", () => {
     const account = await context.internalAdapter.findCredentialAccount(stored!.user.id);
     expect(await context.password.verify({ hash: account!.password!, password: body.newPassword })).toBe(true);
     expect(await context.password.verify({ hash: account!.password!, password: "original-password" })).toBe(false);
+  });
+
+  it("completes a reset even when the password-changed notice cannot be sent", async () => {
+    vi.mocked(sendPasswordChangedEmail).mockRejectedValue(new Error("PRIVATE email outage"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { app } = await authApp();
+    const email = "notice@example.com";
+    await request(app).post("/api/auth/sign-up/email").send({ email, name: "Notice", password: "original-password" }).expect(200);
+    await request(app).post("/api/auth/request-password-reset").send({ email, redirectTo: "http://localhost:4300/reset-password" }).expect(200);
+    const link = new URL(vi.mocked(sendPasswordResetEmail).mock.calls.at(-1)![2]);
+    const token = new URL((await request(app).get(link.pathname + link.search).expect(302)).headers.location).searchParams.get("token");
+    const reset = await request(app).post("/api/auth/reset-password").send({ token, newPassword: "replacement-password" }).expect(200);
+    expect(reset.body.status).toBe(true);
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(email);
   });
 
   it("rejects expired reset tokens in callbacks and reset submissions", async () => {

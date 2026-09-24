@@ -80,7 +80,14 @@ export async function handlePublishDraft(job: Bull.Job<PublishDraftJobData>): Pr
     const retry = !permanent && attempt < maxAttempts;
     const message = error instanceof PublishingPolicyError ? error.message : "Publication could not be authorized or recorded. Check current status.";
     await finish(retry ? "scheduled" : "failed", message);
-    if (!retry) job.discard?.();
+    if (!retry) {
+      job.discard?.();
+      // The failure is recorded; the email is best-effort and sent once per target.
+      try {
+        const user = await storage.getUser(userId);
+        if (user?.email) await sendAppEmail({ type: "post_failed", recipient: user.email, recipientName: user.name, userId, ...emailTemplates.postFailed(platform, message), dedupeKey: `post-failed:${draftScheduleTargetId}` });
+      } catch { console.error("[publish] Failure notification failed"); }
+    }
     throw new Error(message);
   }
 

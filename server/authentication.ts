@@ -1,7 +1,7 @@
 import { betterAuth } from "better-auth";
 import { createEmailVerificationToken } from "better-auth/api";
 import { pool } from "./db";
-import { sendExistingAccountEmail, sendPasswordResetEmail, sendVerificationEmail } from "./services/email";
+import { sendExistingAccountEmail, sendPasswordChangedEmail, sendPasswordResetEmail, sendVerificationEmail } from "./services/email";
 import { redis } from "./lib/redis";
 import { CLIENT_IP_HEADER } from "./lib/proxy";
 import { createAuthRateLimitStorage } from "./lib/proxy-rate-limit";
@@ -112,6 +112,14 @@ export const auth = betterAuth({
     autoSignIn: false,
     async sendResetPassword({ user, url }) {
       await sendPasswordResetEmail(user.email, user.name, url);
+    },
+    // Tell the owner their password changed; never fail the reset over the notice.
+    async onPasswordReset({ user }) {
+      try {
+        await sendPasswordChangedEmail(user.email, user.name, user.id);
+      } catch {
+        console.error("[auth] Could not send the password-changed notice.");
+      }
     },
     // Better Auth answers a duplicate sign-up exactly like a new one (no account
     // enumeration); without this hook the real owner would receive nothing.

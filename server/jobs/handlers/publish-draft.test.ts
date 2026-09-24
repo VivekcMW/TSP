@@ -8,7 +8,7 @@ const { storage, publish, email, PolicyError } = vi.hoisted(() => ({
 vi.mock("../../storage", () => ({ storage, ScheduleConflictError: class extends Error {} }));
 vi.mock("../../services/publishers", () => ({ publishToPlatform: publish }));
 vi.mock("../../services/publishing-policy", () => ({ PublishingPolicyError: PolicyError }));
-vi.mock("../../services/email", () => ({ sendAppEmail: email, emailTemplates: { postPublished: vi.fn() } }));
+vi.mock("../../services/email", () => ({ sendAppEmail: email, emailTemplates: { postPublished: vi.fn(), postFailed: vi.fn((platform: string, reason: string) => ({ subject: `failed ${platform}`, reason })) } }));
 import { handlePublishDraft, type PublishDraftJobData } from "./publish-draft";
 
 function job(attemptsMade = 0) {
@@ -92,6 +92,26 @@ describe("publish delivery safety", () => {
     publish.mockResolvedValue({ success: true, mode: "live", status: "accepted_unverified", receiptKind: "unavailable" });
     expect((await handlePublishDraft(job())).status).toBe("accepted_unverified");
     expect(email).not.toHaveBeenCalled();
+  });
+
+  it("emails the customer once when publishing finally fails, never while a retry is scheduled", async () => {
+    storage.getUser.mockResolvedValue({ email: "owner@example.test", name: "Owner" });
+    storage.authorizePublishClaim.mockRejectedValue(new PolicyError("Reconnect your LinkedIn account in Settings."));
+    await expect(handlePublishDraft(job())).rejects.toThrow("Reconnect");
+    expect(email).toHaveBeenCalledTimes(1);
+    expect(email).toHaveBeenCalledWith(expect.objectContaining({ type: "post_failed", recipient: "owner@example.test", recipientName: "Owner", userId: "u",
+      dedupeKey: "post-failed:target", subject: "failed linkedin", reason: "Reconnect your LinkedIn account in Settings." }));
+    email.mockClear();
+    storage.authorizePublishClaim.mockRejectedValue(new Error("database temporarily unavailable"));
+    await expect(handlePublishDraft(job(0))).rejects.toThrow("could not be authorized");
+    expect(email).not.toHaveBeenCalled();
+  });
+
+  it("keeps the failure recorded even when the failure email cannot be sent", async () => {
+    storage.getUser.mockRejectedValue(new Error("email lookup failed"));
+    storage.authorizePublishClaim.mockRejectedValue(new PolicyError("Reconnect account"));
+    await expect(handlePublishDraft(job())).rejects.toThrow("Reconnect account");
+    expect(storage.finishPublishTarget).toHaveBeenCalledWith(expect.anything(), "target", "failed", expect.anything());
   });
 
   it("does not notify after a stale completion CAS", async () => {

@@ -2,7 +2,8 @@ import type { Express } from "express";
 import { db } from "../db";
 import { toSafeUser } from "../lib/sanitize";
 import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
-import { sendAppEmail } from "../services/email";
+import { emailTemplates, sendAppEmail } from "../services/email";
+import { industryDisplayName } from "../services/metaEngine";
 import { users } from "@shared/models/auth";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -68,8 +69,7 @@ export function registerAuthRoutes(app: Express) {
       
       // Send industry-customized welcome email
       if (updatedUser?.email) {
-        const welcomeSubject = industry ? `Welcome to TheSocialPundit · ${industry.replaceAll("_", " ")}` : "Welcome to TheSocialPundit";
-        sendAppEmail({ type: "welcome", recipient: updatedUser.email, recipientName: firstName, userId: updatedUser.id, subject: welcomeSubject, html: `<p>Your personalized workspace is ready.</p><p>Start with your curated inbox and create your first draft.</p>`, required: false, dedupeKey: `welcome:${updatedUser.id}` }).catch((err) => console.error("Failed to send welcome email:", err));
+        sendAppEmail({ type: "welcome", recipient: updatedUser.email, recipientName: firstName, userId: updatedUser.id, ...emailTemplates.welcome(industryDisplayName(industry)), dedupeKey: `welcome:${updatedUser.id}` }).catch((err) => console.error("Failed to send welcome email:", err));
       }
       
       res.json(toSafeUser(updatedUser));

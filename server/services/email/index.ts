@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { emailTemplates, escapeHtml } from "./templates";
 import Bull from "bull";
 import { randomUUID } from "node:crypto";
 import { getEmailPreferences } from "./preferences";
@@ -46,21 +47,18 @@ async function sendWithDeadline(input: Parameters<Resend["emails"]["send"]>[0]) 
   } finally { if (timer) clearTimeout(timer); }
 }
 
-function escapeHtml(value: string) {
-  return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ?? character);
-}
 
 function wrapEmail(email: AppEmail) {
   const name = email.recipientName ? `Hi ${escapeHtml(email.recipientName)},` : "Hello,";
   const unsubscribe = `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/dashboard/settings?tab=notifications`;
   const cta = email.primaryCta ? `<p style="margin:24px 0"><a href="${escapeHtml(email.primaryCta.url)}" style="display:inline-block;background:#1b2a4a;color:#fff;padding:13px 22px;border-radius:6px;text-decoration:none;font-weight:700">${escapeHtml(email.primaryCta.label)}</a></p><p style="font-size:12px;color:#667085">If the button does not work, copy this link: ${escapeHtml(email.primaryCta.url)}</p>` : "";
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><span style="display:none!important;opacity:0;height:0;width:0">${escapeHtml(email.preheader ?? email.subject)}</span></head><body style="margin:0;background:#f4f6f1;font-family:Arial,sans-serif;color:#17233d"><main style="max-width:600px;margin:32px auto;background:#fff;border:1px solid #e4e7ec;border-radius:8px;overflow:hidden"><header style="background:#1b2a4a;color:#fff;padding:24px 28px;border-bottom:3px solid #c99a3e"><div style="font-size:20px;font-weight:700">TheSocialPundit</div><div style="margin-top:6px;color:#d7b56d;font-size:11px;text-transform:uppercase;letter-spacing:1.5px">Your professional signal</div></header><section style="padding:28px"><p style="margin-top:0;color:#667085;font-size:11px;text-transform:uppercase;letter-spacing:1.4px">${escapeHtml(email.eyebrow ?? "TheSocialPundit")}</p><p>${name}</p>${email.html}${cta}</section><footer style="border-top:1px solid #e4e7ec;padding:18px 28px;color:#667085;font-size:12px">You received this email from TheSocialPundit.<br><a href="${unsubscribe}" style="color:#1b2a4a">Manage email preferences</a> · <a href="${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/privacy" style="color:#1b2a4a">Privacy</a></footer></main></body></html>`;
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><span style="display:none!important;opacity:0;height:0;width:0">${escapeHtml(email.preheader ?? email.subject)}</span></head><body style="margin:0;padding:0 12px;background:#f4f6f1;font-family:Arial,sans-serif;color:#17233d"><main style="max-width:600px;margin:32px auto;background:#fff;border:1px solid #e4e7ec;border-radius:8px;overflow:hidden"><header style="background:#1b2a4a;color:#fff;padding:24px 28px;border-bottom:3px solid #c99a3e"><div style="font-size:20px;font-weight:700">TheSocialPundit</div><div style="margin-top:6px;color:#d7b56d;font-size:11px;text-transform:uppercase;letter-spacing:1.5px">Your professional signal</div></header><section style="padding:28px"><p style="margin-top:0;color:#667085;font-size:11px;text-transform:uppercase;letter-spacing:1.4px">${escapeHtml(email.eyebrow ?? "TheSocialPundit")}</p><p>${name}</p>${email.html}${cta}</section><footer style="border-top:1px solid #e4e7ec;padding:18px 28px;color:#667085;font-size:12px">You received this email from TheSocialPundit.<br><a href="${unsubscribe}" style="color:#1b2a4a">Manage email preferences</a> · <a href="${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/privacy" style="color:#1b2a4a">Privacy</a></footer></main></body></html>`;
 }
 
 /** Text version for templates that only supply HTML: HTML-only mail is more often filtered as spam. */
 function plainText(email: AppEmail) {
   const decode = (value: string) => value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&");
-  const body = decode(email.html.replace(/<\/(?:p|h[1-6]|li|article|div)>|<br\s*\/?>/gi, "\n\n").replace(/<[^>]*>/g, ""))
+  const body = email.text?.trim() || decode(email.html.replace(/<\/(?:p|h[1-6]|li|article|div)>|<br\s*\/?>/gi, "\n\n").replace(/<[^>]*>/g, ""))
     .split(/\n{2,}/).map(line => line.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n\n");
   const cta = email.primaryCta ? `\n\n${email.primaryCta.label}: ${email.primaryCta.url}` : "";
   return `${email.recipientName ? `Hi ${email.recipientName},` : "Hello,"}\n\n${body}${cta}\n\nTheSocialPundit`;
@@ -96,7 +94,7 @@ export async function deliverAppEmail(email: AppEmail): Promise<{ skipped?: bool
   if (!await beginDelivery(claim)) return { skipped: true };
   let result;
   try {
-    result = await sendWithDeadline({ from: `${FROM_NAME} <${FROM_EMAIL}>`, to: [email.recipient], subject: email.subject, html, text: email.text ?? plainText(email) });
+    result = await sendWithDeadline({ from: `${FROM_NAME} <${FROM_EMAIL}>`, to: [email.recipient], subject: email.subject, html, text: plainText(email) });
   } catch {
     await finishDelivery(claim, "unknown");
     throw new Error("Email delivery outcome is unknown; do not replay");
@@ -184,17 +182,13 @@ export async function sendExistingAccountEmail(email: string, name: string, sign
   await sendAppEmail({ type: "existing_account", recipient: email, recipientName: name, subject: "You already have a TheSocialPundit account", eyebrow: "Account security", html: `<p>Someone tried to create a TheSocialPundit account with this email address. You already have an account, so no new one was created.</p><p>If this was you, sign in instead. If you have forgotten your password, choose "Forgot password" on the sign-in page.</p><p>If it was not you, you can ignore this email. Your account has not changed.</p>`, primaryCta: { label: "Sign in", url: signInUrl }, required: true });
 }
 
+/** Security notice after a password reset; each change gets its own delivery. */
+export async function sendPasswordChangedEmail(email: string, name: string, userId: string): Promise<void> {
+  await sendAppEmail({ type: "password_changed", recipient: email, recipientName: name, userId, required: true, ...emailTemplates.passwordChanged(), dedupeKey: `password-changed:${userId}:${Date.now()}` });
+}
+
 export async function sendPasswordResetEmail(email: string, name: string, resetUrl: string): Promise<void> {
   await sendAppEmail({ type: "password_reset", recipient: email, recipientName: name, subject: "Reset your TheSocialPundit password", eyebrow: "Account security", html: `<p>Use the link below to create a new password.</p><p>If you did not request this, you can safely ignore this email.</p>`, primaryCta: { label: "Reset password", url: resetUrl }, required: true });
 }
 
-export const emailTemplates = {
-  passwordChanged: (name: string) => ({ subject: "Your TheSocialPundit password was changed", eyebrow: "Account security", html: `<p>Your password was changed successfully. If you did not make this change, contact support immediately.</p>`, text: `Your password was changed successfully, ${name}.` }),
-  paymentSucceeded: (plan: string, amount: string) => ({ subject: "Payment received — TheSocialPundit", eyebrow: "Payment update", html: `<p>Your payment for <strong>${escapeHtml(plan)}</strong> was received.</p><p>Amount: ${escapeHtml(amount)}</p>`, primaryCta: { label: "View billing", url: `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/dashboard/billing` }, text: `Your payment for ${plan} was received. Amount: ${amount}.` }),
-  paymentFailed: (reason: string) => ({ subject: "Action needed: payment failed", eyebrow: "Payment update", html: `<p>We could not complete your payment.</p><p>${escapeHtml(reason)}</p><p>Please review your billing details and try again.</p>`, primaryCta: { label: "Review billing", url: `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/dashboard/billing` }, text: `Payment failed: ${reason}. Please review your billing details.` }),
-  subscriptionCancelled: (date: string) => ({ subject: "Subscription cancellation scheduled", eyebrow: "Subscription update", html: `<p>Your subscription cancellation is scheduled for <strong>${escapeHtml(date)}</strong>. Your access remains active until then.</p>`, primaryCta: { label: "View subscription", url: `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/dashboard/billing` }, text: `Your subscription cancellation is scheduled for ${date}.` }),
-  postPublished: (platform: string) => ({ subject: `Published to ${platform}`, eyebrow: "Publishing update", html: `<p>Your post was published successfully to <strong>${escapeHtml(platform)}</strong>.</p>`, primaryCta: { label: "View published posts", url: `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/dashboard/published` }, text: `Your post was published successfully to ${platform}.` }),
-  postFailed: (platform: string, reason: string) => ({ subject: `Publishing failed on ${platform}`, eyebrow: "Publishing update", html: `<p>We could not publish your post to <strong>${escapeHtml(platform)}</strong>.</p><p>${escapeHtml(reason)}</p>`, primaryCta: { label: "Review drafts", url: `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/dashboard/drafts` }, text: `Publishing failed on ${platform}: ${reason}.` }),
-  dailyDigest: (articles: Array<{ source: string; headline: string; summary: string; url: string }>) => ({ subject: "Your daily industry briefing", eyebrow: "Content digest", html: articles.slice(0, 5).map((article) => `<article style="border-top:1px solid #e4e7ec;padding:16px 0"><p style="margin:0;color:#667085;font-size:11px;text-transform:uppercase">${escapeHtml(article.source)}</p><h2 style="font-size:18px;margin:7px 0"><a href="${escapeHtml(article.url)}" style="color:#1b2a4a;text-decoration:none">${escapeHtml(article.headline)}</a></h2><p style="color:#667085;line-height:1.5">${escapeHtml(article.summary)}</p></article>`).join(""), text: articles.slice(0, 5).map((article) => `${article.source}: ${article.headline}\n${article.summary}\n${article.url}`).join("\n\n") }),
-  productUpdate: (title: string, body: string, url: string) => ({ subject: title, eyebrow: "Product update", html: `<p>${escapeHtml(body)}</p>`, primaryCta: { label: "Explore the update", url }, text: `${body}\n\n${url}` }),
-};
+export { emailTemplates };

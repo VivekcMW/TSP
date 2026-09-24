@@ -101,7 +101,15 @@ export function registerBillingRoutes(app: Express) {
       const { tenant: scope, dbUser } = authedOf(req);
       const result = await billingRepository.verify(scope.tenantId, checkoutId, data.razorpayPaymentId, recurring);
       res.json({ success: true, payment: result.payment });
-      if (result.capturedNow && result.payment) void sendAppEmail({ type: "payment_succeeded", recipient: dbUser.email, recipientName: dbUser.name, userId: dbUser.id, ...emailTemplates.paymentSucceeded("Your plan", `${result.payment.currency} ${(result.payment.amount / 100).toFixed(2)}`), required: true, dedupeKey: `payment:${result.payment.razorpayPaymentId}` }).catch(() => console.error("Failed to send payment email"));
+      if (result.capturedNow && result.payment) {
+        const payment = result.payment;
+        // After the response: a receipt problem must never change the payment result.
+        void (async () => {
+          const [plan] = await db.select({ name: billingPlans.name }).from(billingPlans).where(eq(billingPlans.id, result.subscription.planId)).limit(1);
+          await sendAppEmail({ type: "payment_succeeded", recipient: dbUser.email, recipientName: dbUser.name, userId: dbUser.id, required: true, dedupeKey: `payment:${payment.razorpayPaymentId}`,
+            ...emailTemplates.paymentSucceeded({ planName: plan?.name ?? "your TheSocialPundit plan", amountMinor: payment.amount, currency: payment.currency, paymentId: payment.razorpayPaymentId, paidAt: payment.paidAt ?? null }) });
+        })().catch(() => console.error("Failed to send payment email"));
+      }
     } catch (error) {
       fail(res, error, "Payment could not be verified or recorded. Please retry or contact support.");
     }
@@ -112,7 +120,7 @@ export function registerBillingRoutes(app: Express) {
       const { tenant: scope } = authedOf(req);
       const updated = await billingRepository.cancel(scope.tenantId);
       res.json({ success: true, subscription: updated });
-      void sendAppEmail({ type: "subscription_cancelled", recipient: authedOf(req).dbUser.email, recipientName: authedOf(req).dbUser.name, userId: authedOf(req).dbUser.id, ...emailTemplates.subscriptionCancelled(updated.currentPeriodEnd?.toLocaleDateString() ?? "the provider-confirmed end date"), required: true, dedupeKey: `subscription-cancelled:${updated.id}` }).catch(() => console.error("Failed to send cancellation email"));
+      void sendAppEmail({ type: "subscription_cancelled", recipient: authedOf(req).dbUser.email, recipientName: authedOf(req).dbUser.name, userId: authedOf(req).dbUser.id, ...emailTemplates.subscriptionCancelled(updated.currentPeriodEnd ?? null), required: true, dedupeKey: `subscription-cancelled:${updated.id}` }).catch(() => console.error("Failed to send cancellation email"));
     } catch (error) {
       fail(res, error, "Provider cancellation could not be confirmed. Please retry or contact support.");
     }

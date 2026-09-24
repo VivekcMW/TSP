@@ -55,9 +55,9 @@ describe("email dispatch boundaries", () => {
     expect(reset).toContain("Reset password: https://example.invalid/reset");
     for (const text of [verify, reset]) expect(text).not.toMatch(/<[a-z/][^>]*>|&amp;/i);
   });
-  it("keeps a template's own plain text", async () => {
-    await deliverAppEmail({ ...email, text: "Handwritten text" });
-    expect(mock.send.mock.calls[0][0].text).toBe("Handwritten text");
+  it("uses a template's own plain text, with the greeting and button link around it", async () => {
+    await deliverAppEmail({ ...email, recipientName: "Priya", text: "Handwritten text", primaryCta: { label: "Open Discover", url: "https://example.invalid/d" } });
+    expect(mock.send.mock.calls[0][0].text).toBe("Hi Priya,\n\nHandwritten text\n\nOpen Discover: https://example.invalid/d\n\nTheSocialPundit");
   });
   it("fails closed for optional mail without an attributable account", async () => {
     expect(await deliverAppEmail({ ...email, userId: undefined })).toEqual({ skipped: true });
