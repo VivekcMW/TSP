@@ -4,11 +4,10 @@ import { db } from "../db";
 import { aiGenerationRateLimit } from "../middlewares/rateLimit";
 import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
-import { getAvailableVerticals, normalizeIndustryToSlug, selectIndustryEngine } from "../services/metaEngine";
-import { analyzeProfessionalIdentity, generatePostContentDetailed, generatePostSchema, onboardingIdentitySchema } from "../services/punditBrain";
+import { getAvailableVerticals, selectIndustryEngine } from "../services/metaEngine";
+import { generatePostContentDetailed, generatePostSchema, onboardingIdentitySchema } from "../services/punditBrain";
 import { getAIErrorResponse } from "../services/openRouter";
 import { platformIntegrations } from "@shared/schema";
-import { publicationCandidateSchema, publicationCandidatesSchema } from "@shared/publication-preferences";
 import { z } from "zod";
 import { fetchArticleFromUrl } from "../services/urlFetcher";
 import { CrawlError } from "../services/crawlerFetch";
@@ -25,51 +24,6 @@ const detailedPostSchema = generatePostSchema.extend({
 });
 
 export function registerAiRoutes(app: Express) {
-  app.post("/api/ai/analyze-identity", requireDbUser, requirePermission("generation:create:own"), aiGenerationRateLimit, async (req, res) => {
-    try {
-      const validation = onboardingIdentitySchema.safeParse(req.body);
-      if (!validation.success) {
-        return res.status(400).json({ code: "ai_invalid_input", message: "Provide a description of 10–500 characters and, if supplied, an industry of 1–100 characters.", errors: validation.error.flatten().fieldErrors });
-      }
-      const { focusDescription, selectedIndustry } = validation.data;
-      
-      const industrySlug = normalizeIndustryToSlug(selectedIndustry);
-      const scope = authedOf(req).tenant;
-      const [analysis, engineSelection] = await Promise.all([
-        analyzeProfessionalIdentity(focusDescription, industrySlug, scope),
-        selectIndustryEngine(selectedIndustry, focusDescription, scope),
-      ]);
-      
-      res.json({
-        primaryIndustry: analysis.primaryIndustry,
-        confidence: analysis.confidence,
-        subDomains: analysis.subDomains,
-        keywords: analysis.keywords.slice(0, 20),
-        publications: analysis.publications.slice(0, 20).map(p => p.name),
-        // Bad URL metadata must not discard an otherwise successful recommendation.
-        publicationCandidates: publicationCandidatesSchema.parse(analysis.publications.slice(0, 20).flatMap(publication => {
-          const candidate = publicationCandidateSchema.safeParse({ name: publication.name, url: publication.url });
-          return candidate.success ? [candidate.data] : [];
-        })),
-        topics: analysis.topics.slice(0, 20).map(t => t.phrase),
-        personalities: analysis.personalities.slice(0, 20).map(p => p.name),
-        companies: analysis.companies.slice(0, 20).map(c => c.name),
-        recommendedEngine: {
-          industry: engineSelection.recommendedIndustry,
-          displayName: engineSelection.engineDisplayName,
-          confidence: engineSelection.confidence,
-          reasoning: engineSelection.reasoning,
-          matchedSignals: engineSelection.matchedSignals,
-        },
-      });
-    } catch (error) {
-      const failure = getAIErrorResponse(error);
-      console.error("Error analyzing identity:", failure.body.code);
-      if (failure.retryAfterSeconds) res.setHeader("Retry-After", failure.retryAfterSeconds);
-      res.status(failure.status).json(failure.body);
-    }
-  });
-
   app.post("/api/ai/select-engine", requireDbUser, requirePermission("generation:create:own"), aiGenerationRateLimit, async (req, res) => {
     try {
       const validation = onboardingIdentitySchema.safeParse(req.body);

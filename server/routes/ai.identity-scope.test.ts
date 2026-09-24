@@ -19,7 +19,6 @@ vi.mock("../middlewares/requireDbUser", () => ({
 vi.mock("../middlewares/requirePermission", () => ({ requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next() }));
 vi.mock("../middlewares/rateLimit", () => ({ aiGenerationRateLimit: (_req: unknown, _res: unknown, next: () => void) => next() }));
 import { registerAiRoutes } from "./ai";
-import { analyzeProfessionalIdentity } from "../services/punditBrain";
 import { selectIndustryEngine } from "../services/metaEngine";
 
 const app = express();
@@ -27,14 +26,7 @@ app.use(express.json());
 registerAiRoutes(app);
 const network = vi.fn();
 const body = { selectedIndustry: "Technology & SaaS", focusDescription: "I build SaaS products and lead technical teams.", tenantId: "forged", scope: { tenantId: "forged" } };
-const result = {
-  primaryIndustry: "Technology & SaaS", confidence: 0.9, subDomains: [], keywords: ["SaaS"],
-  publications: [{ name: "Research Desk", url: "https://research.test", focus: "Software", relevance: "Technical research" }],
-  topics: [{ phrase: "SaaS", subDomain: "Software", whyItMatters: "Product strategy" }],
-  personalities: [{ name: "Researcher", role: "Engineer", areaOfInfluence: "Software", whyTheyMatter: "Technical research" }],
-  companies: [{ name: "Software Lab", industry: "Software", whyToTrack: "Research", newsToWatch: "Products" }],
-  recommendedIndustry: "technology_saas", reasoning: "Software focus", matchedSignals: ["SaaS"], dropdownAligned: true,
-};
+const result = { recommendedIndustry: "technology_saas", confidence: 0.9, reasoning: "Software focus", matchedSignals: ["SaaS"], dropdownAligned: true };
 
 const providerResponse = (text: string) => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: text } }] }), { status: 200 });
 const invalidInputs = [
@@ -45,26 +37,10 @@ const invalidInputs = [
     .map(selectedIndustry => ({ ...body, selectedIndustry })),
 ];
 
-const identityFields = ["primaryIndustry", "confidence", "subDomains", "keywords", "publications", "topics", "personalities", "companies"] as const;
 const engineFields = ["recommendedIndustry", "confidence", "reasoning", "matchedSignals", "dropdownAligned"] as const;
 function without(field: string) {
   return Object.fromEntries(Object.entries(result).filter(([key]) => key !== field));
 }
-const invalidIdentityOutputs = [
-  ...identityFields.map(field => ({ label: `missing ${field}`, output: without(field) })),
-  ...["subDomains", "keywords", "publications", "topics", "personalities", "companies"].flatMap(field =>
-    [null, {}, "wrong type", [null], [42]].map(value => ({ label: `invalid ${field}: ${JSON.stringify(value)}`, output: { ...result, [field]: value } }))),
-  ...["publications", "topics", "personalities", "companies"].flatMap(field => {
-    const item = result[field as "publications" | "topics" | "personalities" | "companies"][0];
-    return Object.keys(item).flatMap(key => [undefined, 42, " \t "].map(value => ({
-      label: `invalid ${field}.${key}: ${JSON.stringify(value)}`, output: { ...result, [field]: [{ ...item, [key]: value }] },
-    })));
-  }),
-  ...[null, "0.9", -0.1, 1.1].map(confidence => ({ label: `invalid confidence ${confidence}`, output: { ...result, confidence } })),
-  ...[42, " "].map(primaryIndustry => ({ label: "invalid industry", output: { ...result, primaryIndustry } })),
-  { label: "blank keyword", output: { ...result, keywords: [" "] } },
-  { label: "blank subdomain", output: { ...result, subDomains: [" "] } },
-];
 const invalidEngineOutputs = [
   ...engineFields.map(field => ({ label: `missing ${field}`, output: without(field) })),
   ...[{}, null, 42, "", "unknown_vertical"].map(recommendedIndustry => ({ label: "invalid industry", output: { ...result, recommendedIndustry } })),
@@ -89,7 +65,8 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
-describe.each(["analyze-identity", "select-engine"])("%s onboarding validation", endpoint => {
+describe("select-engine onboarding validation", () => {
+  const endpoint = "select-engine";
   it.each(invalidInputs)("rejects invalid input with zero provider calls (%#)", async invalid => {
     const response = await request(app).post(`/api/ai/${endpoint}`).send(invalid);
     expect(response.status).toBe(400);
@@ -101,15 +78,15 @@ describe.each(["analyze-identity", "select-engine"])("%s onboarding validation",
     const rejected = await request(app).post(`/api/ai/${endpoint}`).send({ ...body, focusDescription: {} });
     expect(rejected.status).toBe(400);
     expect(network).not.toHaveBeenCalled();
-    expect((await request(app).post("/api/ai/analyze-identity").send(body)).status).toBe(200);
-    expect(network).toHaveBeenCalledTimes(2);
+    expect((await request(app).post("/api/ai/select-engine").send(body)).status).toBe(200);
+    expect(network).toHaveBeenCalledTimes(1);
   });
 
   it.each([10, 500])("trims strings and accepts description boundary %i", async length => {
     const focus = "x".repeat(length);
     const response = await request(app).post(`/api/ai/${endpoint}`).send({ focusDescription: `  ${focus}  `, selectedIndustry: "  Technology & SaaS  " });
     expect(response.status).toBe(200);
-    expect(network).toHaveBeenCalledTimes(endpoint === "analyze-identity" ? 2 : 1);
+    expect(network).toHaveBeenCalledTimes(1);
     for (const [, options] of network.mock.calls) {
       const prompt = JSON.parse(options.body).messages[0].content;
       expect(prompt).toContain(`"${focus}"`);
@@ -145,7 +122,7 @@ describe.each(["analyze-identity", "select-engine"])("%s onboarding validation",
     expect(response.body.code).toBe("ai_invalid_output");
     expect(response.body).not.toHaveProperty("recommendedEngine");
     expect(response.body).not.toHaveProperty("recommendedIndustry");
-    expect(network).toHaveBeenCalledTimes(endpoint === "analyze-identity" ? 2 : 1);
+    expect(network).toHaveBeenCalledTimes(1);
   });
 
   it.each([[500, 503, "ai_unavailable"], [504, 504, "ai_timeout"], [400, 400, "ai_invalid_input"]] as const)("does not disguise provider HTTP %i as success", async (providerStatus, status, code) => {
@@ -156,46 +133,11 @@ describe.each(["analyze-identity", "select-engine"])("%s onboarding validation",
     expect(JSON.stringify(response.body)).not.toContain("private provider detail");
     expect(response.body).not.toHaveProperty("recommendedIndustry");
     expect(response.body).not.toHaveProperty("recommendedEngine");
-    expect(network).toHaveBeenCalledTimes(endpoint === "analyze-identity" ? 2 : 1);
+    expect(network).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("complete onboarding AI output contracts", () => {
-  it("preserves names and sanitizes URL candidates individually without failing recommendations", async () => {
-    const publications = [
-      { ...result.publications[0], name: " Good ", url: " HTTPS://GOOD.test#fragment " },
-      ...["not a URL", "javascript:alert(1)", "ftp://news.test", "https://user:password@news.test", `https://news.test/${"x".repeat(2048)}`]
-        .map((url, i) => ({ ...result.publications[0], name: `Invalid ${i}`, url })),
-      { ...result.publications[0], name: "x".repeat(101) },
-      { ...result.publications[0], name: "good", url: "https://duplicate.test" },
-    ];
-    network.mockResolvedValueOnce(providerResponse(JSON.stringify({ ...result, publications })));
-    const response = await request(app).post("/api/ai/analyze-identity").send(body);
-    expect(response.status).toBe(200);
-    expect(response.body.publications).toEqual(publications.map(item => item.name.trim()));
-    expect(response.body.publicationCandidates).toEqual([{ name: "Good", url: "https://good.test/" }]);
-    expect(network).toHaveBeenCalledTimes(2);
-  });
-
-  it("bounds candidate metadata to the twenty returned names", async () => {
-    const publications = Array.from({ length: 25 }, (_, i) => ({ ...result.publications[0], name: `News ${i}`, url: `https://news${i}.test` }));
-    network.mockResolvedValueOnce(providerResponse(JSON.stringify({ ...result, publications })));
-    const response = await request(app).post("/api/ai/analyze-identity").send(body);
-    expect(response.status).toBe(200);
-    expect(response.body.publications).toHaveLength(20);
-    expect(response.body.publicationCandidates).toHaveLength(20);
-    expect(response.body.publicationCandidates.map((item: { name: string }) => item.name)).toEqual(response.body.publications);
-  });
-
-  it.each(invalidIdentityOutputs)("rejects identity $label (%#)", async ({ output }) => {
-    network.mockResolvedValueOnce(providerResponse(JSON.stringify(output)));
-    const response = await request(app).post("/api/ai/analyze-identity").send(body);
-    expect(response.status).toBe(502);
-    expect(response.body.code).toBe("ai_invalid_output");
-    expect(response.body).not.toHaveProperty("publications");
-    expect(network).toHaveBeenCalledTimes(2);
-  });
-
+describe("engine selection output contracts", () => {
   it.each(invalidEngineOutputs)("rejects engine $label (%#)", async ({ output }) => {
     network.mockResolvedValueOnce(providerResponse(JSON.stringify(output)));
     const response = await request(app).post("/api/ai/select-engine").send(body);
@@ -203,16 +145,6 @@ describe("complete onboarding AI output contracts", () => {
     expect(response.body.code).toBe("ai_invalid_output");
     expect(response.body).not.toHaveProperty("recommendedIndustry");
     expect(network).toHaveBeenCalledTimes(1);
-  });
-
-  it("rejects incomplete engine output even when identity analysis succeeds", async () => {
-    network.mockResolvedValueOnce(providerResponse(JSON.stringify(result)))
-      .mockResolvedValueOnce(providerResponse(JSON.stringify(without("matchedSignals"))));
-    const response = await request(app).post("/api/ai/analyze-identity").send(body);
-    expect(response.status).toBe(502);
-    expect(response.body.code).toBe("ai_invalid_output");
-    expect(response.body).not.toHaveProperty("publications");
-    expect(network).toHaveBeenCalledTimes(2);
   });
 
   it("retains supported engine display-name normalization", async () => {
@@ -225,19 +157,14 @@ describe("complete onboarding AI output contracts", () => {
 
   it("preserves valid zero confidence and false alignment", async () => {
     network.mockImplementation(async () => providerResponse(JSON.stringify({ ...result, confidence: 0, dropdownAligned: false })));
-    const response = await request(app).post("/api/ai/analyze-identity").send(body);
-    expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({ confidence: 0, publications: ["Research Desk"], topics: ["SaaS"], personalities: ["Researcher"], companies: ["Software Lab"], recommendedEngine: { confidence: 0 } });
-    context.tenantId = randomUUID();
     const engine = await request(app).post("/api/ai/select-engine").send(body);
+    expect(engine.status).toBe(200);
     expect(engine.body).toMatchObject({ confidence: 0, dropdownAligned: false });
   });
 });
 
-describe.each(["identity", "engine"])("%s service boundary", service => {
-  const call = (focus: string, industry: string | undefined) => service === "identity"
-    ? analyzeProfessionalIdentity(focus, industry, { tenantId: context.tenantId })
-    : selectIndustryEngine(industry!, focus, { tenantId: context.tenantId });
+describe("engine service boundary", () => {
+  const call = (focus: string, industry: string | undefined) => selectIndustryEngine(industry!, focus, { tenantId: context.tenantId });
 
   it.each(invalidInputs.filter(input => !Array.isArray(input)))("rejects invalid runtime input before generation (%#)", async input => {
     const fields = input as { focusDescription: string; selectedIndustry?: string };
@@ -246,11 +173,10 @@ describe.each(["identity", "engine"])("%s service boundary", service => {
   });
 });
 
-describe("authenticated identity tenant budget plumbing", () => {
-  it("charges both identity calls to the trusted tenant and isolates another tenant for the same user", async () => {
-    const identity = await request(app).post("/api/ai/analyze-identity").send(body);
-    expect(identity.status).toBe(200);
-    expect(identity.body.recommendedEngine.industry).toBe("technology_saas");
+describe("authenticated engine tenant budget plumbing", () => {
+  it("charges calls to the trusted tenant and isolates another tenant for the same user", async () => {
+    expect((await request(app).post("/api/ai/select-engine").send(body)).status).toBe(200);
+    expect((await request(app).post("/api/ai/select-engine").send(body)).status).toBe(200);
     expect(network).toHaveBeenCalledTimes(2);
 
     const denied = await request(app).post("/api/ai/select-engine").send({ ...body, scope: { tenantId: "another-forgery" } });
@@ -264,18 +190,14 @@ describe("authenticated identity tenant budget plumbing", () => {
     expect(network).toHaveBeenCalledTimes(3);
   });
 
-  it("does not mask identity budget exhaustion as fallback success", async () => {
-    vi.stubEnv("AI_TENANT_REQUEST_BUDGET", "1");
-    const denied = await request(app).post("/api/ai/analyze-identity").send(body);
-    expect(denied.status).toBe(429);
-    expect(denied.body.code).toBe("ai_budget");
-    expect(denied.headers["retry-after"]).toBeDefined();
-    expect(network).toHaveBeenCalledTimes(1);
+  it("never starts an unauthenticated provider call", async () => {
+    context.authenticated = false;
+    expect((await request(app).post("/api/ai/select-engine").send(body)).status).toBe(401);
+    expect(network).not.toHaveBeenCalled();
   });
 
-  it.each(["analyze-identity", "select-engine"])("never starts an unauthenticated %s provider call", async endpoint => {
-    context.authenticated = false;
-    expect((await request(app).post(`/api/ai/${endpoint}`).send(body)).status).toBe(401);
+  it("no longer serves the retired analyze-identity endpoint", async () => {
+    expect((await request(app).post("/api/ai/analyze-identity").send(body)).status).toBe(404);
     expect(network).not.toHaveBeenCalled();
   });
 });
