@@ -93,12 +93,23 @@ describe("Claude-primary provider contract", () => {
     expect(await ai.generateText("article")).toBe("Post");
   });
 
-  it.each([400, 401, 402, 403, 404, 408, 413, 422, 429, 500, 504, 529])("never retries HTTP %s by default or leaks provider bodies", async status => {
+  it.each([400, 401, 402, 403, 404, 408, 413, 422, 429, 504])("never retries HTTP %s by default or leaks provider bodies", async status => {
     http.mockResolvedValue(errorResponse(status));
     const result = await ai.generateText("article").catch(ai.getAIErrorResponse);
     expect(result).toHaveProperty("body.code");
     expect(JSON.stringify(result)).not.toContain("private-provider-details");
     expect(http).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([500, 529])("retries transient HTTP %s exactly once without leaking provider bodies", async status => {
+    vi.useFakeTimers();
+    http.mockResolvedValue(errorResponse(status));
+    const pending = ai.generateText("article").catch(ai.getAIErrorResponse);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const result = await pending;
+    expect(result).toMatchObject({ body: { code: "ai_unavailable" } });
+    expect(JSON.stringify(result)).not.toContain("private-provider-details");
+    expect(http).toHaveBeenCalledTimes(2);
   });
 
   it("honors transient Retry-After without claiming quota exhaustion", async () => {
@@ -154,25 +165,43 @@ describe("Claude-primary provider contract", () => {
     expect(http).toHaveBeenCalledTimes(1);
   });
 
-  it.each([401, 402, 429, 500, 529])("uses exactly one explicit fallback for HTTP %s", async status => {
+  it.each([401, 402, 429])("uses exactly one explicit fallback for HTTP %s", async status => {
     vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
     http.mockResolvedValueOnce(errorResponse(status)).mockResolvedValueOnce(legacy());
     expect(await ai.generateTextWithMetadata("article")).toEqual({ text: "Fallback post", provider: "openrouter", model: "legacy-model", usage: { inputTokens: 20, outputTokens: 8 }, fallbackUsed: true });
     expect(http).toHaveBeenCalledTimes(2);
   });
 
+  it.each([500, 529])("retries transient HTTP %s once, then uses exactly one explicit fallback", async status => {
+    vi.useFakeTimers();
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
+    http.mockResolvedValueOnce(errorResponse(status)).mockResolvedValueOnce(errorResponse(status)).mockResolvedValueOnce(legacy());
+    const pending = ai.generateTextWithMetadata("article");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await pending).toEqual({ text: "Fallback post", provider: "openrouter", model: "legacy-model", usage: { inputTokens: 20, outputTokens: 8 }, fallbackUsed: true });
+    expect(http).toHaveBeenCalledTimes(3);
+  });
+
   it("does not recursively fall back if both providers fail", async () => {
+    vi.useFakeTimers();
     vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
     http.mockImplementation(() => errorResponse(500));
-    await expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_unavailable" });
-    expect(http).toHaveBeenCalledTimes(2);
+    const settled = expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_unavailable" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await settled;
+    // One transient retry of the primary, then a single fallback call.
+    expect(http).toHaveBeenCalledTimes(3);
   });
 
   it("does not retry a provider via its alias", async () => {
+    vi.useFakeTimers();
     vi.stubEnv("AI_FALLBACK_PROVIDER", "claude");
     http.mockResolvedValue(errorResponse(500));
-    await expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_unavailable" });
-    expect(http).toHaveBeenCalledTimes(1);
+    const settled = expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_unavailable" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await settled;
+    // Only the transient retry: the alias never becomes a second "fallback" call.
+    expect(http).toHaveBeenCalledTimes(2);
   });
 
   it("fails closed for unknown provider or missing credentials", async () => {
@@ -255,7 +284,7 @@ describe("Claude-primary provider contract", () => {
   it("falls back to Claude only when explicitly configured from a legacy provider", async () => {
     vi.stubEnv("AI_PROVIDER", "openrouter");
     vi.stubEnv("AI_FALLBACK_PROVIDER", "claude");
-    http.mockResolvedValueOnce(errorResponse(500)).mockResolvedValueOnce(message());
+    http.mockResolvedValueOnce(errorResponse(401)).mockResolvedValueOnce(message());
     expect(await ai.generateTextWithMetadata("article")).toMatchObject({ provider: "anthropic", fallbackUsed: true });
     expect(http).toHaveBeenCalledTimes(2);
   });
@@ -283,5 +312,63 @@ describe("Claude-primary provider contract", () => {
     http.mockResolvedValue(message());
     await ai.generateText("article");
     expect(log).not.toHaveBeenCalled();
+  });
+});
+describe("transient provider failures (Gemini primary, as in production)", () => {
+  const gemini = () => json({ modelVersion: "gemini-test-model", usageMetadata: { promptTokenCount: 9, candidatesTokenCount: 4 }, candidates: [{ finishReason: "STOP", content: { parts: [{ text: "Gemini post" }] } }] });
+  const geminiCalls = () => http.mock.calls.filter(([url]) => String(url).includes("generativelanguage.googleapis.com")).length;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubEnv("AI_PROVIDER", "gemini");
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
+    vi.stubEnv("GEMINI_MODEL", "gemini-test-model");
+    vi.stubEnv("OPENROUTER_MODEL", "router-test-model");
+  });
+
+  it.each([500, 503])("retries the primary once after HTTP %s before any fallback", async status => {
+    http.mockResolvedValueOnce(errorResponse(status)).mockResolvedValueOnce(gemini());
+    const pending = ai.generateTextWithMetadata("article");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await pending).toMatchObject({ text: "Gemini post", provider: "gemini", fallbackUsed: false });
+    expect(geminiCalls()).toBe(2);
+    expect(http).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports the primary's failure, not an unfunded fallback's quota error", async () => {
+    http.mockResolvedValueOnce(errorResponse(503)).mockResolvedValueOnce(errorResponse(503)).mockResolvedValueOnce(errorResponse(402));
+    const settled = expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_unavailable" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await settled;
+    expect(geminiCalls()).toBe(2);
+    expect(http).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([401, 402, 429])("does not retry the primary after HTTP %s", async status => {
+    http.mockResolvedValueOnce(errorResponse(status)).mockResolvedValueOnce(legacy());
+    expect(await ai.generateTextWithMetadata("article")).toMatchObject({ provider: "openrouter", fallbackUsed: true });
+    expect(geminiCalls()).toBe(1);
+  });
+
+  it("does not retry after the shared deadline", async () => {
+    http.mockImplementation((_url, options) => new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason))));
+    const settled = expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_timeout" });
+    await vi.advanceTimersByTimeAsync(ai.AI_REQUEST_TIMEOUT_MS + 1_000);
+    await settled;
+    expect(geminiCalls()).toBe(1);
+  });
+
+  it("logs every provider failure with allowlisted metadata only", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    http.mockResolvedValueOnce(errorResponse(503)).mockResolvedValueOnce(errorResponse(503)).mockResolvedValueOnce(errorResponse(402));
+    const settled = expect(ai.generateText("article")).rejects.toBeDefined();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await settled;
+    const failures = warn.mock.calls.filter(([tag]) => tag === "[ai-provider-failure]").map(([, body]) => JSON.parse(body));
+    expect(failures).toEqual([
+      { provider: "gemini", model: "gemini-test-model", code: "ai_unavailable", status: 503, retryAfterSeconds: null },
+      { provider: "gemini", model: "gemini-test-model", code: "ai_unavailable", status: 503, retryAfterSeconds: null },
+      { provider: "openrouter", model: "router-test-model", code: "ai_quota", status: 402, retryAfterSeconds: 60 },
+    ]);
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/private-provider-details|unit-test-only|article/);
   });
 });

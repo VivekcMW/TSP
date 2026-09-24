@@ -7,7 +7,9 @@ export const key = (value: string) => value.trim().toLowerCase();
 export const short = (value: string) => value.replace(/\s+/g, " ").trim().slice(0, 80);
 
 export async function askJson<S extends z.ZodTypeAny>(prompt: string, schema: S, scope: { tenantId: string }, signal?: AbortSignal): Promise<z.infer<S>> {
-  const text = await generateText(prompt, { scope, signal, timeoutMs: 12_000, maxTokens: 1500 });
+  // The people call alone takes 7–10 s; 20 s leaves room for one transient-5xx retry.
+  // Each route's own budget (and the caller's signal) still bounds the whole request.
+  const text = await generateText(prompt, { scope, signal, timeoutMs: 20_000, maxTokens: 1500 });
   const unfenced = /^```(?:json)?[ \t]*\n([\s\S]*?)\n?```$/.exec(text.trim())?.[1] ?? text;
   let output: unknown;
   try { output = JSON.parse(unfenced); } catch { throw new AIGenerationError("ai_invalid_output"); }

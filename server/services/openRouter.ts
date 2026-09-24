@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import Anthropic from "@anthropic-ai/sdk";
 import { acquireAILease, AIProviderLimitError, type AILease } from "./aiProviderLimiter";
-import { logAIInvalidOutputDiagnostic, type AIDiagnosticInput } from "./aiDiagnostics";
+import { logAIInvalidOutputDiagnostic, logAIProviderFailure, type AIDiagnosticInput } from "./aiDiagnostics";
 
 const DEFAULT_OPENROUTER_MODEL = "openai/gpt-4o-mini";
 const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
@@ -45,7 +45,8 @@ const FAILURE_DETAILS = {
 } as const;
 
 export class AIGenerationError extends Error {
-  constructor(public readonly code: keyof typeof FAILURE_DETAILS, public readonly retryAfterSeconds?: number) {
+  /** providerStatus is the upstream HTTP status, for diagnostics only; it never reaches clients. */
+  constructor(public readonly code: keyof typeof FAILURE_DETAILS, public readonly retryAfterSeconds?: number, public readonly providerStatus?: number) {
     super(FAILURE_DETAILS[code].message);
     this.name = "AIGenerationError";
   }
@@ -90,15 +91,16 @@ let activeRequests = 0;
 const cooldowns = new Map<AIProvider, { until: number; code: "ai_configuration" | "ai_quota" | "ai_rate_limit" }>();
 
 function providerFailure(status: unknown, retryAfter?: string | null): AIGenerationError {
+  const upstream = typeof status === "number" ? status : undefined;
   if (status === 429 || status === 402) {
     let seconds = 60;
     if (retryAfter) seconds = /^\d+$/.test(retryAfter) ? Number(retryAfter) : (Date.parse(retryAfter) - Date.now()) / 1000;
-    return new AIGenerationError("ai_quota", Math.max(60, Math.min(3600, Math.ceil(seconds) || 60)));
+    return new AIGenerationError("ai_quota", Math.max(60, Math.min(3600, Math.ceil(seconds) || 60)), upstream);
   }
-  if (status === 400 || status === 413 || status === 422) return new AIGenerationError("ai_invalid_input");
-  if (status === 401 || status === 403 || status === 404) return new AIGenerationError("ai_configuration", 60);
-  if (status === 408 || status === 504) return new AIGenerationError("ai_timeout");
-  return new AIGenerationError("ai_unavailable");
+  if (status === 400 || status === 413 || status === 422) return new AIGenerationError("ai_invalid_input", undefined, upstream);
+  if (status === 401 || status === 403 || status === 404) return new AIGenerationError("ai_configuration", 60, upstream);
+  if (status === 408 || status === 504) return new AIGenerationError("ai_timeout", undefined, upstream);
+  return new AIGenerationError("ai_unavailable", undefined, upstream);
 }
 
 function normalizeFailure(error: unknown, signal: AbortSignal): AIGenerationError {
@@ -372,10 +374,39 @@ async function attempt(provider: AIProvider, prompt: string, options: Generation
   } catch (error) {
     const failure = normalizeFailure(error, signal);
     if (failure.code === "ai_invalid_output" && !signal.aborted) logAIInvalidOutputDiagnostic(diagnostic);
+    else if (failure.code !== "ai_cancelled" && !signal.aborted) {
+      const status = typeof error === "object" && error !== null && "status" in error ? error.status : failure.providerStatus;
+      logAIProviderFailure({ provider, model: diagnostic.model, code: failure.code, status, retryAfterSeconds: failure.retryAfterSeconds });
+    }
     if (failure.code === "ai_quota" || failure.code === "ai_configuration" || failure.code === "ai_rate_limit") {
       cooldowns.set(provider, { code: failure.code, until: Date.now() + (failure.retryAfterSeconds ?? 60) * 1000 });
     }
     throw failure;
+  }
+}
+
+// Gemini's 503 "overloaded" (and other transient 5xx/network failures) usually clears
+// within a second, so the configured provider gets one short retry before any fallback.
+// Quota, auth, rate-limit, timeout and invalid responses are never retried here.
+const TRANSIENT_RETRY_DELAY_MS = 1_000;
+
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const stop = () => { clearTimeout(timer); reject(cancellationFailure(signal)); };
+    const timer = setTimeout(() => { signal.removeEventListener("abort", stop); resolve(); }, ms);
+    signal.addEventListener("abort", stop, { once: true });
+  });
+}
+
+async function attemptWithTransientRetry(provider: AIProvider, prompt: string, options: GenerationOptions): Promise<ProviderResult> {
+  try {
+    return await attempt(provider, prompt, options);
+  } catch (error) {
+    const signal = options.signal!;
+    const failure = normalizeFailure(error, signal);
+    if (failure.code !== "ai_unavailable" || signal.aborted) throw failure;
+    await abortableDelay(TRANSIENT_RETRY_DELAY_MS, signal);
+    return attempt(provider, prompt, options);
   }
 }
 
@@ -406,14 +437,21 @@ export async function generateTextWithMetadata(prompt: string, options: Generati
     try {
       const requestOptions = { ...options, signal: controller.signal };
       try {
-        return { ...await attempt(provider, prompt, requestOptions), provider, fallbackUsed: false };
+        return { ...await attemptWithTransientRetry(provider, prompt, requestOptions), provider, fallbackUsed: false };
       } catch (error) {
         const failure = normalizeFailure(error, controller.signal);
         // At most one explicit fallback. No invalid input/output, refusals,
         // cancellation, or admission/budget failures may trigger another provider.
         if (controller.signal.aborted || !fallback || fallback === provider ||
           !["ai_configuration", "ai_quota", "ai_rate_limit", "ai_unavailable", "ai_timeout"].includes(failure.code)) throw failure;
-        return { ...await attempt(fallback, prompt, requestOptions), provider: fallback, fallbackUsed: true };
+        try {
+          return { ...await attempt(fallback, prompt, requestOptions), provider: fallback, fallbackUsed: true };
+        } catch (fallbackError) {
+          // The configured provider's failure is the real one: an unhealthy fallback
+          // (e.g. unfunded) must not turn a brief outage into "quota exhausted".
+          if (controller.signal.aborted) throw normalizeFailure(fallbackError, controller.signal);
+          throw failure;
+        }
       }
     } finally {
       release();

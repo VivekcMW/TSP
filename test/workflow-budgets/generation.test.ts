@@ -57,15 +57,19 @@ it("accounts for all 16 writer calls plus exactly one repair each through the re
 });
 
 it("counts failed primary transports as well as fallback and repair calls, without inventing their token usage", async () => {
-  mode = "repair-fallback";
+  mode = "repair-fallback"; vi.useFakeTimers();
   vi.stubEnv("AI_FALLBACK_PROVIDER", "openai");
   vi.stubEnv("OPENAI_API_KEY", "mock-only-not-a-credential");
-  const result = await brain.generatePlatformReviewsDetailed(article, platforms);
-  expect(calls).toBe(64); expect(peak).toBe(2);
-  expect(requestedOutputTokens).toBe(64 * 2048);
+  const pending = brain.generatePlatformReviewsDetailed(article, platforms);
+  // Each 503 gets one 1 s transient retry of the primary before the fallback.
+  await vi.advanceTimersByTimeAsync(30_000);
+  const result = await pending;
+  // 32 writer calls (16 posts + one repair each) x (primary + transient retry + fallback).
+  expect(calls).toBe(96); expect(peak).toBe(2);
+  expect(requestedOutputTokens).toBe(96 * 2048);
   expect(result.fallbackUsed).toBe(true);
   expect(result.usage.outputTokens).toBe(224);
-  report("generation-repair-with-fallback", { posts: 16, failedPrimaryCalls: 32,
+  report("generation-repair-with-fallback", { posts: 16, failedPrimaryCalls: 64,
     failedPrimaryUsage: null, aggregateUsage: result.usage });
 });
 

@@ -142,7 +142,13 @@ describe("provider invalid-output diagnostics", () => {
       .mockResolvedValueOnce(anthropic({ stop_reason: "model_context_window_exceeded" })).mockResolvedValueOnce(json({ error: secret }, 429));
     await expect(ai.generateText(secret)).resolves.toBe(secret);
     for (const code of ["ai_refusal", "ai_invalid_input", "ai_rate_limit"]) await expect(ai.generateText(secret)).rejects.toMatchObject({ code });
-    expect(warn).not.toHaveBeenCalled();
+    const lines = warn.mock.calls as unknown as Array<[string, string]>;
+    expect(lines.filter(([tag]) => tag === "[ai-diagnostic]")).toEqual([]);
+    // Failed provider calls get their own metadata-only line; never the prompt or provider body.
+    expect(lines.map(([tag, body]) => [tag, JSON.parse(body).code])).toEqual([
+      ["[ai-provider-failure]", "ai_refusal"], ["[ai-provider-failure]", "ai_invalid_input"], ["[ai-provider-failure]", "ai_rate_limit"],
+    ]);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
   });
 
   it("does not log an invalid response arriving after cancellation", async () => {

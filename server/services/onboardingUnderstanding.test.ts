@@ -36,6 +36,12 @@ describe("understanding the user's focus", () => {
     expect(generateText.mock.calls[0][0]).toContain('"answer":"India"');
   });
 
+  it("gives each onboarding AI call room for one transient provider retry (20 s, inside the 25 s suggestion budget)", async () => {
+    reply({ role: "Marketer", industry: "Advertising", focusAreas: ["DOOH"], region: "India", audience: null, question: null });
+    await understandFocus({ focusDescription: focus }, scope);
+    expect(generateText.mock.calls[0][1]).toMatchObject({ timeoutMs: 20_000 });
+  });
+
   it("treats a reply with no usable summary as invalid output", async () => {
     reply({ role: "", industry: " ", focusAreas: [], question: null });
     await expect(understandFocus({ focusDescription: focus }, scope)).rejects.toMatchObject({ code: "ai_invalid_output" });
