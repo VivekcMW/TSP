@@ -282,7 +282,8 @@ describe("real inbox refresh relevance parity", () => {
       interests: profile({ keywords: [{ keyword: "AI", weight: 1 }, { keyword: "Cloud", weight: 0.1 }, { keyword: "Sports", weight: 0 }], companies: ["Meta"], influencers: ["Ada Lovelace"] }),
       fetched: reverse ? [...fetched].reverse() : fetched, processed: 6, matched: 4,
       expected: [
-        expectedWrite(full, 0.7143, ["Ada Lovelace", "AI", "Cloud", "Meta"], 'Matched article text: influencer "Ada Lovelace"; keyword "AI"; keyword "Cloud"; company "Meta".'),
+        // Meta and Ada Lovelace appear only in the body (headline "Report full"): half weight each.
+        expectedWrite(full, 0.6429, ["Ada Lovelace", "AI", "Cloud", "Meta"], 'Matched article text: influencer "Ada Lovelace"; keyword "AI"; keyword "Cloud"; company "Meta".'),
         expectedWrite(a, 0.5, ["AI"], 'Matched article text: keyword "AI".'),
         expectedWrite(z, 0.5, ["AI"], 'Matched article text: keyword "AI".'),
         expectedWrite(low, 0.0909, ["Cloud"], 'Matched article text: keyword "Cloud".'),

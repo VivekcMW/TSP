@@ -12,7 +12,8 @@ export interface TextEvidence {
   label: string;
   type: "keyword" | "company" | "influencer" | "focus";
   weight: number;
-  matchKind: "exact" | "alias" | "focus";
+  /** "words": a multi-word topic matched by its specific words, not the exact phrase. */
+  matchKind: "exact" | "alias" | "focus" | "words";
   matchedSurface: string;
   field: "title" | "content";
   /** UTF-16 offsets into the original bounded field, not normalized text. */

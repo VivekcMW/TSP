@@ -27,6 +27,28 @@ export interface ArticleRelevance {
   evidence: RelevanceEvidence[];
 }
 
+/** Words that carry no topic meaning. */
+const STOPWORDS = new Set(["a", "an", "and", "or", "the", "of", "for", "in", "on", "to", "with", "by", "at", "from", "vs", "via", "into", "about"]);
+/** Qualifiers that narrow a topic but seldom appear in a headline about it (singular forms). */
+const GENERIC_TOPIC_WORDS = new Set(["growth", "trend", "market", "industry", "strategy", "metric", "standard", "insight", "new", "update",
+  "advertising", "marketing", "digital", "media", "business", "global", "future", "innovation", "management", "leadership",
+  "india", "us", "uk", "asia", "apac", "europe", "world", "landscape", "outlook", "opportunity", "challenge", "role", "impact"]);
+/** A topic matched by its words is weaker evidence than the exact phrase. */
+const WORD_MATCH_FACTOR = 0.85;
+/** A company or person named only outside the headline is usually a passing mention. */
+const NAME_OUTSIDE_HEADLINE_FACTOR = 0.5;
+/** Stock-market coverage that matched only a company or person ranks below topic stories. */
+const MARKET_NOISE_FACTOR = 0.5;
+const MARKET_TICKER = /\((?:(?:NASDAQ|NYSE|NSE|BSE|LSE|TSX|ASX|OTC)\s*:\s*)?[A-Z]{2,5}(?:\.[A-Z]{1,2})?\)/;
+const MARKET_WORDING = new RegExp([
+  String.raw`\b(?:stocks?|share price|price target|undervalued|overvalued|dividends?|market cap|52-week|nasdaq|nyse|sensex|nifty|shareholders?)\b`,
+  String.raw`\bshares (?:rose|rise|rises|fell|fall|falls|jump|jumps|jumped|drop|drops|dropped|surge|surges|surged|slide|slides|slid|gain|gains|gained|climb|climbs|climbed|hit|hits|trade|traded|tumble|tumbled|plunge|plunged|soar|soared)\b`,
+  String.raw`\b(?:q[1-4] )?earnings (?:call|report|beat|miss|season|results?)\b`,
+  String.raw`\banalysts? (?:upgrade|downgrade|rating)s?\b`,
+  String.raw`\b(?:falls?|drops?|jumps?|rises?|surges?|slides?|plunges?|soars?|gains?|climbs?|tumbles?|sinks?|rall(?:y|ies))\s+\d+(?:\.\d+)?\s?%`,
+].join("|"), "i");
+const looksLikeMarketCoverage = (title: string) => MARKET_TICKER.test(title) || MARKET_WORDING.test(title);
+
 const normalizeText = (text: string) => text.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();
 const normalizeLabel = (text: string) => text.normalize("NFKC").replace(/\s+/gu, " ").trim();
 
@@ -38,6 +60,23 @@ function boundedText(text: string, limit: number): string {
   }
   return normalizeText(text.slice(0, end));
 }
+
+function stem(word: string): string {
+  if (word.length > 4 && word.endsWith("ies")) return `${word.slice(0, -3)}y`;
+  if (word.length > 3 && word.endsWith("s") && !/(?:ss|us|is)$/.test(word)) return word.slice(0, -1);
+  return word;
+}
+
+/** Normalized words with UTF-16 spans into the original bounded field. */
+function fieldWords(text: string, limit: number): Array<{ word: string; start: number; end: number }> {
+  let end = Math.min(text.length, limit);
+  if (text.length > limit) while (end > 0 && !/\s/u.test(text[end - 1])) end--;
+  return [...text.slice(0, end).matchAll(/[\p{L}\p{N}]+/gu)]
+    .map(match => ({ word: stem(match[0].normalize("NFKC").toLowerCase()), start: match.index, end: match.index + match[0].length }));
+}
+
+const topicWords = (label: string) => [...new Set((label.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+  .map(stem).filter(word => !STOPWORDS.has(word)))];
 
 function noMatch(relevanceReason: string): ArticleRelevance {
   return { relevanceScore: 0, matchedKeywords: [], relevanceReason, evidence: [] };
@@ -74,8 +113,9 @@ function collectSignals(profile: RelevanceProfile): Map<string, Signal> {
 }
 
 /**
- * Pure lexical evidence, not a confidence estimate. Match only complete phrases
- * in title OR body (never metadata, and never a phrase bridging the two fields).
+ * Pure lexical evidence, not a confidence estimate. Match complete phrases in title
+ * OR body (never metadata, and never a phrase bridging the two fields). In the default
+ * mode a multi-word topic may also match by its specific words (weaker evidence).
  * Shared normalization preserves zero/category and first-seen keyword metadata.
  * Across types, the first positive term wins: keyword, company, influencer.
  * Invalid/oversized signal input fails closed, including source-only selection.
@@ -120,6 +160,24 @@ export function scoreArticleRelevance(
       if (span) return { field, span, matchedSurface: text.slice(span.start, span.end) };
     }
   };
+  const hasTitle = Boolean(normalizeText(article.title.slice(0, RELEVANCE_LIMITS.title)));
+  let words: { title: ReturnType<typeof fieldWords>; content: ReturnType<typeof fieldWords> } | undefined;
+  /** A multi-word topic whose specific words appear: two or more words, one in the headline. */
+  const locateWords = (label: string) => {
+    const tokens = topicWords(label);
+    if (tokens.length < 2) return undefined;
+    words ??= { title: fieldWords(article.title, RELEVANCE_LIMITS.title), content: fieldWords(article.content, RELEVANCE_LIMITS.content) };
+    const present = new Set([...words.title, ...words.content].map(entry => entry.word));
+    const found = tokens.filter(token => present.has(token));
+    const specific = tokens.filter(token => !GENERIC_TOPIC_WORDS.has(token));
+    if (found.length < 2 || !(specific.length ? specific : tokens).every(token => found.includes(token))) return undefined;
+    const inTitle = words.title.find(entry => found.includes(entry.word));
+    if (hasTitle && !inTitle) return undefined;
+    const field = inTitle ? "title" as const : "content" as const;
+    const anchor = inTitle ?? words.content.find(entry => found.includes(entry.word))!;
+    const source = field === "title" ? article.title : article.content;
+    return { field, span: { start: anchor.start, end: anchor.end }, matchedSurface: source.slice(anchor.start, anchor.end) };
+  };
   const usedConcepts = new Set<string>();
   let evidence: TextEvidence[] = [...signals.entries()]
     .sort(([a, left], [b, right]) => {
@@ -143,9 +201,15 @@ export function scoreArticleRelevance(
           if (match) { matchKind = signal.type === "focus" ? "focus" : "alias"; break; }
         }
       }
+      let weight = signal.weight;
+      if (!match && expanded && signal.type === "keyword") {
+        match = locateWords(signal.label);
+        if (match) { matchKind = "words"; weight = signal.weight * WORD_MATCH_FACTOR; }
+      }
       if (!match) return [];
       if (concept) usedConcepts.add(concept.id);
-      return [{ ...signal, ...match, matchKind, ...(concept ? { concept: concept.id } : {}) }];
+      if ((signal.type === "company" || signal.type === "influencer") && hasTitle && match.field === "content") weight = signal.weight * NAME_OUTSIDE_HEADLINE_FACTOR;
+      return [{ ...signal, ...match, weight, matchKind, ...(concept ? { concept: concept.id } : {}) }];
     });
   // Focus alone requires two informative domain concepts. No common-word filler.
   if (evidence.length && evidence.every(e => e.type === "focus") && evidence.length < 2) evidence = [];
@@ -157,11 +221,13 @@ export function scoreArticleRelevance(
 
   const sum = evidence.reduce((total, signal) => total + signal.weight, 0);
   const descriptions = evidence.map(signal => `${signal.type} ${JSON.stringify(signal.label)}`);
+  const marketNoise = hasTitle && !evidence.some(e => e.type === "keyword")
+    && evidence.some(e => e.type === "company" || e.type === "influencer") && looksLikeMarketCoverage(article.title.slice(0, RELEVANCE_LIMITS.title));
   return {
     // Positive evidence must survive quantization, even at tiny valid weights.
-    relevanceScore: Math.max(0.0001, Math.round((sum / (1 + sum)) * 10_000) / 10_000),
+    relevanceScore: Math.max(0.0001, Math.round((sum / (1 + sum)) * (marketNoise ? MARKET_NOISE_FACTOR : 1) * 10_000) / 10_000),
     matchedKeywords: evidence.map(signal => signal.label),
-    relevanceReason: `Matched article text: ${descriptions.join("; ")}.`,
+    relevanceReason: `Matched article text: ${descriptions.join("; ")}.${marketNoise ? " Ranked lower: stock-market coverage that matched only a company or person." : ""}`,
     evidence,
   };
 }

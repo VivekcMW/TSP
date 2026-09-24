@@ -71,11 +71,19 @@ describe("deterministic lexical relevance", () => {
     [".NET", "Try (.NET), today.", true], [".NET", "ASP.NET .NETCore", false],
     ["C#", "C# and F#", true], ["a.b", "aXb", false], ["[AI]", "Use [AI].", true],
   ])("matches full Unicode/punctuation phrases: %s in %s -> %s", (keyword, content, matches) => {
-    expect(score(content, { keywords: [keyword] }).relevanceScore > 0).toBe(matches);
+    expect(scoreArticleRelevance(article(content), { keywords: [keyword] }, { mode: "exact" }).relevanceScore > 0).toBe(matches);
   });
 
   it("does not manufacture a phrase by joining title and content", () => {
-    expect(scoreArticleRelevance(article("learning", { title: "machine" }), { keywords: ["machine learning"] }).relevanceScore).toBe(0);
+    expect(scoreArticleRelevance(article("learning", { title: "machine" }), { keywords: ["machine learning"] }, { mode: "exact" }).relevanceScore).toBe(0);
+  });
+
+  it("lets the default mode match a multi-word topic by its words, never as the exact phrase", () => {
+    for (const [content, title] of [["machine advanced learning", ""], ["learning machine", ""], ["learning", "machine"]]) {
+      const result = scoreArticleRelevance(article(content, { title }), { keywords: ["machine learning"] });
+      expect(result.evidence).toEqual([expect.objectContaining({ label: "machine learning", matchKind: "words" })]);
+    }
+    expect(score("machine vision", { keywords: ["machine learning"] }).relevanceScore).toBe(0);
   });
 
   it("considers full content beyond 500 characters and title-only evidence", () => {
@@ -142,5 +150,67 @@ describe("source-only selection", () => {
 
   it("rejects empty provenance identifiers", () => {
     expect(scoreArticleRelevance(article("", { userSourceProvenance: { kind: "active-user-source", sourceId: " " } }), {}).relevanceScore).toBe(0);
+  });
+});
+describe("topic words, market noise and name placement (default mode)", () => {
+  const headline = (title: string, content = "") => article(content, { title });
+  const topic = (keyword: string, weight = 0.9) => ({ keywords: [{ keyword, weight }] });
+
+  it("counts a multi-word topic when its specific words appear, below an exact phrase", () => {
+    const words = scoreArticleRelevance(headline("CTV measurement cannot stop at whether an ad was delivered"), topic("CTV Measurement Metrics"));
+    expect(words.matchedKeywords).toEqual(["CTV Measurement Metrics"]);
+    expect(words.evidence[0]).toMatchObject({ type: "keyword", matchKind: "words", field: "title", matchedSurface: "CTV" });
+    expect(words.evidence[0].weight).toBeCloseTo(0.9 * 0.85, 6);
+    const exact = scoreArticleRelevance(headline("CTV measurement metrics explained"), topic("CTV Measurement Metrics"));
+    expect(exact.evidence[0]).toMatchObject({ matchKind: "exact", weight: 0.9 });
+    expect(exact.relevanceScore).toBeGreaterThan(words.relevanceScore);
+  });
+
+  it("ignores plurals and generic qualifiers, but needs every specific word", () => {
+    expect(scoreArticleRelevance(headline("When the CFO reviews the plan, attention metrics aren't enough"), topic("Attention Metric Standards")).matchedKeywords)
+      .toEqual(["Attention Metric Standards"]);
+    expect(scoreArticleRelevance(headline("Retail sales rise in the festive season"), topic("Retail Media Measurement")).relevanceScore).toBe(0);
+  });
+
+  it("needs two words of a multi-word topic, one of them in the headline", () => {
+    expect(scoreArticleRelevance(headline("Brands fight for audience attention"), topic("Attention Metric Standards")).relevanceScore).toBe(0);
+    expect(scoreArticleRelevance(headline("Festive season ad spends", "New CTV measurement currency"), topic("CTV Measurement Metrics")).relevanceScore).toBe(0);
+  });
+
+  it("never word-matches single-word topics, companies or people", () => {
+    expect(scoreArticleRelevance(headline("Rajiv joins the Rajagopal family business"), { influencers: ["Rajiv Rajagopal"] }).relevanceScore).toBe(0);
+    expect(scoreArticleRelevance(headline("Times Group results"), { companies: ["Times Internet"] }).relevanceScore).toBe(0);
+  });
+
+  it.each([
+    "Magnite (MGNI) Stock May Be 11% Undervalued Following Fresh AI Ad News",
+    "Trade Desk Falls 4% as Index-Removal Flows Keep Pressure On; Magnite Drops 3%",
+    "Magnite shares hit a 52-week high after analyst upgrade",
+  ])("halves a company-only match on market coverage: %s", title => {
+    const result = scoreArticleRelevance(headline(title), { companies: ["Magnite"] });
+    expect(result.relevanceScore).toBe(0.2059);
+    expect(result.relevanceReason).toContain("stock-market coverage");
+  });
+
+  it("keeps market coverage at full score when it also matches a topic", () => {
+    const result = scoreArticleRelevance(headline("Magnite shares rise as CTV measurement improves"), { companies: ["Magnite"], ...topic("CTV Measurement Metrics") });
+    expect(result.relevanceReason).not.toContain("stock-market coverage");
+    expect(result.relevanceScore).toBeGreaterThan(0.5);
+  });
+
+  it("gives a name found only outside the headline half weight", () => {
+    const passing = scoreArticleRelevance(headline("IIFA Awards 2027 to stream live worldwide on YouTube", "Zee will broadcast the ceremony."), { companies: ["Zee"] });
+    expect(passing.evidence[0]).toMatchObject({ field: "content", weight: 0.35 });
+    expect(scoreArticleRelevance(headline("Zee signs IIFA streaming deal"), { companies: ["Zee"] }).evidence[0]).toMatchObject({ field: "title", weight: 0.7 });
+    // Without a headline there is nothing to prefer: full weight, as before.
+    expect(score("Zee will broadcast the ceremony.", { companies: ["Zee"] }).evidence[0].weight).toBe(0.7);
+  });
+
+  it("ranks a topic story above company noise from the same search", () => {
+    const profile = { companies: ["Magnite", "Zee"], keywords: [{ keyword: "CTV Measurement Metrics", weight: 0.9 }] };
+    const topicStory = scoreArticleRelevance(headline("CTV measurement cannot stop at whether an ad was delivered"), profile).relevanceScore;
+    for (const [title, content] of [["Magnite (MGNI) Stock May Be 11% Undervalued", ""], ["IIFA Awards 2027 to stream live on YouTube", "Zee will broadcast it."], ["Magnite promotes Brian Gephart to CFO", ""]]) {
+      expect(topicStory).toBeGreaterThan(scoreArticleRelevance(headline(title, content), profile).relevanceScore);
+    }
   });
 });
