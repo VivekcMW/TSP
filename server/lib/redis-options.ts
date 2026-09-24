@@ -3,7 +3,7 @@ import Redis, { type RedisOptions } from "ioredis";
 /** Blocking/subscriber Bull connections must wait indefinitely; commands must not. */
 export function redisOptions(blocking = false): RedisOptions {
   return {
-    // More aggressive keepAlive for free-tier Redis providers (e.g. Render)
+    // More aggressive keepAlive for free-tier Redis providers
     // that drop idle connections. TCP keepalive probes every 5s prevent 
     // connection timeout from the provider side.
     keepAlive: 5_000,

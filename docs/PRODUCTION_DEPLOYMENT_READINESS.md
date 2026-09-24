@@ -177,7 +177,7 @@ Breakdown:
 
 ### Queue & Scheduler ✅
 - [ ] Managed Redis provisioned with TLS (Render Key Value or Upstash)
-- [ ] `REDIS_URL` set (or `TSP_REDIS_REDIS_URL` aliased to `REDIS_URL`)
+- [ ] `REDIS_URL` set
 - [ ] `BACKGROUND_JOBS_ENABLED=true`
 - [ ] One scheduler worker with `CRON_SCHEDULER=true`
 - [ ] One or more API instances with `CRON_SCHEDULER` unset

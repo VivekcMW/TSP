@@ -1,4 +1,3 @@
-import "../server/lib/env-aliases";
 import { validateAIConfig } from "../server/lib/ai-config-validation";
 import { databasePoolConfig } from "../server/lib/db-pool-config";
 

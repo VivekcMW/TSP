@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const { authHandler } = vi.hoisted(() => ({ authHandler: vi.fn() }));
 // Import the real boundary without ever loading .env, routes, DB or workers.
 vi.mock("dotenv/config", () => ({}));
-vi.mock("./lib/env-aliases", () => ({}));
 vi.mock("./db", () => ({ pool: { end: vi.fn(), query: vi.fn() } }));
 vi.mock("./lib/redis", () => ({ redis: undefined }));
 vi.mock("./routes", () => ({ registerRoutes: vi.fn() }));

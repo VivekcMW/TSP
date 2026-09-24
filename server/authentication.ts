@@ -7,10 +7,9 @@ import { createAuthRateLimitStorage } from "./lib/proxy-rate-limit";
 
 const baseURL = process.env.BETTER_AUTH_URL ?? process.env.APP_URL ?? "http://localhost:4300";
 const trustedOrigins = [baseURL];
-// baseURL is the backend's own origin (e.g. the Render URL), but in a split
-// frontend/backend deployment the browser's Origin header is the FRONTEND's
-// origin (e.g. the Vercel domain) — better-auth rejects requests from any
-// origin not in this list with a 403 "Invalid origin", independent of the
+// baseURL is the backend's own origin, but when the frontend is served from another
+// origin the browser's Origin header is the FRONTEND's origin — better-auth rejects
+// requests from any origin not in this list with a 403 "Invalid origin", independent of the
 // separate CORS allowlist in index.ts. Mirror that same allowlist here.
 if (process.env.APP_URL) {
   trustedOrigins.push(process.env.APP_URL.replace(/\/$/, ""));

@@ -1,5 +1,4 @@
 import "dotenv/config";
-import "./lib/env-aliases";
 import { initSentry, Sentry } from "./lib/sentry";
 initSentry();
 import express, { type Request, Response, NextFunction } from "express";

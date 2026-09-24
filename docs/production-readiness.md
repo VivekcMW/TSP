@@ -15,9 +15,6 @@ Use this checklist before enabling automated publishing in production.
 ## Queue and scheduler
 
 - [ ] Provision managed Redis and set `REDIS_URL` using TLS where available.
-      Vercel's Upstash-for-Redis marketplace integration injects a prefixed
-      var instead (e.g. `TSP_REDIS_REDIS_URL`) — `server/lib/env-aliases.ts`
-      aliases it to `REDIS_URL` automatically, no manual copy needed.
 - [ ] Set `BACKGROUND_JOBS_ENABLED=true`.
 - [ ] Run exactly one scheduler worker with `CRON_SCHEDULER=true`.
 - [ ] Run one or more API/worker instances with `CRON_SCHEDULER` unset.

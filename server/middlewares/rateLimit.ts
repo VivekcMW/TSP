@@ -13,7 +13,7 @@ function keyByUser(req: Request): string {
 
 // Without REDIS_URL, each rateLimit() falls back to express-rate-limit's own
 // in-memory MemoryStore — fine for single-process local dev, but on a
-// multi-instance deploy (e.g. Vercel) each instance counts independently, so
+// multi-instance deploy (e.g. several Cloud Run instances) each instance counts independently, so
 // the real limit becomes (configured limit) x (instance count). A shared
 // Redis store is what makes these budgets actually enforceable in production.
 function makeStore(prefix: string): Store | undefined {

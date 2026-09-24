@@ -115,8 +115,7 @@ negative controls separately with `node --test test/deployment-smoke/controls.te
   These verify healthy results, 503/error readiness, HTML fallback, unauthorized
   endpoint 200/404, redirects, timeouts, invalid/missing origins and no-opt-in
   skips. All mock traffic is loopback-only; cookies are not reused between checks.
-- **9/9 public checks passed** against the **existing** frontend
-  `https://thesocialpundit.vercel.app` and backend `https://tsp-kr8k.onrender.com`:
+- **9/9 public checks passed** against the previous deployment (since retired):
   direct/proxied health/readiness, sign-in HTML and 401/403 responses for anonymous
   draft/integration access. CLI exit 0, duration 6.4 seconds; output directory
   `/tmp/tsp-release-http-smoke-185d015`. This was not a deployment of this branch.

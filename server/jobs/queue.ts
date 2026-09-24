@@ -130,7 +130,7 @@ export function initializeQueues(): Bull.Queue<InboxRefreshJobData> | undefined 
     // Pass the full connection string (not just host/port) so ioredis picks up
     // auth credentials and TLS (rediss://) from the URL itself — a manually
     // extracted {host, port} object silently drops both, which breaks any
-    // Redis provider that requires a password or TLS (e.g. Render Key Value).
+    // Redis provider that requires a password or TLS (e.g. Redis Cloud).
     const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
     inboxRefreshQueue = new Bull<InboxRefreshJobData>("inbox_refresh", queueOptions(redisUrl));
     publishDraftQueue = new Bull<PublishDraftJobData>("publish_draft", queueOptions(redisUrl));
