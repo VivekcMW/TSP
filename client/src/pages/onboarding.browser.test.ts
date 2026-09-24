@@ -19,6 +19,7 @@ let handlers: Record<Path, (body: Body) => Reply>;
 let calls: Array<{ path: Path; body: Body }>;
 let completionStatus: number;
 let completions: Body[];
+let refreshes: Body[];
 
 const focus = "I build reliable cloud infrastructure.";
 const understanding = { role: "Platform engineer", industry: "Cloud infrastructure", focusAreas: ["Site reliability", "Kubernetes"], region: "India", audience: "Engineering leaders", question: null };
@@ -93,7 +94,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  errors = []; completions = []; calls = [];
+  errors = []; completions = []; calls = []; refreshes = [];
   completionStatus = 200; handlers = { ...defaults };
   context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await context.route("**/*", async (route) => {
@@ -114,6 +115,11 @@ beforeEach(async () => {
       completions.push(route.request().postDataJSON());
       return reply(completionStatus === 200 ? { onboardingCompleted: true } : { message: "Mock save failure" }, completionStatus);
     }
+    if (url.pathname === "/api/inbox/refresh") {
+      refreshes.push(route.request().postDataJSON());
+      return reply({ jobId: "refresh-job", status: "queued" }, 202);
+    }
+    if (url.pathname === "/api/inbox/refresh/refresh-job") return reply({ status: "active", progress: { articlesProcessed: 0, articlesMatched: 0, articlesCreated: 0 } });
     errors.push(`Unexpected request: ${url.pathname}`);
     return reply({ message: "Unmocked request" }, 500);
   });
@@ -293,10 +299,25 @@ describe("setting up manually", () => {
     await browserExpect(page.getByRole("heading", { name: "Your Discover is ready" })).toBeVisible();
     expect(sent("agent")).toEqual([]);
     expect(completions).toEqual([{ focusDescription: focus, publications: [], keywords: [], influencers: [], companies: [] }]);
+    // Nothing to search for yet, so no refresh is started.
+    expect(refreshes).toEqual([]);
   });
 });
 
 describe("finishing", () => {
+  it("starts the first Discover refresh once the setup is saved, not before", async () => {
+    await start(); await buildSetup();
+    completionStatus = 500;
+    await chip("Finish setup").click();
+    await browserExpect(page.getByText("Something went wrong", { exact: true })).toBeVisible();
+    expect(refreshes).toEqual([]);
+    completionStatus = 200;
+    await chip("Finish setup").click();
+    await browserExpect(page.getByRole("heading", { name: "Your Discover is ready" })).toBeVisible();
+    await browserExpect.poll(() => refreshes.length).toBe(1);
+    expect(refreshes[0]).toMatchObject({ autoRefresh: false });
+  });
+
   it("saves URLs and weights, shows today's headlines, and Write a post opens Create with the story", async () => {
     await start(); await buildSetup();
     await section("Topics").getByRole("button", { name: "Select topic Chaos engineering", exact: true }).click();

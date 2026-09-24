@@ -170,12 +170,15 @@ export default function DashboardPage() {
           <div className="p-6">
             <DashboardEmptyState
               icon={Inbox}
-              title={filter === "all" && needsSetup ? "Tell us what you're interested in" : "No articles yet"}
+              title={filter === "all" && needsSetup ? "Tell us what you're interested in"
+                : filter === "all" && refreshInbox.isLoading ? "Finding your stories" : "No articles yet"}
               description={
                 filter === "all"
                   ? needsSetup
                     ? "Discover is 100% driven by your own interests — add keywords, companies, influencers, or a custom source in your profile, then refresh."
-                    : "Click 'Refresh Articles' to search for content based on your keywords, companies, influencers, and sources."
+                    : refreshInbox.isLoading
+                      ? "Searching your sources and topics now. New stories appear here in about a minute."
+                      : "Click 'Refresh Articles' to search for content based on your keywords, companies, influencers, and sources."
                   : `No ${filter} articles found.`
               }
               action={

@@ -39,6 +39,7 @@ beforeAll(async () => {
         let body;
         if (url === "/api/inbox?status=active") body = window.__records.filter(item => item.status === "active").slice(0, 500);
         else if (url === "/api/inbox") body = window.__records.slice(0, 500);
+        else if (window.__refreshJob && String(url) === "/api/inbox/refresh/" + window.__refreshJob.jobId) body = window.__refreshJob;
         else if (url === "/api/trends") {
           if (window.__trendError) return new Response("Unavailable", { status: 503 });
           body = window.__trends || [];
@@ -54,6 +55,7 @@ beforeAll(async () => {
         "/api/drafts/scheduled": { items: [] }, "/api/me": { firstName: "Reader" },
         "/api/profile": { enabledPlatforms: ["linkedin"], defaultPlatform: "linkedin" }, "/api/integrations": [] };
       for (const [key, value] of Object.entries(data)) queryClient.setQueryData([key], value);
+      if (window.__refreshJob) queryClient.setQueryData(["inbox-refresh-job"], window.__refreshJob);
       window.__cachedInbox = () => queryClient.getQueryData(["/api/inbox"]);
       createRoot(document.getElementById("root")).render(
         <QueryClientProvider client={queryClient}><CreatePostProvider>
@@ -150,6 +152,13 @@ describe("legacy inbox quality UI", () => {
     await page.getByTestId("button-filter-dismissed").click();
     await browserExpect(page.getByText("littleblackbook.com", { exact: true }).first()).toBeVisible();
     await expectUnchanged();
+  });
+
+  it("says it is finding stories, not 'click Refresh', while the first refresh runs", async () => {
+    await mount("discover", [], { __refreshJob: { status: "active", jobId: "first-refresh", startedAt: Date.now(), progress: { articlesProcessed: 12, articlesMatched: 3, articlesCreated: 0 } } });
+    await browserExpect(page.getByRole("heading", { name: "Finding your stories" })).toBeVisible();
+    await browserExpect(page.getByRole("heading", { name: "No articles yet" })).toHaveCount(0);
+    await browserExpect(page.getByText("Click 'Refresh Articles'", { exact: false })).toHaveCount(0);
   });
 
   it("keeps a legacy-only active inbox visible with save and dismiss actions", async () => {
