@@ -248,13 +248,31 @@ describe("the agent builds your setup", () => {
     };
     await open();
     await page.getByRole("button", { name: "Build my setup", exact: true }).click();
-    await browserExpect(page.getByRole("alert")).toContainText("The agent couldn't finish this step.");
+    await browserExpect(page.getByRole("alert")).toContainText("The AI service didn't respond. Add your own below or try again.");
     await browserExpect(page.getByLabel("Source name")).toBeVisible();
     await page.getByRole("button", { name: "Try again", exact: true }).click();
     await browserExpect(chip("Remove source Cloud Weekly")).toHaveAttribute("aria-pressed", "true");
     expect(sent("agent")[1]).toMatchObject({ steps: ["publications"] });
     await page.getByTestId("button-continue").click();
     await browserExpect(chip("Remove topic Incident response")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("says when the AI service is busy and tries later failed steps again together", async () => {
+    let first = true;
+    handlers.agent = body => {
+      if (!first) return defaults.agent(body);
+      first = false;
+      return { raw: sse([{ type: "result", ...sources },
+        { type: "error", step: "topics", code: "ai_quota", retryAfterSeconds: 60 }, { type: "error", step: "people", code: "ai_quota", retryAfterSeconds: 60 }, { type: "done" }]) };
+    };
+    await open(); await buildSetup();
+    await page.getByTestId("button-continue").click();
+    await browserExpect(page.getByRole("alert")).toContainText("The AI service is busy right now. Try again in about a minute.");
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
+    await browserExpect(chip("Remove topic Incident response")).toHaveAttribute("aria-pressed", "true");
+    expect(sent("agent")[1]).toMatchObject({ steps: ["topics", "people"] });
+    await page.getByTestId("button-continue").click();
+    await browserExpect(chip("Remove leader Ana Rao")).toHaveAttribute("aria-pressed", "true");
   });
 
   it("saves URLs and weights from the agent's picks and shows the Discover preview", async () => {

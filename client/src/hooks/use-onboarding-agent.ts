@@ -48,9 +48,13 @@ const initialState = (): State => ({ publications: idle(), topics: idle(), peopl
 const key = (value: string) => value.trim().toLowerCase();
 const unique = (values: string[]) => [...new Map(values.map(value => [key(value), value])).values()];
 
-function failureMessage(code: string | undefined, timedOut = false) {
+function failureMessage(code: string | undefined, timedOut = false, retryAfterSeconds?: number) {
   if (timedOut || code === "ai_timeout") return "The agent took too long.";
   if (code === "rate_limited" || code === "ai_budget") return "You've asked the agent a lot in the last hour. Try again in a few minutes.";
+  if (code === "ai_quota" || code === "ai_rate_limit" || code === "ai_busy") {
+    return `The AI service is busy right now. Try again in ${retryAfterSeconds && retryAfterSeconds > 90 ? "a few minutes" : "about a minute"}.`;
+  }
+  if (code === "ai_unavailable") return "The AI service didn't respond.";
   return "The agent couldn't finish this step.";
 }
 
@@ -152,7 +156,7 @@ export function useOnboardingAgent(step: SuggestionStep | undefined, enabled: bo
             if (owns(event.step)) applyResult(event.step, event.result, mode);
           }
           if (event.type === "error") {
-            for (const target of event.step ? [event.step] : [...pending]) { pending.delete(target); fail(target, failureMessage(event.code)); }
+            for (const target of event.step ? [event.step] : [...pending]) { pending.delete(target); fail(target, failureMessage(event.code, false, event.retryAfterSeconds)); }
           }
         });
       })(), controller.signal);
@@ -229,7 +233,11 @@ export function useOnboardingAgent(step: SuggestionStep | undefined, enabled: bo
     setState(stateRef.current);
   }, [abortAll]);
 
-  const retry = useCallback((target: SuggestionStep) => { void run([target]); }, [run]);
+  // Later steps that failed too depend on this one, so they run again with it.
+  const retry = useCallback((target: SuggestionStep) => {
+    const later = STEPS.slice(STEPS.indexOf(target) + 1).filter(next => stateRef.current[next].status === "error");
+    void run([target, ...later]);
+  }, [run]);
 
   useEffect(() => abortAll, [abortAll]);
   useEffect(() => { if (!enabled) cancel(); }, [enabled, cancel]);

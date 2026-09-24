@@ -86,7 +86,7 @@ export function parseUnderstanding(value: unknown): Understanding {
 export type AgentEvent =
   | { type: "progress"; step: SuggestionStep; message: string }
   | { type: "result"; step: SuggestionStep; result: SuggestionResult }
-  | { type: "error"; step: SuggestionStep | null; code: string }
+  | { type: "error"; step: SuggestionStep | null; code: string; retryAfterSeconds?: number }
   | { type: "done" };
 const stepSchema = z.enum(["publications", "topics", "people"]);
 
@@ -98,8 +98,10 @@ export function parseAgentEvent(value: unknown): AgentEvent | null {
   if (event.type === "error") {
     const step = event.step === null ? null : stepSchema.safeParse(event.step);
     const code = typeof event.code === "string" ? event.code.slice(0, 60) : "ai_unavailable";
-    if (step === null) return { type: "error", step: null, code };
-    return step.success ? { type: "error", step: step.data, code } : null;
+    const wait = z.number().int().min(1).max(3600).safeParse(event.retryAfterSeconds);
+    const extra = wait.success ? { retryAfterSeconds: wait.data } : {};
+    if (step === null) return { type: "error", step: null, code, ...extra };
+    return step.success ? { type: "error", step: step.data, code, ...extra } : null;
   }
   const step = stepSchema.safeParse(event.step);
   if (!step.success) return null;

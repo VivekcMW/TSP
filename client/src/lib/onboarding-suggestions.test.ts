@@ -134,6 +134,8 @@ describe("the agent's event stream", () => {
     expect(parseAgentEvent({ type: "result", step: "topics", grounded: true, picks: ["DOOH"], note: "Core topics.", items: [{ name: "DOOH", weight: 1 }] }))
       .toEqual({ type: "result", step: "topics", result: { grounded: true, picks: ["DOOH"], note: "Core topics.", items: [{ kind: "topic", name: "DOOH", weight: 1 }] } });
     expect(parseAgentEvent({ type: "error", step: null, code: "ai_timeout" })).toEqual({ type: "error", step: null, code: "ai_timeout" });
+    expect(parseAgentEvent({ type: "error", step: "topics", code: "ai_quota", retryAfterSeconds: 60 })).toEqual({ type: "error", step: "topics", code: "ai_quota", retryAfterSeconds: 60 });
+    expect(parseAgentEvent({ type: "error", step: "topics", code: "ai_quota", retryAfterSeconds: -5 })).toEqual({ type: "error", step: "topics", code: "ai_quota" });
     expect(parseAgentEvent({ type: "done" })).toEqual({ type: "done" });
     expect(parseAgentEvent({ type: "progress", step: "preview", message: "x" })).toBeNull();
     expect(parseAgentEvent({ type: "result", step: "topics" })).toBeNull();

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { suggest } = vi.hoisted(() => ({ suggest: vi.fn() }));
 vi.mock("./onboardingSuggestions", async original => ({ ...await original<typeof import("./onboardingSuggestions")>(), suggestOnboardingItems: suggest }));
@@ -15,16 +15,18 @@ const results = {
   people: { step: "people", grounded: true, note: "Named in the news.", picks: ["Ana Rao", "Vistar Media"], people: [{ name: "Ana Rao", reason: "CEO" }], companies: [{ name: "Vistar Media", reason: "DOOH platform" }] },
 };
 
+afterEach(() => { vi.restoreAllMocks(); });
 beforeEach(() => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
   suggest.mockReset().mockImplementation(async (request: { step: keyof typeof results }, _scope: unknown, _signal: unknown, onProgress: (message: string) => void) => {
     onProgress(`working on ${request.step}`);
     return results[request.step];
   });
 });
 
-async function run(extra: Partial<OnboardingAgentRequest> & Pick<OnboardingAgentRequest, "steps">) {
+async function run({ retryDelayMs, ...extra }: Partial<OnboardingAgentRequest> & Pick<OnboardingAgentRequest, "steps"> & { retryDelayMs?: number }) {
   const events: AgentEvent[] = [];
-  await runOnboardingAgent({ ...base, ...extra }, scope, new AbortController().signal, event => events.push(event));
+  await runOnboardingAgent({ ...base, ...extra }, scope, new AbortController().signal, event => events.push(event), { retryDelayMs: retryDelayMs ?? 0 });
   return events;
 }
 
@@ -51,11 +53,27 @@ describe("the onboarding agent run", () => {
   });
 
   it("reports a failed step and still runs the steps after it", async () => {
-    suggest.mockImplementationOnce(async () => { throw new AIGenerationError("ai_unavailable"); });
+    suggest.mockImplementationOnce(async () => { throw new AIGenerationError("ai_invalid_output"); });
     const events = await run({ steps: ["publications", "topics"] });
-    expect(events).toContainEqual({ type: "error", step: "publications", code: "ai_unavailable" });
+    expect(events).toContainEqual({ type: "error", step: "publications", code: "ai_invalid_output" });
     expect(events.at(-2)).toEqual({ type: "result", ...results.topics });
     expect(suggest.mock.calls[1][0].publications).toEqual([]);
+  });
+
+  it("retries a step once after the AI service fails to respond, and says so", async () => {
+    suggest.mockImplementationOnce(async () => { throw new AIGenerationError("ai_unavailable"); });
+    const events = await run({ steps: ["topics"], retryDelayMs: 0 });
+    expect(events).toContainEqual({ type: "progress", step: "topics", message: "The AI service didn't respond, so I'm trying again…" });
+    expect(events.at(-2)).toEqual({ type: "result", ...results.topics });
+    expect(suggest).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a busy AI service with its wait time, logs it and does not retry during the cooldown", async () => {
+    suggest.mockImplementationOnce(async () => { throw new AIGenerationError("ai_quota", 60); });
+    const events = await run({ steps: ["publications"], retryDelayMs: 0 });
+    expect(events).toContainEqual({ type: "error", step: "publications", code: "ai_quota", retryAfterSeconds: 60 });
+    expect(suggest).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledWith("[onboarding-agent] publications failed: ai_quota (retry after 60s)");
   });
 
   it("stops when the run is cancelled", async () => {
