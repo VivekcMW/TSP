@@ -11,7 +11,7 @@ describe("onboarding suggestion responses", () => {
         { name: " ", url: "https://blank.invalid/" }, null, "text",
         { name: "Bad evidence", url: null, evidence: { count: -1, headline: 3 } },
       ],
-    })).toEqual({ grounded: true, picks: [], note: "", items: [
+    })).toEqual({ grounded: true, picks: [], note: "", followUps: [], items: [
       { kind: "source", name: "ExchangeWire", url: "https://www.exchangewire.com/", reason: "Programmatic coverage", evidence: { count: 4, headline: "DOOH spend rises" } },
       { kind: "source", name: "Script", reason: "Bad URL keeps the name" },
       { kind: "source", name: "No URL" },
@@ -22,7 +22,7 @@ describe("onboarding suggestion responses", () => {
   it("maps topic weights and people/company groups, deduplicating by name", () => {
     expect(parseOnboardingSuggestions("topics", { step: "topics", grounded: false, items: [
       { name: "Retail media", weight: 0.9 }, { name: "retail media", weight: 0.2 }, { name: "Heavy", weight: 4 },
-    ] })).toEqual({ grounded: false, picks: [], note: "", items: [{ kind: "topic", name: "Retail media", weight: 0.9 }, { kind: "topic", name: "Heavy" }] });
+    ] })).toEqual({ grounded: false, picks: [], note: "", followUps: [], items: [{ kind: "topic", name: "Retail media", weight: 0.9 }, { kind: "topic", name: "Heavy" }] });
     expect(parseOnboardingSuggestions("people", { step: "people", grounded: true,
       people: [{ name: "Ana Rao", reason: "CEO", evidence: { count: 2, headline: "Ana Rao on DOOH" } }],
       companies: [{ name: "Vistar Media", reason: "" }, { name: "ana rao" }],
@@ -108,6 +108,17 @@ describe("the agent's picks and note", () => {
   });
 });
 
+describe("follow-ups and headlines", () => {
+  it("keeps up to three short follow-up requests and up to three headlines per source", () => {
+    const result = parseOnboardingSuggestions("publications", { step: "publications", grounded: true, picks: [], note: "",
+      followUps: [" More India-focused ", 5, "", "x".repeat(41), "Less event news", "Add retail media", "Fourth"],
+      items: [{ name: "ExchangeWire", url: null, evidence: { count: 4, headline: "One", headlines: ["One", "Two", 3, "", "Three", "Four"] } }],
+    });
+    expect(result.followUps).toEqual(["More India-focused", "Less event news", "Add retail media"]);
+    expect(result.items[0].evidence).toEqual({ count: 4, headline: "One", headlines: ["One", "Two", "Three"] });
+  });
+});
+
 describe("understanding the user", () => {
   it("keeps a bounded summary and a usable follow-up question", () => {
     expect(parseUnderstanding({ role: " Head of Marketing ", industry: "OOH", focusAreas: ["DOOH", "", 5, "Measurement"], region: "India", audience: null,
@@ -132,7 +143,7 @@ describe("the agent's event stream", () => {
   it("parses progress, results, errors and done, and ignores anything else", () => {
     expect(parseAgentEvent({ type: "progress", step: "publications", message: "Found 57 recent articles" })).toEqual({ type: "progress", step: "publications", message: "Found 57 recent articles" });
     expect(parseAgentEvent({ type: "result", step: "topics", grounded: true, picks: ["DOOH"], note: "Core topics.", items: [{ name: "DOOH", weight: 1 }] }))
-      .toEqual({ type: "result", step: "topics", result: { grounded: true, picks: ["DOOH"], note: "Core topics.", items: [{ kind: "topic", name: "DOOH", weight: 1 }] } });
+      .toEqual({ type: "result", step: "topics", result: { grounded: true, picks: ["DOOH"], note: "Core topics.", followUps: [], items: [{ kind: "topic", name: "DOOH", weight: 1 }] } });
     expect(parseAgentEvent({ type: "error", step: null, code: "ai_timeout" })).toEqual({ type: "error", step: null, code: "ai_timeout" });
     expect(parseAgentEvent({ type: "error", step: "topics", code: "ai_quota", retryAfterSeconds: 60 })).toEqual({ type: "error", step: "topics", code: "ai_quota", retryAfterSeconds: 60 });
     expect(parseAgentEvent({ type: "error", step: "topics", code: "ai_quota", retryAfterSeconds: -5 })).toEqual({ type: "error", step: "topics", code: "ai_quota" });

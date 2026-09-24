@@ -5,7 +5,8 @@ import { parsePublicationCandidate } from "./publication-candidates";
 
 export type SuggestionStep = "publications" | "topics" | "people";
 export type SuggestionKind = "source" | "topic" | "leader" | "company";
-export interface SuggestionEvidence { count: number; headline: string }
+/** `headlines` (sources only): up to three recent headlines, for "Why?". */
+export interface SuggestionEvidence { count: number; headline: string; headlines?: string[] }
 export interface SuggestedChoice {
   kind: SuggestionKind;
   name: string;
@@ -16,11 +17,15 @@ export interface SuggestedChoice {
   /** A well-known name from the AI's general knowledge, not from a recent headline. */
   aiOnly?: true;
 }
-/** `picks` are the items the agent pre-selects; `note` is its one-sentence explanation. */
-export interface SuggestionResult { grounded: boolean; items: SuggestedChoice[]; picks: string[]; note: string }
+/** `picks` are the items the agent pre-selects; `note` is its one-sentence explanation;
+ * `followUps` are short refinements the user might ask for next. */
+export interface SuggestionResult { grounded: boolean; items: SuggestedChoice[]; picks: string[]; note: string; followUps: string[] }
 
 const name = z.string().trim().min(1).max(100);
-const evidence = z.object({ count: z.number().int().min(1), headline: z.string().trim().min(1).max(300) });
+const shortTexts = (max: number, count: number) => z.array(z.unknown()).catch([])
+  .transform(values => values.flatMap(value => typeof value === "string" && value.trim() && value.trim().length <= max ? [value.trim()] : []).slice(0, count));
+const evidence = z.object({ count: z.number().int().min(1), headline: z.string().trim().min(1).max(300), headlines: shortTexts(300, 3).optional() })
+  .transform(({ headlines, ...rest }) => headlines?.length ? { ...rest, headlines } : rest);
 const envelope = (step: SuggestionStep | "preview") => z.object({ step: z.literal(step), grounded: z.boolean() }).passthrough();
 
 /** Server output is untrusted: drop an invalid entry or field, never its valid siblings. */
@@ -58,7 +63,8 @@ export function parseOnboardingSuggestions(step: SuggestionStep, value: unknown)
   const byKey = new Map(items.map(item => [item.name.toLowerCase(), item.name]));
   const picks = [...new Set((Array.isArray(data.picks) ? data.picks : []).flatMap(pick => typeof pick === "string" && byKey.has(pick.trim().toLowerCase()) ? [byKey.get(pick.trim().toLowerCase())!] : []))];
   const note = typeof data.note === "string" ? data.note.replace(/\s+/g, " ").trim().slice(0, 200) : "";
-  return { grounded: data.grounded, items, picks, note };
+  const followUps = shortTexts(40, 3).parse(data.followUps ?? []).filter(value => value.length >= 2);
+  return { grounded: data.grounded, items, picks, note, followUps };
 }
 
 export interface Understanding {

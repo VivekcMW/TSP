@@ -19,19 +19,18 @@ let handlers: Record<Path, (body: Body) => Reply>;
 let calls: Array<{ path: Path; body: Body }>;
 let completionStatus: number;
 let completions: Body[];
-let completeGate: Promise<void> | undefined;
 
 const focus = "I build reliable cloud infrastructure.";
 const understanding = { role: "Platform engineer", industry: "Cloud infrastructure", focusAreas: ["Site reliability", "Kubernetes"], region: "India", audience: "Engineering leaders", question: null };
-const sources = { step: "publications", grounded: true, note: "I picked reliability-focused trade press.", picks: ["Cloud Weekly", "SRE Digest"], items: [
-  { name: "Cloud Weekly", url: "https://cloudweekly.invalid/", reason: "Covers cloud reliability", evidence: { count: 3, headline: "Outage lessons from 2026" } },
+const sources = { step: "publications", grounded: true, note: "I picked reliability-focused trade press.", picks: ["Cloud Weekly", "SRE Digest"], followUps: ["More India-focused", "Less vendor news"], items: [
+  { name: "Cloud Weekly", url: "https://cloudweekly.invalid/", reason: "Covers cloud reliability", evidence: { count: 3, headline: "Outage lessons from 2026", headlines: ["Outage lessons from 2026", "Why SLOs matter", "Chaos days at scale"] } },
   { name: "SRE Digest", url: null, reason: "Practitioner newsletter", evidence: { count: 1, headline: "On-call without burnout" } },
   { name: "Infra Daily", url: "https://infradaily.invalid/", reason: "Daily infrastructure news", evidence: { count: 2, headline: "Kubernetes ships a major release" } },
 ] };
-const topics = { step: "topics", grounded: true, note: "Topics from your sources' headlines.", picks: ["Incident response"], items: [
+const topics = { step: "topics", grounded: true, note: "Topics from your sources' headlines.", picks: ["Incident response"], followUps: ["Add platform engineering"], items: [
   { name: "Incident response", weight: 0.9, evidence: { count: 2, headline: "Outage lessons from 2026" } }, { name: "Chaos engineering", weight: 0.6 },
 ] };
-const people = { step: "people", grounded: true, note: "People named in recent cloud news.", picks: ["Ana Rao", "Acme Cloud"],
+const people = { step: "people", grounded: true, note: "People named in recent cloud news.", picks: ["Ana Rao", "Acme Cloud"], followUps: [],
   people: [{ name: "Ana Rao", reason: "SRE lead at Acme Cloud", evidence: { count: 1, headline: "Ana Rao on resilience" } }, { name: "Jane Leader", reason: "Founder of a cloud company", aiOnly: true }],
   companies: [{ name: "Acme Cloud", reason: "Cloud provider", evidence: { count: 2, headline: "Acme Cloud outage" } }, { name: "Beta Hosting", reason: "Hosting company" }],
 };
@@ -47,7 +46,7 @@ const defaults: Record<Path, (body: Body) => Reply> = {
   understand: body => ({ data: body.clarification ? { ...understanding, region: (body.clarification as { answer: string }).answer } : understanding }),
   agent: body => ({ raw: agentStream(body.steps as string[]) }),
   suggestions: body => body.step === "preview" ? { data: preview }
-    : { data: { step: body.step, grounded: true, picks: [], note: "", items: [{ name: "Ops Weekly", url: null, reason: "" }], people: [], companies: [] } },
+    : { data: { step: body.step, grounded: true, picks: [], note: "", followUps: [], items: [{ name: "Ops Weekly", url: null, reason: "" }], people: [], companies: [] } },
 };
 const sent = (path: Path) => calls.filter(call => call.path === path).map(call => call.body);
 
@@ -95,13 +94,12 @@ afterAll(async () => {
 
 beforeEach(async () => {
   errors = []; completions = []; calls = [];
-  completionStatus = 200; completeGate = undefined; handlers = { ...defaults };
-  context = await browser.newContext();
+  completionStatus = 200; handlers = { ...defaults };
+  context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await context.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.origin !== origin) { errors.push(`External request blocked: ${url.origin}`); await route.abort(); return; }
     if (!url.pathname.startsWith("/api/")) { await route.continue(); return; }
-    // The page may abandon a request before its reply arrives.
     const reply = (data: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) }).catch(() => undefined);
     if (url.pathname === "/api/me") return reply({ id: "fixture-user", industry: "technology-saas", country: "India" });
     const path = url.pathname.replace("/api/onboarding/", "") as Path;
@@ -114,7 +112,6 @@ beforeEach(async () => {
     }
     if (url.pathname === "/api/profile/complete-onboarding") {
       completions.push(route.request().postDataJSON());
-      await completeGate;
       return reply(completionStatus === 200 ? { onboardingCompleted: true } : { message: "Mock save failure" }, completionStatus);
     }
     errors.push(`Unexpected request: ${url.pathname}`);
@@ -131,133 +128,122 @@ afterEach(async () => {
 });
 
 const chip = (name: string) => page.getByRole("button", { name, exact: true });
+const pundit = () => page.getByRole("region", { name: "Pundit" });
+const setup = () => page.getByRole("region", { name: "Your setup" });
+const section = (name: string) => setup().getByRole("region", { name });
 const card = () => page.getByRole("region", { name: "What the agent understood" });
-const agentPanel = () => page.getByRole("region", { name: "Agent" });
 
-async function open() {
+async function say(text: string) {
+  await page.getByRole("textbox", { name: "Message Pundit" }).fill(text);
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+}
+
+async function start() {
   await page.goto(`${origin}/onboarding`);
-  await browserExpect(page.getByText("Step 1 of 4: About You", { exact: true })).toBeVisible();
-  await page.getByLabel("Professional focus").fill(`  ${focus}  `);
+  await browserExpect(pundit()).toContainText("Hi, I'm Pundit.");
+  await say(`  ${focus}  `);
+  await browserExpect(card().getByRole("textbox", { name: "Role", exact: true })).toHaveValue("Platform engineer");
 }
 
 async function buildSetup() {
-  await page.getByRole("button", { name: "Build my setup", exact: true }).click();
-  await browserExpect(page.getByText("Step 2 of 4: News Sources", { exact: true })).toBeVisible();
-  await browserExpect(agentPanel()).toContainText("I picked reliability-focused trade press.");
+  await chip("Build my setup").click();
+  await browserExpect(pundit()).toContainText("I picked reliability-focused trade press.");
+  await browserExpect(pundit()).toContainText("People named in recent cloud news.");
 }
 
-async function finishToDashboard() {
-  await browserExpect(page.getByRole("heading", { name: "Your Discover is ready" })).toBeVisible();
-  await page.getByRole("button", { name: "Go to dashboard", exact: true }).click();
-  await browserExpect(page).toHaveURL(`${origin}/dashboard`);
-}
-
-describe("step 1: the agent understands you", () => {
-  it("reads the focus after a pause and lets the user edit what it understood", async () => {
-    await open();
-    await browserExpect(card().getByLabel("Role")).toHaveValue("Platform engineer");
-    await browserExpect(card().getByLabel("Region")).toHaveValue("India");
+describe("talking to Pundit", () => {
+  it("starts a conversation and shows an editable summary of what Pundit understood", async () => {
+    await start();
+    await browserExpect(pundit().getByRole("list", { name: "Conversation" })).toContainText(focus);
     expect(sent("understand")).toEqual([{ focusDescription: focus, industry: "technology-saas" }]);
-    await card().getByLabel("Role").fill("SRE manager");
+    await card().getByRole("textbox", { name: "Role", exact: true }).fill("SRE manager");
     await card().getByRole("button", { name: "Remove focus area Kubernetes", exact: true }).click();
     await card().getByLabel("Add a focus area").fill("Observability");
     await card().getByRole("button", { name: "Add focus area", exact: true }).click();
     await buildSetup();
-    expect(sent("agent")).toEqual([{
+    expect(sent("agent")[0]).toEqual({
       focusDescription: focus, industry: "technology-saas", searchEdition: "en-IN",
       understanding: { role: "SRE manager", industry: "Cloud infrastructure", focusAreas: ["Site reliability", "Observability"], region: "India", audience: "Engineering leaders" },
       publications: [], topics: [], exclude: [], steps: ["publications", "topics", "people"],
-    }]);
+    });
   });
 
-  it("asks one follow-up question for a vague focus and refines the summary with the answer", async () => {
+  it("asks one question for a vague focus and takes the answer from a quick reply or the composer", async () => {
     handlers.understand = body => body.clarification
       ? { data: { ...understanding, region: (body.clarification as { answer: string }).answer } }
       : { data: { ...understanding, region: null, question: { text: "Which region do you mainly cover?", options: ["India", "Global"] } } };
-    await open();
-    await card().getByRole("button", { name: "India", exact: true }).click();
-    await browserExpect(card().getByLabel("Region")).toHaveValue("India");
-    await browserExpect(card().getByText("Which region do you mainly cover?")).toHaveCount(0);
-    expect(sent("understand")[1]).toEqual({ focusDescription: focus, industry: "technology-saas", clarification: { question: "Which region do you mainly cover?", answer: "India" } });
+    await page.goto(`${origin}/onboarding`);
+    await say(focus);
+    await browserExpect(card()).toContainText("Which region do you mainly cover?");
+    await say("Asia-Pacific");
+    await browserExpect(card().getByRole("textbox", { name: "Region", exact: true })).toHaveValue("Asia-Pacific");
+    expect(sent("understand")[1]).toEqual({ focusDescription: focus, industry: "technology-saas", clarification: { question: "Which region do you mainly cover?", answer: "Asia-Pacific" } });
+  });
+
+  it("asks for more when the first message is too short to work with", async () => {
+    await page.goto(`${origin}/onboarding`);
+    await say("SRE");
+    await browserExpect(pundit()).toContainText("Could you tell me a bit more");
+    expect(sent("understand")).toEqual([]);
   });
 });
 
-describe("the agent builds your setup", () => {
-  it("builds every step, explains itself and pre-selects its picks with reasons, with no static lists", async () => {
-    await open(); await buildSetup();
-    await agentPanel().getByText("Show what I did").click();
-    await browserExpect(agentPanel()).toContainText("Searching Google News for publications");
-    await browserExpect(chip("Remove source Cloud Weekly")).toHaveAttribute("aria-pressed", "true");
-    await browserExpect(chip("Remove source Cloud Weekly")).toContainText("Covers cloud reliability");
-    await browserExpect(chip("Remove source Cloud Weekly")).toContainText("3 recent articles");
-    await browserExpect(chip("Remove source SRE Digest")).toHaveAttribute("aria-pressed", "true");
-    await browserExpect(chip("Select source Infra Daily")).toHaveAttribute("aria-pressed", "false");
+describe("Pundit builds your setup", () => {
+  it("fills every section live with reasons and evidence, shows its progress and notes, and has no static lists", async () => {
+    await start(); await buildSetup();
+    const progress = pundit().getByRole("list", { name: "Pundit's progress" });
+    await browserExpect(progress).toContainText("Picked 2 sources");
+    await browserExpect(progress).toContainText("Picked 1 topic");
+    await browserExpect(section("Sources").getByRole("button", { name: "Remove source Cloud Weekly", exact: true })).toContainText("Covers cloud reliability");
+    await browserExpect(section("Sources").getByRole("button", { name: "Remove source Cloud Weekly", exact: true })).toContainText("3 recent articles");
+    await browserExpect(section("Sources").getByRole("button", { name: "Select source Infra Daily", exact: true })).toBeVisible();
+    await browserExpect(section("Topics").getByRole("button", { name: "Remove topic Incident response", exact: true })).toBeVisible();
+    await browserExpect(section("People and companies").getByRole("button", { name: "Remove leader Ana Rao", exact: true })).toBeVisible();
+    await browserExpect(section("People and companies").getByRole("button", { name: "Select leader Jane Leader", exact: true })).toContainText("AI suggestion");
+    await browserExpect(pundit().getByRole("button", { name: "More India-focused", exact: true })).toBeVisible();
     await browserExpect(page.getByRole("button", { name: /^Select source (TechCrunch|The Verge|Wired)$/ })).toHaveCount(0);
-    await page.getByTestId("button-continue").click();
-    await browserExpect(agentPanel()).toContainText("Topics from your sources' headlines.");
-    await browserExpect(chip("Remove topic Incident response")).toHaveAttribute("aria-pressed", "true");
-    await browserExpect(chip("Select topic Chaos engineering")).toHaveAttribute("aria-pressed", "false");
-    await browserExpect(page.getByRole("button", { name: /^Select topic (Cloud Computing|Machine Learning)$/ })).toHaveCount(0);
-    await page.getByTestId("button-continue").click();
-    await browserExpect(chip("Remove leader Ana Rao")).toHaveAttribute("aria-pressed", "true");
-    await browserExpect(chip("Remove company Acme Cloud")).toHaveAttribute("aria-pressed", "true");
-    await browserExpect(chip("Select leader Jane Leader")).toContainText("AI suggestion");
-    await browserExpect(page.getByText("People marked “AI suggestion” come from the AI's general knowledge, not recent news.", { exact: true })).toBeVisible();
-    await browserExpect(page.getByRole("button", { name: /^Select leader (Satya Nadella|Sam Altman)$/ })).toHaveCount(0);
-    expect(sent("agent")).toHaveLength(1);
-    expect(sent("suggestions")).toEqual([]);
+    await pundit().getByText("Show what I did").click();
+    await browserExpect(pundit()).toContainText("Searching Google News for topics");
   });
 
-  it("steers a step: keeps the user's picks, replaces untouched agent picks and never brings back removals", async () => {
-    handlers.agent = body => body.instruction ? { raw: sse([
-      { type: "progress", step: "publications", message: "Searching for Kubernetes news" },
-      { type: "result", step: "publications", grounded: true, note: "I focused on Kubernetes news.", picks: ["K8s Weekly", "SRE Digest"], items: [
-        { name: "K8s Weekly", url: "https://k8s.invalid/", reason: "Kubernetes news" }, { name: "SRE Digest", url: null, reason: "" }, { name: "Cloud Weekly", url: "https://cloudweekly.invalid/", reason: "" },
+  it("shows the headlines behind a source", async () => {
+    await start(); await buildSetup();
+    await section("Sources").getByRole("button", { name: "Why Cloud Weekly?", exact: true }).click();
+    await browserExpect(section("Sources").getByRole("list", { name: "Headlines behind Cloud Weekly" })).toContainText("Chaos days at scale");
+  });
+
+  it("steers with a suggested request or the composer, keeping the user's picks and never re-adding removals", async () => {
+    handlers.agent = body => body.instruction === "More India-focused" ? { raw: sse([
+      { type: "progress", step: "publications", message: "Searching for India news" },
+      { type: "result", step: "publications", grounded: true, note: "I focused on Indian outlets.", picks: ["India Cloud Times", "SRE Digest"], followUps: [], items: [
+        { name: "India Cloud Times", url: "https://ict.invalid/", reason: "Indian cloud news" }, { name: "SRE Digest", url: null, reason: "" }, { name: "Cloud Weekly", url: "https://cloudweekly.invalid/", reason: "" },
       ] }, { type: "done" }]) } : defaults.agent(body);
-    await open(); await buildSetup();
-    await chip("Remove source SRE Digest").click();
-    await chip("Select source Infra Daily").click();
-    await page.getByLabel("Tell the agent what to change").fill("more about Kubernetes");
-    await page.getByRole("button", { name: "Ask the agent", exact: true }).click();
-    await browserExpect(agentPanel()).toContainText("I focused on Kubernetes news.");
-    await browserExpect(chip("Remove source Infra Daily")).toHaveAttribute("aria-pressed", "true");
-    await browserExpect(chip("Remove source K8s Weekly")).toHaveAttribute("aria-pressed", "true");
-    await browserExpect(chip("Select source Cloud Weekly")).toHaveAttribute("aria-pressed", "false");
+    await start(); await buildSetup();
+    await section("Sources").getByRole("button", { name: "Remove source SRE Digest", exact: true }).click();
+    await section("Sources").getByRole("button", { name: "Select source Infra Daily", exact: true }).click();
+    await pundit().getByRole("button", { name: "More India-focused", exact: true }).click();
+    await browserExpect(pundit()).toContainText("I focused on Indian outlets.");
+    await browserExpect(section("Sources").getByRole("button", { name: "Remove source Infra Daily", exact: true })).toBeVisible();
+    await browserExpect(section("Sources").getByRole("button", { name: "Remove source India Cloud Times", exact: true })).toBeVisible();
+    await browserExpect(section("Sources").getByRole("button", { name: "Select source Cloud Weekly", exact: true })).toBeVisible();
     await browserExpect(page.getByRole("button", { name: /source SRE Digest$/ })).toHaveCount(0);
-    expect(sent("agent")[1]).toMatchObject({ steps: ["publications"], instruction: "more about Kubernetes", exclude: ["SRE Digest"] });
+    expect(sent("agent")[1]).toMatchObject({ steps: ["publications"], instruction: "More India-focused", exclude: ["SRE Digest"] });
+    await section("Topics").getByRole("button", { name: "Select topic Chaos engineering", exact: true }).click();
+    await browserExpect(page.getByRole("combobox", { name: "About" })).toHaveValue("topics");
+    await say("fewer event topics");
+    await browserExpect(pundit().getByRole("list", { name: "Conversation" })).toContainText("fewer event topics");
+    await browserExpect.poll(() => sent("agent").length).toBe(3);
+    expect(sent("agent")[2]).toMatchObject({ steps: ["topics"], instruction: "fewer event topics" });
   });
 
-  it("adds more like the user's picks after they pick something", async () => {
-    await open();
-    await browserExpect(card().getByLabel("Role")).toHaveValue("Platform engineer");
-    await buildSetup();
-    await chip("Select source Infra Daily").click();
-    await browserExpect(page.getByText("1 new suggestion based on your picks", { exact: true })).toBeVisible();
-    await browserExpect(chip("Select source Ops Weekly")).toBeVisible();
-    expect(sent("suggestions")[0]).toMatchObject({ step: "publications", understanding: { role: "Platform engineer" } });
-    expect(sent("suggestions")[0].exclude).toEqual(expect.arrayContaining(["Cloud Weekly", "SRE Digest", "Infra Daily"]));
+  it("adds more like the user's picks", async () => {
+    await start(); await buildSetup();
+    await section("Sources").getByRole("button", { name: "Select source Infra Daily", exact: true }).click();
+    await browserExpect(section("Sources")).toContainText("1 new suggestion based on your picks");
+    await browserExpect(section("Sources").getByRole("button", { name: "Select source Ops Weekly", exact: true })).toBeVisible();
   });
 
-  it("reports a failed step with Try again while the other steps still arrive", async () => {
-    let failed = false;
-    handlers.agent = body => {
-      if (failed || (body.steps as string[])[0] !== "publications" || (body.steps as string[]).length === 1) return defaults.agent(body);
-      failed = true;
-      return { raw: sse([{ type: "progress", step: "publications", message: "Searching" }, { type: "error", step: "publications", code: "ai_unavailable" },
-        { type: "result", ...topics }, { type: "result", ...people }, { type: "done" }]) };
-    };
-    await open();
-    await page.getByRole("button", { name: "Build my setup", exact: true }).click();
-    await browserExpect(page.getByRole("alert")).toContainText("The AI service didn't respond. Add your own below or try again.");
-    await browserExpect(page.getByLabel("Source name")).toBeVisible();
-    await page.getByRole("button", { name: "Try again", exact: true }).click();
-    await browserExpect(chip("Remove source Cloud Weekly")).toHaveAttribute("aria-pressed", "true");
-    expect(sent("agent")[1]).toMatchObject({ steps: ["publications"] });
-    await page.getByTestId("button-continue").click();
-    await browserExpect(chip("Remove topic Incident response")).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("says when the AI service is busy and tries later failed steps again together", async () => {
+  it("says when the AI is busy and tries later failed steps again together", async () => {
     let first = true;
     handlers.agent = body => {
       if (!first) return defaults.agent(body);
@@ -265,119 +251,73 @@ describe("the agent builds your setup", () => {
       return { raw: sse([{ type: "result", ...sources },
         { type: "error", step: "topics", code: "ai_quota", retryAfterSeconds: 60 }, { type: "error", step: "people", code: "ai_quota", retryAfterSeconds: 60 }, { type: "done" }]) };
     };
-    await open(); await buildSetup();
-    await page.getByTestId("button-continue").click();
-    await browserExpect(page.getByRole("alert")).toContainText("The AI service is busy right now. Try again in about a minute.");
-    await page.getByRole("button", { name: "Try again", exact: true }).click();
-    await browserExpect(chip("Remove topic Incident response")).toHaveAttribute("aria-pressed", "true");
+    await start();
+    await chip("Build my setup").click();
+    await browserExpect(section("Topics").getByRole("alert")).toContainText("The AI service is busy right now. Try again in about a minute.");
+    await browserExpect(pundit()).toContainText("The AI service is busy right now.");
+    await section("Topics").getByRole("button", { name: "Try again", exact: true }).click();
+    await browserExpect(section("Topics").getByRole("button", { name: "Remove topic Incident response", exact: true })).toBeVisible();
+    await browserExpect(section("People and companies").getByRole("button", { name: "Remove leader Ana Rao", exact: true })).toBeVisible();
     expect(sent("agent")[1]).toMatchObject({ steps: ["topics", "people"] });
-    await page.getByTestId("button-continue").click();
-    await browserExpect(chip("Remove leader Ana Rao")).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("saves URLs and weights from the agent's picks and shows the Discover preview", async () => {
-    await open(); await buildSetup();
-    const urls = page.getByRole("list", { name: "Selected publication URLs", exact: true });
-    await browserExpect(urls.getByRole("listitem").filter({ hasText: "Cloud Weekly:" })).toHaveText("Cloud Weekly: https://cloudweekly.invalid/ — Unverified URL");
-    await browserExpect(urls.getByRole("listitem").filter({ hasText: "SRE Digest:" })).toHaveText("SRE Digest: URL needed");
-    await chip("Remove source Cloud Weekly").click();
-    await chip("Select source Cloud Weekly").click();
-    await page.getByTestId("button-continue").click();
-    await chip("Select topic Chaos engineering").click();
-    await page.getByTestId("button-continue").click();
-    await browserExpect(chip("Remove leader Ana Rao")).toBeVisible();
-    completionStatus = 500;
-    await page.getByTestId("button-complete-onboarding").click();
-    await browserExpect(page.getByText("Something went wrong", { exact: true })).toBeVisible();
-    completionStatus = 200;
-    await page.getByTestId("button-complete-onboarding").click();
-    await browserExpect(page.getByRole("region", { name: "Discover preview" }).getByRole("link", { name: "Outage lessons from 2026" })).toBeVisible();
-    await finishToDashboard();
-    expect(completions).toHaveLength(2);
-    expect(completions[1]).toEqual({
-      focusDescription: focus, publications: ["SRE Digest", "Cloud Weekly"],
-      publicationCandidates: [{ name: "Cloud Weekly", url: "https://cloudweekly.invalid/" }],
-      keywords: [{ keyword: "Incident response", weight: 0.9 }, { keyword: "Chaos engineering", weight: 0.6 }],
-      influencers: ["Ana Rao"], companies: ["Acme Cloud"],
-    });
-  });
-
-  it("starts over when the focus changes, keeping what the user already picked", async () => {
-    await open(); await buildSetup();
-    await page.getByTestId("button-back").click();
-    await page.getByLabel("Professional focus").fill("I run growth marketing for B2B SaaS.");
-    await buildSetup();
-    expect(sent("agent")).toHaveLength(2);
-    expect(sent("agent")[1]).toMatchObject({ focusDescription: "I run growth marketing for B2B SaaS.", publications: [{ name: "Cloud Weekly", url: "https://cloudweekly.invalid/" }, { name: "SRE Digest" }] });
-    await browserExpect(chip("Remove source Cloud Weekly")).toHaveAttribute("aria-pressed", "true");
   });
 });
 
 describe("setting up manually", () => {
-  it("adds the user's own sources, topics, people and companies without the agent, and disables actions while saving", async () => {
-    await open();
-    await page.getByRole("button", { name: "Set up manually", exact: true }).click();
-    await browserExpect(page.getByText("Step 2 of 4: News Sources", { exact: true })).toBeVisible();
-    await page.getByLabel("Source name").fill("My Blog");
-    await page.getByLabel("Source website (optional)").fill("myblog.test/news");
-    await page.getByRole("button", { name: "Add source", exact: true }).click();
-    await browserExpect(chip("Remove source My Blog")).toHaveAttribute("aria-pressed", "true");
-    await browserExpect(page.getByRole("list", { name: "Selected publication URLs", exact: true })).toContainText("My Blog: https://myblog.test/news — Unverified URL");
-    await page.getByTestId("button-continue").click();
-    await page.getByLabel("Custom topic").fill("Platform engineering");
-    await page.getByTestId("button-add-keyword").click();
-    await page.getByTestId("button-continue").click();
-    await page.getByLabel("Custom leader").fill("Kelsey Hightower");
-    await page.getByTestId("button-add-influencer").click();
-    await page.getByLabel("Custom company").fill("HashiCorp");
-    await page.getByTestId("button-add-company").click();
-    let release!: () => void;
-    completeGate = new Promise<void>((resolve) => { release = resolve; });
-    try {
-      await page.getByTestId("button-complete-onboarding").click();
-      await browserExpect(page.getByTestId("button-complete-onboarding")).toBeDisabled();
-      await browserExpect(page.getByTestId("button-back")).toBeDisabled();
-    } finally { release(); }
-    await finishToDashboard();
-    expect(completions).toEqual([{
-      focusDescription: focus, publications: ["My Blog"], publicationCandidates: [{ name: "My Blog", url: "https://myblog.test/news" }],
-      keywords: [{ keyword: "Platform engineering", weight: 0.7 }], influencers: ["Kelsey Hightower"], companies: ["HashiCorp"],
-    }]);
+  it("adds the user's own entries, refuses a bad website, and lets Pundit take over", async () => {
+    await start();
+    await chip("Set up manually").click();
+    await section("Sources").getByLabel("Source name").fill("My Blog");
+    await section("Sources").getByLabel("Source website (optional)").fill("myblog.test/news");
+    await section("Sources").getByRole("button", { name: "Add source", exact: true }).click();
+    await browserExpect(section("Sources").getByRole("list", { name: "Selected publication URLs" })).toContainText("My Blog: https://myblog.test/news — Unverified URL");
+    await section("Sources").getByLabel("Source name").fill("Bad Site");
+    await section("Sources").getByLabel("Source website (optional)").fill("not a website!");
+    await section("Sources").getByRole("button", { name: "Add source", exact: true }).click();
+    await browserExpect(section("Sources").getByText("Enter a valid website, or leave it empty.", { exact: true })).toBeVisible();
+    await section("Topics").getByLabel("Custom topic").fill("Platform engineering");
+    await section("Topics").getByTestId("button-add-keyword").click();
+    await section("People and companies").getByLabel("Custom leader").fill("Kelsey Hightower");
+    await section("People and companies").getByTestId("button-add-influencer").click();
+    await section("People and companies").getByLabel("Custom company").fill("HashiCorp");
+    await section("People and companies").getByTestId("button-add-company").click();
     expect(sent("agent")).toEqual([]);
+    await pundit().getByRole("button", { name: "Let Pundit help", exact: true }).click();
+    await browserExpect(section("Topics").getByRole("button", { name: "Remove topic Incident response", exact: true })).toBeVisible();
+    await browserExpect(section("Topics").getByRole("button", { name: "Remove topic Platform engineering", exact: true })).toBeVisible();
+    expect(sent("agent")[0]).toMatchObject({ steps: ["publications", "topics", "people"], topics: ["Platform engineering"], publications: [{ name: "My Blog", url: "https://myblog.test/news" }] });
   });
 
-  it("rejects a website the server would refuse, so saving never fails on it", async () => {
-    await open();
-    await page.getByRole("button", { name: "Set up manually", exact: true }).click();
-    await page.getByLabel("Source name").fill("Bad Site");
-    await page.getByLabel("Source website (optional)").fill("not a website!");
-    await page.getByRole("button", { name: "Add source", exact: true }).click();
-    await browserExpect(page.getByText("Enter a valid website, or leave it empty.", { exact: true })).toBeVisible();
-    await browserExpect(page.getByRole("button", { name: /source Bad Site$/ })).toHaveCount(0);
-    await page.getByLabel("Source website (optional)").fill("");
-    await page.getByRole("button", { name: "Add source", exact: true }).click();
-    await browserExpect(page.getByRole("list", { name: "Selected publication URLs", exact: true })).toContainText("Bad Site: URL needed");
-  });
-
-  it("lets the agent take over from a manual step", async () => {
-    await open();
-    await page.getByRole("button", { name: "Set up manually", exact: true }).click();
-    await page.getByRole("button", { name: "Skip sources", exact: true }).click();
-    await page.getByRole("button", { name: "Let the agent help", exact: true }).click();
-    await browserExpect(chip("Remove topic Incident response")).toHaveAttribute("aria-pressed", "true");
-    expect(sent("agent")).toEqual([expect.objectContaining({ steps: ["topics", "people"] })]);
-  });
-
-  it("allows the four-step skip path without the agent or hidden defaults", async () => {
-    await open();
-    await page.getByRole("button", { name: "Set up manually", exact: true }).click();
-    await page.getByRole("button", { name: "Skip sources", exact: true }).click();
-    await page.getByRole("button", { name: "Skip topics", exact: true }).click();
-    await page.getByRole("button", { name: "Skip inspiration and finish", exact: true }).click();
-    await browserExpect(page.getByText("Pick a few topics in Settings so Discover knows what to look for.", { exact: true })).toBeVisible();
-    await finishToDashboard();
+  it("can finish with just the focus, without the agent or hidden defaults", async () => {
+    await start();
+    await chip("Finish setup").click();
+    await browserExpect(page.getByRole("heading", { name: "Your Discover is ready" })).toBeVisible();
     expect(sent("agent")).toEqual([]);
-    expect(sent("suggestions")).toEqual([]);
     expect(completions).toEqual([{ focusDescription: focus, publications: [], keywords: [], influencers: [], companies: [] }]);
+  });
+});
+
+describe("finishing", () => {
+  it("saves URLs and weights, shows today's headlines, and Write a post opens Create with the story", async () => {
+    await start(); await buildSetup();
+    await section("Topics").getByRole("button", { name: "Select topic Chaos engineering", exact: true }).click();
+    completionStatus = 500;
+    await chip("Finish setup").click();
+    await browserExpect(page.getByText("Something went wrong", { exact: true })).toBeVisible();
+    await browserExpect(section("Sources").getByRole("button", { name: "Remove source Cloud Weekly", exact: true })).toBeVisible();
+    completionStatus = 200;
+    await chip("Finish setup").click();
+    await browserExpect(page.getByRole("heading", { name: "Your Discover is ready" })).toBeVisible();
+    expect(completions[1]).toEqual({
+      focusDescription: focus, publications: ["Cloud Weekly", "SRE Digest"],
+      publicationCandidates: [{ name: "Cloud Weekly", url: "https://cloudweekly.invalid/" }],
+      keywords: [{ keyword: "Incident response", weight: 0.9 }, { keyword: "Chaos engineering", weight: 0.6 }],
+      influencers: ["Ana Rao"], companies: ["Acme Cloud"],
+    });
+    await browserExpect(pundit()).toContainText("All set.");
+    const story = page.getByRole("region", { name: "Discover preview" }).getByRole("link", { name: "Outage lessons from 2026" });
+    await browserExpect(story).toHaveAttribute("href", "https://news.google.com/rss/articles/outage");
+    await page.getByRole("button", { name: "Write a post about Outage lessons from 2026", exact: true }).click();
+    await browserExpect(page).toHaveURL(`${origin}/dashboard/create`);
+    expect(await page.evaluate(() => window.history.state?.createFromUrl)).toBe("https://news.google.com/rss/articles/outage");
   });
 });

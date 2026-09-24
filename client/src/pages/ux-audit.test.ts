@@ -37,7 +37,7 @@ beforeAll(async () => {
       import Performance from "@/pages/performance";
       import Onboarding from "@/pages/onboarding";
       import Registration from "@/pages/complete-registration";
-      import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
+      import { OnboardingWorkspace } from "@/components/onboarding/onboarding-workspace";
       import { useInboxRefreshJob, refreshJobMessage } from "@/hooks/use-inbox-refresh-job";
       window.__calls = []; window.__completed = []; window.__pending = []; window.__toasts = []; window.__settled = 0;
       window.fetch = async (url, options = {}) => {
@@ -60,7 +60,7 @@ beforeAll(async () => {
       function App() {
         const [surface, setSurface] = useState(window.__surface);
         window.__setSurface = setSurface;
-        return <QueryClientProvider client={queryClient}><CreatePostProvider><div style={{ height: "100vh" }}>{surface === "home" ? <Home /> : surface === "performance" ? <Performance /> : surface === "onboarding" ? <Onboarding /> : surface === "registration" ? <Registration existingFirstName="Taylor" existingLastName="Lee" /> : surface === "refresh" ? <RefreshObserver /> : <OnboardingWizard onComplete={data => window.__completed.push(data)} />}<Route path="/dashboard/create" component={CreatePostPage} /></div></CreatePostProvider></QueryClientProvider>;
+        return <QueryClientProvider client={queryClient}><CreatePostProvider><div style={{ height: "100vh" }}>{surface === "home" ? <Home /> : surface === "performance" ? <Performance /> : surface === "onboarding" ? <Onboarding /> : surface === "registration" ? <Registration existingFirstName="Taylor" existingLastName="Lee" /> : surface === "refresh" ? <RefreshObserver /> : <OnboardingWorkspace onComplete={data => window.__completed.push(data)} />}<Route path="/dashboard/create" component={CreatePostPage} /></div></CreatePostProvider></QueryClientProvider>;
       }
       createRoot(document.getElementById("root")).render(<App />);
     ` },
@@ -95,70 +95,64 @@ async function mount(surface: string, responses: unknown[] = [], data: Record<st
 async function calls() {
   return page.evaluate(() => (window as any).__calls.map((call: any) => ({ url: call.url, method: call.method, body: call.body, aborted: call.signal?.aborted })));
 }
+async function say(text: string) {
+  await page.getByRole("textbox", { name: "Message Pundit" }).fill(text);
+  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("region", { name: "What the agent understood" }).getByRole("textbox", { name: "Role", exact: true }).waitFor();
+}
 async function resolvePending() { await page.evaluate(() => (window as any).__pending.shift()()); }
 
 describe("UX audit screens (fully mocked Chromium)", () => {
-  it("requires real focus but can finish without optional choices or the agent", async () => {
+  it("requires a real focus before finishing, and can finish without the agent", async () => {
     await mount("wizard");
-    const finish = page.getByRole("button", { name: "Skip optional preferences and finish" });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const finish = page.getByRole("button", { name: "Finish setup" });
     await browserExpect(finish).toBeDisabled();
-    await page.getByLabel("Professional focus").fill("                    ");
-    await browserExpect(finish).toBeDisabled();
-    await page.getByLabel("Professional focus").fill("Product strategy for small teams");
+    await page.getByRole("textbox", { name: "Message Pundit" }).fill("   ");
+    await browserExpect(page.getByRole("button", { name: "Send" })).toBeDisabled();
+    await say("Product strategy for small teams");
+    await browserExpect(finish).toBeEnabled();
     await finish.click();
     expect(await page.evaluate(() => (window as any).__completed[0])).toMatchObject({ publications: [], keywords: [], influencers: [], companies: [] });
     expect((await calls()).filter(notUnderstand)).toEqual([]);
   });
-  it("allows skipping each optional screen without the agent", async () => {
+  it("sets up manually and finishes without the agent", async () => {
     await mount("wizard");
-    await page.getByLabel("Professional focus").fill("Product strategy for small teams");
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await say("Product strategy for small teams");
     await page.getByRole("button", { name: "Set up manually" }).click();
-    await page.getByRole("button", { name: "Skip sources" }).click();
-    await page.getByRole("button", { name: "Skip topics" }).click();
-    await page.getByRole("button", { name: "Skip inspiration and finish" }).click();
+    await page.getByRole("button", { name: "Finish setup" }).click();
     expect(await page.evaluate(() => (window as any).__completed)).toHaveLength(1);
     expect((await calls()).filter(notUnderstand)).toEqual([]);
   });
-  it("removes the agent's picks and custom choices", async () => {
+  it("removes Pundit's picks and the user's own choices", async () => {
     await mount("wizard", [{ rawBody: agentRun() }]);
-    await page.getByLabel("Professional focus").fill("Product strategy for small teams");
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await say("Product strategy for small teams");
     await page.getByRole("button", { name: "Build my setup" }).click();
     await page.getByRole("button", { name: "Remove source Unlisted AI source" }).click();
-    await page.getByRole("button", { name: "Skip sources" }).click();
     await page.getByRole("button", { name: "Remove topic Unlisted AI topic" }).click();
     await page.getByLabel("Custom topic").fill("My own topic");
     await page.getByTestId("button-add-keyword").click();
     await page.getByRole("button", { name: "Remove topic My own topic" }).click();
-    await page.getByRole("button", { name: "Skip topics" }).click();
     await page.getByRole("button", { name: "Remove leader Unlisted AI leader" }).click();
     await page.getByRole("button", { name: "Remove company Unlisted AI company" }).click();
-    await page.getByRole("button", { name: "Skip inspiration and finish" }).click();
+    await page.getByRole("button", { name: "Finish setup" }).click();
     expect(await page.evaluate(() => (window as any).__completed[0])).toMatchObject({ publications: [], keywords: [], influencers: [], companies: [] });
     expect((await calls()).filter(notUnderstand).map((call: any) => call.url)).toEqual(["/api/onboarding/agent"]);
   });
-  it("stops the agent when the user switches to manual setup and ignores late results", async () => {
+  it("times out a slow agent with Try again and keeps the setup usable", async () => {
     await mount("wizard", [{ defer: true, rawBody: agentRun() }]);
-    await page.getByLabel("Professional focus").fill("Product strategy for small teams");
-    await page.getByRole("button", { name: "Build my setup" }).click();
-    await browserExpect(page.getByRole("status")).toContainText("The agent is working");
-    await page.getByTestId("button-back").click();
-    await page.getByRole("button", { name: "Set up manually" }).click();
-    expect((await calls()).filter(notUnderstand)[0].aborted).toBe(true);
-    await resolvePending();
-    await browserExpect(page.getByRole("button", { name: "Let the agent help" })).toBeVisible();
-    expect(await page.getByRole("button", { name: /source Unlisted AI source$/ }).count()).toBe(0);
-  });
-  it("times out a slow agent with Try again and keeps the step usable", async () => {
-    await mount("wizard", [{ defer: true, rawBody: agentRun() }]);
-    await page.getByLabel("Professional focus").fill("Product strategy for small teams");
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await say("Product strategy for small teams");
     await page.getByRole("button", { name: "Build my setup" }).click();
     await page.clock.runFor(90_100);
-    await browserExpect(page.getByRole("alert")).toContainText("The agent took too long.");
+    await browserExpect(page.getByRole("region", { name: "Sources" }).getByRole("alert")).toContainText("The agent took too long.");
     expect((await calls()).filter(notUnderstand)[0].aborted).toBe(true);
     await resolvePending();
     expect(await page.getByRole("button", { name: /source Unlisted AI source$/ }).count()).toBe(0);
-    await browserExpect(page.getByRole("button", { name: "Try again" })).toBeVisible();
-    await browserExpect(page.getByRole("button", { name: "Skip sources" })).toBeEnabled();
+    await browserExpect(page.getByRole("region", { name: "Sources" }).getByRole("button", { name: "Try again" })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: "Finish setup" })).toBeEnabled();
     expect(await page.evaluate(() => (window as any).__toasts)).toEqual([]);
   });
   it("doesn't demand LinkedIn and collapses the optional Home checklist", async () => {
@@ -172,7 +166,8 @@ describe("UX audit screens (fully mocked Chromium)", () => {
   });
   it("stops the agent on navigation without a late message", async () => {
     await mount("wizard", [{ defer: true, rawBody: agentRun() }]);
-    await page.getByLabel("Professional focus").fill("Product strategy for small teams");
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await say("Product strategy for small teams");
     await page.getByRole("button", { name: "Build my setup" }).click();
     await page.evaluate(() => (window as any).__setSurface("home"));
     await browserExpect(page.getByTestId("button-overview-refresh")).toBeVisible();
@@ -183,30 +178,31 @@ describe("UX audit screens (fully mocked Chromium)", () => {
   });
   it("keeps agent failure optional and does not claim registration is the last step", async () => {
     await mount("wizard", [{ status: 500, body: { message: "Fixture unavailable" } }]);
-    await page.getByLabel("Professional focus").fill("Product strategy for small teams");
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await say("Product strategy for small teams");
     await page.getByRole("button", { name: "Build my setup" }).click();
-    await browserExpect(page.getByRole("alert")).toContainText("The agent couldn't finish this step.");
-    await page.getByTestId("button-back").click();
-    await page.getByRole("button", { name: "Skip optional preferences and finish" }).click();
+    await browserExpect(page.getByRole("region", { name: "Sources" }).getByRole("alert")).toContainText("The agent couldn't finish this step.");
+    await page.getByRole("button", { name: "Finish setup" }).click();
     expect(await page.evaluate(() => (window as any).__completed[0].publications)).toEqual([]);
     await page.evaluate(() => (window as any).__setSurface("registration"));
     await browserExpect(page.getByText("Workspace basics", { exact: true })).toBeVisible();
     expect(await page.getByText(/One last step/).count()).toBe(0);
   });
-  it("wraps long agent picks and final onboarding actions at 320px", async () => {
+  it("on a phone, switches between Pundit and the setup with the composer at hand, without horizontal scroll", async () => {
     await mount("wizard", [{ rawBody: agentRun("A".repeat(100)) }]);
-    await page.setViewportSize({ width: 320, height: 844 });
-    await page.getByLabel("Professional focus").fill("Product strategy for small teams");
+    await say("Product strategy for small teams");
     await page.getByRole("button", { name: "Build my setup" }).click();
+    await browserExpect(page.getByRole("region", { name: "Pundit" })).toContainText("Picked for you.");
+    await browserExpect(page.getByRole("region", { name: "Your setup" })).toBeHidden();
+    await page.getByRole("tab", { name: /^Your setup/ }).click();
     await browserExpect(page.getByRole("button", { name: `Remove source ${"A".repeat(100)}` })).toBeVisible();
+    await browserExpect(page.getByRole("textbox", { name: "Message Pundit" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.getByTestId("button-continue").click();
-    await page.getByTestId("button-continue").click();
-    await browserExpect(page.getByRole("button", { name: "Remove leader Unlisted AI leader" })).toBeVisible();
+    await page.setViewportSize({ width: 320, height: 700 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.getByRole("button", { name: "Remove leader Unlisted AI leader" }).click();
-    await page.getByRole("button", { name: "Remove company Unlisted AI company" }).click();
-    await browserExpect(page.getByRole("button", { name: "Skip inspiration and finish" })).toBeVisible();
+    await page.getByRole("tab", { name: "Pundit" }).click();
+    await browserExpect(page.getByRole("list", { name: "Conversation" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
   it("sorts upcoming records and reports real target failures only once", async () => {
     const schedule = (id: string, day: number) => ({ id, draftId: id, status: "scheduled", scheduledPublishAt: new Date(2026, 8, day).toISOString(), draft: { content: id, platform: "twitter" } });

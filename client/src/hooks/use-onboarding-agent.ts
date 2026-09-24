@@ -19,6 +19,10 @@ export interface AgentStepState {
   /** The agent's latest result for this step. */
   items: SuggestedChoice[];
   note: string;
+  /** Short refinements the agent suggests for this step. */
+  followUps: string[];
+  /** Names the agent pre-selected in its latest result. */
+  picks: string[];
   grounded: boolean;
   /** Progress lines from the agent's latest run of this step. */
   feed: string[];
@@ -43,7 +47,7 @@ export interface AgentContext {
 export type ResultMode = "build" | "steer";
 type State = Record<SuggestionStep, AgentStepState>;
 
-const idle = (): AgentStepState => ({ status: "idle", items: [], note: "", grounded: true, feed: [], batches: [], refreshes: 0, refreshing: false });
+const idle = (): AgentStepState => ({ status: "idle", items: [], note: "", followUps: [], picks: [], grounded: true, feed: [], batches: [], refreshes: 0, refreshing: false });
 const initialState = (): State => ({ publications: idle(), topics: idle(), people: idle() });
 const key = (value: string) => value.trim().toLowerCase();
 const unique = (values: string[]) => [...new Map(values.map(value => [key(value), value])).values()];
@@ -74,16 +78,20 @@ function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
  * run takes over the steps it covers; results from older runs for those steps are ignored.
  * Picking something new also adds "more like your picks" options (at most three times a step).
  */
-export function useOnboardingAgent(step: SuggestionStep | undefined, enabled: boolean, context: AgentContext,
-  onResult: (step: SuggestionStep, result: SuggestionResult, mode: ResultMode) => void) {
+export interface AgentCallbacks {
+  onResult: (step: SuggestionStep, result: SuggestionResult, mode: ResultMode) => void;
+  onError?: (step: SuggestionStep, message: string) => void;
+}
+
+export function useOnboardingAgent(step: SuggestionStep | undefined, enabled: boolean, context: AgentContext, callbacks: AgentCallbacks) {
   const [state, setState] = useState<State>(initialState);
   const [catalog, setCatalog] = useState<SuggestedChoice[]>([]);
   const stateRef = useRef(state);
   stateRef.current = state;
   const contextRef = useRef(context);
   contextRef.current = context;
-  const onResultRef = useRef(onResult);
-  onResultRef.current = onResult;
+  const callbacksRef = useRef(callbacks);
+  callbacksRef.current = callbacks;
   const runs = useRef(new Map<number, AbortController>());
   const owner = useRef<Partial<Record<SuggestionStep, number>>>({});
   const runId = useRef(0);
@@ -120,9 +128,9 @@ export function useOnboardingAgent(step: SuggestionStep | undefined, enabled: bo
     const items = result.items.filter(item => !removed.has(key(item.name)));
     const picks = result.picks.filter(pick => !removed.has(key(pick)));
     remember(items);
-    update(target, current => ({ status: "ready", items, note: result.note, grounded: result.grounded, error: undefined, batches: mode === "steer" ? [] : current.batches }));
+    update(target, current => ({ status: "ready", items, picks, note: result.note, followUps: result.followUps, grounded: result.grounded, error: undefined, batches: mode === "steer" ? [] : current.batches }));
     requestedPicks.current.set(target, unique([...contextRef.current.picks[target], ...picks]));
-    onResultRef.current(target, { ...result, items, picks }, mode);
+    callbacksRef.current.onResult(target, { ...result, items, picks }, mode);
   }, [remember, update]);
 
   const run = useCallback(async (steps: SuggestionStep[], instruction?: string) => {
@@ -138,7 +146,11 @@ export function useOnboardingAgent(step: SuggestionStep | undefined, enabled: bo
     const pending = new Set(steps);
     const mode: ResultMode = instruction ? "steer" : "build";
     for (const target of steps) update(target, () => ({ status: "running", feed: [], error: undefined }));
-    const fail = (target: SuggestionStep, message: string) => { if (owns(target)) update(target, () => ({ status: "error", error: message })); };
+    const fail = (target: SuggestionStep, message: string) => {
+      if (!owns(target)) return;
+      update(target, () => ({ status: "error", error: message }));
+      callbacksRef.current.onError?.(target, message);
+    };
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; controller.abort(); }, AGENT_TIMEOUT_MS);
     const current = contextRef.current;

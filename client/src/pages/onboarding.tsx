@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
-import { OnboardingFinish } from "@/components/onboarding/onboarding-finish";
+import { OnboardingWorkspace } from "@/components/onboarding/onboarding-workspace";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { OnboardingData } from "@/lib/onboarding-choices";
@@ -46,24 +45,13 @@ export default function OnboardingPage() {
     completeOnboardingMutation.mutate(data);
   };
 
-  if (saved) {
-    return (
-      <OnboardingFinish
-        data={saved}
-        userIndustry={user?.industry}
-        userCountry={user?.country}
-        onOpenDashboard={() => setLocation("/dashboard")}
-        onOpenDiscover={() => setLocation("/dashboard/discover")}
-      />
-    );
-  }
-
   return (
-    <OnboardingWizard 
-      onComplete={handleComplete} 
+    <OnboardingWorkspace
+      onComplete={handleComplete}
       isPending={completeOnboardingMutation.isPending}
       userIndustry={user?.industry}
       userCountry={user?.country}
+      completed={saved}
     />
   );
 }
