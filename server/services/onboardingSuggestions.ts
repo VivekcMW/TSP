@@ -3,9 +3,8 @@ import { z } from "zod";
 import { canonicalHttpUrl } from "@shared/canonical-url";
 import { verifiedPublicationUrl } from "@shared/publication-preferences";
 import { searchEditionSchema } from "@shared/search-editions";
-import { redis } from "../lib/redis";
 import { fetchNewsHeadlines, type NewsHeadline } from "./keywordSearch";
-import { AIGenerationError, generateText } from "./openRouter";
+import { askJson, cachedJson, key, reasonText, rememberJson, short, tolerantList } from "./onboardingShared";
 
 /**
  * Onboarding suggestions grounded in live news: publications that actually covered the
@@ -41,32 +40,11 @@ const MAX_ITEMS = 10;
 const MAX_ENTITIES = 8;
 // Below this many people named in the news, add well-known leaders labelled as AI suggestions.
 const MIN_NEWS_PEOPLE = 3;
-const CACHE_SECONDS = 6 * 3600;
 // Bump when prompts or response shapes change, so cached answers from the old version are ignored.
 const CACHE_VERSION = 3;
 const PREVIEW_HEADLINES = 3;
 const FOCUS_STOPWORDS = new Set(["work", "working", "works", "company", "focused", "focus", "with", "that", "this", "from", "their", "about", "into", "lead", "leads", "leader", "build", "building", "help", "helping", "team", "teams", "based", "startup", "role"]);
-const memoryCache = new Map<string, { expires: number; value: OnboardingSuggestionResponse }>();
-export function clearOnboardingSuggestionCache() { memoryCache.clear(); }
-
-const key = (value: string) => value.trim().toLowerCase();
-const short = (value: string) => value.replace(/\s+/g, " ").trim().slice(0, 80);
 const reasonFor = (count: number) => `${count} recent article${count === 1 ? "" : "s"} on your topics`;
-
-async function askJson<S extends z.ZodTypeAny>(prompt: string, schema: S, scope: { tenantId: string }, signal?: AbortSignal): Promise<z.infer<S>> {
-  const text = await generateText(prompt, { scope, signal, timeoutMs: 12_000, maxTokens: 1500 });
-  const unfenced = /^```(?:json)?[ \t]*\n([\s\S]*?)\n?```$/.exec(text.trim())?.[1] ?? text;
-  let output: unknown;
-  try { output = JSON.parse(unfenced); } catch { throw new AIGenerationError("ai_invalid_output"); }
-  const parsed = schema.safeParse(output);
-  if (!parsed.success) throw new AIGenerationError("ai_invalid_output");
-  return parsed.data;
-}
-
-/** A model-written list: keep each valid entry, so one malformed entry can't discard the rest. */
-const tolerantList = <S extends z.ZodTypeAny>(item: S, max: number) => z.array(z.unknown()).default([])
-  .transform(entries => entries.flatMap(entry => { const parsed = item.safeParse(entry); return parsed.success ? [parsed.data as z.infer<S>] : []; }).slice(0, max));
-const reasonText = z.string().max(200).optional();
 
 const context = (request: OnboardingSuggestionRequest) => JSON.stringify({
   focus: request.focusDescription, industry: request.industry,
@@ -241,30 +219,16 @@ USER: ${context(request)}`;
     : { step: "topics", grounded: false, items: kept.slice(0, 15).map(entry => ({ name: entry.name, weight: entry.weight ?? 0.6 })) };
 }
 
-async function cached(cacheKey: string): Promise<OnboardingSuggestionResponse | undefined> {
-  if (redis) {
-    try { const hit = await redis.get(cacheKey); if (hit) return JSON.parse(hit) as OnboardingSuggestionResponse; } catch { /* cache is best-effort */ }
-    return undefined;
-  }
-  const hit = memoryCache.get(cacheKey);
-  return hit && hit.expires > Date.now() ? hit.value : undefined;
-}
-async function remember(cacheKey: string, value: OnboardingSuggestionResponse) {
-  if (redis) { try { await redis.set(cacheKey, JSON.stringify(value), "EX", CACHE_SECONDS); } catch { /* best-effort */ } return; }
-  if (memoryCache.size >= 300) memoryCache.delete(memoryCache.keys().next().value!);
-  memoryCache.set(cacheKey, { expires: Date.now() + CACHE_SECONDS * 1000, value });
-}
-
 export async function suggestOnboardingItems(input: OnboardingSuggestionRequest, scope: { tenantId: string }, signal?: AbortSignal): Promise<OnboardingSuggestionResponse> {
   const request = onboardingSuggestionRequestSchema.parse(input);
   const normalized = { ...request, publications: [...request.publications].sort((a, b) => a.name.localeCompare(b.name)), topics: [...request.topics].sort(), exclude: [...new Set(request.exclude.map(key))].sort() };
   const cacheKey = `onboarding:suggestions:v${CACHE_VERSION}:${createHash("sha256").update(JSON.stringify(normalized)).digest("hex")}`;
-  const hit = await cached(cacheKey);
+  const hit = await cachedJson<OnboardingSuggestionResponse>(cacheKey);
   if (hit) return hit;
 
   if (request.step === "preview") {
     const result: OnboardingSuggestionResponse = { step: "preview", grounded: true, headlines: await previewHeadlines(request, signal) };
-    if (result.headlines.length) await remember(cacheKey, result);
+    if (result.headlines.length) await rememberJson(cacheKey, result);
     return result;
   }
   const excluded = new Set([...request.exclude, ...request.publications.map(publication => publication.name), ...request.topics].map(key));
@@ -279,6 +243,6 @@ export async function suggestOnboardingItems(input: OnboardingSuggestionRequest,
   else if (request.step === "publications") result = { step: "publications", grounded: true, items: await suggestPublications(request, headlines, excluded, scope, signal) };
   else if (request.step === "topics") result = { step: "topics", grounded: true, items: await suggestTopics(request, headlines, excluded, scope, signal) };
   else result = { step: "people", grounded: true, ...await suggestPeople(request, headlines, excluded, scope, signal) };
-  await remember(cacheKey, result);
+  await rememberJson(cacheKey, result);
   return result;
 }

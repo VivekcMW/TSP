@@ -4,7 +4,8 @@ const { headlines, generateText } = vi.hoisted(() => ({ headlines: vi.fn(), gene
 vi.mock("../lib/redis", () => ({ redis: undefined }));
 vi.mock("./keywordSearch", () => ({ fetchNewsHeadlines: headlines }));
 vi.mock("./openRouter", async original => ({ ...await original<typeof import("./openRouter")>(), generateText }));
-import { clearOnboardingSuggestionCache, suggestOnboardingItems, type EntitySuggestion, type OnboardingSuggestionResponse } from "./onboardingSuggestions";
+import { clearOnboardingCache } from "./onboardingShared";
+import { suggestOnboardingItems, type EntitySuggestion, type OnboardingSuggestionResponse } from "./onboardingSuggestions";
 // Step-specific shape for assertions; the response type is a union keyed by step.
 type AnyResult = OnboardingSuggestionResponse & { items: Array<{ name: string; reason?: string }>; people: EntitySuggestion[]; companies: EntitySuggestion[] };
 const suggest = async (...args: Parameters<typeof suggestOnboardingItems>): Promise<AnyResult> => await suggestOnboardingItems(...args) as AnyResult;
@@ -33,7 +34,7 @@ function replies(map: { phrases?: string[]; curate?: unknown; topics?: unknown; 
 }
 const request = (step: "publications" | "topics" | "people" | "preview", extra: object = {}) => ({ step, focusDescription: focus, publications: [], topics: [], exclude: [], ...extra });
 
-beforeEach(() => { vi.resetAllMocks(); clearOnboardingSuggestionCache(); headlines.mockResolvedValue(corpus); });
+beforeEach(() => { vi.resetAllMocks(); clearOnboardingCache(); headlines.mockResolvedValue(corpus); });
 
 describe("publication suggestions from live news", () => {
   it("suggests only outlets found in real results, with site, article count and latest headline", async () => {
