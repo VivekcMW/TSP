@@ -665,6 +665,19 @@ describe("short-form platforms and tone selection", () => {
     expect(retryPrompt).toContain("Post is 320 characters (X counts each link as 23); the limit is 280. Cut at least 40 characters");
   });
 
+  it.each([".", ",", ";", "!", "?", ")", "\u201D", "."])("accepts the article link followed by %s", async punctuation => {
+    const text = `Research Desk reports 12% lower latency in a 30-store pilot (read it at ${article.articleUrl}${punctuation} It lacked a control group.`;
+    provider.mockResolvedValue(segmentReply([{ text, excerptIds: ["p1"] }]));
+    await expect(generatePostContentDetailed(article, "medium", "professional")).resolves.toMatchObject({ content: text });
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+
+  it("still rejects a different link even when it ends with punctuation", async () => {
+    provider.mockResolvedValue(segmentReply([{ text: `Research Desk reports 12% lower latency in a 30-store pilot. ${article.articleUrl}-invented.`, excerptIds: ["p1"] }]));
+    await expect(generatePostContentDetailed(article, "medium", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    expect(diagnostics().map(record => record.validationReasons)).toEqual([["unexpected_url"], ["unexpected_url"]]);
+  });
+
   it("states the X link rule in the writer prompt", async () => {
     await generatePostContentDetailed(article, "twitter", "professional");
     expect(provider.mock.calls[0][1].systemPrompt).toContain("X counts each link as 23 characters");

@@ -3,7 +3,7 @@ import { ALL_PLATFORM_KEYS } from "@shared/schema";
 import { normalizeKeywords as normalizeProfileKeywords } from "@shared/profile-preferences";
 import { voicePromptData, voiceScopeSchema, type VoiceScope } from "@shared/editorial-voice";
 import { checkClaimSupport, type ClaimSupportReport } from "@shared/editorial-claims";
-import { EDITORIAL_TONES, platformTextLength, X_LINK_LENGTH, type EditorialTone } from "@shared/editorial";
+import { EDITORIAL_TONES, platformTextLength, trimLinkPunctuation, X_LINK_LENGTH, type EditorialTone } from "@shared/editorial";
 import { editorialVoiceRepository } from "../repositories/editorialVoice";
 import { scoreArticleRelevance } from "./articleRelevance";
 import { z } from "zod";
@@ -662,7 +662,8 @@ function validatePostContent(
     errors.push("Multiple URLs detected - only one primary link allowed");
     reasons.push("multiple_urls");
   }
-  if (urlMatches.some(url => url !== article.articleUrl)) {
+  // Some URLs genuinely end in ")", so accept the link as written or without trailing punctuation.
+  if (urlMatches.some(url => url !== article.articleUrl && trimLinkPunctuation(url) !== article.articleUrl)) {
     errors.push("Use only the exact supplied article URL; do not invent URLs");
     reasons.push("unexpected_url");
   }
