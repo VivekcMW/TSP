@@ -1,13 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildPublishingActivity } from "./publishing-activity";
-import { normalizeOnboardingChoices, visibleOnboardingChoices } from "./onboarding-choices";
+import { normalizeOnboardingChoices } from "./onboarding-choices";
 import { isRefreshJobRunning, refreshJobMessage, type RefreshJobState } from "../hooks/use-inbox-refresh-job";
 
 describe("UX audit data helpers", () => {
-  it("keeps selected AI and custom values visible ahead of catalog choices", () => {
-    expect(visibleOnboardingChoices(["Catalog", "AI source"], ["AI Source", "Custom"]))
-      .toEqual(["AI Source", "Custom", "Catalog"]);
-  });
   it("normalizes malformed suggestions and respects the server list cap", () => {
     expect(normalizeOnboardingChoices([null, "", "  ", "Custom", "custom", 1])).toEqual(["Custom"]);
     expect(normalizeOnboardingChoices("wrong shape")).toEqual([]);

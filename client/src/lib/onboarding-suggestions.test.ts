@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { choiceKey, defaultSearchEdition, evidenceLabel, parseAgentEvent, parseOnboardingSuggestions, parsePreviewHeadlines, parseUnderstanding, previewTopics, readEventStream } from "./onboarding-suggestions";
+import { defaultSearchEdition, evidenceLabel, parseAgentEvent, parseOnboardingSuggestions, parsePreviewHeadlines, parseUnderstanding, previewTopics, readEventStream } from "./onboarding-suggestions";
 
 describe("onboarding suggestion responses", () => {
   it("keeps valid publications with safe URLs and drops malformed entries individually", () => {
@@ -76,16 +76,6 @@ describe("default news edition", () => {
     expect(defaultSearchEdition({ country: "India", language: "hi-IN" })).toBe("hi-IN");
     expect(defaultSearchEdition({ country: "Brazil", language: "pt-BR" })).toBe("pt-BR");
     expect(defaultSearchEdition({ country: "Germany", language: "en-US" })).toBe("en-US");
-  });
-});
-
-describe("matching suggestion names to built-in choices", () => {
-  it("treats domain-style, punctuated and differently cased names as the same choice", () => {
-    expect(choiceKey("bestmediainfo.com")).toBe(choiceKey("BestMediaInfo"));
-    expect(choiceKey("www.afaqs.com")).toBe(choiceKey("afaqs!"));
-    expect(choiceKey("Exchange4Media")).toBe(choiceKey("exchange4media"));
-    expect(choiceKey("The Drum")).not.toBe(choiceKey("Drum Media"));
-    expect(choiceKey("Ad Age")).not.toBe(choiceKey("Adage.io News"));
   });
 });
 

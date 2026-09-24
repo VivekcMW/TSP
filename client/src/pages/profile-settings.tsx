@@ -15,7 +15,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import { SourcesManagerContent } from "@/components/dashboard/sources-manager";
-import { getIndustryData } from "@/components/onboarding/onboarding-wizard";
+import { getIndustryData } from "@/lib/industry-data";
 import type { UserProfile, InboxItem, ProfileSocialLink } from "@shared/schema";
 import { reconcileKeywords } from "@shared/profile-preferences";
 import { getSearchEdition, SEARCH_EDITIONS } from "@shared/search-editions";

@@ -134,11 +134,6 @@ export async function readEventStream(response: Response, onEvent: (event: unkno
   if (buffer.trim()) flush(buffer);
 }
 
-/** Compare names loosely: news sources often appear as domains ("bestmediainfo.com" = "BestMediaInfo"). */
-export function choiceKey(name: string): string {
-  return name.trim().toLowerCase().replace(/^www\./, "").replace(/\.(com|in|co\.uk|co|org|net|io|news|tv)$/, "").replace(/[^\p{L}\p{N}]/gu, "");
-}
-
 export function evidenceLabel(choice: SuggestedChoice): string | undefined {
   if (choice.aiOnly) return "AI suggestion";
   const count = choice.evidence?.count;
