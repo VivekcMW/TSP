@@ -41,6 +41,17 @@ function recoverableRateLimit(options: Partial<Options>): RateLimitRequestHandle
 }
 
 // Gemini-backed endpoints: generation is the most expensive/abusable path.
+// Onboarding suggestions are small and cached; separate from post generation.
+export const onboardingSuggestionRateLimit = recoverableRateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: keyByUser,
+  store: makeStore("onboarding-suggestions"),
+  message: { message: "Too many suggestion requests. Please wait a few minutes and try again." },
+});
+
 export const aiGenerationRateLimit = recoverableRateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 30,

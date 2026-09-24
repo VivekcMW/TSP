@@ -77,6 +77,28 @@ export async function resolveGoogleNewsArticleUrl(value: string, signal?: AbortS
   return value;
 }
 
+export interface NewsHeadline { title: string; source: string; sourceUrl: string | null; publishedAt: string | null }
+
+/** Recent headlines with their publication, for onboarding suggestions. Article links are not resolved. */
+export async function fetchNewsHeadlines(query: string, searchEdition = "en-US", signal?: AbortSignal): Promise<NewsHeadline[]> {
+  if (typeof query !== "string" || query.length > SEARCH_QUERY_LIMITS.term) return [];
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  const { hl, gl, ceid } = getSearchEdition(searchEdition);
+  const url = new URL("https://news.google.com/rss/search");
+  url.search = new URLSearchParams({ q: `${trimmed} when:30d`, hl, gl, ceid }).toString();
+  const response = await fetchPublicText(url.href, { signal, timeoutMs: 6000 });
+  const feed = await parser.parseString(response.text);
+  return (feed.items || []).slice(0, 30).flatMap(item => {
+    const source = extractSourceName(item as GoogleNewsItem, "").trim();
+    const rawUrl = (item as GoogleNewsItem).rawSource?.[0]?.$?.url;
+    // Google appends " - <publication>" to every headline.
+    const title = (item.title || "").endsWith(` - ${source}`) ? (item.title || "").slice(0, -(source.length + 3)).trim() : (item.title || "").trim();
+    if (!title || !source) return [];
+    return [{ title, source, sourceUrl: rawUrl ? canonicalHttpUrl(rawUrl) ?? null : null, publishedAt: publicationDate(item.pubDate, "rss-pubDate").publishedAt }];
+  });
+}
+
 export async function fetchArticlesForQuery(
   query: string,
   maxItems: number = 8,

@@ -126,6 +126,7 @@ describe.skipIf(!disposableRedisAvailable)("recoverable limiter with isolated Re
   it.each([
     ["aiGenerationRateLimit", "ai-generation", 30, 900],
     ["instantReviewRateLimit", "instant-review", 30, 3600],
+    ["onboardingSuggestionRateLimit", "onboarding-suggestions", 60, 3600],
     ["inboxRefreshRateLimit", "inbox-refresh", 20, 900],
   ] as const)("keeps %s's real quota and 429 responses across routes and outages", async (name, prefix, quota, seconds) => {
     const limiter = limiters[name];

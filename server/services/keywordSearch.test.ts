@@ -11,7 +11,7 @@ vi.mock("./crawlerFetch", async original => ({ ...await original<typeof import("
 vi.mock("decode-google-news-url", () => ({ decodeGoogleNewsUrl: decode, tryOfflineDecode: offline }));
 vi.mock("google-news-decoder", () => ({ default: class { decodeGoogleNewsUrl = modernDecode; } }));
 vi.mock("node-fetch", () => ({ default: network }));
-import { fetchArticlesForQuery } from "./keywordSearch";
+import { fetchArticlesForQuery, fetchNewsHeadlines } from "./keywordSearch";
 import { CrawlError } from "./crawlerFetch";
 
 const rss = (items: string) => `<rss version="2.0"><channel><title>News</title>${items}</channel></rss>`;
@@ -162,5 +162,33 @@ describe("bounded Google News search", () => {
     controller.abort();
     await expect(pending).rejects.toEqual(new CrawlError("search", "Article search failed or was cancelled. Please try again."));
     expect(settled).toBe(true);
+  });
+});
+describe("news headlines for onboarding suggestions", () => {
+  const entry = (title: string, source: string, url: string, date = "Mon, 21 Sep 2026 10:00:00 GMT") =>
+    `<item><title>${title} - ${source}</title><link>https://news.google.com/rss/articles/x${title.length}?oc=5</link><pubDate>${date}</pubDate><source url="${url}">${source}</source></item>`;
+
+  it("returns headline, publication and website without decoding article links", async () => {
+    crawl.mockResolvedValue({ text: rss(entry("Vistar expands programmatic DOOH", "ExchangeWire", "https://www.exchangewire.com") + entry("Retail media grows", "Campaign India", "https://www.campaignindia.in")) });
+    const result = await fetchNewsHeadlines("programmatic DOOH", "en-IN");
+    expect(result).toEqual([
+      { title: "Vistar expands programmatic DOOH", source: "ExchangeWire", sourceUrl: "https://www.exchangewire.com/", publishedAt: "2026-09-21T10:00:00.000Z" },
+      { title: "Retail media grows", source: "Campaign India", sourceUrl: "https://www.campaignindia.in/", publishedAt: "2026-09-21T10:00:00.000Z" },
+    ]);
+    const url = new URL(crawl.mock.calls[0][0]);
+    expect(url.searchParams.get("q")).toBe("programmatic DOOH when:30d");
+    expect(url.searchParams.get("gl")).toBe("IN");
+    expect(decode).not.toHaveBeenCalled(); expect(modernDecode).not.toHaveBeenCalled();
+  });
+
+  it("keeps items without a trustworthy website but never invents one", async () => {
+    crawl.mockResolvedValue({ text: rss(`<item><title>Story - Desk</title><link>https://news.test/a</link><source url="javascript:alert(1)">Desk</source></item>`) });
+    expect(await fetchNewsHeadlines("pilot")).toEqual([{ title: "Story", source: "Desk", sourceUrl: null, publishedAt: null }]);
+  });
+
+  it("returns nothing for a blank or overlong query without searching", async () => {
+    expect(await fetchNewsHeadlines("   ")).toEqual([]);
+    expect(await fetchNewsHeadlines("x".repeat(101))).toEqual([]);
+    expect(crawl).not.toHaveBeenCalled();
   });
 });

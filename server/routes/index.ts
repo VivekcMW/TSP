@@ -8,6 +8,7 @@ import { registerTwitterAuth } from "../services/twitterAuth";
 import { registerAuthRoutes } from "./auth";
 import { registerProfileRoutes } from "./profile";
 import { registerAiRoutes } from "./ai";
+import { registerOnboardingSuggestionRoutes } from "./onboarding-suggestions";
 import { registerInboxRoutes } from "./inbox";
 import { registerSourcesRoutes } from "./sources";
 import { registerDraftsRoutes } from "./drafts";
@@ -39,6 +40,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerAuthRoutes(app);
   registerProfileRoutes(app);
   registerAiRoutes(app);
+  registerOnboardingSuggestionRoutes(app);
   registerInboxRoutes(app);
   registerSourcesRoutes(app);
   registerDraftsRoutes(app);
