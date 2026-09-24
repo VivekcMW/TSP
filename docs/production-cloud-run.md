@@ -130,13 +130,19 @@ HTTP 5xx errors, on ERROR logs, and on Redis or queue connection failures.
   call and its OpenRouter fallback share a 20-second budget
   (`AI_REQUEST_TIMEOUT_MS`), so when Gemini stalls the fallback never runs and
   the user sees "AI generation timed out".
-- From revision `tsp-app-00042`, onboarding Steps 2–4 suggest sources, topics,
-  people and companies from Google News (last 30 days) through
-  `POST /api/onboarding/suggestions`. Each request makes about two Gemini
-  calls. Answers are cached for 6 hours in Redis (`onboarding:suggestions:v<N>:`;
-  bump `CACHE_VERSION` when prompts change), and each user can make 60 requests
-  an hour. People suggestions are often empty, because a name must appear in a
-  headline. The wizard no longer calls `/api/ai/analyze-identity`.
+- From revision `tsp-app-00046`, onboarding is agentic. Step 1 calls
+  `POST /api/onboarding/understand` (one short Gemini call) and shows an
+  editable summary. "Build my setup" opens a server-sent event stream,
+  `POST /api/onboarding/agent`: it researches sources, then topics, then people
+  from Google News (last 30 days), streams real progress, and pre-selects 6
+  sources, 8 topics, 4 people and 4 companies with reasons and a note. A full
+  build takes about 25 seconds and roughly 6 Gemini calls; steering one step
+  takes about 7 seconds. `/api/onboarding/suggestions` still serves "more like
+  your picks" and the finish-screen preview (no AI call). All three routes share
+  a limit of 60 requests per user per hour. Answers are cached for 6 hours in
+  Redis (`onboarding:suggestions:v<N>:`, `onboarding:understand:v<N>:`); bump
+  the `CACHE_VERSION` constants when prompts change. The static industry lists
+  are gone from onboarding (Profile Settings still uses `lib/industry-data`).
 - To offer USD once Razorpay enables International Payments: create a live
   plan for USD 2000 monthly and USD 20000 yearly (interval 1), set each plan's
   ID in `razorpay_plan_id`, and set `is_active = true` for `pro_monthly` and
