@@ -38,6 +38,8 @@ function extractQualifyingParagraphs(html: string): ParagraphMatch[] {
   return matches;
 }
 
+const proseLength = (html: string) => extractQualifyingParagraphs(html).reduce((sum, paragraph) => sum + paragraph.text.length, 0);
+
 /** Groups paragraphs that sit close together in the raw HTML, then returns the group with the most total text — the real article body, not scattered chrome. */
 function densestParagraphCluster(paragraphs: ParagraphMatch[]): string {
   if (!paragraphs.length) return "";
@@ -89,29 +91,30 @@ export function extractArticleFromHtml(rawHtml: string, url: string): FetchedArt
   // Prefer the publisher's own name ("Campaign India") over one derived from the domain ("Campaignindia").
   const declaredName = decodeHtmlEntities(metaContent(html, "og:site_name") ?? metaContent(html, "application-name") ?? "").trim();
   const source = declaredName.length >= 2 && declaredName.length <= 60 && !/^https?:\/\//i.test(declaredName) ? declaredName : sourceName;
-  const articleMatch = /<article\b[^>]*>([\s\S]*?)<\/article>/i.exec(html);
-  const mainMatch = /<main\b[^>]*>([\s\S]*?)<\/main>/i.exec(html);
-  const bodyHtml = articleMatch?.[1] ?? mainMatch?.[1] ?? html;
+  // Many news themes wrap every teaser card in <article>, and some keep the story itself
+  // outside any <article>. Take the wrapper with the most body prose, but use the densest
+  // paragraph cluster OUTSIDE the <article> blocks when that clearly holds more: then the
+  // wrappers are only teasers, and the story (without their excerpts) is elsewhere.
+  const articlePattern = /<article\b[^>]*>([\s\S]*?)<\/article>/gi;
+  const articleBlock = [...html.matchAll(articlePattern)]
+    .map(match => ({ html: match[1], prose: proseLength(match[1]) }))
+    .reduce<{ html: string; prose: number } | undefined>((best, block) => !best || block.prose > best.prose ? block : best, undefined);
+  const mainHtml = /<main\b[^>]*>([\s\S]*?)<\/main>/i.exec(html)?.[1];
+  const wrapper = articleBlock ?? (mainHtml === undefined ? undefined : { html: mainHtml, prose: proseLength(mainHtml) });
+  const cluster = densestParagraphCluster(extractQualifyingParagraphs(articleBlock ? html.replace(articlePattern, " ") : html));
+  const extractionMethod: SourceContentMetadata["extractionMethod"] = !wrapper || cluster.length > Math.max(2 * wrapper.prose, 200)
+    ? "paragraph_cluster" : articleBlock ? "article" : "main";
+  const bodyHtml = extractionMethod === "paragraph_cluster" ? html : wrapper!.html;
   // Headings, links and controls alone are not an article, even inside <main>.
   // Count actual body prose, not metadata teasers or navigation labels.
   const prose = decodeHtmlEntities(stripHtml(bodyHtml
     .replace(/<(a|h[1-6]|title)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ")
     .replace(/<input\b[^>]*>/gi, " "))).trim();
-  if (prose.length < 80 || (!articleMatch && mainMatch && extractQualifyingParagraphs(bodyHtml).length === 0) ||
+  if (prose.length < 80 || (extractionMethod === "main" && extractQualifyingParagraphs(bodyHtml).length === 0) ||
     /^(?:please\s+)?(?:sign[ -]?in|log[ -]?in|subscribe)\s+to\s+(?:read|continue|access|unlock)/i.test(prose)) {
     throw new CrawlError("quality", "No readable article body was found; this page contains only a teaser, login prompt, navigation, or insufficient public content.");
   }
-  let extractionMethod: SourceContentMetadata["extractionMethod"] = "paragraph_cluster";
-  let content: string;
-  if (articleMatch) {
-    extractionMethod = "article";
-    content = stripHtml(articleMatch[1]);
-  } else if (mainMatch) {
-    extractionMethod = "main";
-    content = stripHtml(mainMatch[1]);
-  } else {
-    content = densestParagraphCluster(extractQualifyingParagraphs(html));
-  }
+  let content = extractionMethod === "paragraph_cluster" ? cluster : stripHtml(bodyHtml);
   content = decodeHtmlEntities(content).trim();
   const originalLength = content.length;
   content = content.slice(0, MAX_SOURCE_CHARACTERS);

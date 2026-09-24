@@ -55,6 +55,30 @@ describe("article extraction evidence", () => {
     expect(article.contentMetadata?.extractionMethod).toBe("paragraph_cluster");
   });
 
+  const teaser = (n: number) => `<article class="jeg_post"><h3><a href="/other-${n}">Another story ${n}</a></h3><p>Teaser ${n}: a short excerpt from a different story that links elsewhere on the site... Read more</p></article>`;
+  const story = [
+    "Rajiv Rajagopal said CTV measurement cannot stop at whether an advertisement was delivered to a household screen.",
+    "He said advertisers now expect co-viewing, attention and outcome signals that connect streaming exposure to sales.",
+    "The agency is testing a common currency with two broadcasters, and expects early results before the festive season.",
+    "Rajagopal added that clean-room partnerships remain limited by inconsistent consent rules across publishers.",
+  ];
+
+  it("reads the story, not a teaser card, when only the cards are <article> elements", () => {
+    const html = `<title>CTV</title>${teaser(1)}<div class="entry-content">${story.map(p => `<p>${p}</p>`).join("")}</div>${teaser(2)}${teaser(3)}`;
+    const article = extractArticleFromHtml(html, "https://www.medianews4u.com/ctv-measurement/");
+    expect(article.content).toBe(story.join("\n\n"));
+    expect(article.contentMetadata?.extractionMethod).toBe("paragraph_cluster");
+  });
+
+  it("picks the story's own <article> among teaser <article> cards", () => {
+    const html = `<title>CTV</title>${teaser(1)}${teaser(2)}<article class="post"><h1>CTV measurement</h1>${story.map(p => `<p>${p}</p>`).join("")}</article>${teaser(3)}`;
+    const article = extractArticleFromHtml(html, "https://news.test/ctv");
+    expect(article.content).toContain(story[0]);
+    expect(article.content).toContain(story[3]);
+    expect(article.content).not.toContain("Teaser");
+    expect(article.contentMetadata?.extractionMethod).toBe("article");
+  });
+
   it("continues to reject empty and JavaScript-only bodies", () => {
     expect(() => extractArticleFromHtml("<article>Loading...</article>", "https://news.test/story")).toThrow();
     expect(() => extractArticleFromHtml("<title>No body</title>", "https://news.test/story")).toThrow();
