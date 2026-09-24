@@ -53,8 +53,8 @@ export function UnderstandingCard({ status, understanding, disabled, onChange, o
         <div className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
             {FIELDS.map(({ field, label }) => (
-              <label key={field} className="space-y-1 text-xs text-muted-foreground">
-                <span>{label}</span>
+              <label key={field} className="block space-y-1">
+                <span className="text-xs text-muted-foreground">{label}</span>
                 <Input
                   aria-label={label}
                   value={understanding[field] ?? ""}

@@ -213,6 +213,15 @@ describe("people when headlines name few individuals", () => {
     expect(result.companies.map(company => company.name)).toEqual(["Vistar Media"]);
   });
 
+  it("never passes off a company as an AI-suggested person", async () => {
+    replies({ people: {
+      people: [], companies: [{ name: "Vistar Media", why: "DOOH platform", headlines: [1] }],
+      knownPeople: [{ name: "Plaid" }, { name: "Stripe Inc" }, { name: "Acme Labs" }, { name: "Zach Perret", role: "CEO of Plaid" }, { name: "vistar media" }],
+    } });
+    const result = await suggest(request("people", { topics: ["Programmatic DOOH"] }), scope);
+    expect(result.people).toEqual([{ name: "Zach Perret", reason: "CEO of Plaid", aiOnly: true }]);
+  });
+
   it("uses only people from the news when the headlines name at least three", async () => {
     headlines.mockResolvedValue([
       news("Ana Rao joins DOOH board", "ExchangeWire"), news("Ben Ode on retail screens", "Adweek"), news("Cy Park launches measurement", "Campaign India"),

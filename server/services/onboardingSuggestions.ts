@@ -50,8 +50,11 @@ const MAX_ITEMS = 10;
 const MAX_ENTITIES = 8;
 // Below this many people named in the news, add well-known leaders labelled as AI suggestions.
 const MIN_NEWS_PEOPLE = 3;
+// A known person needs a first and last name; models otherwise slip in brands ("Plaid", "Stripe Inc").
+const COMPANY_SUFFIX = /\b(inc|ltd|llc|plc|corp|corporation|group|technologies|technology|labs|bank|capital|ventures|media|holdings|company|co|gmbh|ag|sa)\.?$/i;
+const looksLikePerson = (name: string) => name.trim().split(/\s+/).length >= 2 && !COMPANY_SUFFIX.test(name.trim());
 // Bump when prompts or response shapes change, so cached answers from the old version are ignored.
-const CACHE_VERSION = 5;
+const CACHE_VERSION = 6;
 const PICKS = { publications: 6, topics: 8, people: 4, companies: 4 } as const;
 const PREVIEW_HEADLINES = 3;
 const FOCUS_STOPWORDS = new Set(["work", "working", "works", "company", "focused", "focus", "with", "that", "this", "from", "their", "about", "into", "lead", "leads", "leader", "build", "building", "help", "helping", "team", "teams", "based", "startup", "role"]);
@@ -164,7 +167,7 @@ People must work in or cover this professional's field: executives, founders, an
 Leave out celebrities, athletes, politicians and brand ambassadors who appear only through a campaign, endorsement or event.
 Companies must be players in this field (competitors, platforms, agencies, vendors or notable clients), not names mentioned in passing.
 Only names that appear in the headlines you cite. Role or reason: at most 8 words.
-If the headlines name fewer than ${MIN_NEWS_PEOPLE} such people, also list up to 5 real, widely known leaders of this field in "knownPeople". Never guess a name.
+If the headlines name fewer than ${MIN_NEWS_PEOPLE} such people, also list up to 5 real, widely known leaders of this field in "knownPeople": individual people with personal names only, never companies or brands. Never guess a name.
 ${INSTRUCTION_RULE}
 ${NOTE_RULE}
 Return JSON only: {"people":[{"name":"...","role":"...","headlines":[2]}],"companies":[{"name":"...","why":"...","headlines":[1]}],"knownPeople":[{"name":"...","role":"..."}],"note":"..."}
@@ -184,7 +187,7 @@ ${numbered(headlines)}`,
     const taken = new Set([...people, ...companies].map(entity => key(entity.name)));
     for (const person of found.knownPeople) {
       if (people.length >= MAX_ENTITIES) break;
-      if (excluded.has(key(person.name)) || taken.has(key(person.name))) continue;
+      if (excluded.has(key(person.name)) || taken.has(key(person.name)) || !looksLikePerson(person.name)) continue;
       taken.add(key(person.name));
       people.push({ name: person.name, reason: short(person.reason), aiOnly: true });
     }
