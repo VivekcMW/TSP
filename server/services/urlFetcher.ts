@@ -86,6 +86,9 @@ export function extractArticleFromHtml(rawHtml: string, url: string): FetchedArt
   const titleMatch = /<title[^>]*>([^<]+)<\/title>/i.exec(html);
   const title = titleMatch?.[1]?.trim() || "Untitled Article";
   const ogTitle = metaContent(html, "og:title");
+  // Prefer the publisher's own name ("Campaign India") over one derived from the domain ("Campaignindia").
+  const declaredName = decodeHtmlEntities(metaContent(html, "og:site_name") ?? metaContent(html, "application-name") ?? "").trim();
+  const source = declaredName.length >= 2 && declaredName.length <= 60 && !/^https?:\/\//i.test(declaredName) ? declaredName : sourceName;
   const articleMatch = /<article\b[^>]*>([\s\S]*?)<\/article>/i.exec(html);
   const mainMatch = /<main\b[^>]*>([\s\S]*?)<\/main>/i.exec(html);
   const bodyHtml = articleMatch?.[1] ?? mainMatch?.[1] ?? html;
@@ -116,7 +119,7 @@ export function extractArticleFromHtml(rawHtml: string, url: string): FetchedArt
     throw new CrawlError("content", "No readable article content was found. The page may require JavaScript, login, or a subscription.");
   }
   return {
-    title: decodeHtmlEntities(ogTitle || title), content, source: sourceName, url, domain,
+    title: decodeHtmlEntities(ogTitle || title), content, source, url, domain,
     publishedAt: date.publishedAt, publicationDate: date,
     contentMetadata: { extractionMethod, originalLength, retainedLength: content.length, truncated: originalLength > content.length },
   };

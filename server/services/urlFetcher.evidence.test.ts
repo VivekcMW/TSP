@@ -18,6 +18,23 @@ describe("article extraction evidence", () => {
     expect(brief.excerpts.every(excerpt => verifySourceExcerpt(article.content, excerpt))).toBe(true);
   });
 
+  const body = "<article><p>The publisher reported a pilot with measurable results across thirty stores and noted its limitations.</p></article>";
+  it.each([
+    ['<meta property="og:site_name" content="Campaign India">', "Campaign India"],
+    ['<meta property="og:site_name" content="Ad &amp; Marketing Times">', "Ad & Marketing Times"],
+    ['<meta name="application-name" content="Brand Equity">', "Brand Equity"],
+  ])("uses the publisher's declared name from %s", (meta, expected) => {
+    expect(extractArticleFromHtml(`<title>Pilot</title>${meta}${body}`, "https://www.campaignindia.in/article/x").source).toBe(expected);
+  });
+
+  it.each([
+    ["no declared name", ""],
+    ["a URL", '<meta property="og:site_name" content="https://www.campaignindia.in/">'],
+    ["an overlong value", `<meta property="og:site_name" content="${"Campaign India ".repeat(6)}">`],
+  ])("falls back to the domain name for %s", (_label, meta) => {
+    expect(extractArticleFromHtml(`<title>Pilot</title>${meta}${body}`, "https://www.campaignindia.in/article/x").source).toBe("Campaignindia");
+  });
+
   it("preserves paragraphs and decodes entities before calculating offsets", () => {
     const article = extractArticleFromHtml('<main><p>First &amp; second groups reported improvements during the trial.</p><p>Third &quot;quoted&quot; paragraph describes limitations of the reported findings.</p></main>', "https://news.test/story");
     expect(article.content).toBe('First & second groups reported improvements during the trial.\n\nThird "quoted" paragraph describes limitations of the reported findings.');
