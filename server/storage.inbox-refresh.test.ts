@@ -9,7 +9,11 @@ import { canonicalHttpUrl } from "@shared/canonical-url";
 import { storage, InboxCapacityError, InboxCanonicalConflictError, InboxOperationConflictError, type TenantScope } from "./storage";
 
 vi.mock("./services/publicationSources", () => ({ resolvePublicationSources: vi.fn().mockResolvedValue([]) }));
-vi.mock("./services/keywordSearch", () => ({ fetchArticlesForQuery: vi.fn(() => { throw new Error("Unexpected provider call"); }) }));
+vi.mock("./services/keywordSearch", async (importOriginal) => {
+  const unexpected = vi.fn(() => { throw new Error("Unexpected provider call"); });
+  const { isGoogleNewsArticleUrl } = await importOriginal<typeof import("./services/keywordSearch")>();
+  return { fetchArticlesForQuery: unexpected, resolveGoogleNewsArticleUrl: unexpected, isGoogleNewsArticleUrl };
+});
 vi.mock("node-fetch", () => ({ default: vi.fn(() => { throw new Error("Unexpected network call"); }) }));
 const { getEngine } = vi.hoisted(() => ({ getEngine: vi.fn() }));
 vi.mock("./services/engines", () => ({ engineRegistry: { getEngine } }));

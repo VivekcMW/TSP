@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const publicRoutes = [
   { path: "/", heading: /Too busy to post/i },
-  { path: "/pricing", heading: /Start building authority today/i },
+  { path: "/pricing", heading: /Choose your plan/i },
   { path: "/how-it-works", heading: /Automate your professional narrative/i },
   { path: "/industries", heading: /Industry-specific AI that knows your field/i },
   { path: "/blog", heading: /Blog/i },

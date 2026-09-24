@@ -14,7 +14,8 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: "PORT=4302 APP_URL=http://127.0.0.1:4302 BETTER_AUTH_URL=http://127.0.0.1:4302 BETTER_AUTH_SECRET=e2e-only-better-auth-secret-at-least-32-characters npm run dev",
+    // Like CI: never inherit DEV_AUTH_BYPASS from .env, so auth flows run for real.
+    command: "DEV_AUTH_BYPASS= VITE_DEV_AUTH_BYPASS= PORT=4302 APP_URL=http://127.0.0.1:4302 BETTER_AUTH_URL=http://127.0.0.1:4302 BETTER_AUTH_SECRET=e2e-only-better-auth-secret-at-least-32-characters npm run dev",
     url: `${baseURL}/healthz`,
     reuseExistingServer: false,
     timeout: 30_000,
