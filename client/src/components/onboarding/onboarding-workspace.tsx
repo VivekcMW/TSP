@@ -179,7 +179,7 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
   const panelMessages: PanelMessage[] = messages.map(message => {
     if ("card" in message) {
       return { id: message.id, from: "pundit", card: (
-        <UnderstandingCard status={understanding.status} understanding={summary} disabled={locked}
+        <UnderstandingCard compact={mode !== "none"} status={understanding.status} understanding={summary} disabled={locked}
           onChange={understanding.setUnderstanding} onAnswer={understanding.answer} onRetry={understanding.retry} />
       ) };
     }

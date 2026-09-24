@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Check, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,13 @@ function StatusIcon({ state }: { state: ProgressItem["state"] }) {
 
 /** Pundit's side of the workspace: the conversation, its progress and what it did. */
 export function PunditPanel({ className, messages, thinking, progress, log }: Readonly<PunditPanelProps>) {
+  // Keep the newest message in view, as in any conversation.
+  const scroller = useRef<HTMLDivElement>(null);
+  const newest = messages.at(-1)?.id;
+  useEffect(() => {
+    const element = scroller.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  }, [newest, thinking]);
   return (
     <section aria-label="Pundit" className={cn("min-h-0 flex-col bg-card lg:border-r", className)}>
       <div className="flex items-center gap-3 border-b px-5 py-4">
@@ -44,28 +51,26 @@ export function PunditPanel({ className, messages, thinking, progress, log }: Re
           <p className="text-sm text-muted-foreground">Your setup agent</p>
         </div>
       </div>
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
-        {progress && (
-          <div className="space-y-2">
-            <ol aria-label="Pundit's progress" className="space-y-3">
-              {progress.map(item => (
-                <li key={item.label} className="flex gap-3">
-                  <StatusIcon state={item.state} />
-                  <div className="min-w-0">
-                    <p className={cn("text-sm font-medium", item.state === "waiting" && "text-muted-foreground")}>{item.label}</p>
-                    <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{item.detail}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-            {log.length > 0 && (
-              <details className="text-xs text-muted-foreground">
-                <summary className="cursor-pointer">Show what I did</summary>
-                <ol className="mt-1 list-decimal space-y-0.5 pl-5">{log.map((line, index) => <li key={`${index}-${line}`}>{line}</li>)}</ol>
-              </details>
-            )}
-          </div>
-        )}
+      {progress && (
+        <div className="shrink-0 space-y-1.5 border-b px-5 py-3">
+          <ol aria-label="Pundit's progress" className="space-y-1.5">
+            {progress.map(item => (
+              <li key={item.label} className="flex min-w-0 items-center gap-2.5 text-sm">
+                <StatusIcon state={item.state} />
+                <span className={cn("shrink-0 font-medium", item.state === "waiting" && "text-muted-foreground")}>{item.label}</span>
+                <span className="min-w-0 truncate text-muted-foreground" title={item.detail}>{item.detail}</span>
+              </li>
+            ))}
+          </ol>
+          {log.length > 0 && (
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer">Show what I did</summary>
+              <ol className="mt-1 max-h-40 list-decimal space-y-0.5 overflow-y-auto pl-5">{log.map((line, index) => <li key={`${index}-${line}`}>{line}</li>)}</ol>
+            </details>
+          )}
+        </div>
+      )}
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
         <ol aria-label="Conversation" aria-live="polite" className="space-y-4">
           {messages.map(message => {
             if (message.from === "user") {

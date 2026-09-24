@@ -6,6 +6,8 @@ import type { Understanding } from "@/lib/onboarding-suggestions";
 import type { UnderstandingStatus } from "@/hooks/use-focus-understanding";
 
 interface UnderstandingCardProps {
+  /** Once the setup is under way, show a one-line summary with "Edit". */
+  compact?: boolean;
   status: UnderstandingStatus;
   understanding: Understanding | null;
   disabled?: boolean;
@@ -20,9 +22,19 @@ const FIELDS = [
 ] as const;
 
 /** Step 1: what the agent understood about the user, editable in place. */
-export function UnderstandingCard({ status, understanding, disabled, onChange, onAnswer, onRetry }: Readonly<UnderstandingCardProps>) {
+export function UnderstandingCard({ compact = false, status, understanding, disabled, onChange, onAnswer, onRetry }: Readonly<UnderstandingCardProps>) {
   const [newArea, setNewArea] = useState("");
   const [typedAnswer, setTypedAnswer] = useState("");
+  const [editing, setEditing] = useState(false);
+  if (compact && understanding && !editing) {
+    const line = [understanding.role, understanding.industry, understanding.region, understanding.audience].filter(Boolean).join(" · ");
+    return (
+      <section aria-label="What the agent understood" className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-dashed px-3 py-2 text-sm">
+        <span className="min-w-0 flex-1 [overflow-wrap:anywhere]"><span className="text-muted-foreground">I understood: </span>{line}{understanding.focusAreas.length ? ` · ${understanding.focusAreas.join(", ")}` : ""}</span>
+        <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => setEditing(true)} disabled={disabled}>Edit</Button>
+      </section>
+    );
+  }
   const addArea = () => {
     const area = newArea.trim().slice(0, 40);
     if (!understanding || !area || understanding.focusAreas.length >= 5 || understanding.focusAreas.some(existing => existing.toLowerCase() === area.toLowerCase())) return;
@@ -51,7 +63,7 @@ export function UnderstandingCard({ status, understanding, disabled, onChange, o
       )}
       {understanding && (
         <div className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3">
             {FIELDS.map(({ field, label }) => (
               <label key={field} className="block space-y-1">
                 <span className="text-xs text-muted-foreground">{label}</span>
