@@ -103,6 +103,10 @@ export default {
           "on-dark": "hsl(var(--secondary-on-dark) / <alpha-value>)",
           foreground: "hsl(var(--secondary-foreground) / <alpha-value>)",
         },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive-text) / <alpha-value>)",
+          foreground: "hsl(var(--destructive-foreground) / <alpha-value>)",
+        },
       },
       fontFamily: {
         sans: ["var(--font-sans)"],

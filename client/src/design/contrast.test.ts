@@ -60,6 +60,31 @@ describe.each([['light', lightColors], ['dark', darkColors]] as const)("%s contr
   it.each(["background", "card", "popover", "muted"] as const)("helper text passes on %s", (surface) => {
     expect(contrast(rgb(tokens["muted-foreground"]), rgb(tokens[surface]))).toBeGreaterThanOrEqual(4.5);
   });
+
+  it.each(["background", "card", "popover", "muted"] as const)("error text passes WCAG AA on %s", (surface) => {
+    expect(contrast(rgb(tokens["destructive-text"]), rgb(tokens[surface]))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each([0.05, 0.1, 0.15])("error text passes on red-tinted surfaces at %s opacity", (alpha) => {
+    for (const surface of ["background", "card"] as const) {
+      const background = composite(rgb(tokens.destructive), rgb(tokens[surface]), alpha);
+      expect(contrast(rgb(tokens["destructive-text"]), background)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("keeps readable text on red buttons", () => {
+    expect(contrast(rgb(tokens["destructive-foreground"]), rgb(tokens.destructive))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("every translucent footer text passes on the ink surface", () => {
+    const footer = readFileSync(new URL("../components/site-footer.tsx", import.meta.url), "utf8");
+    const alphas = [...footer.matchAll(/text-surface-ink-foreground\/(\d+)/g)].map((match) => Number(match[1]) / 100);
+    expect(alphas.length).toBeGreaterThan(0);
+    const ink = rgb(tokens["surface-ink"]);
+    for (const alpha of alphas) {
+      expect(contrast(composite(rgb(tokens["surface-ink-foreground"]), ink, alpha), ink), `opacity ${alpha}`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
 });
 
 describe("generated utility contracts", () => {
@@ -71,7 +96,7 @@ describe("generated utility contracts", () => {
   });
 
   it("compiles distinct gold text/fill mappings, heading alias, and collapsed sizing", async () => {
-    const result = await postcss([tailwindcss({ ...config, content: [{ raw: 'text-secondary hover:text-secondary text-secondary/80 text-secondary-foreground bg-secondary font-heading font-serif group-data-[collapsible=icon]:!w-11 group-data-[collapsible=icon]:!h-11' }] })]).process("@tailwind utilities;", { from: undefined });
+    const result = await postcss([tailwindcss({ ...config, content: [{ raw: 'text-destructive text-destructive-foreground bg-destructive text-secondary hover:text-secondary text-secondary/80 text-secondary-foreground bg-secondary font-heading font-serif group-data-[collapsible=icon]:!w-11 group-data-[collapsible=icon]:!h-11' }] })]).process("@tailwind utilities;", { from: undefined });
     const declarations = (selector: string) => {
       const values: string[] = [];
       result.root.walkRules(selector, (rule) => { rule.walkDecls((decl) => { values.push(`${decl.prop}: ${decl.value}`); }); });
@@ -84,6 +109,9 @@ describe("generated utility contracts", () => {
     expect(declarations(".bg-secondary")).toContain("var(--secondary)");
     expect(declarations(".font-heading")).toContain("var(--font-heading)");
     expect(declarations(".font-serif")).toContain("var(--font-serif)");
+    expect(declarations(".text-destructive")).toContain("var(--destructive-text)");
+    expect(declarations(".text-destructive-foreground")).toContain("var(--destructive-foreground)");
+    expect(declarations(".bg-destructive")).toContain("var(--destructive)");
     expect(result.css).toContain("width: 2.75rem !important");
     expect(result.css).toContain("height: 2.75rem !important");
   });

@@ -72,6 +72,8 @@ export const lightColors = {
   "accent-foreground": "221 47% 20%",
   "destructive": "0 84% 45%",
   "destructive-foreground": "0 5% 98%",
+  // Red ink for error text: passes AA on every surface and on red tints (the fill is for buttons).
+  "destructive-text": "0 84% 40%",
   "success": "152 60% 32%",
   "success-foreground": "0 0% 100%",
   "input": "240 5% 82%",
@@ -115,6 +117,7 @@ export const darkColors = {
   "accent-foreground": "222 40% 92%",
   "destructive": "0 84% 40%",
   "destructive-foreground": "0 5% 98%",
+  "destructive-text": "0 84% 68%",
   "success": "152 55% 55%",
   "success-foreground": "240 8% 7%",
   "input": "240 6% 20%",
