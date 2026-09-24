@@ -57,6 +57,15 @@ function wrapEmail(email: AppEmail) {
   return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><span style="display:none!important;opacity:0;height:0;width:0">${escapeHtml(email.preheader ?? email.subject)}</span></head><body style="margin:0;background:#f4f6f1;font-family:Arial,sans-serif;color:#17233d"><main style="max-width:600px;margin:32px auto;background:#fff;border:1px solid #e4e7ec;border-radius:8px;overflow:hidden"><header style="background:#1b2a4a;color:#fff;padding:24px 28px;border-bottom:3px solid #c99a3e"><div style="font-size:20px;font-weight:700">TheSocialPundit</div><div style="margin-top:6px;color:#d7b56d;font-size:11px;text-transform:uppercase;letter-spacing:1.5px">Your professional signal</div></header><section style="padding:28px"><p style="margin-top:0;color:#667085;font-size:11px;text-transform:uppercase;letter-spacing:1.4px">${escapeHtml(email.eyebrow ?? "TheSocialPundit")}</p><p>${name}</p>${email.html}${cta}</section><footer style="border-top:1px solid #e4e7ec;padding:18px 28px;color:#667085;font-size:12px">You received this email from TheSocialPundit.<br><a href="${unsubscribe}" style="color:#1b2a4a">Manage email preferences</a> · <a href="${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/privacy" style="color:#1b2a4a">Privacy</a></footer></main></body></html>`;
 }
 
+/** Text version for templates that only supply HTML: HTML-only mail is more often filtered as spam. */
+function plainText(email: AppEmail) {
+  const decode = (value: string) => value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&");
+  const body = decode(email.html.replace(/<\/(?:p|h[1-6]|li|article|div)>|<br\s*\/?>/gi, "\n\n").replace(/<[^>]*>/g, ""))
+    .split(/\n{2,}/).map(line => line.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n\n");
+  const cta = email.primaryCta ? `\n\n${email.primaryCta.label}: ${email.primaryCta.url}` : "";
+  return `${email.recipientName ? `Hi ${email.recipientName},` : "Hello,"}\n\n${body}${cta}\n\nTheSocialPundit`;
+}
+
 async function deliveryAllowed(email: AppEmail) {
   if (!email.userId && !isEssentialEmail(email.type)) return false;
   const preference = email.userId ? await getEmailPreferences(email.userId) : undefined;
@@ -87,7 +96,7 @@ export async function deliverAppEmail(email: AppEmail): Promise<{ skipped?: bool
   if (!await beginDelivery(claim)) return { skipped: true };
   let result;
   try {
-    result = await sendWithDeadline({ from: `${FROM_NAME} <${FROM_EMAIL}>`, to: [email.recipient], subject: email.subject, html, text: email.text });
+    result = await sendWithDeadline({ from: `${FROM_NAME} <${FROM_EMAIL}>`, to: [email.recipient], subject: email.subject, html, text: email.text ?? plainText(email) });
   } catch {
     await finishDelivery(claim, "unknown");
     throw new Error("Email delivery outcome is unknown; do not replay");

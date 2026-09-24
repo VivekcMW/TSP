@@ -45,6 +45,20 @@ describe("email dispatch boundaries", () => {
       expect(message.from).toBe(`TheSocialPundit <${expected}>`);
     }
   });
+  it("sends a plain-text part with the link for emails whose template has only HTML", async () => {
+    await sendVerificationEmail(email.recipient, "Priya & Co", "https://example.invalid/verify?token=a&b=1");
+    await sendPasswordResetEmail(email.recipient, "Priya", "https://example.invalid/reset");
+    const [verify, reset] = mock.send.mock.calls.map(([message]) => message.text as string);
+    expect(verify).toContain("Hi Priya & Co,");
+    expect(verify).toContain("Please verify your email address to finish creating your account.");
+    expect(verify).toContain("Verify email address: https://example.invalid/verify?token=a&b=1");
+    expect(reset).toContain("Reset password: https://example.invalid/reset");
+    for (const text of [verify, reset]) expect(text).not.toMatch(/<[a-z/][^>]*>|&amp;/i);
+  });
+  it("keeps a template's own plain text", async () => {
+    await deliverAppEmail({ ...email, text: "Handwritten text" });
+    expect(mock.send.mock.calls[0][0].text).toBe("Handwritten text");
+  });
   it("fails closed for optional mail without an attributable account", async () => {
     expect(await deliverAppEmail({ ...email, userId: undefined })).toEqual({ skipped: true });
     expect(mock.send).not.toHaveBeenCalled(); expect(mock.claim).not.toHaveBeenCalled();
