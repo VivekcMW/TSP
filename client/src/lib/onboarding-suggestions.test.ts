@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { choiceKey, defaultSearchEdition, evidenceLabel, parseOnboardingSuggestions, parsePreviewHeadlines, previewTopics } from "./onboarding-suggestions";
+import { choiceKey, defaultSearchEdition, evidenceLabel, parseAgentEvent, parseOnboardingSuggestions, parsePreviewHeadlines, parseUnderstanding, previewTopics, readEventStream } from "./onboarding-suggestions";
 
 describe("onboarding suggestion responses", () => {
   it("keeps valid publications with safe URLs and drops malformed entries individually", () => {
@@ -11,7 +11,7 @@ describe("onboarding suggestion responses", () => {
         { name: " ", url: "https://blank.invalid/" }, null, "text",
         { name: "Bad evidence", url: null, evidence: { count: -1, headline: 3 } },
       ],
-    })).toEqual({ grounded: true, items: [
+    })).toEqual({ grounded: true, picks: [], note: "", items: [
       { kind: "source", name: "ExchangeWire", url: "https://www.exchangewire.com/", reason: "Programmatic coverage", evidence: { count: 4, headline: "DOOH spend rises" } },
       { kind: "source", name: "Script", reason: "Bad URL keeps the name" },
       { kind: "source", name: "No URL" },
@@ -22,7 +22,7 @@ describe("onboarding suggestion responses", () => {
   it("maps topic weights and people/company groups, deduplicating by name", () => {
     expect(parseOnboardingSuggestions("topics", { step: "topics", grounded: false, items: [
       { name: "Retail media", weight: 0.9 }, { name: "retail media", weight: 0.2 }, { name: "Heavy", weight: 4 },
-    ] })).toEqual({ grounded: false, items: [{ kind: "topic", name: "Retail media", weight: 0.9 }, { kind: "topic", name: "Heavy" }] });
+    ] })).toEqual({ grounded: false, picks: [], note: "", items: [{ kind: "topic", name: "Retail media", weight: 0.9 }, { kind: "topic", name: "Heavy" }] });
     expect(parseOnboardingSuggestions("people", { step: "people", grounded: true,
       people: [{ name: "Ana Rao", reason: "CEO", evidence: { count: 2, headline: "Ana Rao on DOOH" } }],
       companies: [{ name: "Vistar Media", reason: "" }, { name: "ana rao" }],
@@ -106,5 +106,47 @@ describe("finish preview", () => {
     expect(previewTopics([{ keyword: "Low", weight: 0.2 }, { keyword: "First tie", weight: 0.7 }, { keyword: "Top", weight: 1 }, { keyword: "Second tie", weight: 0.7 }]))
       .toEqual(["Top", "First tie", "Second tie"]);
     expect(previewTopics([])).toEqual([]);
+  });
+});
+
+describe("the agent's picks and note", () => {
+  it("keeps only picks that name a returned item, using the item's spelling, and tidies the note", () => {
+    expect(parseOnboardingSuggestions("people", { step: "people", grounded: true, note: "  People in this month's DOOH news.  ",
+      picks: ["ana rao", "Invented Person", "Vistar Media", 42],
+      people: [{ name: "Ana Rao" }], companies: [{ name: "Vistar Media" }],
+    })).toMatchObject({ picks: ["Ana Rao", "Vistar Media"], note: "People in this month's DOOH news." });
+  });
+});
+
+describe("understanding the user", () => {
+  it("keeps a bounded summary and a usable follow-up question", () => {
+    expect(parseUnderstanding({ role: " Head of Marketing ", industry: "OOH", focusAreas: ["DOOH", "", 5, "Measurement"], region: "India", audience: null,
+      question: { text: "Which region do you cover?", options: ["India", "Global", ""] } })).toEqual({
+      role: "Head of Marketing", industry: "OOH", focusAreas: ["DOOH", "Measurement"], region: "India", audience: null,
+      question: { text: "Which region do you cover?", options: ["India", "Global"] },
+    });
+    expect(parseUnderstanding({ role: "Marketer", industry: "", focusAreas: [], question: { text: "Only one option?", options: ["A"] } }).question).toBeNull();
+    expect(() => parseUnderstanding(null)).toThrow();
+  });
+});
+
+describe("the agent's event stream", () => {
+  const streamOf = (chunks: string[]) => new Response(new ReadableStream({ start(controller) { for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk)); controller.close(); } }));
+
+  it("delivers each event, even when one is split across chunks, and skips malformed blocks", async () => {
+    const events: unknown[] = [];
+    await readEventStream(streamOf(['data: {"type":"progress","step":"topics","message":"Sear', 'ching"}\n\ndata: not json\n\ndata: {"type":"done"}\n\n']), event => events.push(event));
+    expect(events).toEqual([{ type: "progress", step: "topics", message: "Searching" }, { type: "done" }]);
+  });
+
+  it("parses progress, results, errors and done, and ignores anything else", () => {
+    expect(parseAgentEvent({ type: "progress", step: "publications", message: "Found 57 recent articles" })).toEqual({ type: "progress", step: "publications", message: "Found 57 recent articles" });
+    expect(parseAgentEvent({ type: "result", step: "topics", grounded: true, picks: ["DOOH"], note: "Core topics.", items: [{ name: "DOOH", weight: 1 }] }))
+      .toEqual({ type: "result", step: "topics", result: { grounded: true, picks: ["DOOH"], note: "Core topics.", items: [{ kind: "topic", name: "DOOH", weight: 1 }] } });
+    expect(parseAgentEvent({ type: "error", step: null, code: "ai_timeout" })).toEqual({ type: "error", step: null, code: "ai_timeout" });
+    expect(parseAgentEvent({ type: "done" })).toEqual({ type: "done" });
+    expect(parseAgentEvent({ type: "progress", step: "preview", message: "x" })).toBeNull();
+    expect(parseAgentEvent({ type: "result", step: "topics" })).toBeNull();
+    expect(parseAgentEvent("done")).toBeNull();
   });
 });
