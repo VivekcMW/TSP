@@ -59,6 +59,14 @@ describe("expiry-aware catalog entitlements", () => {
     expect(resolveTenantEntitlements([free, plan], [{ ...active, planId: plan.id }], now))
       .toMatchObject({ planKey: key, canPublish: true, canSchedule: true, canUseAnalytics: true, maxDailyGenerations: null });
   });
+  it("gives Free accounts full access while plan limits are switched off", () => {
+    vi.stubEnv("PLAN_LIMITS_ENABLED", "false");
+    try {
+      expect(resolveTenantEntitlements([free, pro], [], now)).toMatchObject({ planKey: "free", canPublish: true, canSchedule: true, canUseAnalytics: true, maxDailyGenerations: null });
+      expect(resolveTenantEntitlements([], [], now)).toMatchObject({ planKey: "unavailable", canPublish: false, maxDailyGenerations: 0 });
+      expect(resolveTenantEntitlements([{ ...free, isActive: false }], [], now).maxDailyGenerations).toBe(0);
+    } finally { vi.unstubAllEnvs(); }
+  });
   it("does not infer a tier from price", () => expect(resolveTenantEntitlements([{ ...pro, key: "unknown_paid" }], [active], now).maxDailyGenerations).toBe(0));
   it.each(["constructor", "__proto__", "toString"])("does not inherit tier or interval %s", key => {
     expect(resolveTenantEntitlements([{ ...pro, key }], [active], now).maxDailyGenerations).toBe(0);

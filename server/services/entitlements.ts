@@ -33,7 +33,10 @@ export function subscriptionIsActive(status: string | null | undefined, currentP
 export function resolveTenantEntitlements(plans: BillingPlan[], rows: Subscription[], now = new Date()): TenantEntitlements {
   const current = rows.find(row => row.currentPeriodStart && subscriptionIsActive(row.status, row.currentPeriodEnd, now, row.currentPeriodStart));
   const plan = current ? plans.find(candidate => candidate.id === current.planId) : plans.find(candidate => candidate.key === "free" && candidate.isActive && candidate.amount === 0);
-  const limits = plan?.isActive && Object.hasOwn(TIERS, plan.key) ? TIERS[plan.key] : denied;
+  let limits = plan?.isActive && Object.hasOwn(TIERS, plan.key) ? TIERS[plan.key] : denied;
+  // PLAN_LIMITS_ENABLED=false gives Free accounts Pro access (a temporary, all-access period).
+  // A missing or inactive catalog still denies access.
+  if (limits === TIERS.free && process.env.PLAN_LIMITS_ENABLED === "false") limits = PRO;
   return {
     planKey: plan?.key ?? "unavailable", planName: plan?.name ?? "Unavailable",
     status: current?.status ?? (plan ? "free" : "unavailable"),

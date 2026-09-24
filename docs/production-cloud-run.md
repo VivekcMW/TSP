@@ -19,6 +19,10 @@ documents, which has been retired.
   `BACKGROUND_JOBS_ENABLED=true`, `CRON_SCHEDULER=true`. With one instance
   there is exactly one scheduler. `EMAIL_DIGEST_ENABLED` is unset, so digest
   emails are off.
+- `PLAN_LIMITS_ENABLED=false` (set 2026-09-24 at the user's request): Free
+  accounts get Pro access (unlimited generations, publishing, scheduling and
+  analytics). Remove the variable, or set it to `true`, to restore Free-plan
+  limits. The per-hour anti-abuse rate limits still apply.
 
 CPU must stay always allocated. With request-only CPU, an idle instance cannot
 keep its Redis connections alive, so background jobs stall and scheduled posts

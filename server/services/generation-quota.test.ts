@@ -157,6 +157,14 @@ describe("consumed attempt reservations", () => {
     await expect(runGeneration(scope, randomUUID(), "manual", input, new AbortController().signal, work)).rejects.toMatchObject({ statusCode: 429 });
     expect(rows.map(row => row.status)).toEqual(Array(3).fill("failed"));
   });
+  it("does not cap Free generations while plan limits are switched off", async () => {
+    vi.stubEnv("PLAN_LIMITS_ENABLED", "false");
+    try {
+      const work = vi.fn(async () => "post");
+      for (let i = 0; i < 5; i++) await expect(runGeneration(scope, randomUUID(), "manual", input, new AbortController().signal, work)).resolves.toBe("post");
+      expect(work).toHaveBeenCalledTimes(5);
+    } finally { vi.unstubAllEnvs(); }
+  });
   it("does not call providers on reserve or commit failure", async () => {
     const work = vi.fn();
     for (const failure of ["insert", "commit"]) {
