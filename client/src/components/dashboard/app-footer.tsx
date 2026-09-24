@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { openCookieSettings } from "@/lib/analytics-consent";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 const legalLinks = [
@@ -35,6 +36,7 @@ export function AppFooter() {
                 <Link href={href} data-testid={testId}>{label}</Link>
               </DropdownMenuItem>
             ))}
+            <DropdownMenuItem className="min-h-11" onSelect={openCookieSettings} data-testid="button-app-footer-cookie-settings">Cookie settings</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <Link href="/contact" className="inline-flex min-h-11 min-w-11 items-center rounded-md px-2 hover:text-foreground transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2" data-testid="link-app-footer-contact">

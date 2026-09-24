@@ -119,7 +119,8 @@ describe("shared visual and accessibility foundations in Chromium", () => {
         await Promise.all(element.getAnimations().map((animation) => animation.finished));
       });
       const links = await menu.getByRole("menuitem").evaluateAll((items) => items.map((item) => ({ href: item.getAttribute("href"), height: item.getBoundingClientRect().height })));
-      expect(links.map((link) => link.href)).toEqual(["/privacy", "/terms", "/refund-policy", "/cookies", "/data-retention", "/ai-data-processing"]);
+      // The last item reopens the cookie consent banner rather than linking anywhere.
+      expect(links.map((link) => link.href)).toEqual(["/privacy", "/terms", "/refund-policy", "/cookies", "/data-retention", "/ai-data-processing", null]);
       for (const link of links) expect(link.height, link.href ?? "legal link").toBeGreaterThanOrEqual(44);
       await page.keyboard.press("ArrowDown");
       expect(await menu.evaluate((element) => element.contains(document.activeElement))).toBe(true);

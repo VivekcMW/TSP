@@ -2,6 +2,7 @@ import { Link } from "wouter";
 import { Zap } from "lucide-react";
 import { Reveal } from "@/components/motion/reveal";
 import { fadeIn } from "@/lib/motion";
+import { openCookieSettings } from "@/lib/analytics-consent";
 
 export function SiteFooter() {
   return (
@@ -100,6 +101,9 @@ export function SiteFooter() {
               </li>
               <li>
                 <Link href="/cookies" className="hover:text-surface-ink-foreground transition-colors">Cookie Policy</Link>
+              </li>
+              <li>
+                <button type="button" onClick={openCookieSettings} className="text-left hover:text-surface-ink-foreground transition-colors" data-testid="button-footer-cookie-settings">Cookie settings</button>
               </li>
               <li>
                 <Link href="/data-retention" className="hover:text-surface-ink-foreground transition-colors">Data Retention</Link>
