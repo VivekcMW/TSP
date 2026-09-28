@@ -13,6 +13,7 @@ import {
   type MediaAsset, type PublishingRule,
 } from "@shared/schema";
 import { db } from "./db";
+import { registerPublications } from "./services/articlePool";
 import { eq, and, desc, gte, sql, count, inArray, notInArray, gt, or } from "drizzle-orm";
 import { tenantMembers, tenants } from "@shared/models/tenancy";
 import { randomUUID } from "node:crypto";
@@ -911,7 +912,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUserSource(scope: TenantScope, source: Scoped<InsertUserSource>): Promise<UserSource> {
-    return scoped(scope, async (tx) => {
+    const created = await scoped(scope, async (tx) => {
       await lockPublicationProfile(tx, scope);
       const [created] = await tx
         .insert(userSources)
@@ -933,6 +934,9 @@ export class DatabaseStorage implements IStorage {
       }
       return created;
     });
+    // The shared article index learns every feed anyone picks; never a reason to fail the add.
+    if (created.isActive) await registerPublications([{ name: created.name, feedUrl: created.feedUrl, sourceType: created.sourceType }]).catch(() => undefined);
+    return created;
   }
 
   async updateUserSource(

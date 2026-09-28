@@ -8,10 +8,11 @@ import type { CrawlOptions } from "../crawlerFetch";
 import { installInboxRefreshFixture } from "../../../test/inbox-refresh-fixture";
 import { inboxRefreshMessage } from "@shared/inbox-refresh";
 
-const { storage, crawl, network, resolveSources, bing } = vi.hoisted(() => ({
+const { storage, crawl, network, resolveSources, bing, index } = vi.hoisted(() => ({
   storage: { beginInboxRefresh: vi.fn(), commitInboxRefresh: vi.fn(), reserveSearchQueryPlan: vi.fn(), getUserSources: vi.fn(), updateUserSource: vi.fn(), getInboxItemByUrl: vi.fn(), createInboxItem: vi.fn() },
   crawl: vi.fn(), network: vi.fn(() => { throw new Error("Unexpected network request"); }), resolveSources: vi.fn(),
   bing: vi.fn(),
+  index: { query: vi.fn(), register: vi.fn(), prefetch: vi.fn() },
 }));
 vi.mock("../../storage", () => ({ storage }));
 vi.mock("../../db", () => { throw new Error("Database must not load in search integration tests"); });
@@ -20,6 +21,8 @@ vi.mock("../crawlerFetch", async original => ({ ...await original<typeof import(
 vi.mock("node-fetch", () => ({ default: network }));
 // Bing is its own provider (see bingNewsSearch.test.ts); here it finds nothing unless a test says so.
 vi.mock("../bingNewsSearch", () => ({ fetchBingArticlesForQuery: bing }));
+// The shared article index (see articlePool.storage.test.ts); empty unless a test says so.
+vi.mock("../articlePool", () => ({ queryArticlePool: index.query, registerPublications: index.register, prefetchPooledBodies: index.prefetch }));
 
 // Real engine, provider, parser, planner and article cache; only storage and
 // outbound crawl are fixtures. State belongs to storage, not the engine instance.
@@ -77,6 +80,7 @@ beforeEach(() => {
   storage.createInboxItem.mockResolvedValue({ id: "inbox-item" });
   crawl.mockImplementation(async url => response(url));
   bing.mockResolvedValue([]);
+  index.query.mockResolvedValue([]); index.register.mockResolvedValue(0); index.prefetch.mockResolvedValue(0);
 });
 afterEach(() => {
   expect(network).not.toHaveBeenCalled();
@@ -474,5 +478,51 @@ describe("Bing News next to Google News", () => {
     const pending = (await makeEngine()).search();
     await vi.advanceTimersByTimeAsync(20_000);
     expect((await pending).map(article => article.title)).toEqual(["Bing k00", "Bing k01", "Bing k02"]);
+  });
+});
+
+describe("shared article index", () => {
+  const indexed = (title: string, link: string) => ({
+    title, link, source: "Index Weekly", sourceOrigin: new URL(link).origin, content: `${title} developments in full, as fetched by the crawler.`,
+    categories: [], pubDate: "2026-09-18T12:00:00.000Z", publishedAt: "2026-09-18T12:00:00.000Z", inputKind: "page_body" as const,
+  });
+
+  it("adds the index's recent stories to the candidates and scores them like any other", async () => {
+    save({ keywords: ["Current"] });
+    index.query.mockResolvedValue([indexed("Current, from the index", "https://index.test/current"), indexed("Unrelated", "https://index.test/other")]);
+    const result = await (await makeEngine()).processForUser(scope, profile());
+    expect(index.query).toHaveBeenCalledExactlyOnceWith(profiles.get(scopeKey(scope)), { days: 30, limit: 150 });
+    expect(result).toMatchObject({ success: true, articlesProcessed: 3, articlesMatched: 2, newInboxItems: 2 });
+    expect(storage.createInboxItem.mock.calls.map(([, item]) => item.articleUrl).sort()).toEqual(["https://index.test/current", "https://news.test/US%3Aen%3ACurrent"]);
+  });
+
+  it("never fails a refresh because the index is unavailable", async () => {
+    save({ keywords: ["Current"] });
+    index.query.mockRejectedValue(new Error("index down"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await (await makeEngine()).processForUser(scope, profile());
+    expect(result).toMatchObject({ success: true, newInboxItems: 1 });
+  });
+
+  it("registers the person's active sources in the catalogue", async () => {
+    save({ keywords: ["Current"] });
+    storage.getUserSources.mockResolvedValue([
+      { id: "own", name: "Own source", feedUrl: "https://own.test/feed", sourceType: "feed", isActive: true },
+      { id: "old", name: "Old source", feedUrl: "https://old.test/feed", sourceType: "feed", isActive: false },
+    ]);
+    crawl.mockImplementation(async (url: string) => new URL(url).hostname === "own.test"
+      ? { text: JSON.stringify({ version: "https://jsonfeed.org/version/1.1", items: [{ title: "Current report", url: "https://own.test/story", content_text: "Current research" }] }) }
+      : response(url));
+    await (await makeEngine()).processForUser(scope, profile());
+    expect(index.register).toHaveBeenCalledExactlyOnceWith([{ name: "Own source", feedUrl: "https://own.test/feed", sourceType: "feed" }]);
+  });
+
+  it("reads the accepted stories' pages right after the commit, so writing needs no live fetch", async () => {
+    save({ keywords: ["Current"] });
+    storage.createInboxItem.mockImplementation(async (_scope: TenantScope, item: Record<string, unknown>) => ({ id: "inbox-item", ...item }));
+    await (await makeEngine()).processForUser(scope, profile());
+    expect(index.prefetch).toHaveBeenCalledExactlyOnceWith(
+      [expect.objectContaining({ link: "https://news.test/US%3Aen%3ACurrent", title: "Current", source: "Publisher" })],
+      expect.objectContaining({ limit: 10 }));
   });
 });

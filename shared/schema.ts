@@ -458,6 +458,46 @@ export const newsletterSubscribers = pgTable("newsletter_subscribers", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+/** Shared article index catalogue; see migrations/0045_shared_index.sql. Not tenant-scoped. */
+export const publications = pgTable("publications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  siteUrl: text("site_url").notNull().default(""),
+  feedUrl: text("feed_url").notNull().unique(),
+  sourceType: varchar("source_type", { length: 20 }).notNull().default("feed"),
+  addedVia: varchar("added_via", { length: 40 }).notNull().default("user-source"),
+  isActive: boolean("is_active").notNull().default(true),
+  lastCrawledAt: timestamp("last_crawled_at"),
+  lastCrawlStatus: varchar("last_crawl_status", { length: 20 }),
+  lastCrawlError: text("last_crawl_error"),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  etag: text("etag"),
+  lastModified: text("last_modified"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type Publication = typeof publications.$inferSelect;
+
+/** Shared article pool: every story the crawler has seen, keyed by canonical URL. Not tenant-scoped. */
+export const pooledArticles = pgTable("pooled_articles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  publicationId: varchar("publication_id").references(() => publications.id, { onDelete: "set null" }),
+  canonicalUrl: text("canonical_url").notNull().unique(),
+  title: text("title").notNull(),
+  source: varchar("source").notNull(),
+  sourceOrigin: text("source_origin"),
+  content: text("content").notNull().default(""),
+  inputKind: varchar("input_kind", { length: 20 }).notNull().default("feed_excerpt"),
+  /** NULL until the body has been fetched; then whether the page held readable article prose. */
+  readable: boolean("readable"),
+  publishedAt: timestamp("published_at"),
+  fetchedAt: timestamp("fetched_at").notNull().defaultNow(),
+  bodyFetchedAt: timestamp("body_fetched_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  // `search` (tsvector) and `body_hash` (md5 of content) are generated columns, written only by the database.
+});
+export type PooledArticle = typeof pooledArticles.$inferSelect;
+
 export const billingCustomers = pgTable("billing_customers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   tenantId: varchar("tenant_id").notNull().unique(),

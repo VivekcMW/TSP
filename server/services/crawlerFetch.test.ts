@@ -74,6 +74,21 @@ describe("public crawler transport", () => {
     expect(network).toHaveBeenCalledTimes(1);
   });
 
+  it("sends conditional headers and returns a bodiless 304 when nothing changed", async () => {
+    network.mockResolvedValueOnce(new Response(null, { status: 304, headers: { etag: '"v2"' } }));
+    const page = await fetchPublicText("https://news.test/feed", { headers: { "If-None-Match": '"v2"', "If-Modified-Since": "Mon, 28 Sep 2026 00:00:00 GMT" } });
+    expect(page).toMatchObject({ status: 304, text: "" });
+    const sent = (network.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(sent["If-None-Match"]).toBe('"v2"');
+    expect(sent["If-Modified-Since"]).toBe("Mon, 28 Sep 2026 00:00:00 GMT");
+    expect(sent["User-Agent"]).toMatch(/TheSocialPundit/);
+  });
+
+  it("treats a 304 as an error when the request was not conditional", async () => {
+    network.mockResolvedValueOnce(new Response(null, { status: 304 }));
+    await expect(fetchPublicText("https://news.test/feed")).rejects.toMatchObject({ code: "http" });
+  });
+
   it("resolves relative redirects and returns the canonical final URL", async () => {
     network.mockResolvedValueOnce(new Response(null, { status: 303, headers: { location: "../article#section" } }))
       .mockResolvedValueOnce(new Response("article"));

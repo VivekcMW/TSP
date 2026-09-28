@@ -3,6 +3,7 @@ import { resolvePublicationSources } from "../publicationSources.js";
 import { CrawlError, crawlErrorMessage, fetchPublicText, mapCrawlSettled } from "../crawlerFetch.js";
 import { fetchArticlesForQuery, isGoogleNewsArticleUrl, resolveGoogleNewsArticleUrl } from "../keywordSearch.js";
 import { fetchBingArticlesForQuery } from "../bingNewsSearch.js";
+import { prefetchPooledBodies, queryArticlePool, registerPublications } from "../articlePool.js";
 import { parseFeedContent } from "../universalFeedParser.js";
 import { scrapeWebpageArticles } from "../webpageScraper.js";
 import { getCachedArticles } from "./articleCache.js";
@@ -28,6 +29,12 @@ import { canonicalHttpUrl } from "@shared/canonical-url";
 import { INBOX_CAPACITY, INBOX_CANDIDATE_LIMIT, InboxOperationConflictError, inboxRefreshMessage, type InboxRefreshOptions } from "@shared/inbox-refresh";
 
 const KEYWORD_SEARCH_BUDGET_MS = 20000;
+// The shared article index: how far back to look, how many candidates to take, and how many
+// accepted stories to read right after a commit so "Write a post" needs no live fetch.
+const INDEX_WINDOW_DAYS = 30;
+const INDEX_CANDIDATE_LIMIT = 150;
+const INDEX_PREFETCH_LIMIT = 10;
+const INDEX_PREFETCH_BUDGET_MS = 15000;
 type SearchReservation = { queries: string[]; searchEdition: string; profile: UserProfile };
 
 export abstract class BaseIndustryEngine implements IIndustryEngine {
@@ -171,6 +178,22 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
     }, () => !partialFailure);
   }
 
+  /** Reads the accepted stories' pages into the shared index now, bounded and best effort. */
+  protected async prefetchAcceptedBodies(result: EngineRunResult): Promise<void> {
+    const stories = (result.items ?? []).filter(item => typeof item.articleUrl === "string" && item.articleUrl).slice(0, INDEX_PREFETCH_LIMIT)
+      .map(item => ({ link: item.articleUrl, title: item.headline, source: item.source, content: item.summary ?? "", publishedAt: item.publishedAt }));
+    if (!result.success || !stories.length) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), INDEX_PREFETCH_BUDGET_MS);
+    try {
+      await prefetchPooledBodies(stories, { limit: INDEX_PREFETCH_LIMIT, signal: controller.signal });
+    } catch {
+      // The crawl cycle picks up whatever wasn't read here.
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async scoreArticles(
     articles: FetchedArticle[],
     userProfile: UserProfile,
@@ -211,13 +234,22 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       const reservation = await this.reserveSearch(scope);
       const userProfile = reservation.profile;
       const existingSources = await storage.getUserSources(scope);
+      // The shared index learns every feed anyone picks. Never a reason to fail a refresh.
+      await registerPublications(existingSources.filter(source => source.isActive)
+        .map(source => ({ name: source.name, feedUrl: source.feedUrl, sourceType: source.sourceType })))
+        .catch(error => console.warn(`[shared-index] could not register sources: ${error instanceof Error ? error.message : "unknown error"}`));
       discoveryWarnings = await resolvePublicationSources(scope, userProfile);
       if (activeCount > 0) await this.repairStoredGoogleNewsUrls(scope);
 
-      const [sourceOutcome, searchOutcome] = await Promise.allSettled([
+      const [sourceOutcome, searchOutcome, indexOutcome] = await Promise.allSettled([
         this.fetchUserSources(scope),
         this.fetchKeywordSearchArticles(reservation),
+        queryArticlePool(userProfile, { days: INDEX_WINDOW_DAYS, limit: INDEX_CANDIDATE_LIMIT }),
       ]);
+      // Index candidates are a bonus on top of the live stages, so they never decide success.
+      const indexArticles = indexOutcome.status === "fulfilled" ? indexOutcome.value : [];
+      if (indexOutcome.status === "rejected") console.warn("[shared-index] candidates unavailable for this refresh");
+      else console.log(`[shared-index] ${indexArticles.length} candidates for ${scope.userId}`);
       const stageWarnings: string[] = [];
       if (sourceOutcome.status === "rejected") stageWarnings.push("Some saved sources could not be fetched. Check Manage Sources for details.");
       if (searchOutcome.status === "rejected") stageWarnings.push("Keyword search could not complete. Your saved-source results are still available.");
@@ -243,7 +275,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       // Completion timing must not choose the representative. Prefer source body,
       // then longer text, with a stable full-record tie break. Story grouping is
       // deferred until AFTER history exclusion inside commit.
-      const fetched = [...userSourceArticles, ...keywordArticles].sort((a, b) =>
+      const fetched = [...userSourceArticles, ...keywordArticles, ...indexArticles].sort((a, b) =>
         Number(b.inputKind === "page_body") - Number(a.inputKind === "page_body") || b.content.length - a.content.length ||
         (JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0));
       for (const article of fetched) {
@@ -258,7 +290,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       const scoredArticles = await this.scoreArticles(articles, userProfile, evaluatedAt);
       // Pass the bounded RANKED pool, not its top ten: historical matches must
       // not consume quota or hide fresh candidates further down the ranking.
-      return await storage.commitInboxRefresh(scope, operationId, autoRefresh, begin.snapshot,
+      const result = await storage.commitInboxRefresh(scope, operationId, autoRefresh, begin.snapshot,
         scoredArticles.map(article => {
           const date = article.publicationDate ?? publicationDate(null, "unknown");
           const extracted = summarizeArticle(article.content, article.inputKind);
@@ -286,6 +318,8 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
         needsSetup: !hasAnyInterestSignal,
         discoveryWarnings: [...discoveryWarnings, ...stageWarnings],
       });
+      await this.prefetchAcceptedBodies(result);
+      return result;
     } catch (error) {
       if (error instanceof InboxOperationConflictError) throw error;
       return {

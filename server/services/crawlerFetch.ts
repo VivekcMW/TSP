@@ -64,7 +64,8 @@ function acquire(host: string, signal: AbortSignal): Promise<() => void> {
 
 export interface CrawlPage { url: string; text: string; status: number; headers: Headers }
 export interface CrawlBudget { requests: number; bytes: number }
-export interface CrawlOptions { signal?: AbortSignal; timeoutMs?: number; maxBytes?: number; method?: "GET" | "HEAD"; budget?: CrawlBudget }
+/** `headers` adds conditional request headers (If-None-Match / If-Modified-Since); a 304 then returns with an empty body. */
+export interface CrawlOptions { signal?: AbortSignal; timeoutMs?: number; maxBytes?: number; method?: "GET" | "HEAD"; budget?: CrawlBudget; headers?: Record<string, string> }
 
 function boundedSetting(value: number | undefined, fallback: number, maximum: number): number {
   return Number.isFinite(value) ? Math.max(1, Math.min(Math.floor(value!), maximum)) : fallback;
@@ -95,7 +96,7 @@ async function fetchHop(url: URL, signal: AbortSignal, options: CrawlOptions, ma
     const response = await fetch(url, {
       method: options.method ?? "GET", redirect: "manual", agent, signal,
       size: maxBytes, highWaterMark: 16 * 1024,
-      headers: { "User-Agent": "TheSocialPundit/1.0 (Public Source Reader)", Accept: "text/html,application/xhtml+xml,application/rss+xml,application/atom+xml,application/feed+json,application/json,text/xml" },
+      headers: { ...options.headers, "User-Agent": "TheSocialPundit/1.0 (Public Source Reader)", Accept: "text/html,application/xhtml+xml,application/rss+xml,application/atom+xml,application/feed+json,application/json,text/xml" },
     });
     body = response.body;
     if ([301, 302, 303, 307, 308].includes(response.status)) {
@@ -107,6 +108,10 @@ async function fetchHop(url: URL, signal: AbortSignal, options: CrawlOptions, ma
     // Must run before the generic !response.ok check below: a bot-blocked
     // request is always a non-2xx status, so checking ok first made this
     // unreachable and every deliberate block surfaced as a generic HTTP error.
+    // Only a conditional request may accept "not modified"; anything else with no body is an error.
+    if (response.status === 304 && (options.headers?.["If-None-Match"] || options.headers?.["If-Modified-Since"])) {
+      return { url: url.href, text: "", status: 304, headers: response.headers };
+    }
     if (response.headers.get("x-amzn-waf-action") === "challenge" || response.headers.get("cf-mitigated") === "challenge"
       || response.headers.has("x-datadome") || (response.status === 403 && response.headers.get("server") === "cloudflare")) {
       throw new CrawlError("challenge", "This publisher actively blocks automated readers, not just this app.");

@@ -6,7 +6,9 @@ import { storage } from "../storage";
 import { editorialContext, editorialPreferences, reviewUrl, validateEditorialFormat } from "../routes/editorial-context";
 import { AIGenerationError } from "./openRouter";
 import { generatePlatformReviewsDetailed, type EditorialOptions } from "./punditBrain";
-import { fetchArticleFromUrl } from "./urlFetcher";
+import { fetchArticleFromUrl, type FetchedArticle } from "./urlFetcher";
+import { findPooledArticle } from "./articlePool";
+import { publicationDate } from "./articleDates";
 import { CrawlError } from "./crawlerFetch";
 import { isGoogleNewsArticleUrl, resolveGoogleNewsArticleUrl } from "./keywordSearch";
 
@@ -20,6 +22,23 @@ async function publisherUrl(url: string, signal: AbortSignal): Promise<string> {
   const resolved = await resolveGoogleNewsArticleUrl(url, signal, GOOGLE_NEWS_RESOLVE_TIMEOUT_MS);
   if (isGoogleNewsArticleUrl(resolved)) throw new CrawlError("google-news", GOOGLE_NEWS_LINK_MESSAGE);
   return resolved;
+}
+
+/** Most Discover stories are already in the shared index with their page read; otherwise read the publisher live. */
+async function readArticle(url: string, signal: AbortSignal): Promise<FetchedArticle> {
+  const target = await publisherUrl(url, signal);
+  const indexed = await findPooledArticle(target).catch(() => null);
+  if (indexed?.readable && indexed.inputKind === "page_body" && indexed.content) {
+    console.log("[shared-index] story read from the index");
+    const publishedAt = indexed.publishedAt?.toISOString() ?? null;
+    return {
+      title: indexed.title, content: indexed.content, source: indexed.source, url: indexed.canonicalUrl,
+      domain: new URL(indexed.canonicalUrl).hostname.replace(/^www\./, ""),
+      contentMetadata: { extractionMethod: "index", originalLength: indexed.content.length, retainedLength: indexed.content.length, truncated: false },
+      publishedAt, publicationDate: publicationDate(publishedAt, "rss-pubDate"),
+    };
+  }
+  return fetchArticleFromUrl(target, signal);
 }
 
 const selection = z.array(z.enum(ALL_PLATFORM_KEYS)).min(1).max(4);
@@ -62,7 +81,7 @@ export async function prepareEditorialRequest(req: Request, kind: EditorialKind,
 export async function executeEditorialRequest(prepared: PreparedEditorialRequest, signal: AbortSignal, onPlatformComplete?: EditorialOptions["onPlatformComplete"], timeoutMs?: number) {
   signal.throwIfAborted();
   const { input, options } = prepared;
-  const article = "url" in input ? await fetchArticleFromUrl(await publisherUrl(input.url, signal), signal) : {
+  const article = "url" in input ? await readArticle(input.url, signal) : {
     title: input.title, content: input.content, source: "Your draft", url: "",
     contentMetadata: { extractionMethod: "manual" as const, originalLength: input.content.length, retainedLength: input.content.length, truncated: false },
   };

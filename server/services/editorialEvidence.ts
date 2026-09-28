@@ -7,7 +7,7 @@ const MAX_PASSAGES = 128;
 export type SourceWarningCode = "source_truncated" | "metadata_only" | "limited_source_content" | "extraction_unknown" | "passage_limit";
 export interface SourceWarning { code: SourceWarningCode; message: string }
 export interface SourceContentMetadata {
-  extractionMethod: "article" | "main" | "paragraph_cluster" | "metadata" | "manual";
+  extractionMethod: "article" | "main" | "paragraph_cluster" | "metadata" | "manual" | "index";
   originalLength: number;
   retainedLength: number;
   truncated: boolean;

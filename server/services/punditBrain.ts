@@ -480,7 +480,7 @@ const editorialOptionsSchema = z.object({
   tones: z.array(z.enum(EDITORIAL_TONES)).min(1).max(EDITORIAL_TONES.length).optional(),
 });
 const contentMetadataSchema = z.object({
-  extractionMethod: z.enum(["article", "main", "paragraph_cluster", "metadata", "manual"]),
+  extractionMethod: z.enum(["article", "main", "paragraph_cluster", "metadata", "manual", "index"]),
   originalLength: z.number().int().nonnegative(),
   retainedLength: z.number().int().nonnegative(),
   truncated: z.boolean(),

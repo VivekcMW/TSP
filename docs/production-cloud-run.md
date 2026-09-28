@@ -19,6 +19,11 @@ documents, which has been retired.
   `BACKGROUND_JOBS_ENABLED=true`, `CRON_SCHEDULER=true`. With one instance
   there is exactly one scheduler. `EMAIL_DIGEST_ENABLED` is unset, so digest
   emails are off.
+- The shared article index crawl (`jobs/pool-crawl.ts`) runs under the same
+  scheduler every `POOL_CRAWL_INTERVAL` minutes (default 15) unless
+  `POOL_CRAWL_ENABLED=false`. Its log line is `[pool-crawl] N publications
+  (F failed), S new stories, R readable + U unreadable bodies, P pruned`.
+  Migration 0045 creates its tables (`publications`, `pooled_articles`).
 - `PLAN_LIMITS_ENABLED=false` (set 2026-09-24 at the user's request): Free
   accounts get Pro access (unlimited generations, publishing, scheduling and
   analytics). Remove the variable, or set it to `true`, to restore Free-plan

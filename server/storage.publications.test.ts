@@ -7,7 +7,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, pool } from "./db";
 import { ownerDb, ownerPool } from "../test/db-owner";
-import { publicationResolutions, userSourceDeletions, userProfiles, userSources, users, tenants } from "@shared/schema";
+import { publicationResolutions, publications, userSourceDeletions, userProfiles, userSources, users, tenants } from "@shared/schema";
 import { storage, type TenantScope } from "./storage";
 import { getPublicationSourceStatuses } from "./services/publicationSources";
 
@@ -109,6 +109,16 @@ afterAll(async () => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("publication persistence and migration", () => {
+  it("registers a newly added source in the shared index catalogue, without the tenant", async () => {
+    const feedUrl = `https://index-${randomUUID().slice(0, 8)}.example.invalid/feed`;
+    const created = await storage.createUserSource(a, { name: "Index test", feedUrl, sourceType: "feed", addedVia: "manual" });
+    const rows = await ownerDb.select().from(publications).where(eq(publications.feedUrl, feedUrl));
+    expect(rows).toEqual([expect.objectContaining({ name: "Index test", sourceType: "feed", isActive: true })]);
+    expect(Object.keys(rows[0])).not.toContain("tenantId");
+    await storage.deleteUserSource(a, created.id);
+    await ownerDb.delete(publications).where(eq(publications.feedUrl, feedUrl));
+  });
+
   it("applies canonical deletion migration idempotently and enforces FORCE RLS", async () => {
     const existing = await storage.createUserSource(a, source);
     await storage.deleteUserSource(a, existing.id);
