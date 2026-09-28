@@ -122,7 +122,7 @@ async function fetchHop(url: URL, signal: AbortSignal, options: CrawlOptions, ma
     if (!response.ok) throw new CrawlError("http", `The source returned HTTP ${response.status}. It may be unavailable or restrict automated access.`);
     if (Number(response.headers.get("content-length")) > maxBytes) throw new CrawlError("size", "The source response exceeds the crawl size limit.");
     // node-fetch enforces `size` on the decompressed stream, including chunked responses.
-    const bytes = options.binary && options.method !== "HEAD" ? await response.buffer() : undefined;
+    const bytes = options.binary && options.method !== "HEAD" ? Buffer.from(await response.arrayBuffer()) : undefined;
     const text = options.method === "HEAD" || bytes ? "" : await response.text();
     signal.throwIfAborted();
     if (budget) {

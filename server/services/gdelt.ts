@@ -60,14 +60,16 @@ function gdeltDate(value: string): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-/** The same file one quarter-hour earlier; GDELT lists a file a few minutes before it is uploaded. */
-export function earlierGdeltFile(file: string): string | null {
+/** The same file `steps` quarter-hours earlier; GDELT lists a file before it is uploaded, sometimes by an hour. */
+export function earlierGdeltFile(file: string, steps = 1): string | null {
   const match = /(\d{14})(\.gkg\.csv\.zip)$/.exec(file);
   const iso = match && gdeltDate(match[1]);
   if (!match || !iso) return null;
-  const stamp = new Date(Date.parse(iso) - 15 * 60_000).toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  const stamp = new Date(Date.parse(iso) - steps * 15 * 60_000).toISOString().replace(/[-:T]/g, "").slice(0, 14);
   return file.slice(0, match.index) + stamp + match[2];
 }
+// How many quarter-hours back to look for a file that has actually been uploaded.
+const FALLBACK_STEPS = 6;
 
 /** Web records whose page title, organisations or people mention a watched term, as stories to store. */
 export function gkgStories(tsv: string, matches: TermMatcher, limit: number): StoryToStore[] {
@@ -96,7 +98,8 @@ export async function ingestLatestGdelt(signal?: AbortSignal): Promise<GdeltStat
   const matches = watchTermMatcher(await watchTermList(MAX_TERMS));
   if (!matches) return stats;
   let tsv: string | null = null;
-  for (const file of [newest, earlierGdeltFile(newest)]) {
+  for (let step = 0; step <= FALLBACK_STEPS; step++) {
+    const file = step === 0 ? newest : earlierGdeltFile(newest, step);
     if (!file || file === lastFile) break;
     try {
       tsv = readFirstZipEntry(await fetchPublicBytes(file, { signal, timeoutMs: 60_000, maxBytes: MAX_ZIP_BYTES })).toString("utf8");

@@ -62,6 +62,7 @@ describe("earlierGdeltFile", () => {
   it("steps back one quarter-hour, across midnight too", () => {
     expect(earlierGdeltFile("https://data.gdeltproject.org/gdeltv2/20260928190000.gkg.csv.zip")).toBe("https://data.gdeltproject.org/gdeltv2/20260928184500.gkg.csv.zip");
     expect(earlierGdeltFile("https://data.gdeltproject.org/gdeltv2/20260929000000.gkg.csv.zip")).toBe("https://data.gdeltproject.org/gdeltv2/20260928234500.gkg.csv.zip");
+    expect(earlierGdeltFile("https://data.gdeltproject.org/gdeltv2/20260928190000.gkg.csv.zip", 4)).toBe("https://data.gdeltproject.org/gdeltv2/20260928180000.gkg.csv.zip");
     expect(earlierGdeltFile("https://data.gdeltproject.org/gdeltv2/lastupdate.txt")).toBeNull();
   });
 });
