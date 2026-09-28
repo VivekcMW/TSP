@@ -220,6 +220,8 @@ export function scoreArticleRelevance(
   // Focus contributes at most 0.3 raw evidence weight.
   let focusWeight = 0;
   evidence = evidence.filter(e => e.type !== "focus" || (focusWeight += e.weight) <= 0.30001);
+  // A one-word person name ("Rutledge") belongs to too many people: it needs other evidence beside it.
+  if (evidence.length && evidence.every(e => e.type === "influencer" && !/\s/u.test(normalizeText(e.label).trim()))) evidence = [];
   evidence.sort((a, b) => normalizeText(a.label).localeCompare(normalizeText(b.label), "en"));
   if (!evidence.length) return noMatch("No configured positive keyword, company or influencer phrases matched the article text.");
 

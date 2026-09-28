@@ -223,3 +223,28 @@ describe("topic words, market noise and name placement (default mode)", () => {
     }
   });
 });
+
+describe("one-word person names", () => {
+  // A setup agent once picked the surname "Rutledge": searches for it returned an obituary,
+  // an Arkansas election story and a college sports blooper, and each matched on the name alone.
+  const profile = { keywords: ["Drug Pricing Regulations"], companies: ["Roche"], influencers: ["Rutledge", "Tukaram Mundhe"] };
+  const headline = (title: string, content = "") => article(content, { title });
+
+  it("don't make a story relevant on their own", () => {
+    for (const title of ["Tanner Rutledge Obituary (2026) - Hugo, OK", "Arkansas lieutenant governor candidates Michael Kalagias and Leslie Rutledge"]) {
+      expect(scoreArticleRelevance(headline(title), profile)).toMatchObject({ relevanceScore: 0, matchedKeywords: [] });
+    }
+  });
+
+  it("count when the story also matches a topic, a company or another person", () => {
+    expect(scoreArticleRelevance(headline("Rutledge backs new drug pricing regulations"), profile).matchedKeywords)
+      .toEqual(["Drug Pricing Regulations", "Rutledge"]);
+    expect(scoreArticleRelevance(headline("Roche names Rutledge head of India"), profile).matchedKeywords).toEqual(["Roche", "Rutledge"]);
+    expect(scoreArticleRelevance(headline("Tukaram Mundhe and Rutledge meet device makers"), profile).matchedKeywords).toEqual(["Rutledge", "Tukaram Mundhe"]);
+  });
+
+  it("leave full names and one-word companies as they were", () => {
+    expect(scoreArticleRelevance(headline("Tukaram Mundhe flags price markups"), profile).matchedKeywords).toEqual(["Tukaram Mundhe"]);
+    expect(scoreArticleRelevance(headline("Roche culls obesity candidate"), profile).matchedKeywords).toEqual(["Roche"]);
+  });
+});
