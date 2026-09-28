@@ -2,6 +2,7 @@ import { build as esbuild, type BuildOptions } from "esbuild";
 import { rm, readFile } from "fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { precompressAssets } from "../server/precompress";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -57,6 +58,8 @@ async function buildAll() {
   console.log("building client...");
   const { build: viteBuild } = await import("vite");
   await viteBuild();
+  const compressed = precompressAssets(resolve("dist/public/assets"));
+  console.log(`compressed ${compressed} client files (brotli + gzip)`);
   console.log("building server...");
   await esbuild(await serverBuildOptions());
 }
