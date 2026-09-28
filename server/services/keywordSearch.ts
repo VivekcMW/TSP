@@ -42,37 +42,51 @@ export function isGoogleNewsArticleUrl(value: string): boolean {
   }
 }
 
-/** Google News RSS exposes an opaque tracking article URL; resolve it before persisting it in Discover. */
+// Google News article ids never change target, so a decoded link is kept for the life of the
+// process (production runs one instance). Refreshes every 30 minutes see the same stories.
+const DECODED_LINK_LIMIT = 5000;
+const decodedLinks = new Map<string, string>();
+
+function rememberDecodedLink(articleId: string, url: string) {
+  if (decodedLinks.size >= DECODED_LINK_LIMIT) decodedLinks.delete(decodedLinks.keys().next().value!);
+  decodedLinks.set(articleId, url);
+  return url;
+}
+
+function directUrl(decoded: unknown): string {
+  const value = typeof decoded === "string" ? decoded : (decoded as { decodedUrl?: unknown } | null)?.decodedUrl;
+  const direct = typeof value === "string" ? canonicalHttpUrl(value) : null;
+  if (!direct || isGoogleNewsArticleUrl(direct)) throw new Error("No publisher link");
+  return direct;
+}
+
+/**
+ * Google News RSS exposes an opaque tracking article URL; resolve it before persisting it in Discover.
+ * The decoders run one after the other on purpose: Google throttles requests from Cloud Run, and
+ * asking both at once doubled the requests and made decoding slower. Returns `value` unchanged
+ * when neither decoder answers.
+ */
 export async function resolveGoogleNewsArticleUrl(value: string, signal?: AbortSignal, timeoutMs = 1500): Promise<string> {
   if (!isGoogleNewsArticleUrl(value)) return value;
   const articleId = new URL(value).pathname.split("/").pop() ?? "";
+  const known = decodedLinks.get(articleId);
+  if (known) return known;
   const offline = canonicalHttpUrl(tryOfflineDecode(articleId) ?? "");
-  if (offline && !isGoogleNewsArticleUrl(offline)) return offline;
-  try {
-    signal?.throwIfAborted();
-    const decoded = await Promise.race([
-      new GoogleNewsDecoder().decodeGoogleNewsUrl(value),
-      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("Google News decoder timed out")), timeoutMs)),
-    ]);
-    const decodedUrl = typeof decoded === "string" ? decoded : decoded?.decodedUrl;
-    const direct = decodedUrl ? canonicalHttpUrl(decodedUrl) : null;
-    if (direct && !isGoogleNewsArticleUrl(direct)) return direct;
-  } catch {
-    // Continue to the legacy decoder and retain the wrapper if unavailable.
-  }
-  let decoderTimer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    signal?.throwIfAborted();
-    const decoded = await Promise.race([
-      decodeGoogleNewsUrl(value),
-      new Promise<string>((_, reject) => { decoderTimer = setTimeout(() => reject(new Error("Google News decode timed out")), timeoutMs); }),
-    ]);
-    const direct = canonicalHttpUrl(decoded);
-    if (direct && !isGoogleNewsArticleUrl(direct)) return direct;
-  } catch {
-    // Consent walls and unavailable decoder endpoints must not block refresh.
-  } finally {
-    if (decoderTimer) clearTimeout(decoderTimer);
+  if (offline && !isGoogleNewsArticleUrl(offline)) return rememberDecodedLink(articleId, offline);
+  for (const decode of [() => new GoogleNewsDecoder().decodeGoogleNewsUrl(value), () => decodeGoogleNewsUrl(value)]) {
+    if (signal?.aborted) return value;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const decoded = await Promise.race([
+        Promise.resolve().then(decode).then(directUrl),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Google News decode timed out")), timeoutMs); }),
+      ]);
+      return rememberDecodedLink(articleId, decoded);
+    } catch {
+      // Consent walls, rate limits and slow decoder endpoints must not block refresh.
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
   return value;
 }
