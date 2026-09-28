@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../../db";
 import { emailPreferences } from "@shared/schema";
 import { emailCategoryKeys, emailPreferenceDefaults, emailPreferencePatch, type EmailPreferencePatch } from "@shared/email-preferences";
+import { timezoneSchema } from "@shared/profile-preferences";
 
 // Account-wide authoritative row. Migration 0034 performs the one-time legacy mapping.
 export async function getEmailPreferences(userId: string) {
@@ -18,4 +19,16 @@ export async function updateEmailPreferences(userId: string, input: EmailPrefere
   const [row] = await db.insert(emailPreferences).values({ userId, ...emailPreferenceDefaults, ...data })
     .onConflictDoUpdate({ target: emailPreferences.userId, set: data }).returning();
   return row;
+}
+/**
+ * Starts a new account's digest in the browser's time zone instead of UTC (09:00 UTC is 2:30 pm
+ * in India). Only creates the row: a time zone already stored, guessed or chosen, always wins.
+ * Returns whether it was used.
+ */
+export async function adoptBrowserTimezone(userId: string, timeZone: unknown) {
+  const parsed = timezoneSchema.safeParse(timeZone);
+  if (!parsed.success) return false;
+  const created = await db.insert(emailPreferences).values({ userId, ...emailPreferenceDefaults, digestTimezone: parsed.data })
+    .onConflictDoNothing({ target: emailPreferences.userId }).returning({ userId: emailPreferences.userId });
+  return created.length > 0;
 }

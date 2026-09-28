@@ -36,6 +36,11 @@ const industries = [
   { value: "other", label: "Other" },
 ];
 
+/** The browser's time zone, so the first digest arrives at 9:00 local time. */
+function browserTimeZone() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined; } catch { return undefined; }
+}
+
 interface CompleteRegistrationProps {
   existingFirstName?: string | null;
   existingLastName?: string | null;
@@ -52,7 +57,7 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
   const [countriesSelected, setCountriesSelected] = useState<string[]>([]);
 
   const completeRegistrationMutation = useMutation({
-    mutationFn: async (data: { firstName: string; lastName: string; industries: string[]; countries: string[] }) => {
+    mutationFn: async (data: { firstName: string; lastName: string; industries: string[]; countries: string[]; timeZone?: string }) => {
       return await apiRequest("POST", "/api/complete-registration", data);
     },
     onSuccess: async () => {
@@ -83,7 +88,7 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (industriesSelected.length && countriesSelected.length) {
-      completeRegistrationMutation.mutate({ firstName, lastName, industries: industriesSelected, countries: countriesSelected });
+      completeRegistrationMutation.mutate({ firstName, lastName, industries: industriesSelected, countries: countriesSelected, timeZone: browserTimeZone() });
     }
   };
 
