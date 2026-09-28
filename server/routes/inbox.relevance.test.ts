@@ -34,6 +34,8 @@ vi.mock("../services/urlValidator", async original => ({
 }));
 vi.mock("../services/publicationSources", () => ({ resolvePublicationSources: resolveSources }));
 vi.mock("../services/keywordSearch", () => ({ fetchArticlesForQuery: search }));
+// The second search provider finds nothing here; relevance is checked on the stubbed Google results.
+vi.mock("../services/bingNewsSearch", () => ({ fetchBingArticlesForQuery: async () => [] }));
 vi.mock("../services/engines/articleCache", () => ({
   getCachedArticles: (_key: string, fetcher: () => Promise<FetchedArticle[]>) => fetcher(),
 }));

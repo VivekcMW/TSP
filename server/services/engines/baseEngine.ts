@@ -2,6 +2,7 @@ import { validateUrlSync } from "../urlValidator.js";
 import { resolvePublicationSources } from "../publicationSources.js";
 import { CrawlError, crawlErrorMessage, fetchPublicText, mapCrawlSettled } from "../crawlerFetch.js";
 import { fetchArticlesForQuery, isGoogleNewsArticleUrl, resolveGoogleNewsArticleUrl } from "../keywordSearch.js";
+import { fetchBingArticlesForQuery } from "../bingNewsSearch.js";
 import { parseFeedContent } from "../universalFeedParser.js";
 import { scrapeWebpageArticles } from "../webpageScraper.js";
 import { getCachedArticles } from "./articleCache.js";
@@ -141,11 +142,14 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), KEYWORD_SEARCH_BUDGET_MS);
       try {
-        const results = await mapCrawlSettled(queries, 2, async (query) => {
+        const searchWith = (provider: typeof fetchArticlesForQuery) => mapCrawlSettled(queries, 2, async (query) => {
           // Unstarted allocations are failures too, not successful empty results.
           if (controller.signal.aborted) throw new CrawlError("search-timeout", "The search time budget expired.");
-          return fetchArticlesForQuery(query, 8, edition.id, controller.signal);
+          return provider(query, 8, edition.id, controller.signal);
         });
+        // Separate pools under one budget: Google's slow link decoding can't hold back Bing,
+        // whose results carry publisher links already (see bingNewsSearch.ts).
+        const results = (await Promise.all([searchWith(fetchBingArticlesForQuery), searchWith(fetchArticlesForQuery)])).flat();
         const failed = results.filter((result) => result.status === "rejected").length;
         // A deadline keeps what finished (uncached), so slow queries cannot discard fast ones;
         // the next refresh reaches the rest. Only a batch with nothing finished fails.

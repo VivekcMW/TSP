@@ -8,15 +8,18 @@ import type { CrawlOptions } from "../crawlerFetch";
 import { installInboxRefreshFixture } from "../../../test/inbox-refresh-fixture";
 import { inboxRefreshMessage } from "@shared/inbox-refresh";
 
-const { storage, crawl, network, resolveSources } = vi.hoisted(() => ({
+const { storage, crawl, network, resolveSources, bing } = vi.hoisted(() => ({
   storage: { beginInboxRefresh: vi.fn(), commitInboxRefresh: vi.fn(), reserveSearchQueryPlan: vi.fn(), getUserSources: vi.fn(), updateUserSource: vi.fn(), getInboxItemByUrl: vi.fn(), createInboxItem: vi.fn() },
   crawl: vi.fn(), network: vi.fn(() => { throw new Error("Unexpected network request"); }), resolveSources: vi.fn(),
+  bing: vi.fn(),
 }));
 vi.mock("../../storage", () => ({ storage }));
 vi.mock("../../db", () => { throw new Error("Database must not load in search integration tests"); });
 vi.mock("../publicationSources", () => ({ resolvePublicationSources: resolveSources }));
 vi.mock("../crawlerFetch", async original => ({ ...await original<typeof import("../crawlerFetch")>(), fetchPublicText: crawl }));
 vi.mock("node-fetch", () => ({ default: network }));
+// Bing is its own provider (see bingNewsSearch.test.ts); here it finds nothing unless a test says so.
+vi.mock("../bingNewsSearch", () => ({ fetchBingArticlesForQuery: bing }));
 
 // Real engine, provider, parser, planner and article cache; only storage and
 // outbound crawl are fixtures. State belongs to storage, not the engine instance.
@@ -73,6 +76,7 @@ beforeEach(() => {
   storage.getInboxItemByUrl.mockResolvedValue(undefined);
   storage.createInboxItem.mockResolvedValue({ id: "inbox-item" });
   crawl.mockImplementation(async url => response(url));
+  bing.mockResolvedValue([]);
 });
 afterEach(() => {
   expect(network).not.toHaveBeenCalled();
@@ -193,9 +197,10 @@ describe("engine durable search integration", () => {
     const engine = await makeEngine();
     const firstPlan = planSearchQueries(profiles.get(scopeKey(scope))!);
     crawl.mockRejectedValue(new Error("unsafe query text"));
+    bing.mockRejectedValue(new Error("unsafe query text"));
     await expect(engine.search()).rejects.toThrow("Article search could not complete");
     expect(fetchedQueries()).toEqual(firstPlan.queries);
-    crawl.mockClear(); crawl.mockImplementation(async url => response(url));
+    crawl.mockClear(); crawl.mockImplementation(async url => response(url)); bing.mockResolvedValue([]);
     const articles = await (await makeEngine()).search();
     expect(fetchedQueries()).toEqual(planSearchQueries(profiles.get(scopeKey(scope))!, firstPlan.state).queries);
     expect(articles).toHaveLength(8);
@@ -254,11 +259,12 @@ describe("engine durable search integration", () => {
       if (failure === "all" || new URL(url).searchParams.get("q") === "Cloud") throw new Error("private provider failure");
       return response(url);
     });
+    if (failure === "all") bing.mockRejectedValue(new Error("private provider failure"));
     if (failure === "all") await expect(engine.search()).rejects.toThrow("Article search could not complete");
     else await expect(engine.search()).resolves.toHaveLength(1);
     expect(crawl).toHaveBeenCalledTimes(2);
     const failedQueries = fetchedQueries();
-    crawl.mockClear(); crawl.mockImplementation(async url => response(url));
+    crawl.mockClear(); crawl.mockImplementation(async url => response(url)); bing.mockResolvedValue([]);
     // The planner fairly rotates even short plans; explicitly repeat this key.
     states.delete(scopeKey(scope));
     expect(await engine.search()).toHaveLength(2);
@@ -281,6 +287,7 @@ describe("engine durable search integration", () => {
   it("reports search-only failure instead of a successful empty run", async () => {
     save({ keywords: ["AI"] });
     crawl.mockRejectedValue(new Error("private provider details"));
+    bing.mockRejectedValue(new Error("private provider details"));
     const result = await (await makeEngine()).processForUser(scope, profile());
     expect(result).toMatchObject({ success: false, outcome: "failure", articlesProcessed: 0,
       errors: [inboxRefreshMessage("failure")] });
@@ -293,6 +300,7 @@ describe("engine durable search integration", () => {
     save({ keywords: ["AI"] });
     storage.getUserSources.mockResolvedValue([{ id: "own", name: "Own source", feedUrl: "https://own.test/feed", isActive: true }]);
     let sourceSettled = false, returned = false;
+    bing.mockRejectedValue(new Error("private search failure"));
     crawl.mockImplementation(async (url: string) => {
       if (new URL(url).hostname !== "own.test") throw new Error("private search failure");
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -424,5 +432,47 @@ describe("engine durable search integration", () => {
     expect(first).toEqual(second); expect(first).toHaveLength(1);
     expect(crawl).toHaveBeenCalledTimes(1);
     expect(storage.reserveSearchQueryPlan).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Bing News next to Google News", () => {
+  const bingStory = (query: string) => ({
+    title: `Bing ${query}`, link: `https://bing-publisher.test/${encodeURIComponent(query)}`, source: "Bing Publisher",
+    sourceOrigin: "https://bing-publisher.test", content: query, categories: [query], inputKind: "provider_excerpt" as const,
+    pubDate: "2026-09-18T12:00:00.000Z", publishedAt: "2026-09-18T12:00:00.000Z",
+  });
+
+  it("asks Bing the same queries in the same edition, and keeps both providers' stories", async () => {
+    save({ keywords: ["Current"], searchEdition: "en-IN" });
+    bing.mockImplementation(async (query: string) => [bingStory(query)]);
+    const articles = await (await makeEngine()).search();
+    expect(bing).toHaveBeenCalledExactlyOnceWith("Current", 8, "en-IN", expect.any(AbortSignal));
+    expect(articles.map(article => article.link).sort()).toEqual(["https://bing-publisher.test/Current", "https://news.test/IN%3Aen%3ACurrent"]);
+  });
+
+  it("keeps Bing's stories when every Google search fails", async () => {
+    save({ keywords: labels("k", 3) });
+    crawl.mockRejectedValue(new Error("throttled"));
+    bing.mockImplementation(async (query: string) => [bingStory(query)]);
+    const articles = await (await makeEngine()).search();
+    expect(articles.map(article => article.title)).toEqual(["Bing k00", "Bing k01", "Bing k02"]);
+  });
+
+  it("keeps Google's stories when Bing fails", async () => {
+    save({ keywords: labels("k", 2) });
+    bing.mockRejectedValue(new Error("Bing down"));
+    const articles = await (await makeEngine()).search();
+    expect(articles.map(article => article.title)).toEqual(["k00", "k01"]);
+  });
+
+  it("doesn't let slow Google searches hold Bing's stories past the time budget", async () => {
+    vi.useFakeTimers();
+    save({ keywords: labels("k", 3) });
+    crawl.mockImplementation((_url: string, { signal }: CrawlOptions) =>
+      new Promise((_, reject) => signal!.addEventListener("abort", () => reject(signal!.reason), { once: true })));
+    bing.mockImplementation(async (query: string) => [bingStory(query)]);
+    const pending = (await makeEngine()).search();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect((await pending).map(article => article.title)).toEqual(["Bing k00", "Bing k01", "Bing k02"]);
   });
 });
