@@ -21,6 +21,7 @@ import { registerMediaRoutes } from "./media";
 import { registerBillingRoutes } from "./billing";
 import { registerEmailPreferenceRoutes } from "./email-preferences";
 import { registerNewsletterRoutes } from "./newsletter";
+import { registerWebSubRoutes } from "./websub";
 import { registerProfileSocialLinksRoutes } from "./profile-social-links";
 import { registerEditorialVoiceRoutes } from "./editorial-voice";
 
@@ -54,6 +55,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerBillingRoutes(app);
   registerEmailPreferenceRoutes(app);
   registerNewsletterRoutes(app);
+  registerWebSubRoutes(app);
   registerProfileSocialLinksRoutes(app);
   registerEditorialVoiceRoutes(app);
 

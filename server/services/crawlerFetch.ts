@@ -62,10 +62,10 @@ function acquire(host: string, signal: AbortSignal): Promise<() => void> {
   });
 }
 
-export interface CrawlPage { url: string; text: string; status: number; headers: Headers }
+export interface CrawlPage { url: string; text: string; status: number; headers: Headers; bytes?: Buffer }
 export interface CrawlBudget { requests: number; bytes: number }
 /** `headers` adds conditional request headers (If-None-Match / If-Modified-Since); a 304 then returns with an empty body. */
-export interface CrawlOptions { signal?: AbortSignal; timeoutMs?: number; maxBytes?: number; method?: "GET" | "HEAD"; budget?: CrawlBudget; headers?: Record<string, string> }
+export interface CrawlOptions { signal?: AbortSignal; timeoutMs?: number; maxBytes?: number; method?: "GET" | "HEAD" | "POST"; budget?: CrawlBudget; headers?: Record<string, string>; binary?: boolean; body?: string; contentType?: string }
 
 function boundedSetting(value: number | undefined, fallback: number, maximum: number): number {
   return Number.isFinite(value) ? Math.max(1, Math.min(Math.floor(value!), maximum)) : fallback;
@@ -96,10 +96,13 @@ async function fetchHop(url: URL, signal: AbortSignal, options: CrawlOptions, ma
     const response = await fetch(url, {
       method: options.method ?? "GET", redirect: "manual", agent, signal,
       size: maxBytes, highWaterMark: 16 * 1024,
-      headers: { ...options.headers, "User-Agent": "TheSocialPundit/1.0 (Public Source Reader)", Accept: "text/html,application/xhtml+xml,application/rss+xml,application/atom+xml,application/feed+json,application/json,text/xml" },
+      ...(options.body !== undefined ? { body: options.body } : {}),
+      headers: { ...options.headers, ...(options.contentType ? { "Content-Type": options.contentType } : {}), "User-Agent": "TheSocialPundit/1.0 (Public Source Reader)", Accept: "text/html,application/xhtml+xml,application/rss+xml,application/atom+xml,application/feed+json,application/json,text/xml" },
     });
     body = response.body;
     if ([301, 302, 303, 307, 308].includes(response.status)) {
+      // A form post is never replayed at another address.
+      if (options.method === "POST") throw new CrawlError("redirect", "The hub redirected the subscription request.");
       const location = response.headers.get("location");
       if (!location) throw new CrawlError("redirect", "The source returned an invalid redirect.");
       try { return { redirect: new URL(location, url).href }; }
@@ -119,13 +122,14 @@ async function fetchHop(url: URL, signal: AbortSignal, options: CrawlOptions, ma
     if (!response.ok) throw new CrawlError("http", `The source returned HTTP ${response.status}. It may be unavailable or restrict automated access.`);
     if (Number(response.headers.get("content-length")) > maxBytes) throw new CrawlError("size", "The source response exceeds the crawl size limit.");
     // node-fetch enforces `size` on the decompressed stream, including chunked responses.
-    const text = options.method === "HEAD" ? "" : await response.text();
+    const bytes = options.binary && options.method !== "HEAD" ? await response.buffer() : undefined;
+    const text = options.method === "HEAD" || bytes ? "" : await response.text();
     signal.throwIfAborted();
     if (budget) {
       budget.bytes -= Buffer.byteLength(text);
       if (budget.bytes < 0) throw new CrawlError("budget", "The crawl reached its byte budget. Try a direct feed URL.");
     }
-    return { url: url.href, text, status: response.status, headers: response.headers };
+    return { url: url.href, text, status: response.status, headers: response.headers, ...(bytes ? { bytes } : {}) };
   } finally {
     if (body instanceof Readable) body.destroy();
     agent?.destroy();
@@ -133,14 +137,28 @@ async function fetchHop(url: URL, signal: AbortSignal, options: CrawlOptions, ma
   }
 }
 
+// Binary downloads (a GDELT 15-minute file is 10–30 MB zipped) may exceed the page limit.
+const BINARY_MAX_BYTES = 64 * 1024 * 1024;
+
+/** Posts a small form to a public address (WebSub subscriptions), with the same address checks as pages. */
+export async function postPublicForm(rawUrl: string, fields: Record<string, string>, options: Pick<CrawlOptions, "signal" | "timeoutMs"> = {}): Promise<CrawlPage> {
+  return fetchPublicText(rawUrl, { ...options, method: "POST", body: new URLSearchParams(fields).toString(), contentType: "application/x-www-form-urlencoded", maxBytes: 64 * 1024 });
+}
+
+/** A public binary file, with the same address checks as pages; `maxBytes` may go up to 64 MB. */
+export async function fetchPublicBytes(rawUrl: string, options: Omit<CrawlOptions, "binary" | "method"> = {}): Promise<Buffer> {
+  const page = await fetchPublicText(rawUrl, { ...options, binary: true });
+  return page.bytes ?? Buffer.alloc(0);
+}
+
 /** GET-only public crawler: no cookies, auth, proxy env, automatic redirects, or unpinned DNS. */
 export async function fetchPublicText(rawUrl: string, options: CrawlOptions = {}): Promise<CrawlPage> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new CrawlError("timeout", "The source took too long to respond.")), boundedSetting(options.timeoutMs, 8000, 10000));
+  const timer = setTimeout(() => controller.abort(new CrawlError("timeout", "The source took too long to respond.")), boundedSetting(options.timeoutMs, 8000, options.binary ? 60_000 : 10000));
   const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
   // 2MB rejected real-world long-form pages (e.g. Wikipedia articles routinely
   // run 2.1-2.5MB of raw HTML despite modest readable text) - see crawlerFetch.test.ts.
-  const maxBytes = boundedSetting(options.maxBytes, 5 * 1024 * 1024, 5 * 1024 * 1024);
+  const maxBytes = boundedSetting(options.maxBytes, 5 * 1024 * 1024, options.binary ? BINARY_MAX_BYTES : 5 * 1024 * 1024);
   const seen = new Set<string>();
   let current = rawUrl;
   try {

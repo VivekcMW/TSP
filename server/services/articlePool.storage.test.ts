@@ -5,7 +5,7 @@ import { requireLocalTestDatabase } from "../../test/database-safety";
 import { pool } from "../db";
 import { ownerDb, ownerPool } from "../../test/db-owner";
 import { pooledArticles, publications } from "@shared/schema";
-import { findPooledArticle, markPooledBody, pendingPooledBodies, prunePool, queryArticlePool, registerPublications, storePooledArticles } from "./articlePool";
+import { findPooledArticle, indexHealth, knownUnreadableLinks, markPooledBody, pendingPooledBodies, prunePool, queryArticlePool, registerPublications, storePooledArticles } from "./articlePool";
 
 // Runs through the tsp_app role, as production does. Rows are tagged so parallel test files never collide.
 const tag = `pool-${randomUUID().slice(0, 8)}`;
@@ -91,6 +91,9 @@ describe("article pool", () => {
     expect(article!.content.length).toBeGreaterThan(1000);
     expect(await findPooledArticle(`${site("pharma")}/roche-obesity-drug`)).toMatchObject({ readable: false });
     expect(await findPooledArticle(`${site("pharma")}/never-seen`)).toBeNull();
+    expect(await knownUnreadableLinks([`${site("pharma")}/roche-obesity-drug?utm_source=x`, url, `${site("pharma")}/never-seen`, "not a url"]))
+      .toEqual([`${site("pharma")}/roche-obesity-drug`]);
+    expect(await knownUnreadableLinks([])).toEqual([]);
     expect((await pendingPooledBodies(100)).map(row => row.canonicalUrl)).not.toContain(url);
     const refreshed = await queryArticlePool({ keywords: ["stent prices"], companies: [], influencers: [] }, { days: 30, limit: 50 });
     expect(refreshed.find(article => article.link === url)).toMatchObject({ inputKind: "page_body", title: "NPPA caps stent prices for a third year" });
@@ -103,5 +106,14 @@ describe("article pool", () => {
     expect(await findPooledArticle(`${site("pharma")}/ancient`)).toBeNull();
     expect(await findPooledArticle(`${site("pharma")}/generic-prices`)).toBeNull();
     expect(await findPooledArticle(`${site("pharma")}/nppa-caps-stent-prices`)).not.toBeNull();
+  });
+});
+
+describe("indexHealth", () => {
+  it("counts the catalogue, discovery, pool and watch terms", async () => {
+    const health = await indexHealth();
+    expect(health.publications.active).toBeGreaterThanOrEqual(1);
+    expect(health.pool.stories).toBeGreaterThanOrEqual(health.pool.readable + health.pool.unreadable + health.pool.pending);
+    expect(health).toMatchObject({ discovered: expect.objectContaining({ pending: expect.any(Number) }), watchTerms: expect.any(Number) });
   });
 });

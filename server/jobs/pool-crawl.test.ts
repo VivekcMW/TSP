@@ -4,12 +4,16 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { requireLocalTestDatabase } from "../../test/database-safety";
 import { pool } from "../db";
 import { ownerDb, ownerPool } from "../../test/db-owner";
-import { pooledArticles, publications } from "@shared/schema";
+import { discoveredSites, pooledArticles, publications } from "@shared/schema";
 
 // Real database through the tsp_app role; only the network is a fixture.
 const { crawl, network } = vi.hoisted(() => ({ crawl: vi.fn(), network: vi.fn(() => { throw new Error("Unexpected network request"); }) }));
 vi.mock("../services/crawlerFetch", async original => ({ ...await original<typeof import("../services/crawlerFetch")>(), fetchPublicText: crawl }));
 vi.mock("node-fetch", () => ({ default: network }));
+const { discover } = vi.hoisted(() => ({ discover: vi.fn() }));
+vi.mock("../services/feedDiscovery", async original => ({ ...await original<typeof import("../services/feedDiscovery")>(), discoverFeed: discover }));
+// GDELT has its own tests (gdelt.test.ts); the cycle only needs its summary here.
+vi.mock("../services/gdelt", () => ({ ingestLatestGdelt: async () => ({ file: null, records: 0, matched: 0, stored: 0, sites: 0 }) }));
 import { CrawlError } from "../services/crawlerFetch";
 import { forgetRobots } from "../services/robots";
 import { registerPublications, findPooledArticle } from "../services/articlePool";
@@ -20,7 +24,7 @@ const host = `https://daily.${tag}.example.invalid`;
 const feed = `${host}/feed.xml`;
 const page = (text: string, status = 200, headers: Record<string, string> = {}) => ({ url: "", text, status, headers: new Headers(headers) });
 const at = (url: string, response: ReturnType<typeof page>) => ({ ...response, url });
-const article = (title: string) => `<html><head><title>${title}</title><meta property="og:site_name" content="Daily Pharma"></head><body><article>${`<p>${title}. ${"Regulators met device makers to discuss price caps and trade margins across the sector. ".repeat(3)}</p>`.repeat(6)}</article></body></html>`;
+const article = (title: string) => `<html><head><title>${title}</title><meta property="og:site_name" content="Daily Pharma"></head><body><article>${`<p>${title}. ${"Regulators met device makers to discuss price caps and trade margins across the sector. ".repeat(3)}</p>`.repeat(6)}<p>As <a href="https://www.wire.${tag}.example.invalid/story">the wire</a> reported.</p></article></body></html>`;
 const rss = (items: Array<[string, string]>) => `<rss version="2.0"><channel><title>Daily</title>${items.map(([title, path]) =>
   `<item><title>${title}</title><link>${host}${path}</link><description>${title} excerpt</description><pubDate>${new Date().toUTCString()}</pubDate></item>`).join("")}</channel></rss>`;
 let validated = false;
@@ -37,11 +41,13 @@ afterAll(async () => {
   if (validated) {
     await ownerDb.delete(pooledArticles).where(like(pooledArticles.canonicalUrl, `${host}/%`));
     await ownerDb.delete(publications).where(like(publications.feedUrl, `${host}/%`));
+    await ownerDb.delete(publications).where(like(publications.feedUrl, `%.${tag}.example.invalid/%`));
+    await ownerDb.delete(discoveredSites).where(like(discoveredSites.origin, `%.${tag}.example.invalid`));
   }
   await pool.end(); await ownerPool.end();
   vi.restoreAllMocks();
 });
-beforeEach(() => { crawl.mockReset(); forgetRobots(); });
+beforeEach(() => { crawl.mockReset(); discover.mockReset(); discover.mockResolvedValue({ error: "No feed" }); forgetRobots(); });
 
 const publication = async () => (await ownerDb.select().from(publications).where(eq(publications.feedUrl, feed)))[0];
 // Other test files share this database, so each cycle is limited to this file's publication.
@@ -72,6 +78,19 @@ describe("shared index crawl cycle", () => {
     expect(await findPooledArticle(`${host}/moved`)).toMatchObject({ readable: false, title: "Moved story" });
     expect(await findPooledArticle(`${host}/listing`)).toMatchObject({ readable: false, inputKind: "feed_excerpt" });
     expect(await findPooledArticle(`${host}/twin`)).toMatchObject({ readable: false, title: "Twin of the stent story" });
+    // Three fetched pages linked to another publisher: remembered for discovery, and, seen more than once, probed in the same cycle (no feed here).
+    expect(await ownerDb.select().from(discoveredSites).where(eq(discoveredSites.origin, `https://www.wire.${tag}.example.invalid`)))
+      .toEqual([expect.objectContaining({ seenVia: "link", seenCount: 3, status: "no-feed" })]);
+  });
+
+  it("probes discovered sites for feeds and registers what it finds", async () => {
+    await ownerDb.insert(discoveredSites).values({ origin: `https://found.${tag}.example.invalid`, seenVia: "search" });
+    discover.mockImplementation(async (origin: string) => ({ name: "Found Weekly", feedUrl: `${origin}/rss`, sourceType: "feed" }));
+    crawl.mockRejectedValue(new CrawlError("http", "nothing to poll"));
+    const stats = await cycle();
+    expect(stats).toMatchObject({ probed: 1, registered: 1 });
+    expect(await ownerDb.select().from(publications).where(eq(publications.feedUrl, `https://found.${tag}.example.invalid/rss`)))
+      .toEqual([expect.objectContaining({ name: "Found Weekly", addedVia: "discovered" })]);
   });
 
   it("asks conditionally next time and leaves an unchanged feed alone", async () => {

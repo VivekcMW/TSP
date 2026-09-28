@@ -8,11 +8,12 @@ import type { CrawlOptions } from "../crawlerFetch";
 import { installInboxRefreshFixture } from "../../../test/inbox-refresh-fixture";
 import { inboxRefreshMessage } from "@shared/inbox-refresh";
 
-const { storage, crawl, network, resolveSources, bing, index } = vi.hoisted(() => ({
+const { storage, crawl, network, resolveSources, bing, index, discovery } = vi.hoisted(() => ({
   storage: { beginInboxRefresh: vi.fn(), commitInboxRefresh: vi.fn(), reserveSearchQueryPlan: vi.fn(), getUserSources: vi.fn(), updateUserSource: vi.fn(), getInboxItemByUrl: vi.fn(), createInboxItem: vi.fn() },
   crawl: vi.fn(), network: vi.fn(() => { throw new Error("Unexpected network request"); }), resolveSources: vi.fn(),
   bing: vi.fn(),
-  index: { query: vi.fn(), register: vi.fn(), prefetch: vi.fn() },
+  index: { query: vi.fn(), register: vi.fn(), prefetch: vi.fn(), unreadable: vi.fn() },
+  discovery: { sites: vi.fn(), terms: vi.fn() },
 }));
 vi.mock("../../storage", () => ({ storage }));
 vi.mock("../../db", () => { throw new Error("Database must not load in search integration tests"); });
@@ -22,7 +23,8 @@ vi.mock("node-fetch", () => ({ default: network }));
 // Bing is its own provider (see bingNewsSearch.test.ts); here it finds nothing unless a test says so.
 vi.mock("../bingNewsSearch", () => ({ fetchBingArticlesForQuery: bing }));
 // The shared article index (see articlePool.storage.test.ts); empty unless a test says so.
-vi.mock("../articlePool", () => ({ queryArticlePool: index.query, registerPublications: index.register, prefetchPooledBodies: index.prefetch }));
+vi.mock("../articlePool", () => ({ queryArticlePool: index.query, registerPublications: index.register, prefetchPooledBodies: index.prefetch, knownUnreadableLinks: index.unreadable }));
+vi.mock("../indexDiscovery", () => ({ noteDiscoveredSites: discovery.sites, noteWatchTerms: discovery.terms }));
 
 // Real engine, provider, parser, planner and article cache; only storage and
 // outbound crawl are fixtures. State belongs to storage, not the engine instance.
@@ -80,7 +82,8 @@ beforeEach(() => {
   storage.createInboxItem.mockResolvedValue({ id: "inbox-item" });
   crawl.mockImplementation(async url => response(url));
   bing.mockResolvedValue([]);
-  index.query.mockResolvedValue([]); index.register.mockResolvedValue(0); index.prefetch.mockResolvedValue(0);
+  index.query.mockResolvedValue([]); index.register.mockResolvedValue(0); index.prefetch.mockResolvedValue(0); index.unreadable.mockResolvedValue([]);
+  discovery.sites.mockResolvedValue(0); discovery.terms.mockResolvedValue(undefined);
 });
 afterEach(() => {
   expect(network).not.toHaveBeenCalled();
@@ -524,5 +527,38 @@ describe("shared article index", () => {
     expect(index.prefetch).toHaveBeenCalledExactlyOnceWith(
       [expect.objectContaining({ link: "https://news.test/US%3Aen%3ACurrent", title: "Current", source: "Publisher" })],
       expect.objectContaining({ limit: 10 }));
+  });
+});
+
+describe("shared index discovery", () => {
+  const indexed = (title: string, link: string) => ({
+    title, link, source: "Index Weekly", sourceOrigin: new URL(link).origin, content: `${title}: Current developments in full.`,
+    categories: [], pubDate: "2026-09-18T12:00:00.000Z", publishedAt: "2026-09-18T12:00:00.000Z", inputKind: "page_body" as const,
+  });
+
+  it("remembers the publishers behind search results and the person's terms, for discovery", async () => {
+    save({ keywords: ["Current"], companies: ["Acme"] });
+    await (await makeEngine()).processForUser(scope, profile());
+    expect(discovery.sites).toHaveBeenCalledExactlyOnceWith(["https://publisher.test", "https://publisher.test"], "search");
+    expect(discovery.terms).toHaveBeenCalledExactlyOnceWith(profiles.get(scopeKey(scope)));
+  });
+
+  it("leaves out stories the crawler has found unreadable", async () => {
+    save({ keywords: ["Current"] });
+    index.unreadable.mockResolvedValue(["https://news.test/US%3Aen%3ACurrent"]);
+    const result = await (await makeEngine()).processForUser(scope, profile());
+    expect(index.unreadable).toHaveBeenCalledExactlyOnceWith(["https://news.test/US%3Aen%3ACurrent"]);
+    expect(result).toMatchObject({ success: true, articlesProcessed: 0, newInboxItems: 0 });
+    expect(storage.createInboxItem).not.toHaveBeenCalled();
+  });
+
+  it("skips the search engines once the index alone has enough candidates", async () => {
+    save({ keywords: ["Current"] });
+    index.query.mockResolvedValue(Array.from({ length: 40 }, (_, i) => indexed(`Current ${i}`, `https://index.test/${i}`)));
+    const result = await (await makeEngine()).processForUser(scope, profile());
+    expect(crawl).not.toHaveBeenCalled();
+    expect(bing).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ success: true, articlesProcessed: 40, newInboxItems: 10 });
+    expect(discovery.sites).not.toHaveBeenCalled();
   });
 });

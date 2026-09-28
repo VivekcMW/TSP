@@ -3,7 +3,8 @@ import { resolvePublicationSources } from "../publicationSources.js";
 import { CrawlError, crawlErrorMessage, fetchPublicText, mapCrawlSettled } from "../crawlerFetch.js";
 import { fetchArticlesForQuery, isGoogleNewsArticleUrl, resolveGoogleNewsArticleUrl } from "../keywordSearch.js";
 import { fetchBingArticlesForQuery } from "../bingNewsSearch.js";
-import { prefetchPooledBodies, queryArticlePool, registerPublications } from "../articlePool.js";
+import { knownUnreadableLinks, prefetchPooledBodies, queryArticlePool, registerPublications } from "../articlePool.js";
+import { noteDiscoveredSites, noteWatchTerms } from "../indexDiscovery.js";
 import { parseFeedContent } from "../universalFeedParser.js";
 import { scrapeWebpageArticles } from "../webpageScraper.js";
 import { getCachedArticles } from "./articleCache.js";
@@ -35,6 +36,8 @@ const INDEX_WINDOW_DAYS = 30;
 const INDEX_CANDIDATE_LIMIT = 150;
 const INDEX_PREFETCH_LIMIT = 10;
 const INDEX_PREFETCH_BUDGET_MS = 15000;
+// With this many index candidates the search engines are not asked at all (0 disables).
+const INDEX_ONLY_THRESHOLD = Number(process.env.INDEX_ONLY_THRESHOLD ?? "40");
 type SearchReservation = { queries: string[]; searchEdition: string; profile: UserProfile };
 
 export abstract class BaseIndustryEngine implements IIndustryEngine {
@@ -241,25 +244,29 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       discoveryWarnings = await resolvePublicationSources(scope, userProfile);
       if (activeCount > 0) await this.repairStoredGoogleNewsUrls(scope);
 
-      const [sourceOutcome, searchOutcome, indexOutcome] = await Promise.allSettled([
+      // The shared index first: it is a database read, and with enough candidates the search
+      // engines are not asked at all. Its failure never decides a refresh.
+      const indexArticles = await queryArticlePool(userProfile, { days: INDEX_WINDOW_DAYS, limit: INDEX_CANDIDATE_LIMIT })
+        .catch(() => { console.warn("[shared-index] candidates unavailable for this refresh"); return [] as FetchedArticle[]; });
+      const searchSkipped = INDEX_ONLY_THRESHOLD > 0 && indexArticles.length >= INDEX_ONLY_THRESHOLD;
+      console.log(`[shared-index] ${indexArticles.length} candidates for ${scope.userId}${searchSkipped ? " (search engines skipped)" : ""}`);
+      const [sourceOutcome, searchOutcome] = await Promise.allSettled([
         this.fetchUserSources(scope),
-        this.fetchKeywordSearchArticles(reservation),
-        queryArticlePool(userProfile, { days: INDEX_WINDOW_DAYS, limit: INDEX_CANDIDATE_LIMIT }),
+        searchSkipped ? Promise.resolve([] as FetchedArticle[]) : this.fetchKeywordSearchArticles(reservation),
       ]);
-      // Index candidates are a bonus on top of the live stages, so they never decide success.
-      const indexArticles = indexOutcome.status === "fulfilled" ? indexOutcome.value : [];
-      if (indexOutcome.status === "rejected") console.warn("[shared-index] candidates unavailable for this refresh");
-      else console.log(`[shared-index] ${indexArticles.length} candidates for ${scope.userId}`);
       const stageWarnings: string[] = [];
       if (sourceOutcome.status === "rejected") stageWarnings.push("Some saved sources could not be fetched. Check Manage Sources for details.");
       if (searchOutcome.status === "rejected") stageWarnings.push("Keyword search could not complete. Your saved-source results are still available.");
       const sourceArticles = sourceOutcome.status === "fulfilled" ? sourceOutcome.value : [];
       const searchArticles = searchOutcome.status === "fulfilled" ? searchOutcome.value : [];
-      if ((sourceOutcome.status === "rejected" && searchOutcome.status === "rejected")
+      if (!searchSkipped && ((sourceOutcome.status === "rejected" && searchOutcome.status === "rejected")
         || (sourceOutcome.status === "rejected" && searchArticles.length === 0)
-        || (searchOutcome.status === "rejected" && sourceArticles.length === 0)) {
+        || (searchOutcome.status === "rejected" && sourceArticles.length === 0))) {
         throw new CrawlError("refresh-incomplete", inboxRefreshMessage("failure"));
       }
+      // Discovery: the publishers behind search results, and this person's terms, without the person.
+      if (searchArticles.length) await noteDiscoveredSites(searchArticles.map(article => article.sourceOrigin ?? article.link), "search").catch(() => undefined);
+      await noteWatchTerms(userProfile).catch(() => undefined);
       const userSourceArticles = sourceArticles;
       const keywordArticles = searchArticles;
 
@@ -275,7 +282,9 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       // Completion timing must not choose the representative. Prefer source body,
       // then longer text, with a stable full-record tie break. Story grouping is
       // deferred until AFTER history exclusion inside commit.
-      const fetched = [...userSourceArticles, ...keywordArticles, ...indexArticles].sort((a, b) =>
+      // Pages the crawler already found unreadable (paywalls, blocks) are not offered again.
+      const unreadable = new Set(await knownUnreadableLinks([...userSourceArticles, ...keywordArticles, ...indexArticles].map(article => article.link)).catch(() => []));
+      const fetched = [...userSourceArticles, ...keywordArticles, ...indexArticles].filter(article => !unreadable.has(canonicalHttpUrl(article.link) ?? "")).sort((a, b) =>
         Number(b.inputKind === "page_body") - Number(a.inputKind === "page_body") || b.content.length - a.content.length ||
         (JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0));
       for (const article of fetched) {

@@ -61,6 +61,16 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // --- pipeline / engine runs ------------------------------------------------
+  /** The shared article index: catalogue, discovery, pool and the last crawl cycle. */
+  app.get("/api/admin/index", requireDbUser, requirePermission("pipeline:operate:all"), async (_req, res) => {
+    try {
+      const [{ indexHealth }, { lastPoolCrawl }] = await Promise.all([import("../services/articlePool"), import("../jobs/pool-crawl")]);
+      res.json({ ...await indexHealth(), lastCrawl: lastPoolCrawl });
+    } catch {
+      res.status(500).json({ message: "Index health unavailable" });
+    }
+  });
+
   app.get("/api/admin/engine-runs", requireDbUser, requirePermission("pipeline:operate:all"), async (_req, res) => {
     try {
       res.json(await adminService.listEngineRunsAcrossTenants());

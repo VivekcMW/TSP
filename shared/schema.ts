@@ -473,10 +473,38 @@ export const publications = pgTable("publications", {
   consecutiveFailures: integer("consecutive_failures").notNull().default(0),
   etag: text("etag"),
   lastModified: text("last_modified"),
+  /** WebSub: the hub that pushes this feed's updates, our shared secret and the lease we hold. */
+  hubUrl: text("hub_url"),
+  websubSecret: text("websub_secret"),
+  websubSubscribedAt: timestamp("websub_subscribed_at"),
+  websubLeaseExpiresAt: timestamp("websub_lease_expires_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 export type Publication = typeof publications.$inferSelect;
+
+/** Publisher domains seen behind search results, outbound links or GDELT, waiting to be probed for a feed. Not tenant-scoped. */
+export const discoveredSites = pgTable("discovered_sites", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  origin: text("origin").notNull().unique(),
+  seenVia: varchar("seen_via", { length: 20 }).notNull().default("search"),
+  seenCount: integer("seen_count").notNull().default(1),
+  firstSeenAt: timestamp("first_seen_at").notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  probedAt: timestamp("probed_at"),
+  publicationId: varchar("publication_id").references(() => publications.id, { onDelete: "set null" }),
+  note: text("note"),
+});
+export type DiscoveredSite = typeof discoveredSites.$inferSelect;
+
+/** Topics, companies and people across all accounts, with no account attached; used to pick stories out of global feeds. */
+export const watchTerms = pgTable("watch_terms", {
+  term: text("term").primaryKey(),
+  kind: varchar("kind", { length: 20 }).notNull(),
+  seenCount: integer("seen_count").notNull().default(1),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+});
 
 /** Shared article pool: every story the crawler has seen, keyed by canonical URL. Not tenant-scoped. */
 export const pooledArticles = pgTable("pooled_articles", {

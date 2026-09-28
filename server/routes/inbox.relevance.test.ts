@@ -36,7 +36,8 @@ vi.mock("../services/publicationSources", () => ({ resolvePublicationSources: re
 vi.mock("../services/keywordSearch", () => ({ fetchArticlesForQuery: search }));
 // The second search provider finds nothing here; relevance is checked on the stubbed Google results.
 vi.mock("../services/bingNewsSearch", () => ({ fetchBingArticlesForQuery: async () => [] }));
-vi.mock("../services/articlePool", () => ({ queryArticlePool: async () => [], registerPublications: async () => 0, prefetchPooledBodies: async () => 0 }));
+vi.mock("../services/articlePool", () => ({ queryArticlePool: async () => [], registerPublications: async () => 0, prefetchPooledBodies: async () => 0, knownUnreadableLinks: async () => [] }));
+vi.mock("../services/indexDiscovery", () => ({ noteDiscoveredSites: async () => 0, noteWatchTerms: async () => undefined }));
 vi.mock("../services/engines/articleCache", () => ({
   getCachedArticles: (_key: string, fetcher: () => Promise<FetchedArticle[]>) => fetcher(),
 }));

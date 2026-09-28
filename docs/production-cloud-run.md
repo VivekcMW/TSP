@@ -23,7 +23,11 @@ documents, which has been retired.
   scheduler every `POOL_CRAWL_INTERVAL` minutes (default 15) unless
   `POOL_CRAWL_ENABLED=false`. Its log line is `[pool-crawl] N publications
   (F failed), S new stories, R readable + U unreadable bodies, P pruned`.
-  Migration 0045 creates its tables (`publications`, `pooled_articles`).
+  Migration 0045 creates its tables (`publications`, `pooled_articles`); 0046 adds
+  discovery (`discovered_sites`, `watch_terms`) and WebSub columns. Related settings,
+  all optional: `GDELT_ENABLED=false`, `WEBSUB_ENABLED=false`, `INDEX_ONLY_THRESHOLD`
+  (default 40; index candidates above which the search engines are skipped). WebSub
+  hubs call back at `${APP_URL}/api/websub/:id`. `GET /api/admin/index` shows counts.
 - `PLAN_LIMITS_ENABLED=false` (set 2026-09-24 at the user's request): Free
   accounts get Pro access (unlimited generations, publishing, scheduling and
   analytics). Remove the variable, or set it to `true`, to restore Free-plan

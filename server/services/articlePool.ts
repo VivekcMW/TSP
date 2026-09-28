@@ -7,9 +7,11 @@ import type { FetchedArticle } from "./engines/types.js";
 import { publicationDate } from "./articleDates";
 import { sourceOrigin } from "./inboxDiversity";
 import { validateUrlSync } from "./urlValidator";
-import { fetchArticleFromUrl } from "./urlFetcher";
+import { extractArticleFromHtml } from "./urlFetcher";
+import { requireReadableHtml } from "./crawlerHtml";
+import { harvestOutboundOrigins, noteDiscoveredSites } from "./indexDiscovery";
 import { isAllowedByRobots } from "./robots";
-import { mapCrawlSettled } from "./crawlerFetch.js";
+import { fetchPublicText, mapCrawlSettled } from "./crawlerFetch.js";
 
 /**
  * The shared article index (docs/superpowers/specs/2026-09-28-shared-article-index-design.md):
@@ -25,7 +27,7 @@ const TERM_LIMIT = 40;
 // A page counts as read when the extractor found real prose, not a listing's link text.
 const MIN_READABLE_CHARS = 800;
 
-export interface SourceToRegister { name: string; feedUrl: string; sourceType: string }
+export interface SourceToRegister { name: string; feedUrl: string; sourceType: string; addedVia?: "user-source" | "discovered" }
 export interface StoryToStore {
   link: string; title: string; source: string; content?: string | null;
   publishedAt?: string | Date | null; sourceOrigin?: string | null; publicationId?: string | null;
@@ -62,7 +64,7 @@ export async function registerPublications(sources: readonly SourceToRegister[])
     const feedUrl = publicCanonical(source.feedUrl);
     if (!feedUrl || rows.has(feedUrl)) continue;
     const name = source.name.trim().slice(0, 200) || new URL(feedUrl).hostname;
-    rows.set(feedUrl, { name, feedUrl, siteUrl: new URL(feedUrl).origin, sourceType: source.sourceType === "webpage" ? "webpage" : "feed" });
+    rows.set(feedUrl, { name, feedUrl, siteUrl: new URL(feedUrl).origin, sourceType: source.sourceType === "webpage" ? "webpage" : "feed", addedVia: source.addedVia ?? "user-source" });
   }
   if (!rows.size) return 0;
   const inserted = await db.insert(publications).values([...rows.values()]).onConflictDoNothing({ target: publications.feedUrl }).returning({ id: publications.id });
@@ -120,6 +122,15 @@ export async function findPooledArticle(url: string): Promise<PooledStory | null
     inputKind: row.inputKind === "page_body" ? "page_body" : "feed_excerpt", readable: row.readable, publishedAt: row.publishedAt };
 }
 
+/** Of these links, the ones whose page the crawler already found unreadable (canonical form). */
+export async function knownUnreadableLinks(urls: readonly string[]): Promise<string[]> {
+  const canonical = [...new Set(urls.map(url => canonicalHttpUrl(url)).filter((url): url is string => Boolean(url)))].slice(0, 600);
+  if (!canonical.length) return [];
+  const rows = await db.select({ canonicalUrl: pooledArticles.canonicalUrl }).from(pooledArticles)
+    .where(and(eq(pooledArticles.readable, false), inArray(pooledArticles.canonicalUrl, canonical)));
+  return rows.map(row => row.canonicalUrl);
+}
+
 /** Records the outcome of fetching a story's page. A readable body replaces the feed excerpt. */
 export async function markPooledBody(url: string, outcome: { readable: boolean; content?: string; title?: string }): Promise<void> {
   const canonicalUrl = canonicalHttpUrl(url);
@@ -144,7 +155,11 @@ export async function fetchPooledBody(url: string, signal?: AbortSignal): Promis
   let outcome: { readable: boolean; content?: string } = { readable: false };
   try {
     if (await isAllowedByRobots(url, signal)) {
-      const article = await fetchArticleFromUrl(url, signal);
+      const page = await fetchPublicText(url, { signal });
+      requireReadableHtml(page);
+      const article = extractArticleFromHtml(page.text, page.url);
+      // Other publishers this story links to are candidates for the catalogue.
+      await noteDiscoveredSites(harvestOutboundOrigins(page.text, page.url), "link").catch(() => undefined);
       // A redirect to the site's front page, or metadata alone, is not the story. The feed's
       // headline is kept: a page <title> is often the site's name, not the article's.
       const landedOnFrontPage = new URL(article.url).pathname === "/";
@@ -201,7 +216,7 @@ export async function duePublications(limit: number, olderThan: Date, only?: rea
     .orderBy(sql`${publications.lastCrawledAt} asc nulls first`).limit(Math.max(1, Math.min(limit, 500)));
 }
 
-export interface CrawlOutcome { status: "ok" | "unchanged" | "error"; error?: string | null; etag?: string | null; lastModified?: string | null }
+export interface CrawlOutcome { status: "ok" | "unchanged" | "error"; error?: string | null; etag?: string | null; lastModified?: string | null; hubUrl?: string | null }
 
 /** Records one poll. After `maxFailures` errors in a row the publication is switched off. */
 export async function recordPublicationCrawl(id: string, outcome: CrawlOutcome, maxFailures: number): Promise<void> {
@@ -213,5 +228,61 @@ export async function recordPublicationCrawl(id: string, outcome: CrawlOutcome, 
     isActive: failed ? sql`${publications.consecutiveFailures} + 1 < ${maxFailures}` : true,
     ...(outcome.etag !== undefined ? { etag: outcome.etag } : {}),
     ...(outcome.lastModified !== undefined ? { lastModified: outcome.lastModified } : {}),
+    ...(outcome.hubUrl !== undefined ? { hubUrl: outcome.hubUrl } : {}),
   }).where(eq(publications.id, id));
+}
+
+export async function publicationById(id: string): Promise<Publication | null> {
+  const [row] = await db.select().from(publications).where(eq(publications.id, id)).limit(1);
+  return row ?? null;
+}
+
+/** Publications with a hub whose lease is missing, expiring within a day, or whose request got no verification in an hour. */
+export async function websubDuePublications(limit: number, now = new Date()): Promise<Publication[]> {
+  const soon = new Date(now.getTime() + 86_400_000);
+  const stale = new Date(now.getTime() - 3_600_000);
+  return db.select().from(publications)
+    .where(and(eq(publications.isActive, true), sql`${publications.hubUrl} is not null`,
+      or(isNull(publications.websubLeaseExpiresAt), lt(publications.websubLeaseExpiresAt, soon)),
+      or(isNull(publications.websubSubscribedAt), lt(publications.websubSubscribedAt, stale))))
+    .orderBy(sql`${publications.websubLeaseExpiresAt} asc nulls first`).limit(Math.max(1, Math.min(limit, 200)));
+}
+
+export async function recordWebSubRequest(id: string, secret: string): Promise<void> {
+  await db.update(publications).set({ websubSecret: secret, websubSubscribedAt: new Date(), updatedAt: new Date() }).where(eq(publications.id, id));
+}
+
+/** The hub's verification: true only when the topic is this publication's feed and it has a hub. */
+export async function confirmWebSubLease(id: string, topic: string, leaseSeconds: number): Promise<boolean> {
+  const rows = await db.update(publications).set({ websubLeaseExpiresAt: new Date(Date.now() + Math.max(60, Math.min(leaseSeconds, 90 * 86_400)) * 1000), updatedAt: new Date() })
+    .where(and(eq(publications.id, id), eq(publications.feedUrl, topic), sql`${publications.hubUrl} is not null`)).returning({ id: publications.id });
+  return rows.length > 0;
+}
+
+export interface IndexHealth {
+  publications: { active: number; inactive: number; discovered: number; withHub: number; pushing: number; failing: number };
+  discovered: { pending: number; registered: number; noFeed: number };
+  pool: { stories: number; readable: number; unreadable: number; pending: number; last24h: number };
+  watchTerms: number;
+}
+
+/** Counts for the admin view of the shared index. */
+export async function indexHealth(): Promise<IndexHealth> {
+  const [[p], [d], [a], [w]] = await Promise.all([
+    db.execute(sql`select count(*) filter (where is_active) as active, count(*) filter (where not is_active) as inactive,
+      count(*) filter (where added_via = 'discovered') as discovered, count(*) filter (where hub_url is not null) as with_hub,
+      count(*) filter (where websub_lease_expires_at > now()) as pushing, count(*) filter (where consecutive_failures >= 3) as failing from ${publications}`).then(r => r.rows as Array<Record<string, string>>),
+    db.execute(sql`select count(*) filter (where status = 'pending') as pending, count(*) filter (where status = 'registered') as registered,
+      count(*) filter (where status = 'no-feed') as no_feed from discovered_sites`).then(r => r.rows as Array<Record<string, string>>),
+    db.execute(sql`select count(*) as stories, count(*) filter (where readable) as readable, count(*) filter (where readable is false) as unreadable,
+      count(*) filter (where readable is null) as pending, count(*) filter (where created_at > now() - interval '24 hours') as last24h from ${pooledArticles}`).then(r => r.rows as Array<Record<string, string>>),
+    db.execute(sql`select count(*) as terms from watch_terms`).then(r => r.rows as Array<Record<string, string>>),
+  ]);
+  const n = (value: string | undefined) => Number(value ?? 0);
+  return {
+    publications: { active: n(p?.active), inactive: n(p?.inactive), discovered: n(p?.discovered), withHub: n(p?.with_hub), pushing: n(p?.pushing), failing: n(p?.failing) },
+    discovered: { pending: n(d?.pending), registered: n(d?.registered), noFeed: n(d?.no_feed) },
+    pool: { stories: n(a?.stories), readable: n(a?.readable), unreadable: n(a?.unreadable), pending: n(a?.pending), last24h: n(a?.last24h) },
+    watchTerms: n(w?.terms),
+  };
 }

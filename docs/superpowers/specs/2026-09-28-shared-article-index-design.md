@@ -74,10 +74,38 @@ RLS policy; `tsp_app` gets SELECT/INSERT/UPDATE (and DELETE on the pool for rete
 - Failure isolation: pool read errors add a warning and yield no candidates; crawler errors
   are per publication (consecutive failures deactivate a publication after 10).
 
-## Out of scope (Stage 2+)
+## Stage 2: discovery (built 2026-09-28/29)
 
-Publisher discovery from search results and outbound links, GDELT ingestion, WebSub push,
-embeddings, a separate crawler service, hiding unreadable stories in Discover.
+- `discovered_sites`: every publisher domain behind a search result, an outbound link in a
+  fetched article, or a GDELT record. Networks, search engines, aggregators and infrastructure
+  hosts are never recorded. Each crawl cycle probes the 5 most-seen pending sites (search-seen
+  ones, or link-seen ones seen at least twice) with `discoverFeed`; a feed or article page
+  becomes a publication with `added_via = discovered`, a miss is recorded as `no-feed`.
+- `watch_terms`: the topics, companies and people across all accounts, without the account,
+  refreshed on every refresh. Used to pick stories out of GDELT.
+- GDELT: each cycle downloads the newest 15-minute GKG file not seen yet (falling back one
+  quarter-hour, since the listing runs ahead of the upload), keeps web records whose page title,
+  organisations or people mention a watched term (whole words, at most 150 per file), stores
+  them as pool stories with no body (the crawler reads them like any other) and notes their
+  sites for discovery. `GDELT_ENABLED=false` switches it off. About 10–30 MB per cycle.
+- Refresh: stories the crawler found unreadable are left out before scoring; with
+  `INDEX_ONLY_THRESHOLD` (default 40) index candidates, the search engines are not asked.
+
+## Stage 3: push and health (built 2026-09-29)
+
+- WebSub: a feed naming a hub (`<link rel="hub">`) gets a 10-day lease requested with a
+  per-publication secret; the hub verifies at `GET /api/websub/:id` (topic must be the feed)
+  and delivers signed entries at `POST /api/websub/:id` (`X-Hub-Signature`, HMAC over the raw
+  body; unsigned deliveries are acknowledged and ignored). Leases are renewed a day before
+  they end. `WEBSUB_ENABLED=false` switches it off.
+- `GET /api/admin/index` (pipeline operators): counts for publications, discovery, the pool,
+  watch terms and the last crawl cycle's stats.
+
+## Still out of scope
+
+Embeddings for matching (they would admit stories that don't contain the person's own
+terms, which the product promises not to do; word stemming covers variants), a separate
+crawler service and regional workers (one instance still finishes every cycle in its slot).
 
 ## Testing
 
