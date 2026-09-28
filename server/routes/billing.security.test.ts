@@ -3,7 +3,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ checkout: vi.fn(), verify: vi.fn(), cancel: vi.fn(), webhook: vi.fn(), readBillingState: vi.fn(), readEntitlementState: vi.fn(), plans: vi.fn(), email: vi.fn() }));
-vi.mock("../db", () => ({ db: { select: () => ({ from: () => ({ where: mocks.plans, then: (resolve: (value: unknown) => unknown) => Promise.resolve(mocks.plans()).then(resolve) }) }) } }));
+vi.mock("../db", () => ({ db: { select: () => ({ from: () => ({ where: mocks.plans, then: (resolve: (value: unknown) => unknown, reject: (error: unknown) => unknown) => Promise.resolve().then(() => mocks.plans()).then(resolve, reject) }) }) } }));
 vi.mock("../middlewares/requireDbUser", () => ({
   requireDbUser(req: Request, res: Response, next: NextFunction) {
     if (!req.headers["x-test-user"]) return res.status(401).json({ message: "Unauthorized" });
@@ -44,12 +44,18 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe("billing HTTP security", () => {
   it("serves only safe public catalog fields without authentication", async () => {
-    mocks.plans.mockResolvedValue([{ id: "catalog", key: "pro_monthly", name: "Catalog plan", amount: 7311, currency: "INR", interval: "monthly", features: ["Catalog feature"], razorpayPlanId: "private_provider_plan" }]);
+    mocks.plans.mockResolvedValue([{ id: "catalog", key: "pro_monthly", name: "Catalog plan", amount: 7311, currency: "INR", interval: "monthly", features: ["Catalog feature"], razorpayPlanId: "private_provider_plan", isActive: true, listed: true }]);
     const result = await request(app()).get("/api/public/billing/plans").expect(200);
     expect(result.body.plans[0]).toMatchObject({ id: "catalog", amount: 7311, features: ["Catalog feature"], recurringAvailable: true });
     expect(result.text).not.toContain("private_provider_plan");
     expect(result.headers["cache-control"]).toBe("no-store");
     expect(mocks.readBillingState).not.toHaveBeenCalled();
+  });
+  it("lists every plan on the pricing page, saying which can be bought now, and hides unlisted plans", async () => {
+    const row = (key: string, currency: string, isActive: boolean, listed: boolean) => ({ id: key, key, name: key, amount: 2000, currency, interval: "monthly", features: [], razorpayPlanId: null, isActive, listed });
+    mocks.plans.mockResolvedValue([row("pro_monthly_inr", "INR", true, true), row("pro_monthly", "USD", false, true), row("legacy_pro", "INR", false, false)]);
+    const result = await request(app()).get("/api/public/billing/plans").expect(200);
+    expect(result.body.plans.map((plan: { key: string; available: boolean }) => [plan.key, plan.available])).toEqual([["pro_monthly_inr", true], ["pro_monthly", false]]);
   });
   it("returns unavailable rather than invented prices when the public catalog fails", async () => {
     mocks.plans.mockRejectedValue(new Error("private database message"));

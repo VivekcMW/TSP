@@ -13,7 +13,7 @@ export type EmailType =
   | "draft_generated" | "draft_failed" | "post_scheduled"
   | "post_published" | "post_failed" | "daily_digest" | "content_alert"
   | "oauth_connected" | "token_expired" | "weekly_summary"
-  | "usage_warning" | "product_update" | "maintenance" | "incident" | "re_engagement";
+  | "usage_warning" | "product_update" | "maintenance" | "incident" | "re_engagement" | "newsletter_confirmation";
 
 export interface AppEmail {
   type: EmailType;

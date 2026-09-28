@@ -6,7 +6,8 @@ import { Check } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { SEO } from "@/components/seo";
-import { PLATFORMS } from "@/lib/platforms";
+import { PLATFORMS, SOCIAL_NETWORKS } from "@/lib/platforms";
+import { SEARCH_EDITIONS } from "@shared/search-editions";
 import { Reveal } from "@/components/motion/reveal";
 import { fadeUp } from "@/lib/motion";
 
@@ -16,7 +17,7 @@ export default function HowItWorks() {
       <SEO 
         title="How It Works"
         canonical="/how-it-works"
-        description="Learn how TheSocialPundit automates your professional narrative. From AI-powered content curation to one-click publishing across 23 platforms, including LinkedIn, Twitter/X, Reddit, Mastodon, Weibo, and developer blogs like Dev.to and Hashnode."
+        description={`How TheSocialPundit works: Pundit finds current news in your field, drafts posts in your voice, and publishes or prepares them for ${SOCIAL_NETWORKS.length} networks, from LinkedIn and X to WeChat and Naver Blog.`}
       />
       <SiteHeader />
       
@@ -89,9 +90,9 @@ export default function HowItWorks() {
                 </Card>
                 <div className="space-y-6 order-1 lg:order-2">
                   <p className="text-sm font-semibold text-primary uppercase tracking-wide">Step 2</p>
-                  <h2 className="heading-section">Your Social Inbox comes alive.</h2>
+                  <h2 className="heading-section">Your Discover feed comes alive.</h2>
                   <p className="text-muted-foreground">
-                    We monitor 80+ trusted industry publications — from Tier 1 outlets to specialized journals—and surface only the articles that align with your narrative. No noise, no scrolling.
+                    Pundit picks trusted publications in your field and adds live news from {SEARCH_EDITIONS.length} regional editions, then shows you only the stories that match what you want to be known for. No noise, no scrolling.
                   </p>
                 </div>
               </div>
@@ -112,7 +113,7 @@ export default function HowItWorks() {
                 </div>
                 <Card className="p-6 bg-background">
                   <p className="text-sm italic">
-                    "Most people look at the new stablecoin regulation as a hurdle. I see it as the final brick in the bridge between DeFi and Enterprise. If you're not planning for a regulated crypto-stack by 2025, you're already behind."
+                    "Most people look at the new stablecoin regulation as a hurdle. I see it as the final brick in the bridge between DeFi and Enterprise. If you're not planning for a regulated crypto stack now, you're already behind."
                   </p>
                 </Card>
               </div>
@@ -134,9 +135,9 @@ export default function HowItWorks() {
                 </Card>
                 <div className="space-y-6 order-1 lg:order-2">
                   <p className="text-sm font-semibold text-primary uppercase tracking-wide">Step 4</p>
-                  <h2 className="heading-section">Publish with one click.</h2>
+                  <h2 className="heading-section">Publish or copy in a click.</h2>
                   <p className="text-muted-foreground">
-                    Schedule your posts or publish instantly across 23 platforms — from LinkedIn and Twitter/X to Reddit, Mastodon, regional networks, and developer blogs. Stay consistent without spending hours on content creation. Your authority builds while you focus on your core work.
+                    Publish or schedule directly to networks such as LinkedIn, Bluesky and Mastodon once you connect them, or copy a post shaped for any of our {SOCIAL_NETWORKS.length} networks, including WeChat and Naver Blog. Stay consistent without spending hours on content creation. Your authority builds while you focus on your core work.
                   </p>
                 </div>
               </div>

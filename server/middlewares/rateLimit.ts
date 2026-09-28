@@ -40,6 +40,17 @@ function recoverableRateLimit(options: Partial<Options>): RateLimitRequestHandle
   return Object.assign(middleware, { getKey: limiter.getKey, resetKey: limiter.resetKey });
 }
 
+// Public newsletter sign-ups: each can send a confirmation email, so keep it tight per address.
+export const newsletterSignupRateLimit = recoverableRateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: keyByUser,
+  store: makeStore("newsletter-signup"),
+  message: { message: "Too many sign-ups from here. Please try again later." },
+});
+
 // Gemini-backed endpoints: generation is the most expensive/abusable path.
 // Onboarding suggestions are small and cached; separate from post generation.
 export const onboardingSuggestionRateLimit = recoverableRateLimit({

@@ -1,34 +1,47 @@
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { AnnouncementBar } from "@/components/landing/announcement-bar";
 import { Hero } from "@/components/landing/hero";
+import { IntentChips } from "@/components/landing/intent-chips";
 import { PlatformStrip } from "@/components/landing/platform-strip";
-import { Comparison } from "@/components/landing/comparison";
-import { HowItWorksPreview } from "@/components/landing/how-it-works-preview";
+import { ProductShowcase } from "@/components/landing/product-showcase";
+import { Markets } from "@/components/landing/markets";
+import { Facts } from "@/components/landing/facts";
+import { IndustriesShowcase } from "@/components/landing/industries-showcase";
 import { AIPov } from "@/components/landing/ai-pov";
-import { UseCases } from "@/components/landing/use-cases";
+import { Trust } from "@/components/landing/trust";
+import { NewsletterBanner } from "@/components/landing/newsletter-banner";
 import { FAQ } from "@/components/landing/faq";
 import { FinalCTA } from "@/components/landing/final-cta";
+import { StickyMobileCta } from "@/components/landing/sticky-mobile-cta";
+import { NETWORK_COUNT, EDITION_COUNT } from "@/components/landing/landing-content";
 import { SEO } from "@/components/seo";
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <SEO 
+    <div className="flex min-h-screen flex-col bg-background">
+      <SEO
         canonical="/"
-        description="TheSocialPundit helps professionals build authority across 23 platforms — LinkedIn, Twitter/X, Threads, Bluesky, Reddit, Mastodon, Weibo, WeChat, Quora, Facebook, Telegram, and more — by curating relevant industry content and turning news into opinionated posts written in your voice."
+        description={`TheSocialPundit reads today's news in your field and drafts posts in your voice for ${NETWORK_COUNT} networks, from LinkedIn and X to WeChat, Naver Blog and Xing, with news from ${EDITION_COUNT} regional editions. You approve every post.`}
       />
+      <AnnouncementBar />
       <SiteHeader />
       <main className="flex-1">
         <Hero />
+        <IntentChips />
         <PlatformStrip />
-        <Comparison />
-        <HowItWorksPreview />
+        <ProductShowcase />
+        <Markets />
+        <Facts />
+        <IndustriesShowcase />
         <AIPov />
-        <UseCases />
+        <Trust />
+        <NewsletterBanner />
         <FAQ />
         <FinalCTA />
       </main>
       <SiteFooter />
+      <StickyMobileCta />
     </div>
   );
 }

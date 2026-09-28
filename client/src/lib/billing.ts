@@ -1,6 +1,8 @@
 export interface PublicBillingPlan {
   id: string; key: string; name: string; description: string | null;
   amount: number; currency: string; interval: string; features: string[]; recurringAvailable: boolean;
+  /** False for a listed plan that can't be bought yet (e.g. US dollars before international payments). */
+  available?: boolean;
 }
 export interface BillingSubscription {
   status: string; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean; razorpaySubscriptionId?: string | null;
@@ -8,12 +10,20 @@ export interface BillingSubscription {
 export function formatBillingAmount(amount: number, currency: string) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount / 100);
 }
-const INDIA_TIME_ZONES = new Set(["Asia/Kolkata", "Asia/Calcutta"]);
-/** INR for visitors in India (time zone or an -IN locale); USD for everyone else. */
-export function defaultBillingCurrency(env: { timeZone?: string; locales?: readonly string[] }): "INR" | "USD" {
-  const inIndia = (env.timeZone !== undefined && INDIA_TIME_ZONES.has(env.timeZone))
-    || (env.locales ?? []).some(locale => /-IN$/i.test(locale));
-  return inIndia ? "INR" : "USD";
+/** List-price style: "₹9,999", "$20"; cents only when there are any. */
+export function formatPrice(amount: number, currency: string) {
+  const whole = amount % 100 === 0;
+  return new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en-US", {
+    style: "currency", currency, minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: whole ? 0 : 2,
+  }).format(amount / 100);
+}
+const INTERVAL_UNITS: Record<string, string> = { monthly: "month", quarterly: "quarter", annual: "year" };
+export function intervalUnit(interval: string) {
+  return INTERVAL_UNITS[interval] ?? interval;
+}
+/** Whole-percent saving of paying yearly instead of twelve monthly payments. */
+export function yearlySaving(monthlyAmount: number, yearlyAmount: number) {
+  return Math.max(0, Math.round((1 - yearlyAmount / (monthlyAmount * 12)) * 100));
 }
 const INTERVAL_ORDER: Record<string, number> = { monthly: 0, quarterly: 1, annual: 2 };
 /** Paid plans in one currency, shortest billing interval first. */

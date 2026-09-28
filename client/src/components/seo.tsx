@@ -10,6 +10,7 @@ interface SEOProps {
 const defaultTitle = "TheSocialPundit - Build Your Professional Authority on Social Media";
 const defaultDescription = "TheSocialPundit helps professionals build authority across 23 platforms — from LinkedIn and Twitter/X to Reddit, Mastodon, Weibo, and developer blogs — by curating relevant industry content and turning news into opinionated posts written in your voice.";
 const siteUrl = "https://www.thesocialpundit.com";
+const shareImage = `${siteUrl}/og-image.jpg`;
 
 export function SEO({ 
   title, 
@@ -30,10 +31,12 @@ export function SEO({
       <meta property="og:description" content={description} />
       <meta property="og:type" content={type} />
       <meta property="og:url" content={canonicalUrl} />
+      <meta property="og:image" content={shareImage} />
       
       <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:title" content={fullTitle} />
       <meta name="twitter:description" content={description} />
+      <meta name="twitter:image" content={shareImage} />
     </Helmet>
   );
 }

@@ -436,6 +436,24 @@ export const billingPlans = pgTable("billing_plans", {
   razorpayPlanId: varchar("razorpay_plan_id"),
   features: jsonb("features").$type<string[]>().default([]),
   isActive: boolean("is_active").notNull().default(true),
+  /** Shown on the public pricing page; a listed plan may be inactive (not yet purchasable). */
+  listed: boolean("listed").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** Public newsletter sign-ups; see migrations/0044_newsletter_subscribers.sql. */
+export const newsletterSubscribers = pgTable("newsletter_subscribers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: varchar("email", { length: 254 }).notNull().unique(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  tokenNonce: varchar("token_nonce", { length: 64 }).notNull(),
+  source: varchar("source", { length: 40 }).notNull(),
+  consentText: text("consent_text").notNull(),
+  requestedAt: timestamp("requested_at").notNull().defaultNow(),
+  confirmationSentAt: timestamp("confirmation_sent_at"),
+  confirmedAt: timestamp("confirmed_at"),
+  unsubscribedAt: timestamp("unsubscribed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

@@ -2,7 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ query: vi.fn(), mode: "order" }));
-vi.mock("react", async original => ({ ...await original<typeof import("react")>(), useState: (initial: unknown) => [initial === "order" ? state.mode : initial, vi.fn()] }));
+vi.mock("react", async original => ({ ...await original<typeof import("react")>(), useState: (initial: unknown) => [initial === "order" ? state.mode : typeof initial === "function" ? initial() : initial, vi.fn()] }));
 vi.mock("wouter", () => ({ Link: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => React.createElement("a", props) }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: state.query, useQueryClient: () => ({ invalidateQueries: vi.fn() }), useMutation: () => ({ isPending: false, mutate: vi.fn() }) }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
@@ -10,6 +10,7 @@ vi.mock("@/lib/queryClient", () => ({ apiRequest: vi.fn(() => { throw new Error(
 vi.mock("@/components/site-header", () => ({ SiteHeader: () => null }));
 vi.mock("@/components/site-footer", () => ({ SiteFooter: () => null }));
 vi.mock("@/components/seo", () => ({ SEO: () => null }));
+vi.mock("@/lib/dev-auth", () => ({ useIsSignedIn: () => false }));
 import { BillingPanel } from "./billing";
 import Pricing from "./pricing";
 
@@ -65,6 +66,14 @@ describe("rendered billing and public catalog (mocked, no browser/providers)", (
     const html = render(); expect(html).toContain('id="billing-cycles"'); expect(html).toContain("1–100");
     expect(html).toContain("Recurring checkout is not configured for this plan");
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Start recurring checkout<\/button>/);
+  });
+  it("says when the visitor's country currency can't be paid in yet, and which currency checkout uses", () => {
+    // Outside a browser the country guess is the United States, so US dollars are preferred.
+    data.plans = [{ ...plan, id: "inr", amount: 99900, currency: "INR" }];
+    const html = render();
+    expect(html).toContain("Paying in US dollars opens soon. Until then, checkout is in Indian rupees.");
+    data.plans = [plan];
+    expect(render()).not.toContain("opens soon");
   });
   it("public pricing uses the live catalog contract, with no unlimited-free promotion", () => {
     const html = renderToStaticMarkup(React.createElement(Pricing));

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { billingCurrencies, billingPeriodLabel, billingStatusLabel, canCancelSubscription, checkoutRequest, checkoutVerification, defaultBillingCurrency, formatBillingAmount, plansForCurrency } from "./billing";
+import { billingCurrencies, billingPeriodLabel, billingStatusLabel, canCancelSubscription, checkoutRequest, checkoutVerification, formatBillingAmount, formatPrice, intervalUnit, plansForCurrency, yearlySaving } from "./billing";
 const subscription = { status: "active", cancelAtPeriodEnd: false, currentPeriodEnd: "2026-10-01" };
 beforeEach(() => vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-19T12:00:00Z")));
 afterEach(() => vi.restoreAllMocks());
@@ -64,13 +64,6 @@ describe("regional plan currency", () => {
     plan("pro_monthly", 2000, "USD", "monthly"),
     plan("pro_yearly_inr", 999900, "INR", "annual"),
   ];
-  it.each([
-    [{ timeZone: "Asia/Kolkata", locales: ["en-US"] }, "INR"],
-    [{ timeZone: "Asia/Calcutta", locales: [] }, "INR"],
-    [{ timeZone: "Europe/London", locales: ["en-IN"] }, "INR"],
-    [{ timeZone: "America/New_York", locales: ["en-US"] }, "USD"],
-    [{}, "USD"],
-  ])("defaults %j to %s", (env, currency) => expect(defaultBillingCurrency(env)).toBe(currency));
   it("lists only paid plans in the chosen currency, monthly before yearly", () => {
     expect(plansForCurrency(catalog, "USD").map(p => p.key)).toEqual(["pro_monthly", "pro_yearly"]);
     expect(plansForCurrency(catalog, "INR").map(p => p.key)).toEqual(["pro_monthly_inr", "pro_yearly_inr"]);
@@ -78,5 +71,19 @@ describe("regional plan currency", () => {
   it("offers a currency choice only between currencies that have paid plans", () => {
     expect(billingCurrencies(catalog)).toEqual(["USD", "INR"]);
     expect(billingCurrencies(catalog.filter(p => p.currency === "USD" || p.amount === 0))).toEqual(["USD"]);
+  });
+  it("formats list prices the way each currency's customers read them", () => {
+    expect(formatPrice(99900, "INR")).toBe("₹999");
+    expect(formatPrice(999900, "INR")).toBe("₹9,999");
+    expect(formatPrice(2000, "USD")).toBe("$20");
+    expect(formatPrice(1999, "USD")).toBe("$19.99");
+    expect(formatPrice(0, "USD")).toBe("$0");
+  });
+  it("names billing periods and the yearly saving from real prices", () => {
+    expect(intervalUnit("monthly")).toBe("month");
+    expect(intervalUnit("annual")).toBe("year");
+    expect(yearlySaving(99900, 999900)).toBe(17);
+    expect(yearlySaving(2000, 20000)).toBe(17);
+    expect(yearlySaving(2000, 24000)).toBe(0);
   });
 });

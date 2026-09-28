@@ -29,16 +29,17 @@ function fail(res: Response, error: unknown, message: string) {
 }
 
 function safePlan(plan: typeof billingPlans.$inferSelect) {
-  return { id: plan.id, key: plan.key, name: plan.name, description: plan.description, amount: plan.amount, currency: plan.currency, interval: plan.interval, features: plan.features ?? [], recurringAvailable: Boolean(plan.razorpayPlanId) };
+  return { id: plan.id, key: plan.key, name: plan.name, description: plan.description, amount: plan.amount, currency: plan.currency, interval: plan.interval, features: plan.features ?? [], recurringAvailable: Boolean(plan.razorpayPlanId), available: plan.isActive };
 }
 
 export function registerBillingRoutes(app: Express) {
-  // Only allowlisted catalog fields; no customer/subscription/provider identifiers.
+  // Only allowlisted catalog fields; no customer/subscription/provider identifiers. Listed plans that
+  // can't be bought yet (US dollars before international payments) come back with available: false.
   app.get("/api/public/billing/plans", async (_req, res) => {
     res.setHeader("Cache-Control", "no-store");
     try {
-      const plans = await db.select().from(billingPlans).where(eq(billingPlans.isActive, true));
-      res.json({ plans: plans.map(safePlan) });
+      const plans = await db.select().from(billingPlans);
+      res.json({ plans: plans.filter(plan => plan.listed).map(safePlan) });
     } catch { res.status(503).json({ message: "Plan catalog is unavailable" }); }
   });
   app.get("/api/billing/plans", requireDbUser, requirePermission("billing:manage:tenant"), async (_req, res) => {

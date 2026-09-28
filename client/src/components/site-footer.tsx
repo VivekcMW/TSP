@@ -3,6 +3,7 @@ import { Zap } from "lucide-react";
 import { Reveal } from "@/components/motion/reveal";
 import { fadeIn } from "@/lib/motion";
 import { openCookieSettings } from "@/lib/analytics-consent";
+import { SOCIAL_NETWORKS } from "@/lib/platforms";
 
 export function SiteFooter() {
   return (
@@ -19,7 +20,7 @@ export function SiteFooter() {
               Turn industry news into thought leadership.
             </p>
             <p className="mt-2 text-sm text-surface-ink-foreground/50 max-w-xs">
-              Build your professional authority across 23 platforms, in minutes, not hours.
+              Build your professional authority across {SOCIAL_NETWORKS.length} networks, in minutes, not hours.
             </p>
           </div>
           
@@ -65,16 +66,6 @@ export function SiteFooter() {
               <li>
                 <Link href="/contact" className="hover:text-surface-ink-foreground transition-colors" data-testid="link-footer-contact">
                   Contact
-                </Link>
-              </li>
-              <li>
-                <Link href="/case-studies" className="hover:text-surface-ink-foreground transition-colors" data-testid="link-footer-case-studies">
-                  Case Studies
-                </Link>
-              </li>
-              <li>
-                <Link href="/careers" className="hover:text-surface-ink-foreground transition-colors" data-testid="link-footer-careers">
-                  Careers
                 </Link>
               </li>
             </ul>

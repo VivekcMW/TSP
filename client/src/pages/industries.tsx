@@ -7,6 +7,7 @@ import { Link } from "wouter";
 import { SEO } from "@/components/seo";
 import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
 import { fadeUp } from "@/lib/motion";
+import { SEARCH_EDITIONS } from "@shared/search-editions";
 import { 
   Megaphone, Building2, Stethoscope, Landmark, ShoppingBag, Cpu, 
   Check, ArrowRight, Briefcase, Scale, Plane, GraduationCap, Sparkles,
@@ -181,7 +182,7 @@ export default function IndustriesPage() {
               Industry-specific AI that knows your field
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Our AI curates news from trusted sources in your industry and generates posts that sound like you wrote them. No generic content. No hallucinations. Just relevant, timely insights.
+              Pundit finds current news from trusted sources in your industry and drafts posts that sound like you wrote them. Every draft starts from a real article you can check, and nothing goes out until you approve it.
             </p>
             </Reveal>
           </div>
@@ -196,8 +197,8 @@ export default function IndustriesPage() {
                   <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
                     <Brain className="w-6 h-6 text-primary" />
                   </div>
-                  <h3 className="font-semibold mb-2">Gemini 2.5 Flash</h3>
-                  <p className="text-sm text-muted-foreground">Powered by Google's latest AI for accurate, nuanced content generation</p>
+                  <h3 className="font-semibold mb-2">Google Gemini</h3>
+                  <p className="text-sm text-muted-foreground">Drafts are written with Google's Gemini models, starting from the article you picked</p>
                 </CardContent>
               </Card>
               </StaggerItem>
@@ -207,8 +208,8 @@ export default function IndustriesPage() {
                   <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
                     <Zap className="w-6 h-6 text-primary" />
                   </div>
-                  <h3 className="font-semibold mb-2">Real-time RSS Feeds</h3>
-                  <p className="text-sm text-muted-foreground">Live content from 80+ industry publications, updated continuously</p>
+                  <h3 className="font-semibold mb-2">Live industry news</h3>
+                  <p className="text-sm text-muted-foreground">Publications in your field, plus live news from {SEARCH_EDITIONS.length} regional editions</p>
                 </CardContent>
               </Card>
               </StaggerItem>
@@ -249,7 +250,7 @@ export default function IndustriesPage() {
                     <p className="text-sm text-muted-foreground mb-4">{industry.description}</p>
                     
                     <div className="mb-4">
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Sources</p>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Example sources</p>
                       <div className="flex flex-wrap gap-1">
                         {industry.sources.slice(0, 3).map((source, sIndex) => (
                           <Badge key={sIndex} variant="secondary" className="text-xs">

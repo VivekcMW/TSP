@@ -92,6 +92,24 @@ describe("cookie consent", () => {
     } finally { await context.close(); }
   });
 
+  it("leaves room under the page so its last buttons can scroll clear of the banner", async () => {
+    const { context, page, tagRequests } = await open();
+    try {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await visit(page, tagRequests);
+      const room = () => page.evaluate(() => ({
+        state: document.body.dataset.cookieBanner ?? null,
+        padding: parseFloat(getComputedStyle(document.body).paddingBottom),
+        banner: document.querySelector('[aria-label="Cookie consent"]')?.getBoundingClientRect().height ?? 0,
+      }));
+      const open = await room();
+      expect(open.state).toBe("open");
+      expect(open.padding).toBeGreaterThanOrEqual(open.banner);
+      await banner(page).getByRole("button", { name: "Reject" }).click();
+      await expect.poll(room).toEqual({ state: null, padding: 0, banner: 0 });
+    } finally { await context.close(); }
+  });
+
   it("never loads Tag Manager unconditionally from index.html", () => {
     expect(readFileSync(path.join(root, "client/index.html"), "utf8")).not.toMatch(/googletagmanager\.com/);
   });

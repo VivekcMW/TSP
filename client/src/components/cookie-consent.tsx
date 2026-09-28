@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { COOKIE_SETTINGS_EVENT, readAnalyticsConsent, saveAnalyticsConsent, type AnalyticsConsent } from "@/lib/analytics-consent";
 
 /** Asks once for analytics consent; "Cookie settings" in the footers reopens it. */
 export function CookieConsent() {
   const [open, setOpen] = useState(() => readAnalyticsConsent() === null);
+  const banner = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const reopen = () => setOpen(true);
@@ -12,10 +13,26 @@ export function CookieConsent() {
     return () => window.removeEventListener(COOKIE_SETTINGS_EVENT, reopen);
   }, []);
 
+  // While open, pad the page by the banner's height so the last buttons on any page can
+  // scroll clear of it (on phones it otherwise covered "Create account" and "Save draft").
+  // The data attribute lets pinned bars give way to the banner.
+  useEffect(() => {
+    const element = banner.current;
+    if (!open || !element) return;
+    const { body } = document;
+    const fit = () => { body.style.paddingBottom = `${element.getBoundingClientRect().height}px`; };
+    body.dataset.cookieBanner = "open";
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(element);
+    return () => { observer.disconnect(); body.style.paddingBottom = ""; delete body.dataset.cookieBanner; };
+  }, [open]);
+
   if (!open) return null;
   const choose = (value: AnalyticsConsent) => { saveAnalyticsConsent(value); setOpen(false); };
   return (
     <section
+      ref={banner}
       aria-label="Cookie consent"
       className="fixed inset-x-0 bottom-0 z-[60] border-t bg-card px-4 pt-4 shadow-lg sm:px-6"
       style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom, 0px))" }}

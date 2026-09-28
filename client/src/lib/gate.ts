@@ -58,6 +58,7 @@ export const PUBLIC_PATHS = [
   "/ai-data-processing",
   "/cookies",
   "/email-preferences",
+  "/newsletter",
   "/case-studies",
   "/careers",
   "/verify-email",

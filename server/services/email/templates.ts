@@ -1,3 +1,4 @@
+import { NEWSLETTER_PROMISE } from "@shared/newsletter";
 import { platformLabel } from "@shared/platform-labels";
 
 /** Content of the transactional emails. The shared wrapper adds the greeting, button and footer. */
@@ -48,6 +49,15 @@ export const emailTemplates = {
     preheader: "Your workspace is ready. Pundit will set up your Discover feed in about a minute.",
     html: `<p>Your workspace${industryName ? ` for <strong>${escapeHtml(industryName)}</strong>` : ""} is ready.</p><p>Tell Pundit, your setup agent, what you do. It picks the sources, topics and people to follow from today's news, so Discover fills with stories worth writing about. It takes about a minute.</p>`,
     primaryCta: { label: "Continue your setup", url: `${appUrl()}/onboarding` },
+  }),
+  /** Double opt-in: sent to someone who asked for the newsletter on the website. */
+  newsletterConfirmation: (confirmUrl: string): EmailContent => ({
+    subject: "Confirm your TheSocialPundit newsletter subscription",
+    eyebrow: "Newsletter",
+    preheader: "One click and you're on the list.",
+    html: `<p>Thanks for signing up. Please confirm that you'd like our newsletter:</p><p><strong>${escapeHtml(NEWSLETTER_PROMISE)}</strong></p>`,
+    primaryCta: { label: "Confirm subscription", url: confirmUrl },
+    afterCta: `<p style="font-size:13px;color:#667085">If you didn't ask for this, ignore this email and you won't be subscribed.</p>`,
   }),
   passwordChanged: (): EmailContent => ({
     subject: "Your TheSocialPundit password was changed",

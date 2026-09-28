@@ -60,6 +60,14 @@ describe("email content customers receive", () => {
     expect(email.primaryCta?.url).toBe(`${APP}/sign-in`);
   });
 
+  it("asks new newsletter subscribers to confirm, saying what they signed up for", () => {
+    const email = emailTemplates.newsletterConfirmation("https://app.test/newsletter?confirm=abc");
+    expect(email.subject).toBe("Confirm your TheSocialPundit newsletter subscription");
+    expect(email.html).toContain("One email a month");
+    expect(email.primaryCta).toEqual({ label: "Confirm subscription", url: "https://app.test/newsletter?confirm=abc" });
+    expect(email.afterCta).toMatch(/didn't ask for this/);
+  });
+
   it("escapes every customer-supplied value", () => {
     expect(emailTemplates.welcome("<b>Ad</b>").subject).toContain("<b>Ad</b>");
     expect(emailTemplates.postFailed("reddit", "<script>x</script>").html).not.toContain("<script>");

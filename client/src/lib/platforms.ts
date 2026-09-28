@@ -191,6 +191,9 @@ export const PLATFORMS: PlatformMeta[] = ([
   },
 ] satisfies PlatformMeta[]).map(platform => ({ ...platform, charLimit: publishingCapability(platform.value)?.live ? publishingCapability(platform.value)!.maxCharacters : platform.charLimit }));
 
+/** Social networks we draft for; Slack is a team channel, not a network. */
+export const SOCIAL_NETWORKS = PLATFORMS.filter(platform => platform.value !== "slack");
+
 export function getPlatformMeta(value: string): PlatformMeta {
   return PLATFORMS.find((p) => p.value === value) ?? PLATFORMS.find(p => p.value === "linkedin")!;
 }

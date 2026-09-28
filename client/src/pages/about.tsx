@@ -101,8 +101,7 @@ export default function AboutPage() {
             <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
               <h2 className="heading-section mb-4">We're just getting started.</h2>
               <p className="text-muted-foreground mb-6">
-                We're free for our first 1,000 subscribers while we build this together. Come be one of
-                them.
+                Start on the free plan today, with no card needed, and help us shape what comes next.
               </p>
               <Link href="/sign-up" data-testid="link-about-signup">
                 <Button size="lg">

@@ -10,7 +10,11 @@ import { apiRequest } from "@/lib/queryClient";
 import { color } from "@/design/tokens";
 import type { SettingsPageProps } from "@/components/settings/settings-page-props";
 import { Input } from "@/components/ui/input";
-import { billingCurrencies, billingPeriodLabel, billingStatusLabel, canCancelSubscription, checkoutRequest, checkoutVerification, defaultBillingCurrency, formatBillingAmount as formatAmount, plansForCurrency, type BillingSubscription, type CheckoutMode, type PublicBillingPlan } from "@/lib/billing";
+import { billingCurrencies, billingPeriodLabel, billingStatusLabel, canCancelSubscription, checkoutRequest, checkoutVerification, formatBillingAmount as formatAmount, formatPrice, intervalUnit, plansForCurrency, type BillingSubscription, type CheckoutMode, type PublicBillingPlan } from "@/lib/billing";
+import { currencyForCountry, type PricingCurrency } from "@/lib/pricing-country";
+import { usePricingCountry } from "@/lib/use-pricing-country";
+
+const CURRENCY_NAMES: Record<PricingCurrency, string> = { INR: "Indian rupees", USD: "US dollars" };
 export { billingPeriodLabel } from "@/lib/billing";
 
 declare global {
@@ -45,9 +49,10 @@ export function BillingPanel({ compact = false }: Readonly<{ compact?: boolean }
   const [checkoutPending, setCheckoutPending] = useState<string | null>(null);
   const [checkoutMode, setCheckoutMode] = useState<CheckoutMode>("order");
   const [cycles, setCycles] = useState("");
-  const [currency, setCurrency] = useState<string>(() => defaultBillingCurrency({
-    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, locales: navigator.languages,
-  }));
+  // Follows the country chosen on the pricing page (or registration) until the currency is switched here.
+  const [country] = usePricingCountry();
+  const preferredCurrency = currencyForCountry(country);
+  const [currency, setCurrency] = useState<string | null>(null);
   const invalidateBilling = () => Promise.all([
     cache.invalidateQueries({ queryKey: ["/api/billing"] }),
     cache.invalidateQueries({ queryKey: ["/api/billing/entitlements"] }),
@@ -94,7 +99,9 @@ export function BillingPanel({ compact = false }: Readonly<{ compact?: boolean }
   const subscription = data.subscription;
   const canCancel = canCancelSubscription(subscription);
   const currencies = billingCurrencies(data.plans);
-  const shownCurrency = currencies.includes(currency) ? currency : currencies[0];
+  const wantedCurrency = currency ?? preferredCurrency;
+  const shownCurrency = currencies.includes(wantedCurrency) ? wantedCurrency : currencies[0];
+  const preferredUnavailable = Boolean(shownCurrency) && !currencies.includes(preferredCurrency);
   const paidPlans = shownCurrency ? plansForCurrency(data.plans, shownCurrency) : [];
   const now = Date.now();
   const billingStatus = billingStatusLabel(subscription, now);
@@ -127,12 +134,12 @@ export function BillingPanel({ compact = false }: Readonly<{ compact?: boolean }
       {paidPlans.length > 0 && <Card><CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0"><CardTitle>Available plans</CardTitle>
         {currencies.length > 1 && <div role="group" aria-label="Currency" className="inline-flex rounded-md border p-1">{currencies.map((code) =>
           <Button key={code} type="button" size="sm" variant={code === shownCurrency ? "default" : "ghost"} aria-pressed={code === shownCurrency} className="min-h-9 px-3" disabled={checkoutPending !== null} onClick={() => setCurrency(code)}>{code}</Button>)}</div>}
-      </CardHeader><CardContent className="grid gap-4 md:grid-cols-2">
+      </CardHeader>{preferredUnavailable && <p className="px-6 text-sm text-muted-foreground">Paying in {CURRENCY_NAMES[preferredCurrency]} opens soon. Until then, checkout is in {CURRENCY_NAMES[shownCurrency as PricingCurrency] ?? shownCurrency}.</p>}<CardContent className="grid gap-4 md:grid-cols-2">
         {paidPlans.map((plan) => {
           let label = checkoutMode === "order" ? "Buy one interval" : "Start recurring checkout";
           if (data.currentPlan?.id === plan.id) label = "Current plan";
           if (checkoutPending === plan.id) label = "Opening checkout…";
-          return <div key={plan.id} className="rounded-md border p-5"><h3 className="text-lg font-semibold">{plan.name}</h3><p className="text-sm text-muted-foreground">{plan.description}</p><p className="mt-2 text-xl font-semibold">{formatAmount(plan.amount, plan.currency)}<span className="text-sm font-normal"> / {plan.interval} interval</span></p><ul className="my-4 space-y-2">{plan.features.map((feature) => <li key={feature} className="flex gap-2 text-sm"><Check className="h-4 w-4 shrink-0 text-success" />{feature}</li>)}</ul>{checkoutMode === "subscription" && !plan.recurringAvailable && <p className="mb-3 text-sm text-muted-foreground">Recurring checkout is not configured for this plan.</p>}<Button className="min-h-11" disabled={!data.configured || checkoutPending !== null || data.currentPlan?.id === plan.id || (checkoutMode === "subscription" && !plan.recurringAvailable)} onClick={() => startCheckout(plan.id)}>{label}</Button></div>;
+          return <div key={plan.id} className="rounded-md border p-5"><h3 className="text-lg font-semibold">{plan.name}</h3><p className="text-sm text-muted-foreground">{plan.description}</p><p className="mt-2 text-xl font-semibold">{formatPrice(plan.amount, plan.currency)}<span className="text-sm font-normal"> / {intervalUnit(plan.interval)}</span></p><ul className="my-4 space-y-2">{plan.features.map((feature) => <li key={feature} className="flex gap-2 text-sm"><Check className="h-4 w-4 shrink-0 text-success" />{feature}</li>)}</ul>{checkoutMode === "subscription" && !plan.recurringAvailable && <p className="mb-3 text-sm text-muted-foreground">Recurring checkout is not configured for this plan.</p>}<Button className="min-h-11" disabled={!data.configured || checkoutPending !== null || data.currentPlan?.id === plan.id || (checkoutMode === "subscription" && !plan.recurringAvailable)} onClick={() => startCheckout(plan.id)}>{label}</Button></div>;
         })}
       </CardContent></Card>}
       <div className="grid gap-4 lg:grid-cols-2">
