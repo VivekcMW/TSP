@@ -26,7 +26,7 @@ import type { UserProfile } from "@shared/schema";
 import { getSearchEdition } from "@shared/search-editions";
 import { storage, type TenantScope } from "../../storage.js";
 import { randomUUID } from "node:crypto";
-import { canonicalHttpUrl } from "@shared/canonical-url";
+import { canonicalHttpUrl, isVideoPageUrl } from "@shared/canonical-url";
 import { INBOX_CAPACITY, INBOX_CANDIDATE_LIMIT, InboxOperationConflictError, inboxRefreshMessage, type InboxRefreshOptions } from "@shared/inbox-refresh";
 
 const KEYWORD_SEARCH_BUDGET_MS = 20000;
@@ -284,7 +284,9 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       // deferred until AFTER history exclusion inside commit.
       // Pages the crawler already found unreadable (paywalls, blocks) are not offered again.
       const unreadable = new Set(await knownUnreadableLinks([...userSourceArticles, ...keywordArticles, ...indexArticles].map(article => article.link)).catch(() => []));
-      const fetched = [...userSourceArticles, ...keywordArticles, ...indexArticles].filter(article => !unreadable.has(canonicalHttpUrl(article.link) ?? "")).sort((a, b) =>
+      // Video pages have no text to write from, however they label themselves.
+      const fetched = [...userSourceArticles, ...keywordArticles, ...indexArticles]
+        .filter(article => !unreadable.has(canonicalHttpUrl(article.link) ?? "") && !isVideoPageUrl(article.link)).sort((a, b) =>
         Number(b.inputKind === "page_body") - Number(a.inputKind === "page_body") || b.content.length - a.content.length ||
         (JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0));
       for (const article of fetched) {

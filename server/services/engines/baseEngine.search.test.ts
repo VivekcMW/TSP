@@ -552,6 +552,15 @@ describe("shared index discovery", () => {
     expect(storage.createInboxItem).not.toHaveBeenCalled();
   });
 
+  it("leaves out video pages, which have no text to write from", async () => {
+    save({ keywords: ["Current"] });
+    index.query.mockResolvedValue([indexed("Current, the video", "https://index.test/india/video/current-ytvd-1"), indexed("Current, the article", "https://index.test/india/current-1")]);
+    await (await makeEngine()).processForUser(scope, profile());
+    const saved = storage.createInboxItem.mock.calls.map(([, item]) => item.articleUrl);
+    expect(saved).toContain("https://index.test/india/current-1");
+    expect(saved).not.toContain("https://index.test/india/video/current-ytvd-1");
+  });
+
   it("skips the search engines once the index alone has enough candidates", async () => {
     save({ keywords: ["Current"] });
     index.query.mockResolvedValue(Array.from({ length: 40 }, (_, i) => indexed(`Current ${i}`, `https://index.test/${i}`)));

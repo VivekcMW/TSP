@@ -35,6 +35,16 @@ describe("article extraction evidence", () => {
     expect(extractArticleFromHtml(`<title>Pilot</title>${meta}${body}`, "https://www.campaignindia.in/article/x").source).toBe("Campaignindia");
   });
 
+  it("refuses a video page, whose only prose describes other videos", () => {
+    // India Today labels its video pages as news articles; only the address says video.
+    const related = `<article><p>5:24 Pak Warship Collides With Indian Navy Vessel In High Seas, India Summons Diplomat. ${"A Pakistan Navy offshore patrol vessel collided with a frontline Indian Navy warship in international waters. ".repeat(8)}</p></article>`;
+    for (const url of ["https://www.indiatoday.in/india/video/hospital-markups-ytvd-2996229-2026-09-16", "https://news.test/videos/clip-1", "https://news.test/watch/abc"]) {
+      expect(() => extractArticleFromHtml(`<meta property="og:type" content="Article">${related}`, url)).toThrow(/video/i);
+    }
+    // A word like "video" elsewhere in the address is not a video page.
+    expect(extractArticleFromHtml(`<title>AI video tools</title>${related}`, "https://news.test/tech/ai-video-tools-grow").content).toContain("offshore patrol vessel");
+  });
+
   it("preserves paragraphs and decodes entities before calculating offsets", () => {
     const article = extractArticleFromHtml('<main><p>First &amp; second groups reported improvements during the trial.</p><p>Third &quot;quoted&quot; paragraph describes limitations of the reported findings.</p></main>', "https://news.test/story");
     expect(article.content).toBe('First & second groups reported improvements during the trial.\n\nThird "quoted" paragraph describes limitations of the reported findings.');

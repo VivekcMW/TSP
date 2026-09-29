@@ -3,6 +3,7 @@ import { cleanPageHtml, metaContent, requireReadableHtml, requireUngatedHtml } f
 import { MAX_SOURCE_CHARACTERS, type SourceContentMetadata } from "./editorialEvidence.js";
 import type { PublicationDate } from "@shared/article-quality";
 import { extractPublicationDate } from "./articleDates";
+import { isVideoPageUrl } from "@shared/canonical-url";
 
 export interface FetchedArticle {
   title: string;
@@ -73,6 +74,7 @@ export async function fetchArticleFromUrl(url: string, signal?: AbortSignal): Pr
 }
 
 export function extractArticleFromHtml(rawHtml: string, url: string): FetchedArticle {
+  if (isVideoPageUrl(url)) throw new CrawlError("content", "This link is a video, not an article, so there is no text to write from. Use an article's link instead.");
   requireUngatedHtml(rawHtml);
   const urlObj = new URL(url);
   const domain = urlObj.hostname.replace(/^www\./, "");

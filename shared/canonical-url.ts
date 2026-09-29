@@ -23,3 +23,16 @@ export function canonicalHttpUrl(input: string): string | null {
     return url.href;
   } catch { return null; }
 }
+
+/**
+ * A video page ("/india/video/…", "/videos/…", "/watch/…") has no article text; its only prose
+ * describes other videos. Some publishers still label these pages as news articles, so the
+ * address is the reliable signal.
+ */
+export function isVideoPageUrl(value: string): boolean {
+  try {
+    return new URL(value).pathname.toLowerCase().split("/").some(segment => segment === "video" || segment === "videos" || segment === "watch");
+  } catch {
+    return false;
+  }
+}
