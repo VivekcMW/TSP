@@ -39,6 +39,12 @@ describe("publications catalogue", () => {
     expect(rows[0]).toMatchObject({ name: "Trade Weekly", siteUrl: site("trade"), sourceType: "feed", isActive: true, addedVia: "user-source" });
   });
 
+  it("shows publication names as text, not HTML codes", async () => {
+    const feed = `${site("coded")}/feed.xml`;
+    await registerPublications([{ name: "Search &amp; Speed &#39;Weekly&#39;", feedUrl: feed, sourceType: "feed" }]);
+    expect((await ownerDb.select().from(publications).where(inArray(publications.feedUrl, [feed])))[0].name).toBe("Search & Speed 'Weekly'");
+  });
+
   it("ignores sources that aren't public web addresses", async () => {
     expect(await registerPublications([{ name: "Bad", feedUrl: "javascript:alert(1)", sourceType: "feed" }, { name: "Local", feedUrl: "http://127.0.0.1/feed", sourceType: "feed" }])).toBe(0);
   });

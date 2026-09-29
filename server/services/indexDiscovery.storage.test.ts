@@ -53,8 +53,11 @@ describe("discovered sites", () => {
   });
 
   it("registers a probed site's feed as a discovered publication, or records that it has none", async () => {
+    await noteDiscoveredSites([`${site("vendor")}/`, `${site("vendor")}/pricing`], "search");
     const discover = vi.fn(async (origin: string) => origin === site("trade")
-      ? { name: "Trade Weekly", feedUrl: `${origin}/feed.xml`, sourceType: "feed" as const }
+      ? { name: "Trade Weekly &amp; Wire | Industry news", feedUrl: `${origin}/feed.xml`, sourceType: "feed" as const }
+      // A homepage with no feed (a software vendor, say) is not a publisher to crawl.
+      : origin === site("vendor") ? { name: "Vendor | Digital Experience Platform", feedUrl: `${origin}/`, sourceType: "webpage" as const }
       : { error: "No feed or article list found" });
     const result = await probeDiscoveredSites(10, undefined, discover);
     expect(result.probed).toBeGreaterThanOrEqual(3);
@@ -62,7 +65,9 @@ describe("discovered sites", () => {
     const trade = rows.find(row => row.origin === site("trade"))!;
     expect(trade).toMatchObject({ status: "registered" });
     const [publication] = await ownerDb.select().from(publications).where(eq(publications.id, trade.publicationId!));
-    expect(publication).toMatchObject({ name: "Trade Weekly", feedUrl: `${site("trade")}/feed.xml`, addedVia: "discovered", isActive: true });
+    expect(publication).toMatchObject({ name: "Trade Weekly & Wire", feedUrl: `${site("trade")}/feed.xml`, addedVia: "discovered", isActive: true });
+    expect(rows.find(row => row.origin === site("vendor"))).toMatchObject({ status: "no-feed", note: "Only a web page, no RSS or Atom feed", publicationId: null });
+    expect(await ownerDb.select().from(publications).where(eq(publications.feedUrl, `${site("vendor")}/`))).toEqual([]);
     expect(rows.find(row => row.origin === site("journal"))).toMatchObject({ status: "no-feed", note: "No feed or article list found" });
     expect(rows.find(row => row.origin === site("once"))).toMatchObject({ status: "pending", probedAt: null });
     expect((await dueDiscoveredSites(10)).map(row => row.origin)).not.toContain(site("trade"));
@@ -89,5 +94,13 @@ describe("harvestOutboundOrigins", () => {
       <a href="https://www.publisher.test/related">our earlier story</a>, <a href="https://twitter.com/x">tweet</a>, <a href="/local">local</a>,
       <a href="https://www.reuters.com/other">Reuters again</a>, <a href="https://static.cdn.test/a.js">script</a></p></article>`;
     expect(harvestOutboundOrigins(html, "https://publisher.test/story")).toEqual(["https://www.reuters.com", "https://www.ft.com"]);
+  });
+
+  it("follows only links a reader can click, never page-header links or web-standards sites", () => {
+    // Every WordPress page carries <link rel="profile" href="http://gmpg.org/xfn/11"> in its head.
+    const html = `<head><link rel="profile" href="http://gmpg.org/xfn/11"><link rel="stylesheet" href="https://fonts.example-cdn.test/a.css">
+      <meta property="og:see_also" content="https://www.other.test/x"></head>
+      <body><a href="https://schema.org/NewsArticle">schema</a> <a href="https://www.w3.org/TR/">W3C</a> <a class="x" href="https://www.bbc.co.uk/news/1">BBC</a></body>`;
+    expect(harvestOutboundOrigins(html, "https://publisher.test/story")).toEqual(["https://www.bbc.co.uk"]);
   });
 });

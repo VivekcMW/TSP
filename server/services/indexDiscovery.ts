@@ -4,7 +4,7 @@ import { discoveredSites, publications, watchTerms } from "@shared/schema";
 import { normalizeKeywords } from "@shared/profile-preferences";
 import { validateUrlSync } from "./urlValidator";
 import { discoverFeed, type DiscoveredFeed, type FeedDiscoveryError } from "./feedDiscovery";
-import { registerPublications, type PoolProfile } from "./articlePool";
+import { decodeNameEntities, registerPublications, type PoolProfile } from "./articlePool";
 
 /**
  * Shared index, Stage 2: growing the catalogue without a search engine. Every publisher domain
@@ -23,6 +23,8 @@ const NOT_PUBLISHERS = [
   "reddit.com", "pinterest.com", "tiktok.com", "threads.net", "bsky.app", "whatsapp.com", "telegram.org", "t.me",
   "wikipedia.org", "wikimedia.org", "amazon.com", "apple.com", "github.com", "medium.com", "substack.com",
   "doubleclick.net", "cloudflare.com", "akamaihd.net", "cloudfront.net",
+  // Web standards and site-building infrastructure that pages link to in passing.
+  "gmpg.org", "w3.org", "schema.org", "ogp.me", "wordpress.org", "wordpress.com", "gravatar.com", "creativecommons.org",
 ];
 const INFRASTRUCTURE_HOST = /^(?:cdn|static|assets|img|images|media|api|ads?)\d*\./i;
 const MAX_ORIGINS_PER_CALL = 50;
@@ -78,11 +80,16 @@ export async function probeDiscoveredSites(limit: number, signal?: AbortSignal, 
   for (const site of due) {
     if (signal?.aborted) break;
     const found = await discover(site.origin, signal).catch((error: unknown): FeedDiscoveryError => ({ error: error instanceof Error ? error.message : "Probe failed" }));
-    if ("error" in found) {
-      await db.update(discoveredSites).set({ status: "no-feed", probedAt: new Date(), note: found.error.slice(0, 300) }).where(eq(discoveredSites.id, site.id));
+    // Only a real feed makes a site a publisher to crawl: a homepage alone is as often a vendor or
+    // an agency as a newsroom. (People's own sources may still be plain pages.)
+    const miss = "error" in found ? found.error : found.sourceType !== "feed" ? "Only a web page, no RSS or Atom feed" : null;
+    if (miss !== null || "error" in found) {
+      await db.update(discoveredSites).set({ status: "no-feed", probedAt: new Date(), note: (miss ?? "").slice(0, 300) }).where(eq(discoveredSites.id, site.id));
       continue;
     }
-    await registerPublications([{ name: found.name, feedUrl: found.feedUrl, sourceType: found.sourceType, addedVia: "discovered" }]);
+    // A site title is "Name | tagline"; keep the name.
+    const name = decodeNameEntities(found.name).split(/\s+[|–—]\s+/)[0].trim() || found.name;
+    await registerPublications([{ name, feedUrl: found.feedUrl, sourceType: "feed", addedVia: "discovered" }]);
     const [publication] = await db.select({ id: publications.id }).from(publications).where(eq(publications.feedUrl, found.feedUrl)).limit(1);
     await db.update(discoveredSites).set({ status: "registered", probedAt: new Date(), publicationId: publication?.id ?? null, note: null }).where(eq(discoveredSites.id, site.id));
     registered++;
@@ -118,7 +125,8 @@ export function harvestOutboundOrigins(html: string, pageUrl: string): string[] 
   let own: string;
   try { own = bareHost(new URL(pageUrl).hostname); } catch { return []; }
   const origins: string[] = [];
-  for (const match of html.matchAll(/href\s*=\s*["'](https?:\/\/[^"'\s>]+)/gi)) {
+  // Only anchors a reader can click; <link> tags in the page head point at standards and assets.
+  for (const match of html.matchAll(/<a\b[^>]*?\bhref\s*=\s*["'](https?:\/\/[^"'\s>]+)/gi)) {
     const origin = publisherOrigin(match[1]);
     if (!origin || bareHost(new URL(origin).hostname) === own || origins.includes(origin)) continue;
     origins.push(origin);

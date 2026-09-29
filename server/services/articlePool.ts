@@ -57,13 +57,23 @@ const toDate = (value: string | Date | null | undefined) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
+/** Page titles and feed titles often carry HTML codes ("Search &amp; Speed"); names are shown as text. */
+export function decodeNameEntities(value: string): string {
+  return value.replace(/&(#\d+|#x[0-9a-f]+|amp|lt|gt|quot|apos|nbsp);/gi, (match, code: string) => {
+    const lower = code.toLowerCase();
+    if (lower.startsWith("#x")) return String.fromCodePoint(parseInt(lower.slice(2), 16) || 32);
+    if (lower.startsWith("#")) return String.fromCodePoint(Number(lower.slice(1)) || 32);
+    return ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " } as Record<string, string>)[lower] ?? match;
+  });
+}
+
 /** Adds feeds to the catalogue; a feed already known is left as it is. Returns how many were new. */
 export async function registerPublications(sources: readonly SourceToRegister[]): Promise<number> {
   const rows = new Map<string, typeof publications.$inferInsert>();
   for (const source of sources) {
     const feedUrl = publicCanonical(source.feedUrl);
     if (!feedUrl || rows.has(feedUrl)) continue;
-    const name = source.name.trim().slice(0, 200) || new URL(feedUrl).hostname;
+    const name = decodeNameEntities(source.name).replace(/\s+/g, " ").trim().slice(0, 200) || new URL(feedUrl).hostname;
     rows.set(feedUrl, { name, feedUrl, siteUrl: new URL(feedUrl).origin, sourceType: source.sourceType === "webpage" ? "webpage" : "feed", addedVia: source.addedVia ?? "user-source" });
   }
   if (!rows.size) return 0;
