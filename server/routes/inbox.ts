@@ -155,6 +155,15 @@ export function registerInboxRoutes(app: Express) {
         return res.status(404).json({ message: "Job not found" });
       }
 
+      // The database receipt, written when the stories commit, is the truth: a brief Redis hiccup can
+      // stop the queue recording completion, and the page would wait for Bull's retry.
+      if (!["completed", "failed"].includes(jobStatus.state) && typeof jobStatus.data?.operationId === "string") {
+        const receipt = await storage.getInboxRefreshReceipt(scope, jobStatus.data.operationId, Boolean(jobStatus.data.autoRefresh)).catch(() => undefined);
+        if (receipt) {
+          return res.json({ id: jobStatus.id, status: "completed", progress: receipt, attemptsMade: jobStatus.attemptsMade, totalAttempts: jobStatus.attempts, error: null });
+        }
+      }
+
       res.json({
         id: jobStatus.id,
         status: jobStatus.state,

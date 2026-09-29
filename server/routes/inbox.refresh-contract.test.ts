@@ -76,6 +76,24 @@ describe("refresh caller outcome parity", () => {
     expect(response.body).toMatchObject({ status: state, progress: result("updated"), error: null });
   });
 
+  it("reports a refresh finished once its stories are committed, even if the queue never recorded it", async () => {
+    // Production: the refresh saved 10 stories, then a Redis hiccup stopped the queue marking the
+    // job completed, and the page kept waiting about a minute for Bull's retry.
+    const committed = result("updated");
+    fixtures.status.mockResolvedValue({ id: "job", state: "active", data: { ...fixtures.scope, operationId: "refresh:op-1", autoRefresh: false }, progress: { articlesProcessed: 112 } });
+    fixtures.storage.getInboxRefreshReceipt.mockResolvedValue(committed);
+    const response = await request(app).get("/api/inbox/refresh/job").expect(200);
+    expect(response.body).toMatchObject({ status: "completed", progress: committed, error: null });
+    expect(fixtures.storage.getInboxRefreshReceipt).toHaveBeenCalledExactlyOnceWith(fixtures.scope, "refresh:op-1", false);
+  });
+
+  it("keeps reporting a running refresh as running when nothing is committed yet, or the receipt check fails", async () => {
+    fixtures.status.mockResolvedValue({ id: "job", state: "active", data: { ...fixtures.scope, operationId: "refresh:op-2", autoRefresh: true }, progress: { articlesProcessed: 3 } });
+    expect((await request(app).get("/api/inbox/refresh/job").expect(200)).body).toMatchObject({ status: "active" });
+    fixtures.storage.getInboxRefreshReceipt.mockRejectedValue(new Error("database blip"));
+    expect((await request(app).get("/api/inbox/refresh/job").expect(200)).body).toMatchObject({ status: "active" });
+  });
+
   it.each(["updated", "capacity", "no_new", "needs_setup"] as const)("returns %s with committed counts in sync, worker and admin", async outcome => {
     const expected = result(outcome); fixtures.process.mockResolvedValue(expected);
     const sync = await request(app).post("/api/inbox/refresh").send({ autoRefresh: true }).expect(200);
