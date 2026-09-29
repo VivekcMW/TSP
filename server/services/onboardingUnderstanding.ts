@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { AIGenerationError } from "./openRouter";
 import { askJson, cachedJson, key, rememberJson, tolerantList } from "./onboardingShared";
+import { industryDisplayName } from "./metaEngine";
 
 /**
  * Step 1 of agentic onboarding: a short, editable summary of who the user is, so every later
@@ -23,7 +24,7 @@ export interface Understanding {
   question: { text: string; options: string[] } | null;
 }
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 const phrase = (max: number) => z.string().trim().max(max).catch("");
 const optionalPhrase = z.string().trim().min(1).max(60).nullable().catch(null);
 const understandingSchema = z.object({
@@ -37,6 +38,8 @@ const understandingSchema = z.object({
 
 export async function understandFocus(input: UnderstandRequest, scope: { tenantId: string }, signal?: AbortSignal): Promise<Understanding> {
   const request = understandRequestSchema.parse(input);
+  // Registration stores a slug ("technology_saas"); the model sees, and so repeats, the readable name.
+  const industry = request.industry ? industryDisplayName(request.industry) ?? undefined : undefined;
   const cacheKey = `onboarding:understand:v${CACHE_VERSION}:${createHash("sha256").update(JSON.stringify(request)).digest("hex")}`;
   const hit = await cachedJson<Understanding>(cacheKey);
   if (hit) return hit;
@@ -48,13 +51,15 @@ Summarise this professional for a news-curation app, so it can find the news the
 - region and audience: short, or null when unknown.
 - question: if the focus is too vague to find the right news (no clear niche, region or audience), ask ONE short question with 2-4 short answer options. Otherwise null. Never ask when a clarification is given.
 Return JSON only: {"role":"...","industry":"...","focusAreas":["..."],"region":"...","audience":"...","question":{"text":"...","options":["..."]}}
-USER: ${JSON.stringify({ focus: request.focusDescription, industry: request.industry, clarification: request.clarification })}`, understandingSchema, scope, signal);
+USER: ${JSON.stringify({ focus: request.focusDescription, industry, clarification: request.clarification })}`, understandingSchema, scope, signal);
 
   const seen = new Set<string>();
   const focusAreas = reply.focusAreas.filter(area => !seen.has(key(area)) && Boolean(seen.add(key(area)))).slice(0, 5);
   if (!reply.role && !reply.industry && !focusAreas.length) throw new AIGenerationError("ai_invalid_output");
   const question = !request.clarification && reply.question && reply.question.options.length >= 2 ? reply.question : null;
-  const understanding: Understanding = { role: reply.role, industry: reply.industry, focusAreas, region: reply.region, audience: reply.audience, question };
+  // A code-like answer ("media_and-advertising") is shown as words, never as a code.
+  const shownIndustry = /[_]|^[a-z]+(?:-[a-z]+)+$/.test(reply.industry) ? industryDisplayName(reply.industry) ?? "" : reply.industry;
+  const understanding: Understanding = { role: reply.role, industry: shownIndustry, focusAreas, region: reply.region, audience: reply.audience, question };
   await rememberJson(cacheKey, understanding);
   return understanding;
 }

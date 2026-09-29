@@ -59,4 +59,18 @@ describe("understanding the user's focus", () => {
     expect(await understandFocus({ focusDescription: `  ${focus}  ` }, scope)).toEqual(first);
     expect(generateText).toHaveBeenCalledTimes(1);
   });
+
+  it("gives the model the industry's readable name and never shows an internal code", async () => {
+    // The registration stores "technology_saas"; the model used to repeat it back verbatim.
+    reply({ role: "product marketer", industry: "technology_saas", focusAreas: ["AI developer tools"], region: "Austin", audience: null, question: null });
+    const understanding = await understandFocus({ focusDescription: "I'm a product marketer at a B2B SaaS startup in Austin.", industry: "technology_saas" }, scope);
+    expect(generateText.mock.calls[0][0]).toContain('"industry":"Technology & SaaS"');
+    expect(generateText.mock.calls[0][0]).not.toContain("technology_saas");
+    expect(understanding.industry).toBe("Technology & SaaS");
+  });
+
+  it("tidies any other code-like industry the model returns", async () => {
+    reply({ role: "Marketer", industry: "media_and-advertising", focusAreas: ["DOOH"], region: null, audience: null, question: null });
+    expect((await understandFocus({ focusDescription: focus }, scope)).industry).toBe("Media And Advertising");
+  });
 });
