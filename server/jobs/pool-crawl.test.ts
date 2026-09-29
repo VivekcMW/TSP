@@ -104,6 +104,16 @@ describe("shared index crawl cycle", () => {
     expect(await publication()).toMatchObject({ lastCrawlStatus: "unchanged", etag: '"v1"' });
   });
 
+  it("polls a publication again every cycle, even when the last poll finished a few seconds into its slot", async () => {
+    // Cycles run every 15 minutes; a poll stamped at 00:45:08 must be due again at 01:00:01.
+    await ownerDb.update(publications).set({ lastCrawledAt: new Date(Date.now() - (14 * 60 + 50) * 1000) }).where(eq(publications.feedUrl, feed));
+    crawl.mockImplementation(async (url: string) => {
+      if (url === feed) return page("", 304);
+      throw new CrawlError("http", `unexpected ${url}`);
+    });
+    expect((await cycle()).publications).toBe(1);
+  });
+
   it("skips a publication polled recently, and records failures until it is switched off", async () => {
     expect((await cycle()).publications).toBe(0);
     await ownerDb.update(publications).set({ lastCrawledAt: new Date(Date.now() - 3_600_000), consecutiveFailures: 9 }).where(eq(publications.feedUrl, feed));

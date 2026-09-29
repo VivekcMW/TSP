@@ -15,7 +15,7 @@ import { POOL_RETENTION_DAYS, demoteDuplicateBodies, duePublications, fetchPoole
  * Bounded so a cycle finishes well inside its slot on one instance.
  */
 export const POOL_CRAWL_LIMITS = Object.freeze({
-  publicationsPerCycle: 40, storiesPerPublication: 30, bodiesPerCycle: 60, sitesPerCycle: 5, leasesPerCycle: 20, pollMinutes: 15, maxFailures: 10, cycleMs: 10 * 60_000,
+  publicationsPerCycle: 40, storiesPerPublication: 30, bodiesPerCycle: 60, sitesPerCycle: 5, leasesPerCycle: 20, pollMinutes: 15, pollGraceMs: 60_000, maxFailures: 10, cycleMs: 10 * 60_000,
 });
 
 export interface PoolCrawlStats { publications: number; failed: number; newStories: number; readable: number; unreadable: number; duplicates: number; probed: number; registered: number; gdeltStories: number; gdeltSites: number; leases: number; pruned: number }
@@ -60,7 +60,10 @@ export async function runPoolCrawlCycle(assertConnected: () => Promise<void> = a
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), POOL_CRAWL_LIMITS.cycleMs);
   try {
-    const due = await duePublications(POOL_CRAWL_LIMITS.publicationsPerCycle, new Date(now.getTime() - POOL_CRAWL_LIMITS.pollMinutes * 60_000), only);
+    // A poll is stamped a few seconds into its slot, so "due" allows a minute's grace; otherwise
+    // every other cycle finds the catalogue not yet due and publications are polled half as often.
+    const dueBefore = new Date(now.getTime() - POOL_CRAWL_LIMITS.pollMinutes * 60_000 + POOL_CRAWL_LIMITS.pollGraceMs);
+    const due = await duePublications(POOL_CRAWL_LIMITS.publicationsPerCycle, dueBefore, only);
     stats.publications = due.length;
     await mapCrawlSettled(due, 3, async publication => {
       await assertConnected();
