@@ -5,7 +5,7 @@ import { requireLocalTestDatabase } from "../../test/database-safety";
 import { pool } from "../db";
 import { ownerDb, ownerPool } from "../../test/db-owner";
 import { pooledArticles, publications } from "@shared/schema";
-import { findPooledArticle, indexHealth, knownUnreadableLinks, markPooledBody, pendingPooledBodies, prunePool, queryArticlePool, registerPublications, storePooledArticles } from "./articlePool";
+import { fetchPooledBody, findPooledArticle, indexHealth, knownUnreadableLinks, markPooledBody, pendingPooledBodies, prunePool, queryArticlePool, registerPublications, storePooledArticles } from "./articlePool";
 
 // Runs through the tsp_app role, as production does. Rows are tagged so parallel test files never collide.
 const tag = `pool-${randomUUID().slice(0, 8)}`;
@@ -103,6 +103,13 @@ describe("article pool", () => {
     expect((await pendingPooledBodies(100)).map(row => row.canonicalUrl)).not.toContain(url);
     const refreshed = await queryArticlePool({ keywords: ["stent prices"], companies: [], influencers: [] }, { days: 30, limit: 50 });
     expect(refreshed.find(article => article.link === url)).toMatchObject({ inputKind: "page_body", title: "NPPA caps stent prices for a third year" });
+  });
+
+  it("doesn't call a page unreadable because the read was cut off by a time limit", async () => {
+    await storePooledArticles([story("/cut-off", "Cut off story")]);
+    const controller = new AbortController(); controller.abort();
+    expect(await fetchPooledBody(`${site("pharma")}/cut-off`, controller.signal)).toBe("skipped");
+    expect(await findPooledArticle(`${site("pharma")}/cut-off`)).toMatchObject({ readable: null });
   });
 
   it("prunes stories older than the retention window", async () => {

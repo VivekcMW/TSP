@@ -56,6 +56,14 @@ describe("isAllowedByRobots", () => {
     expect(crawl.mock.calls[0][0]).toBe("https://news.test/robots.txt");
   });
 
+  it("doesn't remember a robots.txt check that was cut off by a time limit", async () => {
+    const controller = new AbortController(); controller.abort();
+    crawl.mockRejectedValueOnce(new CrawlError("timeout", "cancelled")).mockResolvedValue({ url: "", text: "User-agent: *\nDisallow: /", status: 200, headers: new Headers() });
+    await isAllowedByRobots("https://cut.test/story", controller.signal);
+    expect(await isAllowedByRobots("https://cut.test/story")).toBe(false);
+    expect(crawl).toHaveBeenCalledTimes(2);
+  });
+
   it("treats a missing or unreachable robots.txt as permission, without retrying every time", async () => {
     crawl.mockRejectedValue(new CrawlError("http", "The source returned HTTP 404."));
     expect(await isAllowedByRobots("https://news.test/story")).toBe(true);

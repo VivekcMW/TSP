@@ -14,6 +14,10 @@ vi.mock("../../storage", () => ({ storage }));
 vi.mock("../keywordSearch", () => ({ fetchArticlesForQuery: vi.fn().mockResolvedValue([]) }));
 vi.mock("../crawlerFetch", async (original) => ({ ...await original<typeof import("../crawlerFetch")>(), fetchPublicText: network }));
 vi.mock("../feedDiscovery", async (original) => ({ ...await original<typeof import("../feedDiscovery")>(), discoverFeed: discovery }));
+// Source reliability only: the second search provider, the shared index and discovery have their own tests.
+vi.mock("../bingNewsSearch", () => ({ fetchBingArticlesForQuery: async () => [] }));
+vi.mock("../articlePool", () => ({ queryArticlePool: async () => [], registerPublications: async () => 0, prefetchPooledBodies: async () => 0, knownUnreadableLinks: async () => [] }));
+vi.mock("../indexDiscovery", () => ({ noteDiscoveredSites: async () => 0, noteWatchTerms: async () => undefined }));
 import { BaseIndustryEngine } from "./baseEngine";
 import { CrawlError } from "../crawlerFetch";
 class Engine extends BaseIndustryEngine {

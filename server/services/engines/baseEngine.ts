@@ -36,6 +36,10 @@ const INDEX_WINDOW_DAYS = 30;
 const INDEX_CANDIDATE_LIMIT = 150;
 const INDEX_PREFETCH_LIMIT = 10;
 const INDEX_PREFETCH_BUDGET_MS = 15000;
+// Before offering stories, read the top ones not read yet, so Discover offers what can be written from.
+const READ_CHECK_LIMIT = 24;
+const READ_CHECK_CONCURRENCY = 6;
+const READ_CHECK_BUDGET_MS = 12000;
 // With this many index candidates the search engines are not asked at all (0 disables).
 const INDEX_ONLY_THRESHOLD = Number(process.env.INDEX_ONLY_THRESHOLD ?? "40");
 type SearchReservation = { queries: string[]; searchEdition: string; profile: UserProfile };
@@ -181,6 +185,27 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
     }, () => !partialFailure);
   }
 
+  /**
+   * Reads the top-ranked stories not read yet (bounded) and drops the ones that turn out to be
+   * blocked, paywalled or empty, so every story offered can be written from. Pages whose read is
+   * cut off stay in; a failed check keeps everything.
+   */
+  protected async offerOnlyReadable<T extends FetchedArticle>(ranked: T[]): Promise<T[]> {
+    const top = ranked.slice(0, READ_CHECK_LIMIT);
+    if (!top.length) return ranked;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), READ_CHECK_BUDGET_MS);
+    try {
+      await prefetchPooledBodies(top.map(article => ({ link: article.link, title: article.title, source: article.source, content: article.content,
+        publishedAt: article.publishedAt ?? article.pubDate, sourceOrigin: article.sourceOrigin })),
+        { limit: READ_CHECK_LIMIT, concurrency: READ_CHECK_CONCURRENCY, signal: controller.signal }).catch(() => undefined);
+    } finally {
+      clearTimeout(timer);
+    }
+    const unreadable = new Set(await knownUnreadableLinks(top.map(article => article.link)).catch(() => [] as string[]));
+    return unreadable.size ? ranked.filter(article => !unreadable.has(canonicalHttpUrl(article.link) ?? "")) : ranked;
+  }
+
   /** Reads the accepted stories' pages into the shared index now, bounded and best effort. */
   protected async prefetchAcceptedBodies(result: EngineRunResult): Promise<void> {
     const stories = (result.items ?? []).filter(item => typeof item.articleUrl === "string" && item.articleUrl).slice(0, INDEX_PREFETCH_LIMIT)
@@ -298,7 +323,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       }
 
       const evaluatedAt = Date.now();
-      const scoredArticles = await this.scoreArticles(articles, userProfile, evaluatedAt);
+      const scoredArticles = await this.offerOnlyReadable(await this.scoreArticles(articles, userProfile, evaluatedAt));
       // Pass the bounded RANKED pool, not its top ten: historical matches must
       // not consume quota or hide fresh candidates further down the ranking.
       const result = await storage.commitInboxRefresh(scope, operationId, autoRefresh, begin.snapshot,

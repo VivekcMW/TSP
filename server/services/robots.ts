@@ -73,6 +73,8 @@ export async function isAllowedByRobots(rawUrl: string, signal?: AbortSignal): P
       const page = await fetchPublicText(`${key}/robots.txt`, { signal, timeoutMs: 5000, maxBytes: 512 * 1024 });
       rules = page.status === 200 ? parseRobots(page.text, CRAWLER_AGENT) : ALLOW_ALL;
     } catch {
+      // Cut off by our own time limit: allow this once, but ask again next time.
+      if (signal?.aborted) return true;
       rules = ALLOW_ALL;
       expiresAt = now + REMEMBER_FAILURE_MS;
     }

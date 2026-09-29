@@ -161,7 +161,9 @@ export async function pendingPooledBodies(limit: number, only?: readonly string[
 }
 
 /** Fetches one story's page, honouring robots.txt, and records whether it held readable prose. */
-export async function fetchPooledBody(url: string, signal?: AbortSignal): Promise<"readable" | "unreadable"> {
+/** "skipped" when a time limit cut the read off: the page stays unknown, not unreadable. */
+export async function fetchPooledBody(url: string, signal?: AbortSignal): Promise<"readable" | "unreadable" | "skipped"> {
+  if (signal?.aborted) return "skipped";
   let outcome: { readable: boolean; content?: string } = { readable: false };
   try {
     if (await isAllowedByRobots(url, signal)) {
@@ -177,22 +179,24 @@ export async function fetchPooledBody(url: string, signal?: AbortSignal): Promis
       if (article.content.length >= MIN_READABLE_CHARS && prose && !landedOnFrontPage) outcome = { readable: true, content: article.content };
     }
   } catch {
-    // Paywalls, blocks, timeouts and challenge pages all mean "not readable for now".
+    // Paywalls, blocks, slow pages and challenge pages all mean "not readable for now";
+    // a read cut off by our own time limit says nothing about the page.
+    if (signal?.aborted) return "skipped";
   }
   await markPooledBody(url, outcome);
   return outcome.readable ? "readable" : "unreadable";
 }
 
 /** Best-effort: makes sure these stories are in the pool and fetches the bodies not fetched yet, a few at a time. */
-export async function prefetchPooledBodies(stories: readonly StoryToStore[], options: { limit: number; signal?: AbortSignal }): Promise<number> {
+export async function prefetchPooledBodies(stories: readonly StoryToStore[], options: { limit: number; signal?: AbortSignal; concurrency?: number }): Promise<number> {
   await storePooledArticles(stories);
   const wanted = stories.map(story => publicCanonical(story.link)).filter((url): url is string => Boolean(url)).slice(0, options.limit);
   let fetched = 0;
-  await mapCrawlSettled(wanted, 3, async url => {
+  await mapCrawlSettled(wanted, options.concurrency ?? 3, async url => {
+    if (options.signal?.aborted) return;
     const known = await findPooledArticle(url);
     if (!known || known.readable !== null) return;
-    await fetchPooledBody(url, options.signal);
-    fetched++;
+    if (await fetchPooledBody(url, options.signal) !== "skipped") fetched++;
   });
   return fetched;
 }

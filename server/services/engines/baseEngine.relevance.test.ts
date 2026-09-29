@@ -14,6 +14,10 @@ vi.mock("../crawlerFetch", async original => ({ ...await original<typeof import(
   fetchPublicText: vi.fn(() => { throw new Error("Unexpected network request"); }),
 }));
 vi.mock("./articleCache", () => ({ getCachedArticles: (_key: string, fetcher: () => Promise<FetchedArticle[]>) => fetcher() }));
+// Relevance only: the second search provider, the shared index and discovery have their own tests.
+vi.mock("../bingNewsSearch", () => ({ fetchBingArticlesForQuery: async () => [] }));
+vi.mock("../articlePool", () => ({ queryArticlePool: async () => [], registerPublications: async () => 0, prefetchPooledBodies: async () => 0, knownUnreadableLinks: async () => [] }));
+vi.mock("../indexDiscovery", () => ({ noteDiscoveredSites: async () => 0, noteWatchTerms: async () => undefined }));
 import { BaseIndustryEngine } from "./baseEngine";
 import * as relevance from "../articleRelevance";
 import { summarizeArticle } from "../articleSummary";

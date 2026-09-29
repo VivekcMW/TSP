@@ -77,7 +77,8 @@ export async function runPoolCrawlCycle(assertConnected: () => Promise<void> = a
     const pending = await pendingPooledBodies(POOL_CRAWL_LIMITS.bodiesPerCycle, only);
     await mapCrawlSettled(pending, 3, async row => {
       await assertConnected();
-      if (await fetchPooledBody(row.canonicalUrl, controller.signal) === "readable") stats.readable++; else stats.unreadable++;
+      const outcome = await fetchPooledBody(row.canonicalUrl, controller.signal);
+      if (outcome === "readable") stats.readable++; else if (outcome === "unreadable") stats.unreadable++;
     });
     stats.duplicates = await demoteDuplicateBodies();
     // Growing the catalogue: a few of the most-seen publisher domains are probed for a feed each cycle.

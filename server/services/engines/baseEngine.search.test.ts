@@ -524,7 +524,9 @@ describe("shared article index", () => {
     save({ keywords: ["Current"] });
     storage.createInboxItem.mockImplementation(async (_scope: TenantScope, item: Record<string, unknown>) => ({ id: "inbox-item", ...item }));
     await (await makeEngine()).processForUser(scope, profile());
-    expect(index.prefetch).toHaveBeenCalledExactlyOnceWith(
+    // Once before offering (the read check), once after the commit for whatever was accepted.
+    expect(index.prefetch).toHaveBeenCalledTimes(2);
+    expect(index.prefetch).toHaveBeenLastCalledWith(
       [expect.objectContaining({ link: "https://news.test/US%3Aen%3ACurrent", title: "Current", source: "Publisher" })],
       expect.objectContaining({ limit: 10 }));
   });
@@ -547,9 +549,34 @@ describe("shared index discovery", () => {
     save({ keywords: ["Current"] });
     index.unreadable.mockResolvedValue(["https://news.test/US%3Aen%3ACurrent"]);
     const result = await (await makeEngine()).processForUser(scope, profile());
-    expect(index.unreadable).toHaveBeenCalledExactlyOnceWith(["https://news.test/US%3Aen%3ACurrent"]);
+    expect(index.unreadable).toHaveBeenCalledWith(["https://news.test/US%3Aen%3ACurrent"]);
     expect(result).toMatchObject({ success: true, articlesProcessed: 0, newInboxItems: 0 });
     expect(storage.createInboxItem).not.toHaveBeenCalled();
+  });
+
+  it("reads the top stories before offering them, and offers only the ones it can write from", async () => {
+    // Production: 6 of a new account's 10 stories were pages the crawler couldn't read (blocked,
+    // paywalled, JavaScript-only), found seconds after they were offered.
+    save({ keywords: ["Current"] });
+    index.query.mockResolvedValue([indexed("Current, blocked", "https://blocked.test/current"), indexed("Current, readable", "https://open.test/current")]);
+    // Before reading nothing is known; after reading, the blocked page is.
+    index.unreadable.mockResolvedValueOnce([]).mockResolvedValue(["https://blocked.test/current"]);
+    const result = await (await makeEngine()).processForUser(scope, profile());
+    const [stories, options] = index.prefetch.mock.calls[0];
+    expect(stories.map((story: { link: string }) => story.link).sort()).toEqual(["https://blocked.test/current", "https://news.test/US%3Aen%3ACurrent", "https://open.test/current"]);
+    expect(options).toMatchObject({ limit: 24, concurrency: 6, signal: expect.any(AbortSignal) });
+    const saved = storage.createInboxItem.mock.calls.map(([, item]) => item.articleUrl);
+    expect(saved).toContain("https://open.test/current");
+    expect(saved).not.toContain("https://blocked.test/current");
+    expect(result).toMatchObject({ success: true, newInboxItems: 2 });
+  });
+
+  it("still offers stories when the read check itself fails", async () => {
+    save({ keywords: ["Current"] });
+    index.prefetch.mockRejectedValue(new Error("pool down"));
+    index.unreadable.mockResolvedValueOnce([]).mockRejectedValue(new Error("pool down"));
+    const result = await (await makeEngine()).processForUser(scope, profile());
+    expect(result).toMatchObject({ success: true, newInboxItems: 1 });
   });
 
   it("leaves out video pages, which have no text to write from", async () => {
