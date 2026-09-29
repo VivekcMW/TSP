@@ -12,7 +12,8 @@ import { adoptBrowserTimezone, getEmailPreferences, updateEmailPreferences } fro
 const newcomer = randomUUID();
 const chooser = randomUUID();
 const oddBrowser = randomUUID();
-const userIds = [newcomer, chooser, oddBrowser];
+const chrome = randomUUID();
+const userIds = [newcomer, chooser, oddBrowser, chrome];
 let validated = false;
 
 beforeAll(async () => {
@@ -43,6 +44,12 @@ describe("adoptBrowserTimezone", () => {
     await updateEmailPreferences(chooser, { digestTimezone: "America/New_York", digestTime: "07:30" });
     expect(await adoptBrowserTimezone(chooser, "Asia/Tokyo")).toBe(false);
     expect(await getEmailPreferences(chooser)).toMatchObject({ digestTimezone: "America/New_York", digestTime: "07:30" });
+  });
+
+  it("stores the current name when a browser reports a renamed zone", async () => {
+    // Chrome reports India as "Asia/Calcutta"; Settings should say Kolkata.
+    expect(await adoptBrowserTimezone(chrome, "Asia/Calcutta")).toBe(true);
+    expect((await getEmailPreferences(chrome)).digestTimezone).toBe("Asia/Kolkata");
   });
 
   it("ignores a time zone the server can't use, leaving the defaults in place", async () => {

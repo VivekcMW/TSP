@@ -131,3 +131,15 @@ describe("timezone validation", () => {
     expect(timezoneSchema.safeParse(timezone).success).toBe(false);
   });
 });
+
+describe("modernTimeZone", () => {
+  it("uses the current name for zones browsers report under an old one, and leaves others alone", async () => {
+    const { modernTimeZone, timezoneSchema } = await import("./profile-preferences");
+    expect(modernTimeZone("Asia/Calcutta")).toBe("Asia/Kolkata");
+    expect(modernTimeZone("Europe/Kiev")).toBe("Europe/Kyiv");
+    expect(modernTimeZone("America/Chicago")).toBe("America/Chicago");
+    for (const zone of ["Asia/Kolkata", "Asia/Kathmandu", "Asia/Yangon", "Asia/Ho_Chi_Minh", "Europe/Kyiv", "America/Nuuk", "Pacific/Kanton"]) {
+      expect(timezoneSchema.safeParse(zone).success).toBe(true);
+    }
+  });
+});

@@ -60,6 +60,21 @@ export const focusDescriptionSchema = z.string().trim().min(10).max(500);
 /** Existing profiles may clear their focus; completing onboarding may not. */
 export const profileFocusDescriptionSchema = z.string().trim().pipe(z.union([z.literal(""), focusDescriptionSchema]));
 
+/**
+ * Browsers built on ICU (Chrome) still report some zones under their pre-rename IANA names
+ * ("Asia/Calcutta" for Asia/Kolkata). They are the same zone; people should see the current name.
+ */
+const MODERN_TIME_ZONES: Record<string, string> = {
+  "Asia/Calcutta": "Asia/Kolkata", "Asia/Katmandu": "Asia/Kathmandu", "Asia/Rangoon": "Asia/Yangon", "Asia/Saigon": "Asia/Ho_Chi_Minh",
+  "Asia/Dacca": "Asia/Dhaka", "Asia/Thimbu": "Asia/Thimphu", "Asia/Ulan_Bator": "Asia/Ulaanbaatar", "Asia/Macao": "Asia/Macau",
+  "Europe/Kiev": "Europe/Kyiv", "America/Godthab": "America/Nuuk", "America/Buenos_Aires": "America/Argentina/Buenos_Aires",
+  "Atlantic/Faeroe": "Atlantic/Faroe", "Africa/Asmera": "Africa/Asmara", "Pacific/Truk": "Pacific/Chuuk", "Pacific/Ponape": "Pacific/Pohnpei",
+  "Pacific/Enderbury": "Pacific/Kanton",
+};
+export function modernTimeZone(zone: string): string {
+  return MODERN_TIME_ZONES[zone] ?? zone;
+}
+
 export const timezoneSchema = z.string().trim().min(1).max(100).refine((timeZone) => {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone });
