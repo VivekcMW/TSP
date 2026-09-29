@@ -293,14 +293,20 @@ describe("setting up manually", () => {
     expect(sent("agent")[0]).toMatchObject({ steps: ["publications", "topics", "people"], topics: ["Platform engineering"], publications: [{ name: "My Blog", url: "https://myblog.test/news" }] });
   });
 
-  it("can finish with just the focus, without the agent or hidden defaults", async () => {
+  it("needs one topic, company or person to finish, so Discover has something to search for, and adds no hidden defaults", async () => {
     await start();
+    // A focus alone (or an agent step that failed) would leave Discover empty.
+    await browserExpect(chip("Finish setup")).toBeDisabled();
+    await browserExpect(setup().getByText("Pick at least one topic, company or person to finish.", { exact: true })).toBeVisible();
+    await chip("Set up manually").click();
+    await section("Topics").getByLabel("Custom topic").fill("Platform engineering");
+    await section("Topics").getByTestId("button-add-keyword").click();
+    await browserExpect(chip("Finish setup")).toBeEnabled();
+    await browserExpect(setup().getByText("Pick at least one topic, company or person to finish.", { exact: true })).toHaveCount(0);
     await chip("Finish setup").click();
     await browserExpect(page.getByRole("heading", { name: "Your Discover is ready" })).toBeVisible();
     expect(sent("agent")).toEqual([]);
-    expect(completions).toEqual([{ focusDescription: focus, publications: [], keywords: [], influencers: [], companies: [] }]);
-    // Nothing to search for yet, so no refresh is started.
-    expect(refreshes).toEqual([]);
+    expect(completions).toEqual([{ focusDescription: focus, publications: [], keywords: [{ keyword: "Platform engineering", weight: 0.7 }], influencers: [], companies: [] }]);
   });
 });
 

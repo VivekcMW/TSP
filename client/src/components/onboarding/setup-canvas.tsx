@@ -9,6 +9,8 @@ interface SetupCanvasProps {
   view: "empty" | "setup" | "finished";
   count: number;
   canFinish: boolean;
+  /** The focus description is long enough; Finish then only waits for a topic, company or person. */
+  focusReady: boolean;
   isPending: boolean;
   onFinish: () => void;
   /** The three sections, when there is a setup to show. */
@@ -29,7 +31,7 @@ const PLACEHOLDERS = [
 ];
 
 /** "Your setup": empty until Pundit builds it (or you add your own), then the finish view. */
-export function SetupCanvas({ className, view, count, canFinish, isPending, onFinish, children, finished }: Readonly<SetupCanvasProps>) {
+export function SetupCanvas({ className, view, count, canFinish, focusReady, isPending, onFinish, children, finished }: Readonly<SetupCanvasProps>) {
   if (view === "finished" && finished) {
     const { preview } = finished;
     return (
@@ -86,9 +88,15 @@ export function SetupCanvas({ className, view, count, canFinish, isPending, onFi
               {view === "empty" ? "Pundit fills this in from live news, and you stay in control of every pick." : `${count} selected. Keep what fits, remove the rest, or add your own.`}
             </p>
           </div>
-          <Button type="button" className="min-h-11" onClick={onFinish} disabled={!canFinish || isPending} data-testid="button-complete-onboarding">
-            {isPending ? "Saving…" : "Finish setup"}
-          </Button>
+          <div className="flex flex-col items-end gap-1">
+            <Button type="button" className="min-h-11" onClick={onFinish} disabled={!canFinish || isPending} data-testid="button-complete-onboarding"
+              aria-describedby={focusReady && !canFinish ? "finish-setup-hint" : undefined}>
+              {isPending ? "Saving…" : "Finish setup"}
+            </Button>
+            {focusReady && !canFinish && (
+              <p id="finish-setup-hint" className="max-w-56 text-right text-xs text-muted-foreground">Pick at least one topic, company or person to finish.</p>
+            )}
+          </div>
         </div>
         {view === "empty" ? (
           <div className="space-y-3">
@@ -98,7 +106,7 @@ export function SetupCanvas({ className, view, count, canFinish, isPending, onFi
                 <div><p className="font-medium">{title}</p><p className="text-sm text-muted-foreground">{text}</p></div>
               </div>
             ))}
-            <p className="text-sm text-muted-foreground">{canFinish ? "Check what Pundit understood, then build your setup." : "Tell Pundit about your work to begin."}</p>
+            <p className="text-sm text-muted-foreground">{focusReady ? "Check what Pundit understood, then build your setup." : "Tell Pundit about your work to begin."}</p>
           </div>
         ) : children}
       </div>

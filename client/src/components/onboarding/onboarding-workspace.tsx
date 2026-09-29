@@ -168,8 +168,11 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
     else navigate("/dashboard/create");
   };
 
+  // Discover searches for topics, companies and people, so a setup needs at least one of them.
+  const focusReady = focus.trim().length >= 10;
+  const canFinish = focusReady && topics.length + leaders.length + companies.length > 0;
   const finish = () => {
-    if (focus.trim().length < 10 || locked) return;
+    if (!canFinish || locked) return;
     onComplete(catalog.completionData(focus));
   };
 
@@ -271,7 +274,7 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
           thinking={understanding.status === "loading" ? (summary ? "Pundit is updating what it understood…" : "Pundit is reading…") : undefined}
           progress={progress} log={log} />
         <SetupCanvas className={cn("col-start-1 row-start-1 lg:col-start-2 lg:row-span-2", tab === "setup" ? "flex" : "hidden lg:flex")}
-          view={view} count={selections.count} canFinish={focus.trim().length >= 10} isPending={isPending} onFinish={finish}
+          view={view} count={selections.count} canFinish={canFinish} focusReady={focusReady} isPending={isPending} onFinish={finish}
           finished={completed ? { summary: summaryText, preview, onWritePost: writePost, onOpenDiscover: () => navigate("/dashboard/discover"), onOpenDashboard: () => navigate("/dashboard") } : undefined}>
           {section("publications", (
             <div className="space-y-2">

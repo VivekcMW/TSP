@@ -103,7 +103,7 @@ async function say(text: string) {
 async function resolvePending() { await page.evaluate(() => (window as any).__pending.shift()()); }
 
 describe("UX audit screens (fully mocked Chromium)", () => {
-  it("requires a real focus before finishing, and can finish without the agent", async () => {
+  it("requires a real focus and one topic, company or person before finishing, and can finish without the agent", async () => {
     await mount("wizard");
     await page.setViewportSize({ width: 1280, height: 900 });
     const finish = page.getByRole("button", { name: "Finish setup" });
@@ -111,9 +111,15 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     await page.getByRole("textbox", { name: "Message Pundit" }).fill("   ");
     await browserExpect(page.getByRole("button", { name: "Send" })).toBeDisabled();
     await say("Product strategy for small teams");
+    // A focus alone gives Discover nothing to search for.
+    await browserExpect(finish).toBeDisabled();
+    await browserExpect(page.getByText("Pick at least one topic, company or person to finish.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Set up manually" }).click();
+    await page.getByLabel("Custom company").fill("Linear");
+    await page.getByTestId("button-add-company").click();
     await browserExpect(finish).toBeEnabled();
     await finish.click();
-    expect(await page.evaluate(() => (window as any).__completed[0])).toMatchObject({ publications: [], keywords: [], influencers: [], companies: [] });
+    expect(await page.evaluate(() => (window as any).__completed[0])).toMatchObject({ publications: [], keywords: [], influencers: [], companies: ["Linear"] });
     expect((await calls()).filter(notUnderstand)).toEqual([]);
   });
   it("sets up manually and finishes without the agent", async () => {
@@ -121,6 +127,8 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await say("Product strategy for small teams");
     await page.getByRole("button", { name: "Set up manually" }).click();
+    await page.getByLabel("Custom topic").fill("Pricing strategy");
+    await page.getByTestId("button-add-keyword").click();
     await page.getByRole("button", { name: "Finish setup" }).click();
     expect(await page.evaluate(() => (window as any).__completed)).toHaveLength(1);
     expect((await calls()).filter(notUnderstand)).toEqual([]);
@@ -137,8 +145,12 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     await page.getByRole("button", { name: "Remove topic My own topic" }).click();
     await page.getByRole("button", { name: "Remove leader Unlisted AI leader" }).click();
     await page.getByRole("button", { name: "Remove company Unlisted AI company" }).click();
+    // With every pick removed there is nothing to search for; one kept choice is enough.
+    await browserExpect(page.getByRole("button", { name: "Finish setup" })).toBeDisabled();
+    await page.getByLabel("Custom topic").fill("Kept topic");
+    await page.getByTestId("button-add-keyword").click();
     await page.getByRole("button", { name: "Finish setup" }).click();
-    expect(await page.evaluate(() => (window as any).__completed[0])).toMatchObject({ publications: [], keywords: [], influencers: [], companies: [] });
+    expect(await page.evaluate(() => (window as any).__completed[0])).toMatchObject({ publications: [], keywords: [{ keyword: "Kept topic" }], influencers: [], companies: [] });
     expect((await calls()).filter(notUnderstand).map((call: any) => call.url)).toEqual(["/api/onboarding/agent"]);
   });
   it("times out a slow agent with Try again and keeps the setup usable", async () => {
@@ -152,6 +164,10 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     await resolvePending();
     expect(await page.getByRole("button", { name: /source Unlisted AI source$/ }).count()).toBe(0);
     await browserExpect(page.getByRole("region", { name: "Sources" }).getByRole("button", { name: "Try again" })).toBeVisible();
+    // Still usable: the person can add their own pick and finish without the agent.
+    await browserExpect(page.getByRole("button", { name: "Finish setup" })).toBeDisabled();
+    await page.getByLabel("Custom topic").fill("Team rituals");
+    await page.getByTestId("button-add-keyword").click();
     await browserExpect(page.getByRole("button", { name: "Finish setup" })).toBeEnabled();
     expect(await page.evaluate(() => (window as any).__toasts)).toEqual([]);
   });
@@ -182,6 +198,8 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     await say("Product strategy for small teams");
     await page.getByRole("button", { name: "Build my setup" }).click();
     await browserExpect(page.getByRole("region", { name: "Sources" }).getByRole("alert")).toContainText("The agent couldn't finish this step.");
+    await page.getByLabel("Custom topic").fill("Roadmapping");
+    await page.getByTestId("button-add-keyword").click();
     await page.getByRole("button", { name: "Finish setup" }).click();
     expect(await page.evaluate(() => (window as any).__completed[0].publications)).toEqual([]);
     await page.evaluate(() => (window as any).__setSurface("registration"));
