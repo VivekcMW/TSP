@@ -1,23 +1,29 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { spawn, type ChildProcess } from "node:child_process";
-import { once } from "node:events";
-import { randomUUID } from "node:crypto";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import { createHash, randomUUID } from "node:crypto";
 import Redis from "ioredis";
 import Bull from "bull";
+import { disposableRedisAvailable, startDisposableRedis } from "../../test/disposable-redis";
 
 // Never load configured Redis, authentication, DB, or provider execution.
-vi.mock("../lib/redis", () => ({ redis: undefined }));
+const initializationRedis = vi.hoisted(() => ({ current: undefined as Redis | undefined }));
+vi.mock("../lib/redis", () => ({ get redis() { return initializationRedis.current; } }));
+vi.mock("bull", async importOriginal => {
+  const actual = await importOriginal<{ default: typeof Bull }>();
+  // Initialization tests replace this constructor; the private-socket suite uses real Bull.
+  return { ...actual, default: vi.fn(function (name: string, options: Bull.QueueOptions) {
+    return new actual.default(name, options);
+  }) };
+});
 vi.mock("../services/generation-quota", () => ({ assertGenerationAdmission: vi.fn(), generationAccessFailure: () => undefined,
   generationOperationId: (id: string) => id, runGeneration: vi.fn(async (_scope, _id, _kind, _input, _signal, work) => work()) }));
 vi.mock("../services/editorial-request", () => ({ executeEditorialRequest: vi.fn() }));
 vi.mock("../services/tenancy", () => ({ resolveTenantContext: vi.fn() }));
-import { EditorialJobs, editorialInputHash, EDITORIAL_INPUT_TTL, EDITORIAL_RESULT_TTL, EDITORIAL_DEADLINE_MS } from "./editorial";
+import { EditorialJobs, editorialInputHash, editorialQueueName, initializeEditorialJobs, getEditorialJobs, closeEditorialJobs, EDITORIAL_VERSION, EDITORIAL_INPUT_TTL, EDITORIAL_RESULT_TTL, EDITORIAL_DEADLINE_MS } from "./editorial";
 import { buildEvidenceBrief } from "../services/editorialEvidence";
 import { CrawlError } from "../services/crawlerFetch";
-import type { executeEditorialRequest, PreparedEditorialRequest } from "../services/editorial-request";
+import { executeEditorialRequest, type PreparedEditorialRequest } from "../services/editorial-request";
+import { assertGenerationAdmission, runGeneration } from "../services/generation-quota";
+import * as ai from "../services/openRouter";
 
 const scope = { tenantId: "tenant-a", userId: "user-a" };
 const prepared: PreparedEditorialRequest = { input: { requestIntent: randomUUID(), title: "Pilot", content: "The publisher reports a successful trial in thirty stores.", media: [], selectedPlatforms: ["linkedin", "medium"], format: "short-post" }, options: { voice: "Saved voice", scope: { tenantId: scope.tenantId }, format: "short-post" } };
@@ -42,13 +48,191 @@ describe("editorial stable identity", () => {
   });
 });
 
+describe("editorial queue naming", () => {
+  const identity = {
+    provider: "gemini", fallback: "openrouter",
+    models: { anthropic: "claude-test", gemini: "gemini-test", openrouter: "router-test", openai: "openai-test" },
+  };
+  const changes = [
+    { field: "provider", model: { ...identity, provider: "openrouter" } },
+    { field: "fallback provider", model: { ...identity, fallback: "anthropic" } },
+    { field: "disabled fallback", model: { ...identity, fallback: null } },
+    ...["anthropic", "gemini", "openrouter", "openai"].map(provider => ({
+      field: `${provider} model`, model: { ...identity, models: { ...identity.models, [provider]: "changed-model" } },
+    })),
+  ];
+
+  it.each(["development", "production"])("shares a %s queue for stable identities regardless of object key order", environment => {
+    const name = editorialQueueName(environment, identity);
+    const reordered = {
+      models: { openai: identity.models.openai, openrouter: identity.models.openrouter,
+        gemini: identity.models.gemini, anthropic: identity.models.anthropic },
+      fallback: identity.fallback, provider: identity.provider,
+    };
+    expect(editorialQueueName(environment, identity)).toBe(name);
+    expect(editorialQueueName(environment, reordered)).toBe(name);
+    expect(name).toMatch(new RegExp(`^editorial_generation-${environment}-[a-f0-9]{12}$`));
+  });
+
+  it.each(["development", "production"])("hashes the canonical model identity together with the editorial version in %s", environment => {
+    // Keys are explicitly in canonical order, independently of the production serializer.
+    const canonical = JSON.stringify({
+      model: { fallback: identity.fallback,
+        models: { anthropic: identity.models.anthropic, gemini: identity.models.gemini,
+          openai: identity.models.openai, openrouter: identity.models.openrouter },
+        provider: identity.provider },
+      version: EDITORIAL_VERSION,
+    });
+    const digest = createHash("sha256").update(canonical).digest("hex").slice(0, 12);
+    expect(editorialQueueName(environment, identity)).toBe(`editorial_generation-${environment}-${digest}`);
+  });
+
+  it.each(changes)("partitions deployment queues when $field changes", ({ model }) => {
+    expect(editorialQueueName("development", model)).not.toBe(editorialQueueName("development", identity));
+    expect(editorialQueueName("production", model)).not.toBe(editorialQueueName("production", identity));
+  });
+
+  it.each(["test", "staging", "", undefined])("preserves the existing queue name in %s", environment => {
+    for (const model of [identity, ...changes.map(change => change.model), undefined]) {
+      expect(editorialQueueName(environment, model)).toBe("editorial_generation");
+    }
+  });
+});
+
+describe("editorial queue initialization", () => {
+  const store = { eval: vi.fn(), hgetall: vi.fn(), get: vi.fn() };
+  const queue = { add: vi.fn(), on: vi.fn(), process: vi.fn(), close: vi.fn().mockResolvedValue(undefined) };
+  const warning = vi.fn();
+  const disabledWarning = "[editorial] Development queue disabled: invalid AI configuration";
+  const settings = ["AI_PROVIDER", "AI_FALLBACK_PROVIDER"] as const;
+  let identity: MockInstance<typeof ai.getEditorialModelIdentity>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("REDIS_URL", "redis://editorial-initialization.invalid:6379");
+    vi.stubEnv("AI_PROVIDER", "gemini");
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
+    initializationRedis.current = store as unknown as Redis;
+    vi.mocked(Bull).mockImplementation(function () { return queue as unknown as Bull.Queue; });
+    identity = vi.spyOn(ai, "getEditorialModelIdentity");
+    vi.spyOn(console, "warn").mockImplementation(warning);
+  });
+
+  afterEach(async () => {
+    try {
+      await closeEditorialJobs();
+      expect(store.eval).not.toHaveBeenCalled();
+      expect(store.hgetall).not.toHaveBeenCalled();
+      expect(store.get).not.toHaveBeenCalled();
+      expect(queue.add).not.toHaveBeenCalled();
+      expect(assertGenerationAdmission).not.toHaveBeenCalled();
+      expect(runGeneration).not.toHaveBeenCalled();
+      expect(executeEditorialRequest).not.toHaveBeenCalled();
+    } finally {
+      initializationRedis.current = undefined;
+      vi.mocked(Bull).mockReset();
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  function expectUninitialized() {
+    expect(getEditorialJobs()).toBeUndefined();
+    expect(Bull).not.toHaveBeenCalled();
+    expect(queue.process).not.toHaveBeenCalled();
+  }
+
+  it.each(settings)("disables development initialization for unsupported %s without a fallback queue", setting => {
+    vi.stubEnv(setting, "PRIVATE_INVALID_PROVIDER_SETTING");
+    expect(initializeEditorialJobs()).toBeUndefined();
+    expectUninitialized();
+    expect(identity).toHaveBeenCalledTimes(1);
+    expect(warning.mock.calls).toEqual([[disabledWarning]]);
+    // The startup guard must not make request identity checks permissive.
+    expect(() => editorialInputHash(scope, prepared)).toThrow(ai.AIGenerationError);
+  });
+
+  it("logs only a fixed warning, never configuration error details or stacks", () => {
+    const error = Object.assign(new ai.AIGenerationError("ai_configuration"), {
+      message: "PRIVATE_CONFIGURATION_DETAIL", stack: "PRIVATE_CONFIGURATION_STACK",
+    });
+    identity.mockImplementationOnce(() => { throw error; });
+    expect(initializeEditorialJobs()).toBeUndefined();
+    expectUninitialized();
+    expect(warning.mock.calls).toEqual([[disabledWarning]]);
+  });
+
+  it.each([
+    { kind: "programmer error", error: new TypeError("Unexpected identity failure") },
+    { kind: "configuration-code lookalike", error: Object.assign(new Error("Unexpected failure"), { code: "ai_configuration" }) },
+    { kind: "non-configuration AI error", error: new ai.AIGenerationError("ai_unavailable") },
+  ])("rethrows a $kind instead of disabling the queue", ({ error }) => {
+    identity.mockImplementationOnce(() => { throw error; });
+    expect(initializeEditorialJobs).toThrow(error);
+    expectUninitialized();
+    expect(warning).not.toHaveBeenCalled();
+  });
+
+  it.each(settings)("initializes the correct partition on an explicit retry after correcting %s", setting => {
+    vi.stubEnv(setting, "unsupported-provider");
+    expect(initializeEditorialJobs()).toBeUndefined();
+    expectUninitialized();
+    vi.stubEnv(setting, setting === "AI_PROVIDER" ? "gemini" : "openrouter");
+    const name = editorialQueueName("development", ai.getEditorialModelIdentity());
+    identity.mockClear();
+
+    const initialized = initializeEditorialJobs();
+    expect(initialized).toBeInstanceOf(EditorialJobs);
+    expect(getEditorialJobs()).toBe(initialized);
+    expect(initializeEditorialJobs()).toBe(initialized);
+    expect(identity).toHaveBeenCalledTimes(1);
+    expect(Bull).toHaveBeenCalledTimes(1);
+    expect(Bull).toHaveBeenCalledWith(name, expect.objectContaining({
+      settings: { maxStalledCount: 0 },
+      defaultJobOptions: { attempts: 1, removeOnComplete: true, removeOnFail: true },
+    }));
+    expect(name).toMatch(/^editorial_generation-development-[a-f0-9]{12}$/);
+    expect(queue.process).toHaveBeenCalledExactlyOnceWith(2, expect.any(Function));
+    expect(warning.mock.calls).toEqual([[disabledWarning]]);
+  });
+
+  it.each(settings)("fails closed in production with invalid %s before joining any queue", setting => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv(setting, "unsupported-provider");
+    expect(initializeEditorialJobs).toThrow(ai.AIGenerationError);
+    expect(identity).toHaveBeenCalledTimes(1);
+    expectUninitialized();
+    expect(warning).not.toHaveBeenCalled();
+  });
+
+  it("starts production on its exact model/version partition, never the legacy queue", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const name = editorialQueueName("production", ai.getEditorialModelIdentity());
+    identity.mockClear();
+    expect(initializeEditorialJobs()).toBeInstanceOf(EditorialJobs);
+    expect(identity).toHaveBeenCalledTimes(1);
+    expect(warning).not.toHaveBeenCalled();
+    expect(Bull).toHaveBeenCalledExactlyOnceWith(name, expect.any(Object));
+    expect(name).toMatch(/^editorial_generation-production-[a-f0-9]{12}$/);
+    expect(queue.process).toHaveBeenCalledExactlyOnceWith(2, expect.any(Function));
+  });
+
+  it("does not swallow configuration errors originating outside the development identity lookup", () => {
+    const error = new ai.AIGenerationError("ai_configuration");
+    vi.mocked(Bull).mockImplementationOnce(function () { throw error; });
+    expect(initializeEditorialJobs).toThrow(error);
+    expect(getEditorialJobs()).toBeUndefined();
+    expect(queue.process).not.toHaveBeenCalled();
+    expect(warning).not.toHaveBeenCalled();
+  });
+});
+
 // Optional integration coverage: a private, disposable Unix-socket Redis process.
 // No configured host/URL, network port, existing DB, or live provider is used.
-const binary = ["/opt/homebrew/bin/redis-server", "/usr/local/bin/redis-server", "/usr/bin/redis-server"].find(existsSync);
-describe.skipIf(!binary)("editorial Redis state machine and Bull worker", () => {
-  let directory: string;
+describe.skipIf(!disposableRedisAvailable)("editorial Redis state machine and Bull worker", () => {
+  let fixture: Awaited<ReturnType<typeof startDisposableRedis>>;
   let socket: string;
-  let child: ChildProcess;
   let store: Redis;
   let jobs: EditorialJobs;
   const add = vi.fn();
@@ -56,27 +240,16 @@ describe.skipIf(!binary)("editorial Redis state machine and Bull worker", () => 
   const allowed = vi.fn(async () => true);
 
   beforeAll(async () => {
-    directory = mkdtempSync(join(tmpdir(), "editorial-test-"));
-    // macOS Unix-socket names must remain below its sockaddr_un path limit.
-    socket = join(directory, "redis.sock");
-    child = spawn(binary!, ["--port", "0", "--unixsocket", socket, "--unixsocketperm", "700", "--save", "", "--appendonly", "no"], { stdio: ["ignore", "pipe", "pipe"] });
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("Local test Redis did not start")), 5000);
-      child.once("error", error => { clearTimeout(timer); reject(error); });
-      child.once("exit", () => { clearTimeout(timer); reject(new Error("Local test Redis exited")); });
-      child.stdout!.on("data", data => {
-        if (String(data).toLowerCase().includes("ready to accept connections")) { clearTimeout(timer); resolve(); }
-      });
-    });
-    store = new Redis({ path: socket, maxRetriesPerRequest: 1 });
-    await store.ping();
+    // Initialization cases reset the constructor double; integration uses Bull.
+    const actual = await vi.importActual<{ default: typeof Bull }>("bull");
+    vi.mocked(Bull).mockImplementation(function (name, options) { return new actual.default(name, options); });
+    fixture = await startDisposableRedis();
+    socket = fixture.socket;
+    store = fixture.client();
+    await store.connect();
   }, 10_000);
   afterAll(async () => {
-    await store?.quit();
-    if (child && child.exitCode === null && child.signalCode === null) {
-      const exited = once(child, "exit"); child.kill("SIGTERM"); await exited;
-    }
-    if (directory) rmSync(directory, { recursive: true, force: true });
+    await fixture?.stop();
   });
   beforeEach(async () => {
     await store.flushdb(); // Exclusively this test's private Unix-socket process.
@@ -232,6 +405,38 @@ describe.skipIf(!binary)("editorial Redis state machine and Bull worker", () => 
     expect(await jobs.enqueue(scope, prepared)).toBe(submittedId);
     expect(execute).not.toHaveBeenCalled();
   });
+
+  it("isolates an overlapping legacy worker while sharing scoped job status and results", async () => {
+    const clients: Redis[] = [];
+    const options: Bull.QueueOptions = {
+      createClient: type => {
+        const client = new Redis({ path: socket, maxRetriesPerRequest: type === "client" ? 1 : null, enableReadyCheck: false });
+        clients.push(client); return client as any;
+      }, settings: { maxStalledCount: 0 },
+      defaultJobOptions: { attempts: 1, removeOnComplete: true, removeOnFail: true },
+    };
+    const legacy = new Bull<{ id: string }>("editorial_generation", options);
+    const current = new Bull<{ id: string }>(editorialQueueName("production", ai.getEditorialModelIdentity()), options);
+    const legacyWork = vi.fn(async (_data: { id: string }) => undefined);
+    const currentJobs = new EditorialJobs(store, current, execute, allowed);
+    const pollingInstance = new EditorialJobs(store, legacy, execute, allowed);
+    try {
+      legacy.process(job => legacyWork(job.data));
+      current.process(job => currentJobs.process(job.data.id));
+      await legacy.add({ id: "legacy-marker" });
+      const id = await currentJobs.enqueue(scope, prepared);
+      await vi.waitFor(async () => expect(await pollingInstance.status(scope, id)).toMatchObject({ status: "completed" }));
+      await vi.waitFor(() => expect(legacyWork).toHaveBeenCalledExactlyOnceWith({ id: "legacy-marker" }));
+      expect(await pollingInstance.result(scope, id)).toEqual(output);
+      expect(await currentJobs.enqueue(scope, prepared)).toBe(id);
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(await pollingInstance.status({ ...scope, userId: "other" }, id)).toBeNull();
+    } finally {
+      currentJobs.abortWorkers();
+      await Promise.all([legacy.close(), current.close()]);
+      clients.forEach(client => client.disconnect());
+    }
+  }, 10_000);
 
   it("actually executes through Bull once and keeps content out of Bull payload/returnvalue", async () => {
     const clients: Redis[] = [];

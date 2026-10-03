@@ -7,9 +7,9 @@ export function NewsletterBanner() {
   return (
     <section className="py-16 lg:py-20" data-testid="section-newsletter" aria-labelledby="newsletter-heading">
       <Reveal className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="grid items-center gap-8 rounded-2xl border bg-accent p-7 sm:p-10 lg:grid-cols-[1fr_1.1fr] lg:gap-12">
+        <div className="grid items-center gap-8 rounded-card border bg-card p-surface-relaxed lg:grid-cols-[1fr_1.1fr] lg:gap-12">
           <div className="flex items-start gap-4">
-            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-card bg-muted text-muted-foreground">
               <Mail className="h-6 w-6" aria-hidden="true" />
             </span>
             <div className="space-y-2">

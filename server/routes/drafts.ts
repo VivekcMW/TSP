@@ -20,6 +20,9 @@ import { CrawlError } from "../services/crawlerFetch";
 import { editorialCancellation, editorialContext, editorialPreferences, reviewUrl, validateEditorialFormat } from "./editorial-context";
 import { generationAccessFailure } from "../services/generation-quota";
 import { runHttpGeneration } from "./generation-operation";
+import { DraftConflictError, draftPreconditionSchema } from "@shared/draft-revision";
+import { PublishingConsentError, publishingConsentSchema } from "@shared/publishing-consent";
+import { findSelfRepetitionMatches } from "@shared/selfRepetition";
 
 const createDraftSchema = z.object({
   inboxItemId: z.string().optional(),
@@ -32,11 +35,20 @@ const createDraftSchema = z.object({
 const updateDraftSchema = z.object({
   content: z.string().trim().min(1).max(5000).optional(),
   status: z.literal("draft").optional(),
-});
+  ...draftPreconditionSchema.partial().shape,
+}).refine(data => data.content === undefined
+  ? data.expectedContent === undefined && data.expectedUpdatedAt === undefined
+  : data.expectedContent !== undefined && data.expectedUpdatedAt !== undefined,
+{ message: "Content edits require the exact baseline content and revision (including null)." });
 
 const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(200).optional(),
   offset: z.coerce.number().int().min(0).optional(),
+});
+
+const repetitionCheckSchema = z.object({
+  content: z.string().trim().min(1).max(5000),
+  excludeId: z.string().uuid().optional(),
 });
 
 const publishingRuleSchema = z.object({
@@ -50,12 +62,15 @@ const publishingRuleSchema = z.object({
 const scheduleDraftSchema = z.object({
   publishAt: z.string().datetime(),
   platforms: z.array(z.enum(ALL_PLATFORM_KEYS)).min(1).max(4).refine(items => new Set(items).size === items.length).optional(),
+  consent: publishingConsentSchema,
 });
 
 const bulkScheduleSchema = z.object({
-  draftIds: z.array(z.string()).min(1).max(50),
+  draftIds: z.array(z.string()).min(1).max(50).refine(ids => new Set(ids).size === ids.length),
   publishAt: z.string().datetime().optional(),
   schedule: z.record(z.string(), z.string().datetime()).optional(),
+  // Validate per item so one stale/missing consent cannot discard sibling outcomes.
+  consents: z.record(z.string(), z.unknown()),
 }).refine(
   (data) => data.publishAt || data.schedule,
   { message: "Either publishAt or schedule must be provided" }
@@ -75,6 +90,7 @@ function generationError(res: Response, error: unknown) {
 }
 
 function schedulingError(res: Response, error: unknown, fallback: string) {
+  if (error instanceof PublishingConsentError) return res.status(409).json({ code: error.code, message: error.message });
   if (error instanceof PublishingPolicyError) return res.status(error.statusCode).json({ code: error.code, message: error.message });
   if (error instanceof ScheduleConflictError) return res.status(409).json({ message: error.message });
   if (error instanceof QueueUnavailableError) {
@@ -84,8 +100,8 @@ function schedulingError(res: Response, error: unknown, fallback: string) {
   return res.status(500).json({ message: fallback });
 }
 
-async function dispatchScheduledTargets(scope: TenantScope, draftId: string, targetIds?: string[]) {
-  const schedule = await storage.getDraftSchedule(scope, draftId);
+async function dispatchScheduledTargets(scope: TenantScope, draftId: string, targetIds?: string[], admittedSchedule?: Awaited<ReturnType<typeof storage.getDraftSchedule>>) {
+  const schedule = admittedSchedule ?? await storage.getDraftSchedule(scope, draftId);
   if (!schedule) throw new ScheduleConflictError("Schedule no longer exists");
   const targets = (await storage.getDraftScheduleTargetsForPublishing(scope, schedule.id))
     .filter((target) => !targetIds || targetIds.includes(target.id));
@@ -131,6 +147,22 @@ export function registerDraftsRoutes(app: Express) {
     } catch (error) {
       console.error("Error fetching published drafts");
       res.status(500).json({ message: "Failed to fetch published drafts" });
+    }
+  });
+
+  // Lexical-only, own history only: a "you've said this before" signal, not a
+  // plagiarism/copyright check and not blocking — callers decide what to do.
+  app.post("/api/drafts/repetition-check", requireDbUser, requirePermission("draft:read:own"), async (req, res) => {
+    const validation = repetitionCheckSchema.safeParse(req.body);
+    if (!validation.success) return res.status(400).json({ message: "Provide the draft content to check." });
+    try {
+      const { tenant: scope } = authedOf(req);
+      const history = await storage.getDrafts(scope, { limit: 200 });
+      const matches = findSelfRepetitionMatches(validation.data.content, history, validation.data.excludeId);
+      res.json({ matches });
+    } catch (error) {
+      console.error("Error checking draft for self-repetition");
+      res.status(500).json({ message: "Failed to check for repeated content" });
     }
   });
 
@@ -198,7 +230,10 @@ export function registerDraftsRoutes(app: Express) {
         return res.status(400).json({ message: "Invalid request data" });
       }
       
-      const updated = await storage.updateDraft(scope, id, validation.data);
+      const { expectedContent, expectedUpdatedAt, ...data } = validation.data;
+      const updated = await storage.updateDraft(scope, id, data, data.content === undefined ? undefined : {
+        expectedContent: expectedContent!, expectedUpdatedAt: expectedUpdatedAt!,
+      });
       
       if (!updated) {
         return res.status(404).json({ message: "Draft not found" });
@@ -206,9 +241,36 @@ export function registerDraftsRoutes(app: Express) {
       
       res.json(updated);
     } catch (error) {
+      if (error instanceof DraftConflictError) return res.status(409).json({ code: "draft_conflict", message: error.message });
       if (error instanceof ScheduleConflictError) return res.status(409).json({ code: "draft_immutable", message: error.message });
       console.error("Error updating draft");
       res.status(500).json({ message: "Failed to update draft" });
+    }
+  });
+
+  // Suffix avoids collisions with /published, /scheduled and /scheduled-info.
+  // Exact-ID read shares the list's receipt-aware projection, not its row cap.
+  app.get("/api/drafts/:id/details", requireDbUser, requirePermission("draft:read:own"), async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      const [draft] = await storage.getDrafts(authedOf(req).tenant, { id: req.params.id, limit: 1 });
+      if (!draft) return res.status(404).json({ message: "Draft not found or no longer accessible" });
+      res.json({ ...draft, publishApprovalHash: undefined, publishApprovedBy: undefined });
+    } catch {
+      res.status(503).json({ message: "Draft details could not be checked. Refresh before publishing." });
+    }
+  });
+
+  // Do not infer deletion from the bounded listing or reuse an error cache.
+  app.get("/api/drafts/:id/editing-snapshot", requireDbUser, requirePermission("draft:read:own"), async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      const draft = await storage.getDraft(authedOf(req).tenant, req.params.id);
+      if (!draft) return res.status(404).json({ message: "Draft not found or no longer accessible" });
+      res.json({ id: draft.id, content: draft.content, updatedAt: draft.updatedAt,
+        platform: draft.platform, tone: draft.tone });
+    } catch {
+      res.status(503).json({ message: "Latest draft could not be checked. Your local text is retained." });
     }
   });
 
@@ -337,10 +399,11 @@ export function registerDraftsRoutes(app: Express) {
 
       const validation = scheduleDraftSchema.safeParse(req.body);
       if (!validation.success) {
+        if (!publishingConsentSchema.safeParse(req.body?.consent).success) throw new PublishingConsentError();
         return res.status(400).json({ message: "Invalid request data", errors: validation.error.errors });
       }
 
-      const { publishAt, platforms } = validation.data;
+      const { publishAt, platforms, consent } = validation.data;
       const publishAtDate = new Date(publishAt);
 
       // Check draft exists
@@ -350,7 +413,7 @@ export function registerDraftsRoutes(app: Express) {
       }
 
       // Schedule the draft
-      const schedule = await storage.scheduleDraftPublish(scope, draftId, publishAtDate, platforms);
+      const schedule = await storage.scheduleDraftPublish(scope, draftId, publishAtDate, platforms, "schedule", consent);
       const targets = await storage.getDraftScheduleTargets(scope, schedule.id);
 
       res.json({
@@ -373,39 +436,52 @@ export function registerDraftsRoutes(app: Express) {
 
       const validation = bulkScheduleSchema.safeParse(req.body);
       if (!validation.success) {
+        if (!req.body?.consents || typeof req.body.consents !== "object" || Array.isArray(req.body.consents)) throw new PublishingConsentError();
         return res.status(400).json({ message: "Invalid request data", errors: validation.error.errors });
       }
 
-      const { draftIds, publishAt, schedule: individualSchedule } = validation.data;
+      const { draftIds, publishAt, schedule: individualSchedule, consents } = validation.data;
 
       const scheduled: string[] = [];
       const failed: string[] = [];
+      const errors: Record<string, { code: string; message: string; status: number }> = Object.create(null);
 
       for (const draftId of draftIds) {
         try {
+          const consent = publishingConsentSchema.safeParse(consents[draftId]);
+          if (!consent.success) throw new PublishingConsentError();
           const publishTime = individualSchedule?.[draftId] || publishAt;
           if (!publishTime) {
             failed.push(draftId);
+            errors[draftId] = { code: "schedule_time_required", message: "Choose a publication time for this draft.", status: 400 };
             continue;
           }
 
           const publishAtDate = new Date(publishTime);
-          await storage.scheduleDraftPublish(scope, draftId, publishAtDate);
+          const draft = await storage.getDraft(scope, draftId);
+          if (!draft) throw new ScheduleConflictError("Draft not found");
+          // Bulk confirmation is one saved destination per draft. Never revive
+          // an old cancelled cross-post's implicit destination set.
+          await storage.scheduleDraftPublish(scope, draftId, publishAtDate, [draft.platform], "schedule", consent.data);
           scheduled.push(draftId);
         } catch (error) {
           console.error("Failed to schedule draft");
           failed.push(draftId);
+          errors[draftId] = error instanceof PublishingConsentError || error instanceof PublishingPolicyError
+            ? { code: error.code, message: error.message, status: error instanceof PublishingConsentError ? 409 : error.statusCode }
+            : { code: "schedule_failed", message: "Could not schedule this draft. Review its current status before trying again.", status: error instanceof ScheduleConflictError ? 409 : 500 };
         }
       }
 
       res.json({
         scheduled,
         failed,
+        errors,
         message: `${scheduled.length} drafts scheduled, ${failed.length} failed`,
       });
     } catch (error) {
       console.error("Error in bulk schedule");
-      res.status(500).json({ message: "Failed to schedule drafts" });
+      schedulingError(res, error, "Failed to schedule drafts");
     }
   });
 
@@ -484,10 +560,11 @@ export function registerDraftsRoutes(app: Express) {
 
       const validation = scheduleDraftSchema.safeParse(req.body);
       if (!validation.success) {
+        if (!publishingConsentSchema.safeParse(req.body?.consent).success) throw new PublishingConsentError();
         return res.status(400).json({ message: "Invalid request data", errors: validation.error.errors });
       }
 
-      const { publishAt, platforms } = validation.data;
+      const { publishAt, platforms, consent } = validation.data;
       const publishAtDate = new Date(publishAt);
 
       // Check schedule exists
@@ -497,7 +574,7 @@ export function registerDraftsRoutes(app: Express) {
       }
 
       // Reschedule
-      const schedule = await storage.scheduleDraftPublish(scope, draftId, publishAtDate, platforms);
+      const schedule = await storage.scheduleDraftPublish(scope, draftId, publishAtDate, platforms, "schedule", consent);
       const targets = await storage.getDraftScheduleTargets(scope, schedule.id);
 
       res.json({
@@ -539,6 +616,8 @@ export function registerDraftsRoutes(app: Express) {
     try {
       const { dbUser, tenant: scope } = authedOf(req);
       const { id: draftId } = req.params;
+      const parsed = publishingConsentSchema.safeParse(req.body?.consent);
+      if (!parsed.success) throw new PublishingConsentError();
 
       // Get draft
       const draft = await storage.getDraft(scope, draftId);
@@ -547,19 +626,10 @@ export function registerDraftsRoutes(app: Express) {
         return res.status(404).json({ message: "Draft not found" });
       }
 
-      if (draft.publishStatus === "published") {
-        return res.status(400).json({ message: "Draft is already published" });
-      }
-
-      // Preserve a current due generation on repeated requests; rescheduling a
-      // future/cancelled schedule creates fresh IDs and retains its platforms.
-      const existing = await storage.getDraftSchedule(scope, draftId);
-      if (!existing || existing.scheduledPublishAt.getTime() > Date.now() || existing.status === "cancelled") {
-        await storage.scheduleDraftPublish(scope, draftId, new Date(), undefined, "publish");
-      } else if (["failed", "unknown", "partial", "simulated", "manual_published", "accepted_unverified"].includes(existing.status)) {
-        throw new ScheduleConflictError("Use per-target retry for failures; unknown outcomes require provider reconciliation");
-      }
-      const result = await dispatchScheduledTargets(scope, draftId);
+      // Consent comparison and the reuse/new-generation decision share the
+      // owner row lock. Dispatch only IDs returned by that admission.
+      const admitted = await storage.scheduleDraftPublish(scope, draftId, new Date(), undefined, "publish", parsed.data);
+      const result = await dispatchScheduledTargets(scope, draftId, admitted.targets.map(target => target.id), admitted);
       res.json({ ...result, message: result.jobIds.length ? "Draft queued for immediate publishing" : "Publication request processed" });
     } catch (error) {
       console.error("Error publishing draft");

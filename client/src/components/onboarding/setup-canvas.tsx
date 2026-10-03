@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Hash, Newspaper, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { cn } from "@/lib/utils";
 import type { PreviewHeadline } from "@/lib/onboarding-suggestions";
 
@@ -60,7 +61,7 @@ export function SetupCanvas({ className, view, count, canFinish, focusReady, isP
                       </p>
                     </div>
                     {headline.link && (
-                      <Button type="button" variant="outline" className="min-h-11 shrink-0" aria-label={`Write a post about ${headline.title}`} onClick={() => finished.onWritePost(headline)}>
+                      <Button type="button" variant="outline" size="sm" aria-label={`Write a post about ${headline.title}`} onClick={() => finished.onWritePost(headline)}>
                         Write a post
                       </Button>
                     )}
@@ -69,7 +70,7 @@ export function SetupCanvas({ className, view, count, canFinish, focusReady, isP
               </ul>
             )}
           </section>
-          <div className="flex flex-col gap-3 sm:flex-row [&_button]:min-h-11">
+          <div className="flex flex-col gap-3 sm:flex-row">
             <Button type="button" onClick={finished.onOpenDiscover}>Open Discover</Button>
             <Button type="button" variant="outline" onClick={finished.onOpenDashboard}>Go to dashboard</Button>
           </div>
@@ -83,13 +84,17 @@ export function SetupCanvas({ className, view, count, canFinish, focusReady, isP
       <div className="mx-auto w-full max-w-4xl space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="font-heading text-2xl font-semibold">Your setup</h1>
-            <p className="text-sm text-muted-foreground">
-              {view === "empty" ? "Pundit fills this in from live news, and you stay in control of every pick." : `${count} selected. Keep what fits, remove the rest, or add your own.`}
-            </p>
+            <div className="flex items-center gap-1">
+              <h1 className="font-heading text-2xl font-semibold">Your setup</h1>
+              <InfoTooltip label="Your setup">
+                Pundit fills this in from live news, and you stay in control of every pick.
+                Keep what fits, remove the rest, or add your own.
+              </InfoTooltip>
+            </div>
+            {view !== "empty" && <p className="text-sm text-muted-foreground">{count} selected.</p>}
           </div>
           <div className="flex flex-col items-end gap-1">
-            <Button type="button" className="min-h-11" onClick={onFinish} disabled={!canFinish || isPending} data-testid="button-complete-onboarding"
+            <Button type="button" onClick={onFinish} disabled={!canFinish || isPending} data-testid="button-complete-onboarding"
               aria-describedby={focusReady && !canFinish ? "finish-setup-hint" : undefined}>
               {isPending ? "Saving…" : "Finish setup"}
             </Button>
@@ -103,7 +108,10 @@ export function SetupCanvas({ className, view, count, canFinish, focusReady, isP
             {PLACEHOLDERS.map(({ icon: Icon, title, text }) => (
               <div key={title} className="flex items-center gap-4 rounded-xl border border-dashed bg-card p-5">
                 <span aria-hidden="true" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground"><Icon className="h-5 w-5" /></span>
-                <div><p className="font-medium">{title}</p><p className="text-sm text-muted-foreground">{text}</p></div>
+                <div className="flex min-w-0 items-center gap-1">
+                  <p className="font-medium">{title}</p>
+                  <InfoTooltip label={title}>{text}</InfoTooltip>
+                </div>
               </div>
             ))}
             <p className="text-sm text-muted-foreground">{focusReady ? "Check what Pundit understood, then build your setup." : "Tell Pundit about your work to begin."}</p>

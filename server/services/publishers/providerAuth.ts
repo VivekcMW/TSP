@@ -33,7 +33,9 @@ const providerEnvMap: Record<string, string[]> = {
   linkedin: ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"],
   twitter: ["TWITTER_CLIENT_ID", "TWITTER_CLIENT_SECRET"],
   reddit: ["REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET"],
-  devto: [], hashnode: [], mastodon: [], bluesky: [], telegram: [], discord: [], slack: [],
+  facebook: ["FACEBOOK_CLIENT_ID", "FACEBOOK_CLIENT_SECRET"],
+  threads: ["THREADS_CLIENT_ID", "THREADS_CLIENT_SECRET"],
+  devto: [], hashnode: [], mastodon: [], bluesky: [], telegram: [], discord: [], slack: [], medium: [],
 };
 const normalize = (provider: string) => provider.trim().toLowerCase() === "x" ? "twitter" : provider.trim().toLowerCase();
 

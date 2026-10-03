@@ -61,7 +61,7 @@ it("counts failed primary transports as well as fallback and repair calls, witho
   vi.stubEnv("AI_FALLBACK_PROVIDER", "openai");
   vi.stubEnv("OPENAI_API_KEY", "mock-only-not-a-credential");
   const pending = brain.generatePlatformReviewsDetailed(article, platforms);
-  // Each 503 gets one 1 s transient retry of the primary before the fallback.
+  // Each explicit 503 gets one 1–1.25s retry before the configured fallback.
   await vi.advanceTimersByTimeAsync(30_000);
   const result = await pending;
   // 32 writer calls (16 posts + one repair each) x (primary + transient retry + fallback).
@@ -80,16 +80,24 @@ it("deduplicates the selected platform work before spending provider tokens", as
   report("generation-duplicate-platforms", { posts: 8 });
 });
 
-it("stops provider calls at the overall deadline and starts no late repairs or queued tones", async () => {
+it("reserves cleanup headroom before the overall deadline and starts no late repairs or queued tones", async () => {
   mode = "slow"; vi.useFakeTimers();
-  const outcome = brain.generatePlatformReviewsDetailed(article, platforms).catch(error => error);
-  await vi.advanceTimersByTimeAsync(60_000);
+  const settled = vi.fn();
+  const outcome = brain.generatePlatformReviewsDetailed(article, platforms).catch(error => { settled(); return error; });
+  const providerDeadline = 60_000 - brain.EDITORIAL_CLEANUP_HEADROOM_MS;
+  await vi.advanceTimersByTimeAsync(providerDeadline - 1);
+  expect(settled).not.toHaveBeenCalled();
+  expect(calls).toBe(6); expect(active).toBe(2);
+  await vi.advanceTimersByTimeAsync(1);
   expect(await outcome).toMatchObject({ code: "ai_timeout" });
-  expect(calls).toBe(8); expect(active).toBe(0); expect(peak).toBe(2);
-  expect(reportedOutputTokens).toBe(42);
+  // Two waves complete at 19s/38s. The third cannot finish its 19s response
+  // before the 55s provider deadline; no fourth wave is ever dispatched.
+  expect(calls).toBe(6); expect(active).toBe(0); expect(peak).toBe(2);
+  expect(reportedOutputTokens).toBe(28);
   await vi.advanceTimersByTimeAsync(60_000);
-  expect(calls).toBe(8); expect(vi.getTimerCount()).toBe(0);
-  report("generation-deadline", { fakeClockDeadlineMs: 60_000, partialResultReturned: false });
+  expect(calls).toBe(6); expect(vi.getTimerCount()).toBe(0);
+  report("generation-deadline", { fakeClockDeadlineMs: 60_000, providerDeadlineMs: providerDeadline,
+    cleanupHeadroomMs: brain.EDITORIAL_CLEANUP_HEADROOM_MS, partialResultReturned: false });
 });
 
 it("stops a quota-failed batch at two started calls and makes no cooldown retry calls", async () => {

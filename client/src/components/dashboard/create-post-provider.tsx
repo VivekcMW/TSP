@@ -3,10 +3,12 @@ import { useLocation } from "wouter";
 import type { InboxItem } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useCreatePostComposer, type CreatePostComposer } from "./use-create-post-composer";
-import { storyLinkFromSearch, storyLinkFromState, withoutArticleParam, withoutStoryLink } from "@/lib/create-story-link";
+import { STORY_LINK_KEY, storyLinkFromSearch, storyLinkFromState, withoutArticleParam, withoutStoryLink } from "@/lib/create-story-link";
 
 export interface CreatePostContextValue {
   openCreate: (item?: InboxItem) => void;
+  hasCreation: boolean;
+  startNewCreate: () => void;
   isOpen: boolean;
   composer: CreatePostComposer;
   closeCreate: () => boolean;
@@ -19,8 +21,8 @@ const CreatePostContext = createContext<CreatePostContextValue | null>(null);
 export function CreatePostProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [location, navigate] = useLocation();
   const [isOpen, setOpen] = useState(false);
-  const composer = useCreatePostComposer(isOpen);
   const onCreateRoute = location === "/dashboard/create";
+  const composer = useCreatePostComposer(isOpen, onCreateRoute);
   useEffect(() => { if (onCreateRoute) setOpen(true); }, [onCreateRoute]);
   // Onboarding's "Write a post" (navigation state) and reminder emails (?article=) arrive with a story link;
   // use it once, then drop it from history.
@@ -28,17 +30,22 @@ export function CreatePostProvider({ children }: Readonly<{ children: ReactNode 
     if (!onCreateRoute) return;
     const { pathname, search } = window.location;
     const link = storyLinkFromState(window.history.state) ?? storyLinkFromSearch(search);
-    if (!link && !new URLSearchParams(search).has("article")) return;
+    const hasStoryState = window.history.state && typeof window.history.state === "object" &&
+      Object.hasOwn(window.history.state, STORY_LINK_KEY);
+    if (!hasStoryState && !new URLSearchParams(search).has("article")) return;
     window.history.replaceState(withoutStoryLink(window.history.state), "", withoutArticleParam(pathname, search));
     if (!link) return;
-    if (composer.busy || composer.dirty) return;
-    composer.setMode("article");
-    composer.setUrl(link);
+    composer.prefillUrl(link);
     // Runs only on arrival at Create; the composer's later state must not re-apply the link.
   }, [onCreateRoute]);
   useEffect(() => { if (composer.generation.reattached) setOpen(true); }, [composer.generation.reattached]);
   const openCreate = (item?: InboxItem) => {
-    composer.prefill(item);
+    if (!composer.prefill(item)) return;
+    setOpen(true);
+    if (!onCreateRoute) navigate("/dashboard/create");
+  };
+  const startNewCreate = () => {
+    if (!composer.startNewCreate()) return;
     setOpen(true);
     if (!onCreateRoute) navigate("/dashboard/create");
   };
@@ -51,7 +58,7 @@ export function CreatePostProvider({ children }: Readonly<{ children: ReactNode 
     return true;
   };
   const contextValue = useMemo(() => ({ openCreate, isOpen }), [openCreate, isOpen]);
-  const providerValue = useMemo(() => ({ ...contextValue, composer, closeCreate: close }), [contextValue, composer, close]);
+  const providerValue = useMemo(() => ({ ...contextValue, composer, hasCreation: composer.hasCreation, startNewCreate, closeCreate: close }), [contextValue, composer, startNewCreate, close]);
   return <CreatePostContext.Provider value={providerValue}>
     {children}
   </CreatePostContext.Provider>;
@@ -61,5 +68,6 @@ export function CreatePostProvider({ children }: Readonly<{ children: ReactNode 
 export function useCreatePost(): CreatePostContextValue {
   const context = useContext(CreatePostContext);
   const { toast } = useToast();
-  return context ?? { isOpen: false, openCreate: () => toast({ title: "Create is unavailable here", description: "Open your workspace to create a draft.", variant: "destructive" }), composer: undefined as never, closeCreate: () => false };
+  const unavailable = () => { toast({ title: "Create is unavailable here", description: "Open your workspace to create a draft.", variant: "destructive" }); };
+  return context ?? { isOpen: false, hasCreation: false, openCreate: unavailable, startNewCreate: unavailable, composer: undefined as never, closeCreate: () => false };
 }

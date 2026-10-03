@@ -23,7 +23,7 @@ export function IndustriesShowcase() {
           <TabsList className="-mx-4 mb-8 flex h-auto justify-start gap-2 overflow-x-auto bg-transparent px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
             {INDUSTRIES.map(industry => (
               <TabsTrigger key={industry.key} value={industry.key}
-                className="min-h-11 shrink-0 rounded-full border bg-background px-4 text-sm font-medium data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                className="min-h-11 shrink-0 rounded-full border bg-card px-4 text-sm font-medium data-[state=active]:border-primary data-[state=active]:bg-accent data-[state=active]:text-accent-foreground">
                 {industry.label}
               </TabsTrigger>
             ))}
@@ -36,13 +36,13 @@ export function IndustriesShowcase() {
                   <img src={photo.src} srcSet={photo.srcSet} sizes="(min-width: 1024px) 600px, 100vw" width={photo.width} height={photo.height}
                     alt={photo.alt} loading="lazy" decoding="async" className="aspect-[4/3] h-auto w-full rounded-2xl bg-muted object-cover shadow-lg" />
                   <div className="space-y-4">
-                    <div className="rounded-xl border bg-background p-5">
+                    <div className="rounded-card border bg-card p-surface-standard">
                       <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         <Newspaper className="h-4 w-4" aria-hidden="true" />Today's story · example
                       </p>
                       <p className="text-lg font-semibold text-foreground">{industry.story}</p>
                     </div>
-                    <div className="rounded-xl border-2 border-primary bg-background p-5">
+                    <div className="rounded-card border border-border bg-card p-surface-standard">
                       <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-primary">
                         <Linkedin className="h-4 w-4" aria-hidden="true" />Your LinkedIn post · example
                       </p>

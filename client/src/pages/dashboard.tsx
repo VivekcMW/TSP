@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Inbox, RefreshCw, AlertTriangle } from "lucide-react";
+import { Inbox, RefreshCw } from "lucide-react";
 import { useIsSignedIn } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -10,7 +10,8 @@ import { InboxListRow } from "@/components/dashboard/inbox-list-row";
 import { InboxDetail } from "@/components/dashboard/inbox-detail";
 import { PersonalTrends } from "@/components/dashboard/personal-trends";
 import { useCreatePost } from "@/components/dashboard/create-post-provider";
-import { PageHeader } from "@/components/dashboard/page-header";
+import { PageBody, PageHeader, PageToolbar } from "@/components/dashboard/page-header";
+import { WorkflowStatus } from "@/components/dashboard/workflow-status";
 import { DashboardEmptyState } from "@/components/dashboard/empty-state";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -58,6 +59,9 @@ export default function DashboardPage() {
     return true;
   });
   const activeItem = filteredItems.find((i) => i.id === activeId) ?? null;
+  let paneState = filteredItems.length > 0 ? "ready" : "empty";
+  if (isLoading) paneState = "loading";
+  else if (isError) paneState = "error";
 
   useEffect(() => {
     if (!activeItem && filteredItems.length > 0) {
@@ -115,13 +119,14 @@ export default function DashboardPage() {
   const handleDismiss = (item: InboxItem) => triage(item, "dismissed");
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <main className="flex min-w-0 flex-col h-full overflow-y-auto">
       <PageHeader
+        width="workbench"
+        className="[@media(max-height:500px)]:static"
         icon={Inbox}
         title="Discover"
         subtitle={`${filteredItems.length} articles curated from your own sources and interests`}
         actions={
-          <>
             <Button
               variant="default"
               onClick={() => void refreshInbox.startRefresh()}
@@ -131,43 +136,50 @@ export default function DashboardPage() {
               <RefreshCw className={`w-4 h-4 mr-2 ${refreshInbox.isLoading ? "animate-spin" : ""}`} />
               {refreshInbox.isLoading ? "Searching..." : "Refresh Articles"}
             </Button>
-            <div className="flex bg-muted rounded-md p-1">
+        }
+      />
+
+      <PageBody as="div" width="workbench" scrollable={false} className="overflow-y-auto [@media(max-height:500px)]:min-h-[24rem]" contentClassName="flex h-full min-h-0 flex-col gap-4">
+        <PageToolbar aria-label="Discover filters" className="shrink-0">
+          <fieldset className="flex min-w-0 flex-wrap gap-2" aria-label="Article status">
               {(["all", "saved", "dismissed"] as FilterType[]).map((f) => (
                 <Button
                   key={f}
-                  variant={filter === f ? "secondary" : "ghost"}
+                  variant={filter === f ? "selected" : "secondary"}
                   size="sm"
                   onClick={() => setFilter(f)}
+                  aria-pressed={filter === f}
                   className="capitalize"
                   data-testid={`button-filter-${f}`}
                 >
                   {f}
                 </Button>
               ))}
-            </div>
-          </>
-        }
-      />
+            </fieldset>
+        </PageToolbar>
 
       <PersonalTrends />
-      <main className="min-h-0 flex-1 overflow-hidden">
+      <div
+        className={`min-h-[16rem] min-w-0 flex-1 rounded-md border bg-card ${paneState === "ready" ? "overflow-hidden" : "overflow-y-auto"}`}
+        data-discover-panes=""
+        data-discover-state={paneState}
+      >
         {isLoading ? (
-          <div className="grid gap-4 p-6">
+          <div className="grid gap-4 p-4 sm:p-6">
             {[1, 2, 3, 4].map((i) => (
-              <Skeleton key={i} className="h-16 w-full max-w-3xl rounded-lg" />
+              <Skeleton key={i} className="h-16 w-full rounded-md" />
             ))}
           </div>
         ) : isError ? (
-          <div className="p-6">
-            <DashboardEmptyState
-              icon={AlertTriangle}
-              title="Discover is taking a breather"
-              description={error instanceof Error ? error.message : "We couldn't load your articles right now."}
-              action={<Button onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" />Try again</Button>}
-            />
+          <div className="p-1">
+            <WorkflowStatus tone="error" title="Discover could not be loaded" actions={<Button variant="outline" size="sm" onClick={() => refetch()}>Try again</Button>}>
+              {error instanceof Error ? error.message : "We couldn't load your articles right now."}
+            </WorkflowStatus>
           </div>
+        ) : filteredItems.length === 0 && filter !== "all" ? (
+          <div className="p-1"><WorkflowStatus tone="neutral" title={`No ${filter} articles found.`} actions={<Button variant="outline" size="sm" onClick={() => setFilter("all")}>Show active articles</Button>} /></div>
         ) : filteredItems.length === 0 ? (
-          <div className="p-6">
+          <div className="min-w-0">
             <DashboardEmptyState
               icon={Inbox}
               title={filter === "all" && needsSetup ? "Tell us what you're interested in"
@@ -185,16 +197,16 @@ export default function DashboardPage() {
                 filter === "all" && (
                   <div className="flex flex-wrap items-center justify-center gap-2">
                     {needsSetup && (
-                      <Link href="/dashboard/settings?tab=content">
-                        <Button variant="outline">Set up your interests</Button>
-                      </Link>
+                      <Button asChild variant="outline">
+                        <Link href="/dashboard/settings?tab=content">Set up your interests</Link>
+                      </Button>
                     )}
                     <Button
+                      size="sm"
                       onClick={() => void refreshInbox.startRefresh()}
                       disabled={refreshInbox.isLoading || refreshInbox.status === "unavailable"}
                       data-testid="button-refresh-empty"
                     >
-                      <RefreshCw className={`w-4 h-4 mr-2 ${refreshInbox.isLoading ? "animate-spin" : ""}`} />
                       {refreshInbox.isLoading ? "Searching..." : "Refresh Articles"}
                     </Button>
                   </div>
@@ -214,7 +226,7 @@ export default function DashboardPage() {
                 />
               ))}
             </div>
-            <div className="hidden flex-1 lg:block">
+            <div className="hidden min-w-0 flex-1 lg:block">
               {activeItem && (
                 <InboxDetail
                   item={activeItem}
@@ -226,7 +238,9 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
-      </main>
+      </div>
+      {refreshInbox.status !== "idle" && <WorkflowStatus tone={refreshInbox.status === "failed" ? "error" : refreshInbox.status === "unavailable" ? "warning" : refreshInbox.status === "completed" ? "success" : "info"} actions={refreshInbox.status === "unavailable" && <Button variant="outline" onClick={refreshInbox.checkAgain}>Check refresh status</Button>}>{refreshJobMessage(refreshInbox)}</WorkflowStatus>}
+      </PageBody>
       
       <Sheet open={isDetailSheetOpen} onOpenChange={setIsDetailSheetOpen}>
         <SheetContent side="right" className="w-full p-0 sm:max-w-lg">
@@ -242,7 +256,6 @@ export default function DashboardPage() {
         </SheetContent>
       </Sheet>
 
-      {refreshInbox.status !== "idle" && <div className="flex flex-wrap items-center gap-2 border-t p-3 text-sm"><output>{refreshJobMessage(refreshInbox)}</output>{refreshInbox.status === "unavailable" && <Button variant="outline" onClick={refreshInbox.checkAgain}>Check refresh status</Button>}</div>}
-    </div>
+    </main>
   );
 }

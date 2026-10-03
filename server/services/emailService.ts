@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { users } from "@shared/schema";
 import { sendAppEmail } from "./email";
+import { emailColor } from "./email/templates";
 export { sendVerificationEmail, sendPasswordResetEmail } from "./email";
 export const emailEnabled = Boolean(process.env.RESEND_API_KEY);
 
@@ -168,26 +169,26 @@ export async function sendWelcomeEmail(
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>Welcome to TheSocialPundit</title>
         </head>
-        <body style="margin: 0; padding: 0; background-color: #f4f4f5; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f4f4f5;">
+        <body style="margin: 0; padding: 0; background-color: ${emailColor("background")}; color: ${emailColor("foreground")}; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: ${emailColor("background")}; color: ${emailColor("foreground")};">
             <tr>
               <td style="padding: 40px 20px;">
-                <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
+                <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; margin: 0 auto; background-color: ${emailColor("card")}; color: ${emailColor("card-foreground")}; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
                   
                   <!-- Header with Logo -->
                   <tr>
-                    <td style="background: linear-gradient(135deg, #1B2A4A 0%, #12203D 100%); padding: 40px 40px 30px 40px; text-align: center;">
+                    <td style="background: ${emailColor("card")}; color: ${emailColor("card-foreground")}; border-bottom: 3px solid ${emailColor("primary")}; padding: 40px 40px 30px 40px; text-align: center;">
                       <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
                         <tr>
                           <td style="text-align: center;">
                             <!-- Logo Icon -->
-                            <div style="display: inline-block; background: rgba(255,255,255,0.15); padding: 12px; border-radius: 12px; margin-bottom: 16px;">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="#ffffff" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <div style="display: inline-block; background: ${emailColor("accent")}; padding: 12px; border-radius: 12px; margin-bottom: 16px;">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="${emailColor("accent-foreground")}" stroke="${emailColor("accent-foreground")}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>
                               </svg>
                             </div>
-                            <h1 style="color: #ffffff; font-size: 28px; font-weight: 700; margin: 0; letter-spacing: -0.5px;">TheSocialPundit</h1>
-                            <p style="color: rgba(255,255,255,0.85); font-size: 14px; margin: 8px 0 0 0; font-weight: 400;">${industryContent.tagline}</p>
+                            <h1 style="color: ${emailColor("foreground")}; font-size: 28px; font-weight: 700; margin: 0; letter-spacing: -0.5px;">TheSocialPundit</h1>
+                            <p style="color: ${emailColor("muted-foreground")}; font-size: 14px; margin: 8px 0 0 0; font-weight: 400;">${industryContent.tagline}</p>
                           </td>
                         </tr>
                       </table>
@@ -197,9 +198,9 @@ export async function sendWelcomeEmail(
                   <!-- Welcome Message -->
                   <tr>
                     <td style="padding: 40px 40px 20px 40px;">
-                      <h2 style="color: #1C1F21; font-size: 24px; font-weight: 600; margin: 0 0 16px 0;">Welcome aboard, ${firstName}!</h2>
-                      <p style="color: #52525b; font-size: 16px; line-height: 1.7; margin: 0;">
-                        You've just joined an exclusive community of <strong style="color: #1C1F21;">${industryContent.communityDesc}</strong> who are building their thought leadership on LinkedIn and Twitter/X.
+                      <h2 style="color: ${emailColor("foreground")}; font-size: 24px; font-weight: 600; margin: 0 0 16px 0;">Welcome aboard, ${firstName}!</h2>
+                      <p style="color: ${emailColor("muted-foreground")}; font-size: 16px; line-height: 1.7; margin: 0;">
+                        You've just joined an exclusive community of <strong style="color: ${emailColor("foreground")};">${industryContent.communityDesc}</strong> who are building their thought leadership on LinkedIn and Twitter/X.
                       </p>
                     </td>
                   </tr>
@@ -207,8 +208,8 @@ export async function sendWelcomeEmail(
                   <!-- What Makes Us Different -->
                   <tr>
                     <td style="padding: 0 40px 30px 40px;">
-                      <div style="background: linear-gradient(135deg, #f2f5fa 0%, #e8edf5 100%); border-radius: 10px; padding: 24px; border-left: 4px solid #1B2A4A;">
-                        <p style="color: #1B2A4A; font-size: 15px; line-height: 1.6; margin: 0; font-style: italic;">
+                      <div style="background: ${emailColor("accent")}; border-radius: 10px; padding: 24px; border-left: 4px solid ${emailColor("primary")};">
+                        <p style="color: ${emailColor("foreground")}; font-size: 15px; line-height: 1.6; margin: 0; font-style: italic;">
                           "Go from industry news to published thought leadership in under 5 minutes. Our AI learns your voice and perspective to create posts that sound authentically you."
                         </p>
                       </div>
@@ -218,19 +219,19 @@ export async function sendWelcomeEmail(
                   <!-- Benefits Section -->
                   <tr>
                     <td style="padding: 0 40px 30px 40px;">
-                      <h3 style="color: #1C1F21; font-size: 18px; font-weight: 600; margin: 0 0 20px 0;">What you get with TheSocialPundit:</h3>
+                      <h3 style="color: ${emailColor("foreground")}; font-size: 18px; font-weight: 600; margin: 0 0 20px 0;">What you get with TheSocialPundit:</h3>
                       
                       <!-- Benefit 1 -->
                       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 16px;">
                         <tr>
                           <td style="width: 48px; vertical-align: top;">
-                            <div style="width: 40px; height: 40px; background: #e8edf5; border-radius: 10px; text-align: center; line-height: 40px;">
-                              <span style="font-size: 13px; font-weight: 700; color: #1B2A4A;">01</span>
+                            <div style="width: 40px; height: 40px; background: ${emailColor("accent")}; border-radius: 10px; text-align: center; line-height: 40px;">
+                              <span style="font-size: 13px; font-weight: 700; color: ${emailColor("accent-foreground")};">01</span>
                             </div>
                           </td>
                           <td style="padding-left: 12px; vertical-align: top;">
-                            <p style="margin: 0 0 4px 0; color: #1C1F21; font-weight: 600; font-size: 15px;">Curated Industry News</p>
-                            <p style="margin: 0; color: #71717a; font-size: 14px; line-height: 1.5;">Get hand-picked articles from ${industryContent.sources} matched to your interests.</p>
+                            <p style="margin: 0 0 4px 0; color: ${emailColor("foreground")}; font-weight: 600; font-size: 15px;">Curated Industry News</p>
+                            <p style="margin: 0; color: ${emailColor("muted-foreground")}; font-size: 14px; line-height: 1.5;">Get hand-picked articles from ${industryContent.sources} matched to your interests.</p>
                           </td>
                         </tr>
                       </table>
@@ -239,13 +240,13 @@ export async function sendWelcomeEmail(
                       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 16px;">
                         <tr>
                           <td style="width: 48px; vertical-align: top;">
-                            <div style="width: 40px; height: 40px; background: #e8edf5; border-radius: 10px; text-align: center; line-height: 40px;">
-                              <span style="font-size: 13px; font-weight: 700; color: #1B2A4A;">02</span>
+                            <div style="width: 40px; height: 40px; background: ${emailColor("accent")}; border-radius: 10px; text-align: center; line-height: 40px;">
+                              <span style="font-size: 13px; font-weight: 700; color: ${emailColor("accent-foreground")};">02</span>
                             </div>
                           </td>
                           <td style="padding-left: 12px; vertical-align: top;">
-                            <p style="margin: 0 0 4px 0; color: #1C1F21; font-weight: 600; font-size: 15px;">AI-Powered "Pundit Brain"</p>
-                            <p style="margin: 0; color: #71717a; font-size: 14px; line-height: 1.5;">Transform any article into an opinionated, engaging post. Choose your tone: Professional, Bold, or Conversational.</p>
+                            <p style="margin: 0 0 4px 0; color: ${emailColor("foreground")}; font-weight: 600; font-size: 15px;">AI-Powered "Pundit Brain"</p>
+                            <p style="margin: 0; color: ${emailColor("muted-foreground")}; font-size: 14px; line-height: 1.5;">Transform any article into an opinionated, engaging post. Choose your tone: Professional, Bold, or Conversational.</p>
                           </td>
                         </tr>
                       </table>
@@ -254,13 +255,13 @@ export async function sendWelcomeEmail(
                       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 16px;">
                         <tr>
                           <td style="width: 48px; vertical-align: top;">
-                            <div style="width: 40px; height: 40px; background: #e8edf5; border-radius: 10px; text-align: center; line-height: 40px;">
-                              <span style="font-size: 13px; font-weight: 700; color: #1B2A4A;">03</span>
+                            <div style="width: 40px; height: 40px; background: ${emailColor("accent")}; border-radius: 10px; text-align: center; line-height: 40px;">
+                              <span style="font-size: 13px; font-weight: 700; color: ${emailColor("accent-foreground")};">03</span>
                             </div>
                           </td>
                           <td style="padding-left: 12px; vertical-align: top;">
-                            <p style="margin: 0 0 4px 0; color: #1C1F21; font-weight: 600; font-size: 15px;">Your Authentic Voice</p>
-                            <p style="margin: 0; color: #71717a; font-size: 14px; line-height: 1.5;">Our AI learns your unique perspective and writing style. Every post sounds like you wrote it yourself.</p>
+                            <p style="margin: 0 0 4px 0; color: ${emailColor("foreground")}; font-weight: 600; font-size: 15px;">Your Authentic Voice</p>
+                            <p style="margin: 0; color: ${emailColor("muted-foreground")}; font-size: 14px; line-height: 1.5;">Our AI learns your unique perspective and writing style. Every post sounds like you wrote it yourself.</p>
                           </td>
                         </tr>
                       </table>
@@ -269,13 +270,13 @@ export async function sendWelcomeEmail(
                       <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
                         <tr>
                           <td style="width: 48px; vertical-align: top;">
-                            <div style="width: 40px; height: 40px; background: #e8edf5; border-radius: 10px; text-align: center; line-height: 40px;">
-                              <span style="font-size: 13px; font-weight: 700; color: #1B2A4A;">04</span>
+                            <div style="width: 40px; height: 40px; background: ${emailColor("accent")}; border-radius: 10px; text-align: center; line-height: 40px;">
+                              <span style="font-size: 13px; font-weight: 700; color: ${emailColor("accent-foreground")};">04</span>
                             </div>
                           </td>
                           <td style="padding-left: 12px; vertical-align: top;">
-                            <p style="margin: 0 0 4px 0; color: #1C1F21; font-weight: 600; font-size: 15px;">5-Minute Workflow</p>
-                            <p style="margin: 0; color: #71717a; font-size: 14px; line-height: 1.5;">Login, browse your curated inbox, generate a post, and publish. Build authority without the time investment.</p>
+                            <p style="margin: 0 0 4px 0; color: ${emailColor("foreground")}; font-weight: 600; font-size: 15px;">5-Minute Workflow</p>
+                            <p style="margin: 0; color: ${emailColor("muted-foreground")}; font-size: 14px; line-height: 1.5;">Login, browse your curated inbox, generate a post, and publish. Build authority without the time investment.</p>
                           </td>
                         </tr>
                       </table>
@@ -286,30 +287,30 @@ export async function sendWelcomeEmail(
                   <tr>
                     <td style="padding: 10px 40px 40px 40px; text-align: center;">
                       <a href="${APP_URL}/dashboard" 
-                         style="display: inline-block; background: linear-gradient(135deg, #1B2A4A 0%, #12203D 100%); color: #ffffff; 
+                            style="display: inline-block; background: ${emailColor("primary")}; color: ${emailColor("primary-foreground")}; 
                                 padding: 16px 40px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;
-                                box-shadow: 0 4px 14px rgba(124, 59, 237, 0.4);">
+                              box-shadow: 0 4px 14px ${emailColor("border")};">
                         Start Building Your Authority
                       </a>
-                      <p style="color: #a1a1aa; font-size: 13px; margin: 16px 0 0 0;">Your curated inbox is waiting for you</p>
+                      <p style="color: ${emailColor("muted-foreground")}; font-size: 13px; margin: 16px 0 0 0;">Your curated inbox is waiting for you</p>
                     </td>
                   </tr>
                   
                   <!-- Divider -->
                   <tr>
                     <td style="padding: 0 40px;">
-                      <div style="border-top: 1px solid #e4e4e7;"></div>
+                      <div style="border-top: 1px solid ${emailColor("border")};"></div>
                     </td>
                   </tr>
                   
                   <!-- Footer -->
                   <tr>
                     <td style="padding: 30px 40px; text-align: center;">
-                      <p style="color: #71717a; font-size: 14px; margin: 0 0 8px 0;">
+                      <p style="color: ${emailColor("muted-foreground")}; font-size: 14px; margin: 0 0 8px 0;">
                         Questions? Just reply to this email - we're here to help.
                       </p>
-                      <p style="color: #a1a1aa; font-size: 13px; margin: 0;">
-                        <a href="${APP_URL}" style="color: #1B2A4A; text-decoration: none; font-weight: 500;">thesocialpundit.com</a>
+                      <p style="color: ${emailColor("muted-foreground")}; font-size: 13px; margin: 0;">
+                        <a href="${APP_URL}" style="color: ${emailColor("primary")}; text-decoration: none; font-weight: 500;">thesocialpundit.com</a>
                         <span style="margin: 0 8px;">|</span>
                         Build your authority in ${industryContent.label}
                       </p>
@@ -322,10 +323,10 @@ export async function sendWelcomeEmail(
                 <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; margin: 20px auto 0 auto;">
                   <tr>
                     <td style="text-align: center;">
-                      <p style="color: #a1a1aa; font-size: 12px; margin: 0;">
+                      <p style="color: ${emailColor("muted-foreground")}; font-size: 12px; margin: 0;">
                         You received this email because you signed up at TheSocialPundit.
                         <br>
-                        <a href="${APP_URL}/dashboard/settings?tab=notifications" style="color: #a1a1aa; text-decoration: underline;">Manage email preferences</a>
+                        <a href="${APP_URL}/dashboard/settings?tab=notifications" style="color: ${emailColor("primary")}; text-decoration: underline;">Manage email preferences</a>
                       </p>
                     </td>
                   </tr>

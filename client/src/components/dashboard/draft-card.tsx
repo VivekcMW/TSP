@@ -113,7 +113,7 @@ export function DraftCard({
                 data-testid={`checkbox-select-${draft.id}`}
               />
             )}
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-secondary/15 text-secondary">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-info-subtle text-info">
               <Icon className="h-4 w-4" />
             </div>
             <div className="min-w-0">
@@ -165,7 +165,7 @@ export function DraftCard({
         </div>
 
         {isScheduled && scheduledFor && (
-          <div className="mb-3 inline-flex items-center gap-1.5 rounded-md bg-secondary/10 px-2.5 py-1 text-xs font-medium text-secondary">
+          <div className="mb-3 inline-flex items-center gap-1.5 rounded-md bg-info-subtle px-2.5 py-1 text-xs font-medium text-info">
             <CalendarClock className="h-3.5 w-3.5" />
             Scheduled for {formatCalendarDate(scheduledFor, timeZone, { month: "short", day: "numeric", year: "numeric" })} at {formatCalendarTime(scheduledFor, timeZone)} ({timeZone})
           </div>

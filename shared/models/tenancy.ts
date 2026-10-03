@@ -122,3 +122,42 @@ export type TenantMember = typeof tenantMembers.$inferSelect;
 export type InsertTenantMember = typeof tenantMembers.$inferInsert;
 export type AuditLogEntry = typeof auditLog.$inferSelect;
 export type InsertAuditLogEntry = typeof auditLog.$inferInsert;
+
+/** Roles an invitation may grant. Owner is exactly one per tenant and is never invited. */
+export const INVITABLE_TENANT_ROLES = ["member", "manager", "admin"] as const;
+export type InvitableTenantRole = (typeof INVITABLE_TENANT_ROLES)[number];
+
+export const TENANT_INVITATION_STATUSES = ["pending", "accepted", "revoked"] as const;
+export type TenantInvitationStatus = (typeof TENANT_INVITATION_STATUSES)[number];
+
+/**
+ * Invites a collaborator into an EXISTING tenant with a role — distinct from
+ * the unrelated friend_invitations growth feature, which only ever creates
+ * brand new, separate accounts and never tenant membership.
+ *
+ * Deliberately not tenant-RLS (see 0050): server/services/teamInvitations.ts
+ * enforces tenant/role authorization explicitly, since accepting a token must
+ * resolve the invitation before the accepting user has any membership (and
+ * therefore no app.tenant_id) for that tenant.
+ */
+export const tenantInvitations = pgTable(
+  "tenant_invitations",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+    invitedEmail: varchar("invited_email", { length: 254 }).notNull(),
+    role: varchar("role").notNull(),
+    invitedByUserId: varchar("invited_by_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    /** Lowercase hex SHA-256 of a random bearer token; the raw token is never persisted. */
+    tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+    status: varchar("status").notNull().default("pending"),
+    acceptedByUserId: varchar("accepted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  },
+  (table) => [index("idx_tenant_invitations_tenant").on(table.tenantId, table.status)],
+);
+
+export type TenantInvitation = typeof tenantInvitations.$inferSelect;
+export type InsertTenantInvitation = typeof tenantInvitations.$inferInsert;

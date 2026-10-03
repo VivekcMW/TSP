@@ -58,9 +58,15 @@ test("authenticated workspace routes load without overflow", async ({ page }) =>
   await fields.nth(1).fill(process.env.E2E_TEST_PASSWORD!);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/dashboard/);
-  for (const route of ["/dashboard", "/dashboard/discover", "/dashboard/drafts", "/dashboard/calendar", "/dashboard/performance", "/dashboard/connections", "/dashboard/preferences"]) {
+  for (const route of ["/dashboard", "/dashboard/discover", "/dashboard/drafts", "/dashboard/calendar", "/dashboard/connections", "/dashboard/preferences"]) {
     await page.goto(route);
     await expect(page.locator("h1").first()).toBeVisible();
+    await expect(page.locator('a[href="/dashboard/performance"], a[href="/dashboard/analytics"]')).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  }
+  for (const route of ["/dashboard/performance", "/dashboard/analytics"]) {
+    await page.goto(route);
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
   }
 });

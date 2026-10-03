@@ -34,6 +34,10 @@ const adapters: Record<string, PublishingCapability> = {
   telegram: live("apikey", 4096),
   discord: live("webhook", 2000, audiovisual, 8, 8 * 1024 * 1024),
   slack: { ...live("webhook", 4000), receipt: "unavailable" },
+  facebook: live("oauth2", 63_206, images, 1, 10 * 1024 * 1024),
+  // Container/publish requires a publicly fetchable media URL; text-only until attachments have one.
+  threads: live("oauth2", 500),
+  medium: live("apikey", 5000, images, 1, 5 * 1024 * 1024),
 };
 const manual: PublishingCapability = { live: false, text: false, schedule: false, auth: "manual", maxCharacters: 5000, mediaTypes: [], maxMedia: 0, maxMediaBytes: 0, receipt: "unavailable", verifyDelivery: false };
 export const PUBLISHING_CAPABILITIES: Readonly<Record<string, PublishingCapability>> = Object.fromEntries(

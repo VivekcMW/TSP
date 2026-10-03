@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { fieldLabelRowClassName, fieldTriggerClassName } from "@/components/ui/field";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
@@ -42,13 +43,15 @@ export function SearchableSelect({ label, value, options, onChange, searchPlaceh
 
   return (
     <div className={cn("flex w-full flex-col gap-2", className)}>
-      <span id={labelId} className={labelClassName}>{label}</span>
+      <div className={fieldLabelRowClassName}>
+        <span id={labelId} className={cn("min-w-0 break-words text-sm font-medium leading-5", labelClassName)}>{label}</span>
+      </div>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button type="button" variant="outline" role="combobox" aria-expanded={open} aria-haspopup="listbox"
-            aria-labelledby={`${labelId} ${valueId}`} className="min-h-11 w-full justify-between text-base font-normal">
-            <span id={valueId} className="truncate">{value}</span>
-            <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-60" aria-hidden="true" />
+            aria-labelledby={`${labelId} ${valueId}`} className={fieldTriggerClassName}>
+            <span id={valueId} className="min-w-0 truncate">{value}</span>
+            <ChevronDown className="h-4 w-4 shrink-0 opacity-60" aria-hidden="true" />
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-[--radix-popover-trigger-width] p-0">

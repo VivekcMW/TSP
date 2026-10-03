@@ -43,8 +43,15 @@ test("sign in, create a draft, bulk schedule it, and drag-reschedule it", async 
   expect(draft.status).toBe(200);
   createdDraftIds.push(draft.body.id);
 
-  await page.goto("/dashboard/drafts");
-  await page.getByRole("checkbox", { name: "Select Bluesky draft" }).first().click();
+  await page.goto(`/dashboard/content?draft=${encodeURIComponent(draft.body.id)}`);
+  const profile = await (await page.request.get("/api/profile")).json();
+  if (profile.requirePublishReview) {
+    await page.getByTestId(`button-post-${draft.body.id}`).click();
+    await page.getByRole("button", { name: "I reviewed this exact draft — approve publishing" }).click();
+    await expect(page.getByTestId("button-publish-now")).toBeEnabled();
+    await page.getByTestId("button-cancel-post").click();
+  }
+  await page.getByTestId(`checkbox-select-${draft.body.id}`).click();
   await page.getByRole("button", { name: /Schedule 1 selected/ }).click();
   const scheduleDate = new Date();
   scheduleDate.setDate(scheduleDate.getDate() + 2);
@@ -54,19 +61,25 @@ test("sign in, create a draft, bulk schedule it, and drag-reschedule it", async 
   const movedDateKey = movedDate.toISOString().slice(0, 10);
   await page.locator("#bulk-schedule-date").fill(dateKey);
   await page.locator("#bulk-schedule-time").fill("10:45");
+  await page.getByRole("checkbox", { name: "I confirm these texts, destinations and timezone." }).check();
   await page.getByRole("button", { name: "Schedule 1 drafts" }).click();
   await expect(page.getByText("Bulk Schedule Complete", { exact: true })).toBeVisible();
 
   await page.goto("/dashboard/calendar");
   await expect(page.getByRole("heading", { name: "Publishing Calendar" })).toBeVisible();
   const beforeMove = await page.evaluate(async (draftId) => fetch("/api/drafts/scheduled?limit=100").then((response) => response.json()).then((data) => data.items.find((item: { draftId: string }) => item.draftId === draftId)?.scheduledPublishAt), draft.body.id);
-  const postCard = page.getByText(content).locator("..");
+  const postCard = page.locator('article[draggable="true"]').filter({ hasText: content });
   await postCard.dispatchEvent("dragstart");
   await page.locator(`[data-calendar-day="${movedDateKey}"]`).dispatchEvent("drop");
   await postCard.dispatchEvent("dragend");
+  const confirmation = page.getByRole("dialog");
+  await expect(confirmation.getByLabel("Publication Date")).toHaveValue(movedDateKey);
+  await confirmation.getByRole("checkbox", { name: "I confirm this exact text, destinations and timezone." }).check();
+  await confirmation.getByRole("button", { name: "Schedule Article", exact: true }).click();
+  await expect(confirmation).toHaveCount(0);
   const scheduled = await page.evaluate(async (draftId) => fetch("/api/drafts/scheduled?limit=100").then((response) => response.json()).then((data) => data.items.find((item: { draftId: string }) => item.draftId === draftId)), draft.body.id);
   expect(scheduled.scheduledPublishAt).not.toBe(beforeMove);
-  expect(scheduled.scheduledPublishAt).toMatch(/T10:45:00\.000Z$/);
+  expect(new Intl.DateTimeFormat("en-GB", { timeZone: profile.timezone || "UTC", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(scheduled.scheduledPublishAt))).toBe("10:45");
 });
 
 test("uploads media and retains it on a draft", async ({ page }) => {
@@ -118,14 +131,14 @@ test("tracks a draft through scheduling, observability, and cancellation", async
   createdDraftIds.push(draft.body.id);
 
   const publishAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-  const scheduled = await page.evaluate(async ({ draftId, publishAt }) => {
+  const scheduled = await page.evaluate(async ({ draftId, publishAt, content, updatedAt }) => {
     const response = await fetch(`/api/drafts/${draftId}/schedule`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ publishAt }),
+      body: JSON.stringify({ publishAt, consent: { expectedContent: content, expectedUpdatedAt: updatedAt, expectedSchedule: null } }),
     });
     return { status: response.status, body: await response.json() };
-  }, { draftId: draft.body.id, publishAt });
+  }, { draftId: draft.body.id, publishAt, content: draft.body.content, updatedAt: draft.body.updatedAt });
 
   expect(scheduled.status).toBe(200);
   expect(scheduled.body.status).toBe("scheduled");

@@ -1,6 +1,6 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useSyncExternalStore } from "react";
 import { Switch, Route, useLocation, useSearch, Router as WouterRouter } from "wouter";
-import { queryClient } from "./lib/queryClient";
+import { accountCache, queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { HelmetProvider } from "react-helmet-async";
 import { Toaster } from "@/components/ui/toaster";
@@ -35,10 +35,10 @@ import { SignInPage, SignUpPage, VerifyEmailPage } from "@/pages/auth";
 const OverviewPage = lazy(() => import("@/pages/overview"));
 const DashboardPage = lazy(() => import("@/pages/dashboard"));
 const DraftsPage = lazy(() => import("@/pages/drafts"));
-const PerformancePage = lazy(() => import("@/pages/performance"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const CalendarPage = lazy(() => import("@/pages/calendar"));
 const CreatePostPage = lazy(() => import("@/pages/create-post"));
+const AcceptInvitePage = lazy(() => import("@/pages/accept-invite"));
 const AdminOverviewPage = lazy(() => import("@/pages/admin/overview"));
 const AdminTenantsPage = lazy(() => import("@/pages/admin/tenants"));
 const AdminUsersPage = lazy(() => import("@/pages/admin/users"));
@@ -98,9 +98,10 @@ function DashboardRouter() {
             <Route path="/dashboard/content" component={DraftsPage} />
             <Route path="/dashboard/drafts"><DashboardRedirect to="/dashboard/content" /></Route>
             <Route path="/dashboard/published"><DashboardRedirect to="/dashboard/content?view=published" /></Route>
-            <Route path="/dashboard/performance" component={PerformancePage} />
+            {/* Performance is paused; keep old bookmarks usable without exposing the page. */}
+            <Route path="/dashboard/performance"><DashboardRedirect to="/dashboard" /></Route>
             <Route path="/dashboard/connections"><DashboardRedirect to="/dashboard/settings?tab=integrations" /></Route>
-            <Route path="/dashboard/analytics"><DashboardRedirect to="/dashboard/performance" /></Route>
+            <Route path="/dashboard/analytics"><DashboardRedirect to="/dashboard" /></Route>
             <Route path="/dashboard/preferences"><DashboardRedirect to="/dashboard/settings?tab=publishing" /></Route>
             <Route path="/dashboard/plugins"><DashboardRedirect to="/dashboard/settings?tab=publishing" /></Route>
             <Route path="/dashboard/profile"><DashboardRedirect to="/dashboard/settings?tab=content" /></Route>
@@ -108,6 +109,7 @@ function DashboardRouter() {
             <Route path="/dashboard/settings" component={SettingsPage} />
             <Route path="/dashboard/billing"><DashboardRedirect to="/dashboard/settings?tab=billing" /></Route>
             <Route path="/dashboard/calendar" component={CalendarPage} />
+            <Route path="/dashboard/accept-invite" component={AcceptInvitePage} />
             <Route component={NotFound} />
           </Switch>
           </Suspense>
@@ -145,6 +147,8 @@ function AdminRouter() {
 function AppRoutes() {
   const { user, isPending } = useAuth();
   const [location, setLocation] = useLocation();
+  const scope = useSyncExternalStore(accountCache.subscribe, accountCache.getSnapshot);
+  const accountId = user?.id ?? null;
 
   const authLoaded = !isPending;
   const signedIn = !!user;
@@ -162,10 +166,20 @@ function AppRoutes() {
     enabled: authLoaded && sessionAvailable,
   });
 
+  const tenantId = profile?.tenantId;
+  useLayoutEffect(() => {
+    if (authLoaded && sessionAvailable && tenantId) void accountCache.synchronizeTenant(accountId, tenantId);
+  }, [accountId, authLoaded, sessionAvailable, tenantId]);
+  // Hide old descendants on the detecting render, BEFORE effects clear their
+  // shared keys. A composer-only key change still reads the previous inbox.
+  // Availability failures keep the last resolved tenant and local work intact.
+  const boundaryPending = scope.pending || scope.signingOut || scope.accountId !== accountId ||
+    (sessionAvailable && Boolean(tenantId) && scope.tenantId !== tenantId);
+
   // `undefined` data means "not resolved yet" — more reliable than isLoading,
   // which is false for a query that is enabled but has not started, and which
   // previously let a "registration incomplete" screen flash before the fetch.
-  const gate = resolveGate({
+  const gate = boundaryPending ? "loading" : resolveGate({
     authLoaded,
     signedIn: sessionAvailable,
     me: {
@@ -235,7 +249,7 @@ function AppRoutes() {
     case "dashboard":
       // A failed background refresh must not destroy Settings or Create state.
       // Query errors remain intact: publishing readiness still fails closed.
-      return <AccountAvailability unavailable={Boolean(dbUserError || profileError)}>
+      return <AccountAvailability key={JSON.stringify([scope.accountId, scope.tenantId])} unavailable={Boolean(dbUserError || profileError)}>
         {location.startsWith("/admin") ? <AdminRouter /> : <DashboardRouter />}
       </AccountAvailability>;
 

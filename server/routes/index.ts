@@ -4,6 +4,8 @@ import { requireDbUser } from "../middlewares/requireDbUser";
 import { registerLinkedInAnalyticsAuth } from "../services/linkedinAnalyticsAuth";
 import { registerRedditAuth } from "../services/redditAuth";
 import { registerTwitterAuth } from "../services/twitterAuth";
+import { registerFacebookAuth } from "../services/facebookAuth";
+import { registerThreadsAuth } from "../services/threadsAuth";
 
 import { registerAuthRoutes } from "./auth";
 import { registerProfileRoutes } from "./profile";
@@ -21,9 +23,11 @@ import { registerMediaRoutes } from "./media";
 import { registerBillingRoutes } from "./billing";
 import { registerEmailPreferenceRoutes } from "./email-preferences";
 import { registerNewsletterRoutes } from "./newsletter";
+import { registerInvitationRoutes } from "./invitations";
 import { registerWebSubRoutes } from "./websub";
 import { registerProfileSocialLinksRoutes } from "./profile-social-links";
 import { registerEditorialVoiceRoutes } from "./editorial-voice";
+import { registerTeamRoutes } from "./team";
 
 /**
  * Mounts the HTTP API.
@@ -38,6 +42,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerLinkedInAnalyticsAuth(app, requireDbUser);
   registerRedditAuth(app, requireDbUser);
   registerTwitterAuth(app, requireDbUser);
+  registerFacebookAuth(app, requireDbUser);
+  registerThreadsAuth(app, requireDbUser);
 
   registerAuthRoutes(app);
   registerProfileRoutes(app);
@@ -55,9 +61,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerBillingRoutes(app);
   registerEmailPreferenceRoutes(app);
   registerNewsletterRoutes(app);
+  registerInvitationRoutes(app);
   registerWebSubRoutes(app);
   registerProfileSocialLinksRoutes(app);
   registerEditorialVoiceRoutes(app);
+  registerTeamRoutes(app);
 
   return httpServer;
 }

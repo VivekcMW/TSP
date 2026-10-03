@@ -17,6 +17,7 @@ import DataRetentionPage from "@/pages/data-retention";
 import AIDataProcessingPage from "@/pages/ai-data-processing";
 import CookiePolicyPage from "@/pages/cookies";
 import EmailPreferencesPage from "@/pages/email-preferences";
+import InvitationPreferencesPage from "@/pages/invitation-preferences";
 import NewsletterPage from "@/pages/newsletter";
 import CaseStudiesPage from "@/pages/case-studies";
 import CareersPage from "@/pages/careers";
@@ -51,6 +52,7 @@ export function PublicRoutes({ signInRoutes, location }: { signInRoutes?: React.
       <Route path="/ai-data-processing" component={AIDataProcessingPage} />
       <Route path="/cookies" component={CookiePolicyPage} />
       <Route path="/email-preferences" component={EmailPreferencesPage} />
+      <Route path="/invitation-preferences" component={InvitationPreferencesPage} />
       <Route path="/newsletter" component={NewsletterPage} />
       <Route path="/case-studies" component={CaseStudiesPage} />
       <Route path="/careers" component={CareersPage} />

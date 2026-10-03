@@ -51,9 +51,11 @@ beforeAll(async () => {
         } else throw new Error("Unexpected request");
         return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
       };
-      const data = { "/api/inbox": window.__records.slice(0, 500), "/api/drafts": [],
+      const data = { "/api/inbox": window.__records.slice(0, 500), "/api/drafts": [], "/api/drafts/published": [],
         "/api/drafts/scheduled": { items: [] }, "/api/me": { firstName: "Reader" },
-        "/api/profile": { enabledPlatforms: ["linkedin"], defaultPlatform: "linkedin" }, "/api/integrations": [] };
+        "/api/profile": { enabledPlatforms: ["linkedin"], defaultPlatform: "linkedin" }, "/api/integrations": [],
+        "/api/analytics/summary": { connected: { linkedin: false, twitter: false }, combined: {}, availability: {}, linkedin: null, twitter: null, lastSync: null },
+        "/api/team/context": { tenantId: "t", tenantName: "Personal", tenantKind: "personal", role: "owner", memberships: [] } };
       for (const [key, value] of Object.entries(data)) queryClient.setQueryData([key], value);
       if (window.__refreshJob) queryClient.setQueryData(["inbox-refresh-job"], window.__refreshJob);
       window.__cachedInbox = () => queryClient.getQueryData(["/api/inbox"]);

@@ -4,13 +4,16 @@ import { reconciliationSchema } from "./publishing-reconciliation";
 import { aggregateScheduleStatus } from "../server/jobs/schedule-state";
 
 describe("publishing capability and reconciliation contract", () => {
-  it("exposes only the ten implemented direct adapters", () => {
-    expect(DIRECT_PUBLISH_PLATFORMS).toHaveLength(10);
+  it("exposes the implemented direct adapters", () => {
+    expect(DIRECT_PUBLISH_PLATFORMS).toHaveLength(13);
     expect(DIRECT_PUBLISH_PLATFORMS).toContain("slack");
     expect(DIRECT_PUBLISH_PLATFORMS).toContain("reddit");
+    expect(DIRECT_PUBLISH_PLATFORMS).toContain("facebook");
+    expect(DIRECT_PUBLISH_PLATFORMS).toContain("threads");
+    expect(DIRECT_PUBLISH_PLATFORMS).toContain("medium");
     expect(new Set(PUBLISHING_PLATFORM_KEYS).size).toBe(PUBLISHING_PLATFORM_KEYS.length);
     expect(publishingCapability("toString")).toBeUndefined();
-    expect(publishingCapability("threads")?.live).toBe(false);
+    expect(publishingCapability("substack")?.live).toBe(false);
   });
   it("does not claim Reddit media or Slack delivery receipts", () => {
     expect(publishingCapability("reddit")).toMatchObject({ maxMedia: 0, mediaTypes: [] });

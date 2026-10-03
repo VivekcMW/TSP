@@ -1,5 +1,11 @@
 # Core-brain release handoff — 2026-09-19
 
+> **Current UI/UX checkpoint:** see [the October 1 local release handoff](UI_UX_RELEASE_HANDOFF_2026-10-01.md).
+> Local UI/theme acceptance is green; its production rollout is blocked on an
+> explicit scope, drained AI cutover, rollback and bounded live acceptance.
+> Authorization and evidence below are historical, not blanket approval for
+> the October release or the entire current dirty worktree.
+
 > **Retired hosting (2026-09-23):** production now runs on Cloud Run. Vercel and Render references below describe the retired setup. See [production-cloud-run.md](production-cloud-run.md).
 
 The user has now authorized committing, pushing, deploying and testing the fixes.

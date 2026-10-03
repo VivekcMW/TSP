@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UserProfile } from "@shared/schema";
-import { canChangeSchedule, defaultSchedulePlatforms, draftStatusGroup, fetchDraftPublishStatus, fetchPublishingSchedules, publicationOutcome, publishingBlocker, recheckPublishingRecovery, selectionBlockers, subscribePublishingRecovery, type PublishingSchedule, type ReadinessData } from "./publishing";
+import type { Draft, UserProfile } from "@shared/schema";
+import { platformTextValidation } from "@shared/editorial";
+import { usablePost } from "./editorial";
+import { canChangeSchedule, defaultSchedulePlatforms, draftStatusGroup, fetchDraftDetails, fetchDraftPublishStatus, fetchPublishingSchedules, publicationOutcome, publishingBlocker, recheckPublishingRecovery, scheduleConfirmationKey, selectionBlockers, subscribePublishingRecovery, type PublishingSchedule, type ReadinessData } from "./publishing";
+import { capturePublishingConsent, assertPublishingConsent, PublishingConsentError } from "@shared/publishing-consent";
 
 const draft = { platform: "linkedin", content: "A post to review.", platformPublishRules: {} };
 const ready = (): ReadinessData => ({
@@ -14,6 +17,25 @@ function schedule(states: string[], status = "scheduled"): PublishingSchedule {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("publishing outcome safety", () => {
+  it("reads exact full details independently of list pagination and rejects wrong-ID or narrow editing snapshots", async () => {
+    const id = "older/é + ?";
+    const detail = { ...draft, id, tone: "professional", publishStatus: "legacy_unverified", updatedAt: null, media: [], publishedAt: null };
+    const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(detail)))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...detail, id: "other" })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id, content: draft.content, platform: "linkedin", tone: "professional", updatedAt: null })));
+    vi.stubGlobal("fetch", fetch);
+    const controller = new AbortController();
+    expect(await fetchDraftDetails(id, controller.signal)).toEqual(detail);
+    expect(fetch.mock.calls[0][0]).toBe(`/api/drafts/${encodeURIComponent(id)}/details`);
+    expect(fetch.mock.calls[0][1].cache).toBe("no-store");
+    controller.abort(); expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+    await expect(fetchDraftDetails(id)).rejects.toThrow("could not be verified");
+    await expect(fetchDraftDetails(id)).rejects.toThrow("could not be verified");
+  });
+  it.each([404, 403, 503])("preserves detail-read HTTP %s instead of treating it as a list miss", async status => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: "Unavailable" }), { status })));
+    await expect(fetchDraftDetails("d")).rejects.toMatchObject({ status });
+  });
   it.each(["partial", "unknown", "skipped", "failed", "unexpected", "", null])("retains %s in attention", (status) => expect(draftStatusGroup(status)).toBe("attention"));
   it("requires every persisted target and parent to confirm publication", () => {
     expect(publicationOutcome(schedule(["published", "queued"]))).toBe("pending");
@@ -76,6 +98,31 @@ describe("publishing outcome safety", () => {
 });
 
 describe("real publishing readiness", () => {
+  it.each([
+    { name: "long URL", content: `Read https://news.test/${"x".repeat(700)}` },
+    { name: "multiple URLs", content: "https://a.test/a https://b.test/b!" },
+    { name: "Unicode at max", content: "😀".repeat(140) },
+    { name: "Unicode over max", content: "😀".repeat(140) + "!" },
+    { name: "blank", content: " \n\t" },
+    { name: "raw cap", content: "https://a.test/" + "x".repeat(5000) },
+  ])("agrees with Create and shared validation for $name", ({ content }) => {
+    const validation = platformTextValidation(content, "twitter", 280);
+    const blocked = publishingBlocker("twitter", { ...draft, content }, ready());
+    expect(blocked === null).toBe(validation.error === null);
+    expect(usablePost(content, 280, "twitter")).toBe(blocked === null);
+  });
+  it("uses weighted custom minimum/maximum values, not raw link length", () => {
+    const data = ready();
+    const linked = { ...draft, content: `https://a.test/${"x".repeat(700)} https://b.test/a` };
+    data.rules = [{ platform: "twitter", enabled: true, minCharacters: 47, maxCharacters: 47 }];
+    expect(publishingBlocker("twitter", linked, data)).toBeNull();
+    data.rules[0].minCharacters = 48;
+    expect(publishingBlocker("twitter", linked, data)).toContain("at least 48");
+    data.rules[0] = { platform: "twitter", enabled: true, maxCharacters: 46 };
+    expect(publishingBlocker("twitter", linked, data)).toContain("47/46");
+    data.rules[0].maxCharacters = 5000;
+    expect(publishingBlocker("twitter", { ...draft, content: "x".repeat(281) }, data)).toContain("281/280");
+  });
   it("distinguishes simulation, unverified acceptance and manual claims", () => {
     expect(publicationOutcome(schedule(["simulated"], "simulated"))).toBe("simulated");
     for (const state of ["accepted_unverified", "manual_published"]) {
@@ -89,9 +136,50 @@ describe("real publishing readiness", () => {
     expect(publishingBlocker("linkedin", draft, data)).toContain("approve");
     expect(publishingBlocker("linkedin", { ...draft, publishApprovedAt: new Date() }, data)).toBeNull();
   });
-  it("does not hard-disable Bluesky and honors saved defaults", () => {
+  it("does not hard-disable Bluesky and prefers the draft destination over profile defaults", () => {
     expect(publishingBlocker("bluesky", draft, ready())).toBeNull();
-    expect(defaultSchedulePlatforms(draft, ready())).toEqual(["twitter"]);
+    expect(defaultSchedulePlatforms(draft, ready())).toEqual(["linkedin"]);
+    expect(defaultSchedulePlatforms({ ...draft, platform: "" }, ready())).toEqual(["twitter"]);
+    expect(defaultSchedulePlatforms(undefined, ready())).toEqual([]);
+  });
+  it("never substitutes the default for a blocked or manual-only draft destination", () => {
+    const data = ready(); data.connections.linkedin = { connected: false };
+    expect(defaultSchedulePlatforms(draft, data)).toEqual([]);
+    expect(defaultSchedulePlatforms({ ...draft, platform: "medium" }, ready())).toEqual([]);
+    data.profile!.requirePublishReview = true;
+    expect(defaultSchedulePlatforms(draft, data)).toEqual([]);
+    data.connections = ready().connections;
+    expect(defaultSchedulePlatforms({ ...draft, publishApprovedAt: new Date() }, data)).toEqual(["linkedin"]);
+  });
+  it("binds confirmation to exact text/revision, media, rules, destinations and wall time/zone", () => {
+    const candidate = { ...draft, id: "d", updatedAt: new Date("2026-09-20T00:00:00Z"), media: [] } as unknown as Draft;
+    const key = (value = candidate, platforms = ["linkedin"], date = "2026-09-21", time = "09:00", zone = "UTC") => scheduleConfirmationKey(value, platforms, date, time, zone);
+    const original = key();
+    expect(key({ ...candidate })).toBe(original);
+    for (const changed of [
+      key({ ...candidate, content: `${candidate.content} ` }), key({ ...candidate, updatedAt: new Date("2026-09-21T00:00:00Z") }),
+      key({ ...candidate, platformPublishRules: { twitter: false } }), key({ ...candidate, media: [{ id: "m", type: "image", name: "Image", url: "/m" }] }),
+      key(candidate, ["twitter"]), key(candidate, ["linkedin"], "2026-09-22"), key(candidate, ["linkedin"], "2026-09-21", "10:00"),
+      key(candidate, ["linkedin"], "2026-09-21", "09:00", "Asia/Kolkata"),
+    ]) expect(changed).not.toBe(original);
+  });
+  it("invalidates scheduling consent for a changed target generation/revision even if platform and draft text are unchanged", () => {
+    const candidate = { ...draft, id: "d", updatedAt: null, media: [] } as unknown as Draft;
+    const original = { ...schedule(["scheduled"]), updatedAt: null, targets: [{ id: "t", platform: "linkedin", status: "scheduled", revision: 0, updatedAt: null }] };
+    const key = (value = original) => scheduleConfirmationKey(candidate, ["linkedin"], "2030-01-02", "09:00", "UTC", value);
+    const consent = capturePublishingConsent(candidate, original)!;
+    expect(consent.expectedUpdatedAt).toBeNull();
+    for (const changed of [
+      { ...original, targets: [{ ...original.targets[0], id: "replacement" }] },
+      { ...original, targets: [{ ...original.targets[0], revision: 1 }] },
+      { ...original, status: "cancelled" },
+    ]) {
+      expect(key(changed)).not.toBe(key());
+      expect(() => assertPublishingConsent(consent, candidate, changed)).toThrow(PublishingConsentError);
+    }
+    expect(capturePublishingConsent({ content: "A" }, null)).toBeUndefined();
+    expect(capturePublishingConsent(candidate, { ...original, targets: undefined })).toBeUndefined();
+    expect(() => assertPublishingConsent(consent, candidate, { ...original, targets: [...original.targets].reverse() })).not.toThrow();
   });
   it("global availability wins over a connected account and saved default", () => {
     const data = ready(); data.integrations![1].enabled = false;
@@ -99,8 +187,8 @@ describe("real publishing readiness", () => {
     expect(defaultSchedulePlatforms(draft, data)).toEqual(["linkedin"]);
   });
   it("does not infer a live adapter from broad sandbox capabilities", () => {
-    const data = ready(); data.integrations!.push({ key: "threads", enabled: true, capabilities: ["publish", "schedule"] });
-    expect(publishingBlocker("threads", draft, data)).toContain("Manual copy");
+    const data = ready(); data.integrations!.push({ key: "substack", enabled: true, capabilities: ["publish", "schedule"] });
+    expect(publishingBlocker("substack", draft, data)).toContain("Manual copy");
   });
   it("fails closed on unavailable readiness, missing assessments, and expired accounts", () => {
     const data = ready(); data.connections.twitter = { connected: true };
@@ -122,5 +210,6 @@ describe("real publishing readiness", () => {
   it("enforces one to four target selections", () => {
     expect(selectionBlockers([], draft, ready())).toContain("Select at least one ready platform.");
     expect(selectionBlockers(["linkedin", "twitter", "bluesky", "mastodon", "devto"], draft, ready())).toContain("Select no more than 4 platforms.");
+    expect(selectionBlockers(["linkedin", "linkedin"], draft, ready())).toContain("Select distinct platforms.");
   });
 });

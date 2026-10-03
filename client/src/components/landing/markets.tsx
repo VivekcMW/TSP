@@ -20,7 +20,7 @@ export function Markets() {
             <TabsList className="-mx-4 flex h-auto justify-start gap-2 overflow-x-auto bg-transparent px-4 pb-1 sm:mx-0 sm:px-0 lg:flex-col lg:items-stretch lg:overflow-visible">
               {REGIONS.map(region => (
                 <TabsTrigger key={region.key} value={region.key}
-                  className="min-h-11 shrink-0 justify-start rounded-full border bg-card px-4 text-sm font-medium data-[state=active]:border-primary data-[state=active]:bg-accent data-[state=active]:text-accent-foreground data-[state=active]:shadow-none lg:rounded-xl lg:px-5 lg:py-3 lg:text-base">
+                  className="min-h-11 shrink-0 justify-start rounded-full border bg-card px-4 text-sm font-medium data-[state=active]:border-primary data-[state=active]:bg-accent data-[state=active]:text-accent-foreground data-[state=active]:shadow-none lg:rounded-card lg:px-5 lg:py-3 lg:text-base">
                   {region.label}
                 </TabsTrigger>
               ))}
@@ -32,8 +32,8 @@ export function Markets() {
                 <img src={region.photo.src} srcSet={region.photo.srcSet} sizes="(min-width: 1024px) 720px, 100vw"
                   width={region.photo.width} height={region.photo.height} alt={region.photo.alt}
                   loading="lazy" decoding="async" className="aspect-[16/10] h-auto w-full object-cover" />
-                <figcaption className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-surface-ink/85 to-transparent px-5 pb-4 pt-16 text-surface-ink-foreground">
-                  <span className="block text-xs font-medium uppercase tracking-wider text-surface-ink-foreground/80">{region.place}</span>
+                <figcaption className="border-t bg-card px-5 py-4 text-card-foreground">
+                  <span className="block text-xs font-medium uppercase tracking-wider text-muted-foreground">{region.place}</span>
                   <span className="font-heading text-xl font-semibold">{region.label}</span>
                 </figcaption>
               </figure>

@@ -1,5 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { createAccountCache } from "./account-cache";
+import { tenantHeaders } from "./active-tenant";
 
 /**
  * Carries the HTTP status alongside the message so callers can act on the
@@ -9,7 +10,7 @@ import { createAccountCache } from "./account-cache";
 export class ApiError extends Error {
   readonly status: number;
 
-  constructor(status: number, message: string, readonly retryAfterMs?: number) {
+  constructor(status: number, message: string, readonly retryAfterMs?: number, readonly code?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -19,9 +20,11 @@ export class ApiError extends Error {
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     let errorMessage = res.statusText;
+    let code: string | undefined;
     try {
       const errorData = await res.json();
       errorMessage = errorData.message || JSON.stringify(errorData);
+      code = typeof errorData.code === "string" ? errorData.code : undefined;
     } catch {
       // If JSON parsing fails, try text
       try {
@@ -34,7 +37,7 @@ async function throwIfResNotOk(res: Response) {
     let delay = Number.NaN;
     if (retryAfter !== null) delay = /^\d+(\.\d+)?$/.test(retryAfter)
       ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now();
-    throw new ApiError(res.status, errorMessage, Number.isFinite(delay) ? Math.max(0, delay) : undefined);
+    throw new ApiError(res.status, errorMessage, Number.isFinite(delay) ? Math.max(0, delay) : undefined, code);
   }
 }
 
@@ -42,7 +45,7 @@ export async function apiRequest(
   method: string,
   url: string,
   data?: unknown,
-  options?: { headers?: Record<string, string>; signal?: AbortSignal },
+  options?: { headers?: Record<string, string>; signal?: AbortSignal; cache?: RequestCache },
 ): Promise<Response> {
   if (accountCache.getSnapshot().signingOut) throw new DOMException("Signing out", "AbortError");
   // A cached /api/me row is enough to retain local work, not to authorize new
@@ -52,6 +55,7 @@ export async function apiRequest(
     throw new ApiError(503, "Account information is unavailable. Retry account information before making changes. Your work is retained.");
   }
   const headers = new Headers(options?.headers);
+  for (const [key, value] of Object.entries(tenantHeaders())) if (!headers.has(key)) headers.set(key, value);
   const signal = options?.signal ? AbortSignal.any([options.signal, accountCache.getSignal()]) : accountCache.getSignal();
   if (data) headers.set("Content-Type", "application/json");
   const res = await fetch(url, {
@@ -60,6 +64,7 @@ export async function apiRequest(
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
     signal,
+    ...(options?.cache ? { cache: options.cache } : {}),
   });
 
   signal.throwIfAborted();
@@ -76,6 +81,7 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey, signal }) => {
     const res = await fetch(queryKey.join("/") as string, {
       credentials: "include",
+      headers: tenantHeaders(),
       signal,
     });
 

@@ -2,7 +2,7 @@ import { emailPreferenceDefaults, type EmailPreferenceValues } from "@shared/ema
 import type { EmailType } from "./index";
 
 export function isEssentialEmail(type: EmailType) {
-  return ["verification", "password_reset", "existing_account", "password_changed", "payment_succeeded", "payment_failed", "subscription_cancelled", "token_expired", "newsletter_confirmation"].includes(type);
+  return ["verification", "password_reset", "existing_account", "password_changed", "payment_succeeded", "payment_failed", "subscription_cancelled", "token_expired", "newsletter_confirmation", "team_invitation"].includes(type);
 }
 
 export function preferenceEnabled(type: EmailType, preference: (EmailPreferenceValues & { unsubscribedAt?: unknown }) = emailPreferenceDefaults) {

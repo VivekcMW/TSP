@@ -49,11 +49,11 @@ export function AdminNavbar() {
   const pageTitle = PAGE_TITLES[location] ?? "Overview";
 
   return (
-    <header className="flex items-center justify-between gap-4 px-3 py-2.5 border-b bg-background sticky top-0 z-10">
+    <header className="flex items-center justify-between gap-4 px-3 py-2.5 border-b bg-card text-card-foreground sticky top-0 z-10">
       <div className="flex items-center gap-3">
         <SidebarTrigger data-testid="button-admin-sidebar-toggle" />
         <Link href="/admin" className="flex items-center gap-1.5 shrink-0" data-testid="link-admin-navbar-logo">
-          <ShieldAlert className="w-5 h-5 text-secondary" />
+          <ShieldAlert className="w-5 h-5 text-primary" />
           <span className="font-bold text-base hidden sm:inline">Super Admin</span>
         </Link>
         <span className="text-sm text-muted-foreground hidden md:inline" data-testid="text-admin-navbar-title">
@@ -64,7 +64,8 @@ export function AdminNavbar() {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 hover-elevate"
+            className="flex min-h-11 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted ring-offset-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-label="Account menu"
             data-testid="button-admin-navbar-account"
           >
             <Avatar className="h-7 w-7">

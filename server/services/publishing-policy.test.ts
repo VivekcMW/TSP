@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Draft } from "@shared/schema";
+import { platformTextValidation } from "@shared/editorial";
 const { entitlement, decrypt, assess, EntitlementError } = vi.hoisted(() => ({ entitlement: vi.fn(), decrypt: vi.fn(), assess: vi.fn(), EntitlementError: class extends Error { code = "entitlement_required"; } }));
 vi.mock("./entitlements", () => ({ assertTenantEntitlement: entitlement, EntitlementError }));
 vi.mock("./webhookSecrets", () => ({ decryptStoredCredential: decrypt }));
@@ -18,6 +19,32 @@ function allowedRows() { return [[profile], [{ key: "reddit", enabled: true }], 
 beforeEach(() => { vi.resetAllMocks(); vi.stubEnv("PUBLISHING_MODE", "sandbox"); entitlement.mockResolvedValue({}); decrypt.mockReturnValue("credential"); assess.mockReturnValue({ canPublish: true }); });
 afterEach(() => vi.unstubAllEnvs());
 describe("common admission and execution policy", () => {
+  it.each([
+    { name: "long URLs", content: `https://a.test/${"x".repeat(800)} https://b.test/a!`, min: 48, max: 48 },
+    { name: "below weighted minimum", content: `https://a.test/${"x".repeat(800)}`, min: 24, max: 280 },
+    { name: "over weighted maximum", content: "https://a.test/a https://b.test/b", min: 1, max: 46 },
+    { name: "Unicode maximum", content: "😀".repeat(140), min: 1, max: 280 },
+    { name: "Unicode over maximum", content: "😀".repeat(140) + "!", min: 1, max: 280 },
+    { name: "blank at zero minimum", content: " \n\t", min: 0, max: 280 },
+    { name: "raw cap boundary", content: "https://a.test/" + "x".repeat(5000 - "https://a.test/".length), min: 1, max: 280 },
+    { name: "raw cap exceeded despite weighted validity", content: "https://a.test/" + "x".repeat(5001 - "https://a.test/".length), min: 1, max: 280 },
+    { name: "platform maximum cannot be relaxed by a rule", content: "x".repeat(281), min: 1, max: 5000 },
+  ])("authoritatively enforces $name at both admission and execution", async ({ content, min, max }) => {
+    const candidate = { ...draft, content };
+    candidate.publishApprovalHash = reviewFingerprint(candidate);
+    for (const intent of ["publish", "schedule"] as const) {
+      const rows = [[{ ...profile, enabledPlatforms: ["twitter"] }], [{ key: "twitter", enabled: true }], [{ enabled: true, minCharacters: min, maxCharacters: max }], [account]];
+      const result = assertPublishingPolicy(tx(rows), scope, candidate, ["twitter"], intent, "sandbox");
+      const validation = platformTextValidation(content, "twitter", Math.min(280, max), min);
+      if (validation.error) await expect(result).rejects.toThrow(validation.error);
+      else await expect(result).resolves.toBeUndefined();
+    }
+  });
+  it("does not treat equal weighted counts as an approved revision", async () => {
+    const candidate = { ...draft, content: "https://a.test/first" };
+    candidate.publishApprovalHash = reviewFingerprint(candidate);
+    await expect(assertPublishingPolicy(tx([[profile]]), scope, { ...candidate, content: "https://a.test/second" }, ["reddit"], "schedule", "sandbox")).rejects.toThrow("exact draft");
+  });
   it("delegates plan semantics to authoritative entitlement service", async () => {
     const transaction = tx(allowedRows());
     await assertPublishingPolicy(transaction, scope, draft, ["reddit"], "schedule", "sandbox");

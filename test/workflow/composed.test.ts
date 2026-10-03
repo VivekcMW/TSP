@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { boundaries, prose } from './boundaries';
 import { createWorkflowFixture, type Actor, type WorkflowFixture } from './fixture';
 import type { PublishDraftJobData } from '../../server/jobs/handlers/publish-draft';
+import { capturePublishingConsent } from '../../shared/publishing-consent';
 
 // No runtime DB imports or connections when discovered by the ordinary suite.
 describe.skipIf(process.env.WORKFLOW_DB_TESTS !== 'true')('roadmap28 authenticated composed workflows', () => {
@@ -72,7 +73,14 @@ describe.skipIf(process.env.WORKFLOW_DB_TESTS !== 'true')('roadmap28 authenticat
   }
   async function approvedSchedule(draft: any, publishAt = new Date(Date.now() - 1000).toISOString()) {
     await f.http(a).post(`/api/drafts/${draft.id}/approve-publishing`).send({ content: draft.content, updatedAt: draft.updatedAt }).expect(200);
-    return (await f.http(a).post(`/api/drafts/${draft.id}/schedule`).send({ publishAt, platforms: ['mastodon'] }).expect(200)).body;
+    return (await f.http(a).post(`/api/drafts/${draft.id}/schedule`).send({ publishAt, platforms: ['mastodon'], consent: capturePublishingConsent(draft, null) }).expect(200)).body;
+  }
+  async function reviewedCurrentPublishingState(draftId: string) {
+    const draft = (await f.http(a).get(`/api/drafts/${draftId}/details`).expect(200)).body;
+    const { schedule } = (await f.http(a).get(`/api/drafts/${draftId}/publish-status`).expect(200)).body;
+    const consent = capturePublishingConsent(draft, schedule);
+    expect(consent).toBeDefined();
+    return consent;
   }
   function delivery(draftId: string, schedule: any): Bull.Job<PublishDraftJobData> {
     return { id: randomUUID(), data: { tenantId: a.tenantId, userId: a.userId, draftId, draftScheduleId: schedule.id,
@@ -90,7 +98,7 @@ describe.skipIf(process.env.WORKFLOW_DB_TESTS !== 'true')('roadmap28 authenticat
 
   it('original onboarding → persisted article → generation → save → exact review → schedule → sandbox receipt, same IDs', async () => {
     const g = await savedDraft();
-    await f.http(a).post(`/api/drafts/${g.draft.id}/schedule`).send({ publishAt: new Date().toISOString() }).expect(403);
+    await f.http(a).post(`/api/drafts/${g.draft.id}/schedule`).send({ publishAt: new Date().toISOString(), consent: capturePublishingConsent(g.draft, null) }).expect(403);
     const schedule = await approvedSchedule(g.draft);
     const result = await f.handlePublishDraft(delivery(g.draft.id, schedule));
     expect(result).toEqual({ platform: 'mastodon', status: 'simulated' });
@@ -171,10 +179,10 @@ describe.skipIf(process.env.WORKFLOW_DB_TESTS !== 'true')('roadmap28 authenticat
   it('stale approval is rejected; editing clears approval and blocks scheduling until exact revision review', async () => {
     const { draft } = await savedDraft();
     await f.http(a).post(`/api/drafts/${draft.id}/approve-publishing`).send({ content: draft.content, updatedAt: draft.updatedAt }).expect(200);
-    const edited = (await f.http(a).patch(`/api/drafts/${draft.id}`).send({ content: `${draft.content} Review.` }).expect(200)).body;
+    const edited = (await f.http(a).patch(`/api/drafts/${draft.id}`).send({ content: `${draft.content} Review.`, expectedContent: draft.content, expectedUpdatedAt: draft.updatedAt }).expect(200)).body;
     expect(edited.publishApprovalHash).toBeNull();
     await f.http(a).post(`/api/drafts/${draft.id}/approve-publishing`).send({ content: draft.content, updatedAt: draft.updatedAt }).expect(409);
-    await f.http(a).post(`/api/drafts/${draft.id}/schedule`).send({ publishAt: new Date().toISOString() }).expect(403);
+    await f.http(a).post(`/api/drafts/${draft.id}/schedule`).send({ publishAt: new Date().toISOString(), consent: capturePublishingConsent(edited, null) }).expect(403);
     expect((await approvedSchedule(edited)).draftId).toBe(draft.id);
   });
 
@@ -197,12 +205,12 @@ describe.skipIf(process.env.WORKFLOW_DB_TESTS !== 'true')('roadmap28 authenticat
 
   it('rescheduled and cancelled job generations cannot dispatch; concurrent/repeated deliveries commit one sandbox completion', async () => {
     const { draft } = await savedDraft(); const old = await approvedSchedule(draft);
-    const next = (await f.http(a).put(`/api/drafts/${draft.id}/schedule`).send({ publishAt: old.scheduledPublishAt }).expect(200)).body;
+    const next = (await f.http(a).put(`/api/drafts/${draft.id}/schedule`).send({ publishAt: old.scheduledPublishAt, consent: await reviewedCurrentPublishingState(draft.id) }).expect(200)).body;
     expect(next.targets[0].id).not.toBe(old.targets[0].id);
     expect((await f.handlePublishDraft(delivery(draft.id, old))).status).toBe('skipped');
     await f.http(a).delete(`/api/drafts/${draft.id}/schedule`).expect(200);
     expect((await f.handlePublishDraft(delivery(draft.id, next))).status).toBe('skipped');
-    const final = (await f.http(a).put(`/api/drafts/${draft.id}/schedule`).send({ publishAt: old.scheduledPublishAt }).expect(200)).body;
+    const final = (await f.http(a).put(`/api/drafts/${draft.id}/schedule`).send({ publishAt: old.scheduledPublishAt, consent: await reviewedCurrentPublishingState(draft.id) }).expect(200)).body;
     const results = await Promise.all([f.handlePublishDraft(delivery(draft.id, final)), f.handlePublishDraft(delivery(draft.id, final))]);
     expect(results.map(r => r.status).sort()).toEqual(['simulated', 'skipped']);
     expect((await f.handlePublishDraft(delivery(draft.id, final))).status).toBe('skipped');
@@ -221,7 +229,7 @@ describe.skipIf(process.env.WORKFLOW_DB_TESTS !== 'true')('roadmap28 authenticat
     const current = (await f.http(a).get(`/api/drafts/${draft.id}/publish-status`).expect(200)).body.schedule;
     expect(current.status).toBe('unknown');
     await f.http(a).post(`/api/drafts/${draft.id}/retry-publish`).expect(409);
-    await f.http(a).post(`/api/drafts/${draft.id}/publish-now`).expect(409);
+    await f.http(a).post(`/api/drafts/${draft.id}/publish-now`).send({ consent: await reviewedCurrentPublishingState(draft.id) }).expect(409);
     await f.http(a).delete(`/api/drafts/${draft.id}/schedule`).expect(409);
     expect((await f.handlePublishDraft(delivery(draft.id, schedule))).status).toBe('skipped');
     const endpoint = `/api/drafts/${draft.id}/schedule/targets/${current.targets[0].id}/reconcile`;

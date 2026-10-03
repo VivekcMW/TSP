@@ -71,7 +71,7 @@ export function ProductShowcase() {
           <p className="text-lg text-muted-foreground">From today's news to a post in your voice, in one place.</p>
         </Reveal>
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="mb-10 grid h-auto w-full grid-cols-4 gap-1 rounded-xl bg-muted p-1 sm:inline-flex sm:w-auto">
+          <TabsList className="mb-10 grid h-auto w-full grid-cols-4 gap-1 rounded-card bg-muted p-1 sm:inline-flex sm:w-auto">
             {PRODUCT_AREAS.map(area => (
               <TabsTrigger key={area.key} value={area.key} className="min-h-11 rounded-lg px-2 text-sm font-medium sm:px-5">{area.label}</TabsTrigger>
             ))}
@@ -85,7 +85,7 @@ export function ProductShowcase() {
                   <ul className="space-y-3">
                     {area.points.map(point => (
                       <li key={point} className="flex items-start gap-3 text-foreground">
-                        <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-success/10 text-success"><Check className="h-3.5 w-3.5" aria-hidden="true" /></span>
+                        <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-success-subtle text-success"><Check className="h-3.5 w-3.5" aria-hidden="true" /></span>
                         {point}
                       </li>
                     ))}

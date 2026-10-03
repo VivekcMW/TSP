@@ -7,6 +7,9 @@ import { publishToBluesky } from "./bluesky";
 import { publishToMastodon } from "./mastodon";
 import { publishToTelegram } from "./telegram";
 import { publishToHashnode } from "./hashnode";
+import { publishToFacebook } from "./facebook";
+import { publishToThreads } from "./threads";
+import { publishToMedium } from "./medium";
 import { publishingCapability, type PublishingMode } from "@shared/publishing-capabilities";
 import { publishToWebhook } from "../webhookPublisher";
 
@@ -52,6 +55,9 @@ export async function publishToPlatform(
       case "mastodon": result = await publishToMastodon(scope, draftId, content, media); break;
       case "telegram": result = await publishToTelegram(scope, draftId, content); break;
       case "hashnode": result = await publishToHashnode(scope, draftId, content); break;
+      case "facebook": result = await publishToFacebook(scope, draftId, content, media); break;
+      case "threads": result = await publishToThreads(scope, draftId, content); break;
+      case "medium": result = await publishToMedium(scope, draftId, content, media); break;
       case "discord": case "slack": result = await publishToWebhook(platform, scope, content, media); break;
       default: return { ...base, success: false, status: "failed", error: "Adapter unavailable." };
     }

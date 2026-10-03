@@ -143,6 +143,28 @@ real socket close while providers still retain buffers, repeated parser/signatur
 DB/provider/lock failures and permits retained through slow compensation.
 Existing eight-file, per-file and aggregate-size restrictions remain unchanged.
 
+## Coordinated deadline follow-up — 2026-10-01
+
+After the local [deadline/lease implementation](PRODUCTION_GENERATION_RELIABILITY_2026-09-30.md),
+the same ten-file runner passed **180/180 tests, zero failures/skips**, with all
+ten metrics present: `/tmp/tsp-workflow-budgets-blrHdB/` (`tests.json`,
+`summary.json`, `metrics.json`, `run.log`). No live providers, database, existing
+Redis or environment files were used. This suite overlaps reliability acceptance;
+do not add its count to that suite as if all tests were unique.
+
+- Synthetic 19s calls now stop at the **55s provider deadline** within the 60s
+  overall writer allowance, reserving 5s for cleanup: 6 started, 4 completed,
+  2 aborted, 28 mock-reported output tokens; no late repairs/queued tones or
+  partial result. The regression checks both 54,999ms and 55,000ms.
+- The explicit-fallback stress fixture uses HTTP 503: one primary retry plus one
+  configured fallback per writer/repair means **96 transports**, including 64
+  rejected primary attempts, 196,608 summed token ceilings and 224 mock-reported
+  output tokens. Historical 64-call figures above predate that retry policy.
+  Production Gemini fallback is blank; this fixture is not production spend.
+- Shared two-client admission remains 4 admitted /36 busy, without charging
+  rejected admissions. Renewal/loss/ignored-abort/Bull cases are covered by the
+  separate 18-file reliability runner and its mandatory drained-rollout gate.
+
 ## Remaining realistic load limits
 
 - **No production-scale certification or safe user-count/RPS claim.** Thresholds
@@ -166,7 +188,9 @@ Existing eight-file, per-file and aggregate-size restrictions remain unchanged.
 - **Redis proof is atomic admission on one local server**, not HA/failover, network
   partitions, cluster deployment, multi-process throughput or multi-region scale.
   Two clients have real separate Redis connection IDs; they are in one Node process.
-  Lease TTL is 30 seconds. Local provider concurrency defaults to 4 per process;
+  Base lease TTL is 30 seconds; provider operations now request effective budget
+  +30s and renew while transport remains held. Expiry does not prove remote work
+  stopped. Local provider concurrency defaults to 4 per process;
   configured shared Redis concurrency defaults to 4 across users/tenants. Operator
   settings and slow/non-cooperative providers require separate load/failure testing.
 - **Tokens are not verified spend.** The reported output-token counts are deliberately
@@ -179,6 +203,7 @@ Existing eight-file, per-file and aggregate-size restrictions remain unchanged.
   callers (the writer supports server-selected budgets up to 240 seconds).
 - No database queries, query plans, RLS concurrency, Bull worker soak, live object
   storage, real providers, container limits or production deployment were tested.
-  Only upload admission/buffer cleanup changes production behavior in this follow-up;
-  pre-existing unrelated work is preserved. No migrations, environment-file reads,
-  deployments or commits were performed.
+  The original upload follow-up changed only upload admission/buffer cleanup;
+  the coordinated deadline follow-up is documented separately above. Pre-existing
+  unrelated work is preserved. No migrations, environment-file reads, deployments
+  or commits were performed.

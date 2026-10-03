@@ -18,7 +18,7 @@ export function Trust() {
         </Reveal>
         <StaggerGroup className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {promises.map(promise => (
-            <StaggerItem key={promise.title} className="rounded-2xl border bg-background p-6">
+            <StaggerItem key={promise.title} className="rounded-card border bg-card p-surface-relaxed">
               <promise.icon className="mb-4 h-7 w-7 text-primary" aria-hidden="true" />
               <h3 className="mb-2 text-lg font-semibold text-foreground">{promise.title}</h3>
               <p className="text-sm leading-relaxed text-muted-foreground">{promise.body}</p>

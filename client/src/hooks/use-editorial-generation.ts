@@ -11,6 +11,7 @@ function generationError(error: unknown) {
 /** One active request per surface; late completions cannot resurrect a cancelled result. */
 export function useEditorialGeneration<T>(options: { scope?: EditorialRecoveryScope; onRecovered?: (data: T) => void } = {}) {
   const controller = useRef<AbortController | null>(null);
+  const cancelling = useRef(false);
   const intent = useRef<{ endpoint: string; body: unknown; key: string; state: EditorialRequestState; reloaded?: boolean } | null>(null);
   const callbacks = useRef(options);
   callbacks.current = options;
@@ -44,30 +45,42 @@ export function useEditorialGeneration<T>(options: { scope?: EditorialRecoverySc
   }, [pending]);
   const cancel = useCallback(async () => {
     const current = intent.current;
-    if (!current) return;
+    if (!current || current.state.terminal || cancelling.current) return;
     if (controller.current && current.endpoint.startsWith("/api/instant-review/")) {
       setError("Cancelling generation…");
       controller.current.abort(); // The transport awaits DELETE and reports its outcome.
       return;
     }
     controller.current?.abort(); controller.current = null;
+    cancelling.current = true;
+    setPending(true); setError("Cancelling generation…");
     try {
       if (current.endpoint.startsWith("/api/instant-review/")) await cancelEditorialRequest(current.state,
         callbacks.current.scope ? { "x-tenant-id": callbacks.current.scope.tenantId } : undefined);
+      if (intent.current !== current) return;
       current.state.terminal = true;
       if (current.state.jobId) clearEditorialRecovery(current.state.jobId);
       setRecoverable(false);
       setError("Generation cancelled. An attempt that already started may still count toward usage.");
-    } catch (error_) { setRecoverable(!current.state.terminal); setError(generationError(error_)); }
-    setPending(false);
+    } catch (error_) {
+      if (intent.current === current) { setRecoverable(!current.state.terminal); setError(generationError(error_)); }
+    } finally {
+      if (intent.current === current) { cancelling.current = false; setPending(false); }
+    }
   }, []);
   const reset = useCallback(() => {
-    const active = controller.current;
-    controller.current?.abort(); controller.current = null;
-    if (!active && intent.current?.state.jobId && !intent.current.state.terminal) cancelEditorialRequest(intent.current.state).catch(() => undefined);
-    setPending(false); setRecoverable(false); setError("");
+    // Reset is a source transition, not an implicit remote cancellation. Even a
+    // caller with stale rendered state cannot discard unresolved ownership.
+    if (controller.current || cancelling.current || intent.current && !intent.current.state.terminal) return false;
+    intent.current = null;
+    setReattached(false); setPending(false); setRecoverable(false); setError("");
+    setProgress(null); setElapsed(0);
+    return true;
   }, []);
   const generate = useCallback(async (endpoint: string, body: unknown, retryIntent = false): Promise<T | undefined> => {
+    // A same-turn second check must not abort the first and trigger DELETE.
+    // Cancellation must settle before either monitoring or new work can begin.
+    if (controller.current || cancelling.current) return;
     const key = JSON.stringify([endpoint, body]);
     const previous = intent.current;
     const unresolved = previous?.endpoint.startsWith("/api/instant-review/") && !previous.state.terminal ? previous : null;
@@ -76,7 +89,6 @@ export function useEditorialGeneration<T>(options: { scope?: EditorialRecoverySc
       setRecoverable(true);
       return;
     }
-    controller.current?.abort();
     // "Retry same request" must inspect the original job, even after terminal
     // failure/cancellation. Only an explicit Generate action creates a new spend.
     const current = (retryIntent ? previous : unresolved) ?? { endpoint, body, key, state: createEditorialRequestState(), reloaded: false };
@@ -110,6 +122,10 @@ export function useEditorialGeneration<T>(options: { scope?: EditorialRecoverySc
     }
   }, [mutateAsync]);
   const retry = useCallback(() => intent.current ? generate(intent.current.endpoint, intent.current.body, true) : Promise.resolve(undefined), [generate]);
+  // Read refs, not rendered flags: a same-turn source change must not detach an
+  // admission, polling window or cancellation whose outcome is still uncertain.
+  const hasActiveRequest = useCallback(() => Boolean(controller.current || cancelling.current ||
+    intent.current && !intent.current.state.terminal), []);
   const tenantId = options.scope?.tenantId, userId = options.scope?.userId;
   useEffect(() => {
     setReattached(false); setPending(false); setRecoverable(false); setError("");
@@ -124,8 +140,9 @@ export function useEditorialGeneration<T>(options: { scope?: EditorialRecoverySc
     }
     return () => {
       controller.current?.abort(editorialDetachReason()); controller.current = null;
+      cancelling.current = false;
       intent.current = null;
     };
   }, [tenantId, userId, generate]);
-  return { generate, retry, recoverable, reattached, pending, error, elapsed, progress, cancel, reset };
+  return { generate, retry, recoverable, reattached, pending, error, elapsed, progress, cancel, reset, hasActiveRequest };
 }

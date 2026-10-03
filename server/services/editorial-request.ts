@@ -59,6 +59,22 @@ export interface PreparedEditorialRequest {
   options: Pick<EditorialOptions, "voice" | "voiceScope" | "format" | "userContext" | "scope">;
 }
 
+/** Server execution context only; not part of admission, persistence, or dedupe. */
+export interface EditorialExecutionContext {
+  deadlineAt?: number;
+  jobId?: string;
+}
+const executionBudgetSchema = z.object({
+  timeoutMs: z.number().int().min(1).max(240_000).optional(),
+  deadlineAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  jobId: z.string().uuid().optional(),
+}).strict();
+
+function preparedOptions({ voice, voiceScope, format, userContext, scope }: PreparedEditorialRequest["options"]): PreparedEditorialRequest["options"] {
+  // Runtime allowlist too: arbitrary persisted preferences cannot set execution controls.
+  return { voice, voiceScope, format, userContext, scope };
+}
+
 /** Shared by HTTP and queue admission: never persist a Request, user row, or headers. */
 export async function prepareEditorialRequest(req: Request, kind: EditorialKind, signal: AbortSignal): Promise<PreparedEditorialRequest> {
   const parsed = (kind === "manual" ? manualReviewSchema : selectedReviewSchema).safeParse(req.body);
@@ -73,22 +89,32 @@ export async function prepareEditorialRequest(req: Request, kind: EditorialKind,
       }
     }
   }
-  const { signal: _signal, ...options } = await editorialContext(req, input, signal);
+  const options = preparedOptions(await editorialContext(req, input, signal));
   return { input: { ...input, selectedPlatforms: [...new Set(input.selectedPlatforms)] }, options };
 }
 
 /** Same source fetch, evidence pipeline, and response contract for both transports. */
-export async function executeEditorialRequest(prepared: PreparedEditorialRequest, signal: AbortSignal, onPlatformComplete?: EditorialOptions["onPlatformComplete"], timeoutMs?: number) {
+export async function executeEditorialRequest(prepared: PreparedEditorialRequest, signal: AbortSignal, onPlatformComplete?: EditorialOptions["onPlatformComplete"], timeoutMs?: number, context: EditorialExecutionContext = {}) {
   signal.throwIfAborted();
+  const budget = executionBudgetSchema.safeParse({ ...context, timeoutMs });
+  if (!budget.success) throw new AIGenerationError("ai_invalid_input");
+  const deadlineAt = Math.min(timeoutMs === undefined ? Infinity : Date.now() + timeoutMs, budget.data.deadlineAt ?? Infinity);
+  if (deadlineAt <= Date.now()) throw new AIGenerationError("ai_timeout");
   const { input, options } = prepared;
   const article = "url" in input ? await readArticle(input.url, signal) : {
     title: input.title, content: input.content, source: "Your draft", url: "",
     contentMetadata: { extractionMethod: "manual" as const, originalLength: input.content.length, retainedLength: input.content.length, truncated: false },
   };
+  signal.throwIfAborted();
+  const remaining = deadlineAt - Date.now();
+  if (remaining <= 0) throw new AIGenerationError("ai_timeout");
   // Attachments are returned for the editor, never treated as inspected evidence.
-  const result = await generatePlatformReviewsDetailed(article, input.selectedPlatforms, { ...options, signal,
+  const result = await generatePlatformReviewsDetailed(article, input.selectedPlatforms, { ...preparedOptions(options), signal,
     ...(input.tones ? { tones: input.tones } : {}),
-    ...(onPlatformComplete ? { onPlatformComplete } : {}), ...(timeoutMs === undefined ? {} : { timeoutMs }) });
+    ...(onPlatformComplete ? { onPlatformComplete } : {}),
+    ...(timeoutMs === undefined ? {} : { timeoutMs: remaining }),
+    ...(Number.isFinite(deadlineAt) ? { deadlineAt } : {}),
+    ...(budget.data.jobId ? { jobId: budget.data.jobId } : {}) });
   signal.throwIfAborted();
   return { article: "media" in input ? { ...article, media: input.media, domain: "manual" } : article, ...result, format: input.format };
 }

@@ -66,7 +66,7 @@ export default function NewsletterPage() {
               <h1 className="font-heading text-3xl font-semibold text-foreground">{copy.done}</h1>
               <p className="text-muted-foreground">{copy.doneBody}</p>
               {link?.action === "unsubscribe" ? <NewsletterSignup source="newsletter-page" /> : (
-                <Button asChild variant="outline" className="min-h-11"><Link href="/">Back to TheSocialPundit</Link></Button>
+                <Button asChild variant="outline"><Link href="/">Back to TheSocialPundit</Link></Button>
               )}
             </div>
           ) : copy ? (
@@ -80,7 +80,7 @@ export default function NewsletterPage() {
                   <NewsletterSignup source="newsletter-page" />
                 </>
               ) : (
-                <Button className="min-h-11" disabled={state === "working"} onClick={act}>{state === "working" ? "One moment…" : copy.button}</Button>
+                <Button disabled={state === "working"} onClick={act}>{state === "working" ? "One moment…" : copy.button}</Button>
               )}
             </div>
           ) : (

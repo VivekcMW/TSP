@@ -29,6 +29,8 @@ import { INBOX_CAPACITY, INBOX_CANDIDATE_LIMIT, InboxOperationConflictError, inb
 export { InboxOperationConflictError } from "@shared/inbox-refresh";
 import { selectDiverse } from "./services/inboxDiversity";
 import { TREND_ROW_LIMIT, TREND_WINDOW_MS, type TrendRow } from "./services/personalTrends";
+import { DraftConflictError, draftPreconditionSchema, type DraftPrecondition } from "@shared/draft-revision";
+import { assertPublishingConsent, type PublishingConsent } from "@shared/publishing-consent";
 
 /** A transaction handle, as drizzle hands it to the transaction callback. */
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -175,9 +177,9 @@ export interface IStorage {
   updateInboxItem(scope: TenantScope, id: string, data: { status: string }): Promise<InboxItem | undefined>;
   clearUserInboxItems(scope: TenantScope): Promise<void>;
 
-  getDrafts(scope: TenantScope, page?: Pagination): Promise<Draft[]>;
+  getDrafts(scope: TenantScope, page?: Pagination & { id?: string }): Promise<Draft[]>;
   createDraft(scope: TenantScope, draft: Scoped<InsertDraft>): Promise<Draft>;
-  updateDraft(scope: TenantScope, id: string, data: { content?: string; status?: string }): Promise<Draft | undefined>;
+  updateDraft(scope: TenantScope, id: string, data: { content?: string; status?: string }, expected?: DraftPrecondition): Promise<Draft | undefined>;
   deleteDraft(scope: TenantScope, id: string): Promise<void>;
   clearUserDrafts(scope: TenantScope): Promise<void>;
 
@@ -205,7 +207,7 @@ export interface IStorage {
   createSocialAnalytics(scope: TenantScope, analytics: Scoped<InsertSocialAnalytics>): Promise<SocialAnalyticsSnapshot>;
 
   // Draft scheduling
-  scheduleDraftPublish(scope: TenantScope, draftId: string, publishAt: Date, platforms?: string[]): Promise<DraftSchedule>;
+  scheduleDraftPublish(scope: TenantScope, draftId: string, publishAt: Date, platforms?: string[], intent?: PublishingIntent, expected?: PublishingConsent): Promise<DraftSchedule & { targets: DraftScheduleTarget[] }>;
   getDraftScheduleTargets(scope: TenantScope, scheduleId: string): Promise<DraftScheduleTarget[]>;
   getDraftScheduleTargetsForPublishing(scope: TenantScope, scheduleId: string): Promise<DraftScheduleTarget[]>;
   updateDraftScheduleTargetStatus(scope: TenantScope, targetId: string, status: string, lastError?: string): Promise<DraftScheduleTarget | undefined>;
@@ -231,6 +233,10 @@ export interface IStorage {
   getPublishingRules(scope: TenantScope): Promise<PublishingRule[]>;
   getPublishingRule(scope: TenantScope, platform: string): Promise<PublishingRule | undefined>;
   upsertPublishingRule(scope: TenantScope, platform: string, rule: Partial<Omit<PublishingRule, "tenantId" | "userId" | "platform" | "createdAt" | "updatedAt">>): Promise<PublishingRule>;
+
+  // Team review queue: tenant-wide, not scoped to one member's own drafts.
+  getDraftsPendingTenantReview(scope: TenantScope): Promise<Draft[]>;
+  approveDraftForTenantReview(scope: TenantScope, draftId: string, expectedContent: string, expectedUpdatedAt: string): Promise<Draft | undefined>;
 }
 
 /**
@@ -762,7 +768,7 @@ export class DatabaseStorage implements IStorage {
 
   // ------------------------------------------------------------------ drafts
 
-  async getDrafts(scope: TenantScope, page: Pagination = {}): Promise<Draft[]> {
+  async getDrafts(scope: TenantScope, page: Pagination & { id?: string } = {}): Promise<Draft[]> {
     return scoped(scope, async (tx) => {
       // Drizzle removes Column qualifiers in single-table SELECT projections,
       // including nested SQL. Keep this correlation explicitly in the outer
@@ -779,7 +785,7 @@ export class DatabaseStorage implements IStorage {
             or nullif(trim(t.provider_post_id), '') is null or t.provider_post_id ~* '^(sandbox|mock|dryrun|dry-run)[_-]')
         )` })
         .from(drafts)
-        .where(and(eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId)))
+        .where(and(eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId), page.id === undefined ? undefined : eq(drafts.id, page.id)))
         .orderBy(desc(drafts.updatedAt))
         .limit(clampLimit(page.limit))
         .offset(page.offset && page.offset > 0 ? page.offset : 0);
@@ -804,6 +810,7 @@ export class DatabaseStorage implements IStorage {
     scope: TenantScope,
     id: string,
     data: { content?: string; status?: string },
+    expected?: DraftPrecondition,
   ): Promise<Draft | undefined> {
     return scoped(scope, async (tx) => {
       // Serialize edits with scheduling/worker claims. A route-only preflight
@@ -829,7 +836,18 @@ export class DatabaseStorage implements IStorage {
         || targets.some((target) => target.publishedAt || !editableStates.includes(target.status)) || receipt) {
         throw new ScheduleConflictError("Published, partially delivered, in-flight or uncertain drafts are immutable. Copy to a new draft to make changes.");
       }
-      const safeData: Record<string, unknown> = { updatedAt: new Date() };
+      // Compare under the SAME owner-scoped lock as the write. Immutable
+      // delivery history wins its distinct conflict; stale editors never clear
+      // approval or mutate content. Optional only for trusted internal callers.
+      if (data.content !== undefined && expected !== undefined) {
+        const parsed = draftPreconditionSchema.safeParse(expected);
+        if (!parsed.success || draft.content !== parsed.data.expectedContent ||
+          (draft.updatedAt?.getTime() ?? null) !== (parsed.data.expectedUpdatedAt === null ? null : Date.parse(parsed.data.expectedUpdatedAt))) {
+          throw new DraftConflictError();
+        }
+      }
+      // Keep revisions distinct even for identical edits in one millisecond.
+      const safeData: Record<string, unknown> = { updatedAt: new Date(Math.max(Date.now(), (draft.updatedAt?.getTime() ?? 0) + 1)) };
       if (data.status !== undefined && data.status !== "draft") throw new ScheduleConflictError("Delivery status is server-owned");
       if (data.content !== undefined) {
         safeData.content = data.content;
@@ -1227,6 +1245,33 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
+  /** Tenant-wide, unlike approveDraftForPublishing: any member's draft, not just the caller's own. */
+  async getDraftsPendingTenantReview(scope: TenantScope): Promise<Draft[]> {
+    return scoped(scope, async tx => {
+      const rows = await tx.select({ draft: drafts }).from(drafts)
+        .innerJoin(userProfiles, and(eq(userProfiles.tenantId, drafts.tenantId), eq(userProfiles.userId, drafts.userId)))
+        .where(and(
+          eq(drafts.tenantId, scope.tenantId),
+          eq(userProfiles.requirePublishReview, true),
+          sql`${drafts.publishApprovedAt} is null`,
+          inArray(drafts.publishStatus, ["draft", "scheduled", "failed"]),
+        ))
+        .orderBy(desc(drafts.updatedAt));
+      return rows.map(row => row.draft);
+    });
+  }
+
+  /** A manager/admin/owner approves a teammate's draft; publishApprovedBy records the approver, not the author. */
+  async approveDraftForTenantReview(scope: TenantScope, draftId: string, expectedContent: string, expectedUpdatedAt: string): Promise<Draft | undefined> {
+    return scoped(scope, async tx => {
+      const [draft] = await tx.select().from(drafts).where(and(eq(drafts.id, draftId), eq(drafts.tenantId, scope.tenantId))).for("update");
+      if (!draft) return undefined;
+      if (draft.content !== expectedContent || draft.updatedAt?.getTime() !== new Date(expectedUpdatedAt).getTime()) throw new ScheduleConflictError("Draft changed. Reload and review the current content.");
+      if (!["draft", "scheduled", "failed"].includes(draft.publishStatus)) throw new ScheduleConflictError("This draft cannot be approved in its current delivery state.");
+      return (await tx.update(drafts).set({ publishApprovalHash: reviewFingerprint(draft), publishApprovedBy: scope.userId, publishApprovedAt: new Date() }).where(eq(drafts.id, draft.id)).returning())[0];
+    });
+  }
+
   async checkDraftPublishingPolicy(scope: TenantScope, draftId: string, platforms: string[], intent: PublishingIntent, mode = configuredPublishingMode()): Promise<void> {
     await scoped(scope, async tx => {
       const [draft] = await tx.select().from(drafts).where(and(eq(drafts.id, draftId), eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId))).for("update");
@@ -1298,20 +1343,33 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async scheduleDraftPublish(scope: TenantScope, draftId: string, publishAt: Date, platforms?: string[], intent: PublishingIntent = "schedule"): Promise<DraftSchedule> {
+  async scheduleDraftPublish(scope: TenantScope, draftId: string, publishAt: Date, platforms?: string[], intent: PublishingIntent = "schedule", expected?: PublishingConsent): Promise<DraftSchedule & { targets: DraftScheduleTarget[] }> {
     return scoped(scope, async (tx) => {
       if (!Number.isFinite(publishAt.getTime())) throw new ScheduleConflictError("Invalid publication time");
       const [draft] = await tx.select().from(drafts).where(and(eq(drafts.id, draftId), eq(drafts.tenantId, scope.tenantId), eq(drafts.userId, scope.userId))).for("update");
       if (!draft) throw new ScheduleConflictError("Draft not found");
       const [existing] = await tx.select().from(draftSchedules).where(and(eq(draftSchedules.draftId, draftId), eq(draftSchedules.tenantId, scope.tenantId)));
       const previous = existing ? await tx.select().from(draftScheduleTargets).where(and(eq(draftScheduleTargets.draftScheduleId, existing.id), eq(draftScheduleTargets.tenantId, scope.tenantId))) : [];
+      // Optional only for trusted internal callers. HTTP admission always
+      // supplies this snapshot, including publish-now's existing-due branch.
+      if (expected !== undefined) assertPublishingConsent(expected, draft, existing ? { ...existing, targets: previous } : null);
+      if (intent === "publish" && existing && existing.scheduledPublishAt.getTime() <= publishAt.getTime() && existing.status !== "cancelled") {
+        if (!["scheduled", "queued", "publishing"].includes(existing.status) || draft.publishStatus === "published") {
+          throw new ScheduleConflictError("Use per-target retry for failures; unknown outcomes require provider reconciliation");
+        }
+        await assertPublishingPolicy(tx, scope, draft, previous.map(target => target.platform), intent, configuredPublishingMode());
+        return { ...existing, targets: previous }; // Never replace a due generation to retry it.
+      }
       if (previous.some((target) => ["publishing", "unknown"].includes(target.status)) || (existing && ["publishing", "unknown"].includes(existing.status))) {
         throw new ScheduleConflictError("Publication is in flight or its outcome is unknown; reconcile with the provider before rescheduling");
       }
       if (draft.publishStatus === "published") throw new ScheduleConflictError("Draft is already published");
       if (previous.some(target => ["simulated", "manual_published", "accepted_unverified"].includes(target.status))) throw new ScheduleConflictError("Copy this completed draft to make a new explicit publication.");
       const retained = previous.filter((target) => target.status !== "cancelled");
-      const defaults = (retained.length ? retained : previous).map((target) => target.platform);
+      // Content presents a cancelled schedule as a fresh own-destination
+      // publication. Do not silently revive its old cross-post destinations.
+      const defaults = expected && intent === "publish" && existing?.status === "cancelled"
+        ? [draft.platform] : (retained.length ? retained : previous).map((target) => target.platform);
       const targetPlatforms = platforms?.length ? [...new Set(platforms)] : defaults;
       if (!targetPlatforms.length) targetPlatforms.push(draft.platform);
       const mode = configuredPublishingMode();
@@ -1355,7 +1413,9 @@ export class DatabaseStorage implements IStorage {
         await tx.insert(draftScheduleTargets).values({ tenantId: scope.tenantId, draftScheduleId: schedule.id, platform, status: "scheduled", executionMode: mode, intent }).onConflictDoNothing();
       }
 
-      return (await aggregateSchedule(tx, scope, schedule.id))!;
+      const aggregate = (await aggregateSchedule(tx, scope, schedule.id))!;
+      const targets = await tx.select().from(draftScheduleTargets).where(and(eq(draftScheduleTargets.draftScheduleId, schedule.id), eq(draftScheduleTargets.tenantId, scope.tenantId)));
+      return { ...aggregate, targets };
     });
   }
 

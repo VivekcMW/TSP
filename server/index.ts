@@ -32,6 +32,7 @@ httpServer.on("connection", (socket) => {
 configureProxy(app);
 let shuttingDown = false;
 let closeEditorialJobs: (() => Promise<void>) | undefined;
+let invitationMaintenance: ReturnType<typeof setInterval> | undefined;
 
 // Request ID tracking for debugging and monitoring (correlate logs across services)
 app.use((req, res, next) => {
@@ -332,6 +333,7 @@ const closeResources = createGracefulShutdown({
   }),
   stopScheduler,
   closeJobs: async () => {
+    clearInterval(invitationMaintenance);
     try { await closeEditorialJobs?.(); }
     finally { await closeJobHandlers(); }
   },
@@ -351,6 +353,18 @@ function shutdown(code = 0): Promise<void> {
 }
 
 export async function startServer(): Promise<void> {
+  const { pruneInvitationsIfInstalled } = await import("./services/invitations-store");
+  let pruning = false;
+  const prune = async () => {
+    if (pruning) return;
+    pruning = true;
+    try { await pruneInvitationsIfInstalled(); }
+    catch { console.error("[invitations] Retention cleanup unavailable"); }
+    finally { pruning = false; }
+  };
+  void prune();
+  invitationMaintenance = setInterval(() => void prune(), 60 * 60 * 1000);
+  invitationMaintenance.unref();
   console.log("[startup] Initializing queues...");
   // Initialize background job queue (if Redis is configured)
   initializeQueues();

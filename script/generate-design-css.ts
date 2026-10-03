@@ -10,10 +10,9 @@ import { resolve } from "path";
 import {
   invariant,
   lightColors,
-  darkColors,
   lightEffects,
-  darkEffects,
   derivedBorderTokens,
+  borderSources,
 } from "../client/src/design/tokens";
 
 const OUT = resolve(import.meta.dirname, "../client/src/design/tokens.generated.css");
@@ -24,17 +23,13 @@ const decls = (obj: Record<string, string>) =>
     .join("\n");
 
 /**
- * A token's border colour, derived from its own fill by shifting lightness.
- * The first declaration is a flat fallback for browsers without relative
- * colour syntax; the second overrides it where supported.
+ * Semantic boundary aliases work identically with and without relative color
+ * support. Neutral outline controls use input, not a shifted neutral fill.
  */
 const derived = () =>
   derivedBorderTokens
     .map(
-      (t) => `
-  /* Fallback for browsers without relative colour syntax */
-  --${t}-border: hsl(var(--${t}));
-  --${t}-border: hsl(from hsl(var(--${t})) h s calc(l + var(--opaque-button-border-intensity)) / alpha);`,
+        (t) => `\n  --${t}-border: hsl(var(--${borderSources[t]}));`,
     )
     .join("\n");
 
@@ -51,9 +46,10 @@ ${decls(lightEffects)}
 ${derived()}
 }
 
+/* Legacy selector is light-compatible; it cannot activate a second palette. */
 .dark {
-${decls(darkColors)}
-${decls(darkEffects)}
+${decls(lightColors)}
+${decls(lightEffects)}
 ${derived()}
 }
 `;
@@ -75,5 +71,5 @@ if (check) {
     Object.keys(invariant).length +
     Object.keys(lightColors).length +
     Object.keys(lightEffects).length;
-  console.log(`wrote tokens.generated.css — ${count} light tokens, ${Object.keys(darkColors).length + Object.keys(darkEffects).length} dark, ${derivedBorderTokens.length} derived`);
+  console.log(`wrote tokens.generated.css — ${count} light tokens, light-compatible legacy aliases, ${derivedBorderTokens.length} derived`);
 }

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { editorialVoiceSchema, voiceMutationSchema, type EditorialVoice } from "@shared/editorial-voice";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
+import { Field, fieldLabelRowClassName } from "@/components/ui/field";
+import { NativeSelect } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useSettingsDirty } from "./settings-navigation-guard";
 
@@ -64,9 +66,9 @@ export function EditorialVoiceSettings() {
           </>}
         </div>
       </li>)}</ul>
-      <label className="block space-y-1">{editing ? "Edit voice sample" : "New voice sample"}<Textarea aria-label="Voice sample text" value={text} disabled={busy} maxLength={1000} onChange={event => { setText(event.target.value); setConsent(false); }} /></label>
-      {!editing && <label className="block">Sample type <select aria-label="Sample type" className="rounded-md border bg-background p-2" disabled={busy} value={origin} onChange={event => { setOrigin(event.target.value as typeof origin); setConsent(false); }}><option value="explicit-sample">My explicit writing sample</option><option value="approved-edit">An edit I explicitly approve</option></select></label>}
-      <label className="flex items-start gap-2"><input type="checkbox" checked={consent} disabled={busy} onChange={event => setConsent(event.target.checked)} />I approve retaining this exact text as optional tone guidance and have permission to use it.</label>
+      <label className="grid min-w-0 gap-2"><span className={`${fieldLabelRowClassName} font-medium`}>{editing ? "Edit voice sample" : "New voice sample"}</span><Textarea aria-label="Voice sample text" value={text} disabled={busy} maxLength={1000} onChange={event => { setText(event.target.value); setConsent(false); }} /></label>
+      {!editing && <Field label="Sample type" render={(controlProps) => <NativeSelect {...controlProps} aria-label="Sample type" disabled={busy} value={origin} onChange={event => { setOrigin(event.target.value as typeof origin); setConsent(false); }}><option value="explicit-sample">My explicit writing sample</option><option value="approved-edit">An edit I explicitly approve</option></NativeSelect>} />}
+      <label className="flex min-h-11 items-center gap-2"><span className="flex h-11 w-11 shrink-0 items-center justify-center"><input type="checkbox" className="h-4 w-4 accent-primary" checked={consent} disabled={busy} onChange={event => setConsent(event.target.checked)} /></span>I approve retaining this exact text as optional tone guidance and have permission to use it.</label>
       <div className="flex flex-wrap gap-2"><Button disabled={busy || !valid || (!editing && voice.samples.length >= 5)} onClick={() => void mutate(editing ? { action: "edit", id: editing, text, consent: true } : { action: "add", text, origin, consent: true })}>{editing ? "Approve sample changes" : "Approve and add sample"}</Button>
         {editing && <Button variant="outline" disabled={busy} onClick={() => { setEditing(null); setText(""); setConsent(false); }}>Cancel sample edit</Button>}</div>
     </>}

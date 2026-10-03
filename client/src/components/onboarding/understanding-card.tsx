@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
 import type { Understanding } from "@/lib/onboarding-suggestions";
 import type { UnderstandingStatus } from "@/hooks/use-focus-understanding";
 
@@ -31,7 +32,7 @@ export function UnderstandingCard({ compact = false, status, understanding, disa
     return (
       <section aria-label="What the agent understood" className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-dashed px-3 py-2 text-sm">
         <span className="min-w-0 flex-1 [overflow-wrap:anywhere]"><span className="text-muted-foreground">I understood: </span>{line}{understanding.focusAreas.length ? ` · ${understanding.focusAreas.join(", ")}` : ""}</span>
-        <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => setEditing(true)} disabled={disabled}>Edit</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(true)} disabled={disabled}>Edit</Button>
       </section>
     );
   }
@@ -65,9 +66,9 @@ export function UnderstandingCard({ compact = false, status, understanding, disa
         <div className="space-y-3">
           <div className="grid gap-3">
             {FIELDS.map(({ field, label }) => (
-              <label key={field} className="block space-y-1">
-                <span className="text-xs text-muted-foreground">{label}</span>
+              <Field key={field} label={label} render={(controlProps) => (
                 <Input
+                  {...controlProps}
                   aria-label={label}
                   value={understanding[field] ?? ""}
                   maxLength={60}
@@ -75,7 +76,7 @@ export function UnderstandingCard({ compact = false, status, understanding, disa
                   placeholder={field === "region" ? "e.g. India" : field === "audience" ? "e.g. agencies and brands" : ""}
                   onChange={event => onChange({ ...understanding, [field]: field === "role" || field === "industry" ? event.target.value : event.target.value || null })}
                 />
-              </label>
+              )} />
             ))}
           </div>
           <div className="space-y-2">

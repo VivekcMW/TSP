@@ -40,6 +40,7 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
   toggleSidebar: () => void
+  mobileTriggerRef: React.MutableRefObject<HTMLButtonElement | null>
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -68,6 +69,7 @@ function SidebarProvider({
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
+  const mobileTriggerRef = React.useRef<HTMLButtonElement | null>(null)
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -122,6 +124,7 @@ function SidebarProvider({
       openMobile,
       setOpenMobile,
       toggleSidebar,
+      mobileTriggerRef,
     }),
     [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
   )
@@ -163,7 +166,7 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const { isMobile, state, openMobile, setOpenMobile, mobileTriggerRef } = useSidebar()
 
   if (collapsible === "none") {
     return (
@@ -195,6 +198,14 @@ function Sidebar({
             } as React.CSSProperties
           }
           side={side}
+          onCloseAutoFocus={(event) => {
+            // This controlled Sheet is opened outside Radix's DialogTrigger.
+            const trigger = mobileTriggerRef.current
+            if (trigger?.isConnected && trigger.getClientRects().length) {
+              event.preventDefault()
+              trigger.focus({ preventScroll: true })
+            }
+          }}
         >
           <SheetHeader className="sr-only">
             <SheetTitle>Sidebar</SheetTitle>
@@ -259,7 +270,7 @@ function SidebarTrigger({
   onClick,
   ...props
 }: React.ComponentProps<typeof Button>) {
-  const { toggleSidebar, isMobile, openMobile, open } = useSidebar()
+  const { toggleSidebar, isMobile, openMobile, open, mobileTriggerRef } = useSidebar()
 
   return (
     <Button
@@ -271,7 +282,10 @@ function SidebarTrigger({
       className={cn("h-11 w-11 min-h-11 min-w-11", className)}
       onClick={(event) => {
         onClick?.(event)
-        if (!event.defaultPrevented) toggleSidebar()
+        if (!event.defaultPrevented) {
+          if (isMobile && !openMobile) mobileTriggerRef.current = event.currentTarget
+          toggleSidebar()
+        }
       }}
       {...props}
     >
@@ -329,7 +343,7 @@ function SidebarInput({
     <Input
       data-slot="sidebar-input"
       data-sidebar="input"
-      className={cn("bg-sidebar-accent text-sidebar-foreground placeholder:text-sidebar-foreground/70 min-h-11 w-full shadow-none", className)}
+      className={cn("bg-card text-sidebar-foreground placeholder:text-muted-foreground min-h-11 w-full shadow-none", className)}
       {...props}
     />
   )
@@ -475,13 +489,13 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  "peer/menu-button flex min-h-11 min-w-11 w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm ring-sidebar-ring transition-[width,height,padding] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-[[data-sidebar=menu-action]]/menu-item:pr-12 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:!w-11 group-data-[collapsible=icon]:!h-11 group-data-[collapsible=icon]:!p-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:[&>span]:hidden group-data-[collapsible=icon]:[&>svg]:!size-5 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
+  "peer/menu-button flex min-h-11 min-w-11 w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm ring-sidebar-ring ring-offset-sidebar transition-colors duration-fast hover:bg-muted hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-offset-2 active:bg-secondary-hover disabled:pointer-events-none disabled:text-muted-foreground group-has-[[data-sidebar=menu-action]]/menu-item:pr-12 aria-disabled:pointer-events-none aria-disabled:text-muted-foreground data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[active=true]:hover:bg-sidebar-accent group-data-[collapsible=icon]:!w-11 group-data-[collapsible=icon]:!h-11 group-data-[collapsible=icon]:!p-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:[&>span]:hidden group-data-[collapsible=icon]:[&>svg]:!size-5 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        default: "",
         outline:
-          "bg-sidebar text-sidebar-foreground shadow-[0_0_0_1px_hsl(var(--sidebar-border))] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_hsl(var(--sidebar-accent))]",
+          "bg-sidebar text-sidebar-foreground border border-input",
       },
       size: {
         default: "h-11 text-sm",

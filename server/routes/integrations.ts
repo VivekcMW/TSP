@@ -11,6 +11,7 @@ import { PROVIDER_CATALOG, resolveProviderDefinition, runProviderSandbox } from 
 import { assessProviderConnection } from "../services/publishers/providerLifecycle";
 import { refreshProviderAccessToken, validateProviderRuntimeConfig } from "../services/publishers/providerAuth";
 import { resolveHashnodePublication } from "../services/publishers/hashnode";
+import { verifyMediumIntegrationToken } from "../services/publishers/medium";
 import { verifyMastodonAccessToken } from "../services/publishers/mastodon";
 import { publicHttpsInstanceOrigin } from "../services/safeOutbound";
 import { verifyBlueskyAppPassword } from "../services/publishers/bluesky";
@@ -43,6 +44,7 @@ const hashnodeTokenSchema = z.object({ personalAccessToken: rawCredential(20, 25
 const blueskyConnectionSchema = z.object({ handle: z.string().trim().min(3).max(253), appPassword: rawCredential(8, 128) });
 const mastodonConnectionSchema = z.object({ instanceUrl: z.string().url().max(253), accessToken: rawCredential(20, 512) });
 const telegramConnectionSchema = z.object({ botToken: rawCredential(20, 256), chatId: z.string().trim().min(1).max(64) });
+const mediumTokenSchema = z.object({ integrationToken: rawCredential(20, 256) });
 
 function normalizeProviderKey(provider: string): string {
   const resolved = resolveProviderDefinition(provider);
@@ -137,6 +139,22 @@ export function registerIntegrationsRoutes(app: Express) {
     } catch {
       console.error("Hashnode connection failed");
       res.status(500).json({ message: "Could not store Hashnode personal access token" });
+    }
+  });
+  app.post("/api/integrations/medium/integration-token", requireDbUser, requirePermission("social:connect:own"), async (req, res) => {
+    const validation = mediumTokenSchema.safeParse(req.body);
+    if (!validation.success) return res.status(400).json({ message: "Invalid Medium integration token" });
+    try {
+      const verified = await verifyMediumIntegrationToken(validation.data.integrationToken);
+      if ("error" in verified) return res.status(400).json({ message: "Could not verify Medium credentials" });
+      const scope = authedOf(req).tenant;
+      const existing = await storage.getSocialAccountByProvider(scope, "medium");
+      const data = { provider: "medium", providerAccountId: verified.userId, accountName: "Medium", accessToken: validation.data.integrationToken, scopes: ["basicProfile", "publishPost"], isActive: true };
+      const connection = existing ? await storage.updateSocialAccount(scope, existing.id, data) : await storage.createSocialAccount(scope, data);
+      res.status(201).json({ success: true, instance: connection ? toSafeSocialAccount(connection) : null });
+    } catch {
+      console.error("Medium connection failed");
+      res.status(500).json({ message: "Could not store Medium integration token" });
     }
   });
   app.post("/api/integrations/:provider/webhook", requireDbUser, requirePermission("social:connect:own"), async (req, res) => {

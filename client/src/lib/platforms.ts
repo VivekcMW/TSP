@@ -12,9 +12,9 @@ export interface PlatformMeta {
   label: string;
   icon: ComponentType<{ className?: string }> | IconType;
   charLimit: number;
-  // Best-effort destination to open after the content has been copied to the
-  // clipboard. Platforms with a real "pre-fill" intent URL (LinkedIn, Twitter)
-  // use `text`; others just open a generic compose/home page for paste.
+  // Best-effort destination, NOT a publishing API. Always retain a clipboard
+  // fallback: login redirects and some composers can discard URL parameters.
+  // LinkedIn's text query is undocumented; its official share URL is URL-only.
   composeUrl: (text: string, articleUrl?: string) => string;
 }
 
@@ -25,10 +25,7 @@ export const PLATFORMS: PlatformMeta[] = ([
     label: "LinkedIn",
     icon: Linkedin,
     charLimit: 3000,
-    composeUrl: (_text, articleUrl) =>
-      articleUrl
-        ? `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(articleUrl)}`
-        : "https://www.linkedin.com/feed/?shareActive=true",
+    composeUrl: (text) => `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(text)}`,
   },
   {
     value: "twitter",
@@ -43,14 +40,14 @@ export const PLATFORMS: PlatformMeta[] = ([
     label: "Threads",
     icon: SiThreads,
     charLimit: 500,
-    composeUrl: () => "https://www.threads.net/",
+    composeUrl: (text) => `https://www.threads.com/intent/post?text=${encodeURIComponent(text)}`,
   },
   {
     value: "bluesky",
     label: "Bluesky",
     icon: SiBluesky,
     charLimit: 300,
-    composeUrl: () => "https://bsky.app/",
+    composeUrl: (text) => `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`,
   },
   {
     value: "substack",
@@ -129,7 +126,7 @@ export const PLATFORMS: PlatformMeta[] = ([
     label: "Farcaster",
     icon: SiFarcaster,
     charLimit: 320,
-    composeUrl: (text) => `https://warpcast.com/~/compose?text=${encodeURIComponent(text.slice(0, 320))}`,
+    composeUrl: (text) => `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}`,
   },
   {
     value: "xiaohongshu",
@@ -143,7 +140,7 @@ export const PLATFORMS: PlatformMeta[] = ([
     label: "Weibo",
     icon: SiSinaweibo,
     charLimit: 2000,
-    composeUrl: (text) => `https://service.weibo.com/share/share.php?title=${encodeURIComponent(text.slice(0, 2000))}`,
+    composeUrl: (text) => `https://service.weibo.com/share/share.php?title=${encodeURIComponent(text)}`,
   },
   {
     value: "wechat",
@@ -166,14 +163,14 @@ export const PLATFORMS: PlatformMeta[] = ([
     label: "VK",
     icon: SiVk,
     charLimit: 3000,
-    composeUrl: (text) => `https://vk.com/share.php?title=${encodeURIComponent(text.slice(0, 3000))}`,
+    composeUrl: (text) => `https://vk.com/share.php?title=${encodeURIComponent(text)}`,
   },
   {
     value: "line",
     label: "LINE",
     icon: SiLine,
     charLimit: 1000,
-    composeUrl: (text) => `https://social-plugins.line.me/lineit/share?text=${encodeURIComponent(text.slice(0, 1000))}`,
+    composeUrl: (text) => `https://social-plugins.line.me/lineit/share?text=${encodeURIComponent(text)}`,
   },
   {
     value: "naver",

@@ -7,6 +7,10 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: only light;
+  }
+
   * {
     @apply border-border;
   }
@@ -19,12 +23,6 @@
 
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-heading);
-  }
-
-  /* These surfaces stay dark even when the page uses the light theme.
-     Scope only gold ink, never the fill or gold-button foreground. */
-  [data-sidebar="sidebar"], .bg-surface-ink {
-    --secondary-text: var(--secondary-on-dark);
   }
 
   [data-sidebar="sidebar"] :focus-visible {
@@ -64,9 +62,39 @@
     margin-inline: auto;
   }
 
-  .dashboard-touch-targets :is(button, a, [role="tab"], [role="combobox"]) {
-    min-height: var(--touch-target);
-    min-width: var(--touch-target);
+  /* Self-contained width variants: usable without dashboard-container. */
+  .dashboard-container-reading,
+  .dashboard-container-standard,
+  .dashboard-container-workbench {
+    width: 100%;
+    min-width: 0;
+    margin-inline: auto;
+  }
+  .dashboard-container-reading { max-width: var(--page-width-reading); }
+  .dashboard-container-standard { max-width: var(--page-width-standard); }
+  .dashboard-container-workbench { max-width: var(--page-width-workbench); }
+
+  .surface-compact { padding: var(--surface-padding-compact); }
+  .surface-standard { padding: var(--surface-padding-standard); }
+  .surface-relaxed { padding: var(--surface-padding-relaxed); }
+
+  /* Use real, non-overlapping targets, including on touch laptops/tablets.
+     Repeated class keeps the safety minimum above consumer min-size utilities. */
+  @media (max-width: 767px), (any-pointer: coarse) {
+    /* Match label rows even when only one sibling has an info trigger.
+       Retain rem growth for enlarged text instead of fixing the row height. */
+    .field-label-row.field-label-row {
+      min-height: max(2.25rem, var(--touch-target));
+    }
+    .control-touch-target.control-touch-target,
+    .dashboard-touch-targets :is(button, a, [role="tab"], [role="combobox"]) {
+      min-height: var(--touch-target);
+      min-width: var(--touch-target);
+    }
+    /* Grow date cells with their buttons, never overlapping adjacent dates. */
+    .calendar-picker.calendar-picker {
+      --calendar-cell-size: var(--touch-target);
+    }
   }
 }
 
@@ -104,10 +132,10 @@
 
   /* Lift-on-hover for cards — layers on top of the existing hover-elevate overlay. */
   .hover-lift {
-    transition: transform 200ms ease, box-shadow 200ms ease;
+    transition: transform var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
   }
   .hover-lift:hover {
-    transform: translateY(-4px);
+    transform: translateY(-2px);
     box-shadow: var(--shadow-lg);
   }
 
@@ -126,18 +154,17 @@
     to { background-position: -50% 0; }
   }
 
-  .glow-pulse {
-    animation: glow-pulse 3s ease-in-out infinite;
-  }
-  @keyframes glow-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 hsl(var(--secondary) / 0.35); }
-    50% { box-shadow: 0 0 0 8px hsl(var(--secondary) / 0); }
-  }
+  /* Compatibility class: no decorative glow in the light theme. */
+  .glow-pulse { box-shadow: var(--shadow-sm); }
 
   /* Calendar panels are compact card surfaces but intentionally do not use
-     the shared Card primitive, so keep their corners on the same 4px scale. */
+     the shared Card primitive, so share the authored card geometry. */
   main:has([data-calendar-day]) .rounded-xl {
-    border-radius: 4px;
+    border-radius: var(--radius-card);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hover-lift:hover { transform: none; }
   }
 
 }

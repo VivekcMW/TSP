@@ -21,7 +21,7 @@ interface PunditPanelProps {
 export function PunditAvatar({ size = 32 }: { size?: number }) {
   return (
     <span aria-hidden="true" className="flex shrink-0 items-center justify-center rounded-full bg-primary" style={{ width: size, height: size }}>
-      <Zap className="text-secondary fill-secondary" style={{ width: size / 2, height: size / 2 }} />
+      <Zap className="text-primary-foreground fill-primary-foreground" style={{ width: size / 2, height: size / 2 }} />
     </span>
   );
 }
@@ -90,7 +90,7 @@ export function PunditPanel({ className, messages, thinking, progress, log }: Re
                     <div className="flex flex-wrap gap-2">
                       {message.chips.map(chip => (
                         <Button key={chip.label} type="button" size="sm" variant={chip.primary ? "default" : "outline"} disabled={chip.disabled}
-                          className="h-auto min-h-9 rounded-full px-3.5 py-1.5" onClick={chip.onClick}>{chip.label}</Button>
+                          onClick={chip.onClick}>{chip.label}</Button>
                       ))}
                     </div>
                   )}

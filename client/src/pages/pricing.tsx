@@ -43,7 +43,7 @@ function PlanCard({ plan, price, unit, detail, badge, highlight, unavailableNote
         ))}
       </ul>
       {unavailableNote && <p className="mb-3 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">{unavailableNote}</p>}
-      <Button asChild className="min-h-11 w-full" variant={highlight ? "default" : "outline"}>
+      <Button asChild size="lg" className="self-start" variant={highlight ? "default" : "outline"}>
         <Link href={action.href}>{action.label}</Link>
       </Button>
     </article>
@@ -93,7 +93,7 @@ export default function Pricing() {
             {(isError || (!isPending && !data?.plans.length)) && (
               <div className="mx-auto max-w-xl space-y-4 rounded-2xl border bg-card p-6 text-center">
                 <p role="alert">The plan catalog is unavailable. No prices or access promises can be confirmed right now.</p>
-                <Button variant="outline" className="min-h-11" onClick={() => refetch()}>Retry</Button>
+                <Button variant="outline" onClick={() => refetch()}>Retry</Button>
               </div>
             )}
             {!isError && data && data.plans.length > 0 && (

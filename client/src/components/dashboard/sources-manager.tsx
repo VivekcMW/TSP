@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Rss, Globe, Trash2, CheckCircle2, XCircle, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { fieldLabelRowClassName } from "@/components/ui/field";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -17,6 +20,7 @@ import type { UserSource } from "@shared/schema";
  */
 export function SourcesManagerContent() {
   const { toast } = useToast();
+  const sourceInputId = useId();
   const { data: sources = [], isLoading: sourcesLoading } = useQuery<UserSource[]>({ queryKey: ["/api/sources"] });
   const { data: sourceSuggestions = [] } = useQuery<Array<{ id: string; name: string; feedUrl: string }>>({ queryKey: ["/api/sources/suggestions"] });
   const [newSourceInput, setNewSourceInput] = useState("");
@@ -54,8 +58,8 @@ export function SourcesManagerContent() {
         <div className="space-y-2">
           {sources.map((source) => (
             <div key={source.id} className="flex items-center gap-3 rounded-[4px] border p-3" data-testid={`source-${source.id}`}>
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] bg-secondary/15">
-                {source.sourceType === "webpage" ? <Globe className="h-4 w-4 text-secondary" /> : <Rss className="h-4 w-4 text-secondary" />}
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] bg-info-subtle">
+                {source.sourceType === "webpage" ? <Globe className="h-4 w-4 text-info" /> : <Rss className="h-4 w-4 text-info" />}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{source.name}</p>
@@ -66,36 +70,49 @@ export function SourcesManagerContent() {
               </div>
               {source.lastFetchStatus === "ok" && <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-label="Last fetch succeeded" />}
               {source.lastFetchStatus === "error" && <XCircle className="h-4 w-4 shrink-0 text-destructive" aria-label="Last fetch failed" />}
-              <Switch
-                checked={source.isActive}
-                onCheckedChange={(checked) => toggleSourceMutation.mutate({ id: source.id, isActive: checked })}
-                aria-label={`${source.isActive ? "Disable" : "Enable"} ${source.name}`}
-              />
-              <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" disabled={deleteSourceMutation.isPending} onClick={() => deleteSourceMutation.mutate(source.id)} aria-label={`Remove ${source.name}`}>
+              <label htmlFor={`${sourceInputId}-${source.id}-active`} className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center">
+                <span className="sr-only">{`${source.isActive ? "Disable" : "Enable"} ${source.name}`}</span>
+                <Switch
+                  id={`${sourceInputId}-${source.id}-active`}
+                  checked={source.isActive}
+                  onCheckedChange={(checked) => toggleSourceMutation.mutate({ id: source.id, isActive: checked })}
+                  aria-label={`${source.isActive ? "Disable" : "Enable"} ${source.name}`}
+                />
+              </label>
+              <Button type="button" variant="ghost" size="icon" disabled={deleteSourceMutation.isPending} onClick={() => deleteSourceMutation.mutate(source.id)} aria-label={`Remove ${source.name}`}>
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
           ))}
         </div>
       )}
-      <div className="flex gap-2">
-        <Input
-          value={newSourceInput}
-          onChange={(event) => setNewSourceInput(event.target.value)}
-          placeholder="https://publication.com/blog"
-          aria-label="Add a source"
-          maxLength={300}
-          disabled={addSourceMutation.isPending || addSuggestedSourceMutation.isPending}
-          onKeyDown={(event) => { if (event.key === "Enter" && newSourceInput.trim() && !addSourceMutation.isPending && !addSuggestedSourceMutation.isPending) addSourceMutation.mutate(newSourceInput.trim()); }}
-        />
-        <Button type="button" onClick={() => addSourceMutation.mutate(newSourceInput.trim())} disabled={!newSourceInput.trim() || addSourceMutation.isPending || addSuggestedSourceMutation.isPending}>
-          <Plus className="mr-2 h-4 w-4" />{addSourceMutation.isPending ? "Adding..." : "Add"}
-        </Button>
+      <div className="space-y-2">
+        <div className={fieldLabelRowClassName}>
+          <Label htmlFor={sourceInputId}>Source URL</Label>
+          <InfoTooltip label="Source URL" descriptionId={`${sourceInputId}-help`}>
+            Paste the publication's actual URL; names alone are not matched to guessed domains.
+            Public feeds and readable webpages are supported.
+            Refreshes process up to 30 sources at a time, oldest fetched first.
+          </InfoTooltip>
+        </div>
+        <div className="flex items-center gap-2">
+          <Input
+            id={sourceInputId}
+            value={newSourceInput}
+            onChange={(event) => setNewSourceInput(event.target.value)}
+            placeholder="https://publication.com/blog"
+            aria-describedby={`${sourceInputId}-help ${sourceInputId}-warning`}
+            maxLength={300}
+            disabled={addSourceMutation.isPending || addSuggestedSourceMutation.isPending}
+            onKeyDown={(event) => { if (event.key === "Enter" && newSourceInput.trim() && !addSourceMutation.isPending && !addSuggestedSourceMutation.isPending) addSourceMutation.mutate(newSourceInput.trim()); }}
+          />
+          <Button type="button" onClick={() => addSourceMutation.mutate(newSourceInput.trim())} disabled={!newSourceInput.trim() || addSourceMutation.isPending || addSuggestedSourceMutation.isPending}>
+            <Plus className="mr-2 h-4 w-4" />{addSourceMutation.isPending ? "Adding..." : "Add"}
+          </Button>
+        </div>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Paste the publication's actual URL; names alone are not matched to guessed domains.
-        Public feeds and readable webpages are supported. Login, paywall, bot-protected, and JavaScript-only pages may not be accessible.
-        Refreshes process up to 30 sources at a time, oldest fetched first.
+      <p id={`${sourceInputId}-warning`} className="text-xs text-muted-foreground">
+        Login, paywall, bot-protected, and JavaScript-only pages may not be accessible.
       </p>
       {sourceSuggestions.length > 0 && (
         <div className="space-y-2 border-t pt-4">

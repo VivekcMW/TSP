@@ -56,13 +56,13 @@ describe("grounded post generation", () => {
   });
 
   it("allows exactly one format repair and never returns invalid or canned content", async () => {
-    generateText.mockResolvedValue("Invalid post without attribution or link.");
+    generateText.mockResolvedValue("Invalid post with an invented link: https://elsewhere.test/pilot");
     await expect(generatePostContent(article, "twitter", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
     expect(generateText).toHaveBeenCalledTimes(2);
   });
 
   it("accepts a valid repair without truncating or fabricating text", async () => {
-    generateText.mockResolvedValueOnce("Invalid").mockResolvedValueOnce(post);
+    generateText.mockResolvedValueOnce("Invalid https://elsewhere.test/pilot").mockResolvedValueOnce(post);
     expect(await generatePostContent(article, "twitter", "professional")).toBe(post);
     expect(generateText.mock.calls[1][1].systemPrompt).toContain("Correct these format issues");
   });
@@ -104,7 +104,7 @@ describe("grounded post generation", () => {
 });
 
 describe("bounded instant reviews", () => {
-  it("aborts the batch at the 60-second deadline without returning partial posts", async () => {
+  it("stops the batch before spending cleanup headroom without returning partial posts", async () => {
     vi.useFakeTimers();
     generateText.mockImplementation((_prompt, options) => new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -117,9 +117,10 @@ describe("bounded instant reviews", () => {
     const outcome = generatePlatformReviews(fetched, ["twitter", "linkedin", "reddit", "medium"]).catch(error => error);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(await outcome).toMatchObject({ code: "ai_timeout" });
-    expect(generateText).toHaveBeenCalledTimes(8);
+    // At 57s only 3s remain: no fourth pair may consume the 5s cleanup reserve.
+    expect(generateText).toHaveBeenCalledTimes(6);
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(generateText).toHaveBeenCalledTimes(8);
+    expect(generateText).toHaveBeenCalledTimes(6);
   });
 
   it("preserves the legacy two-platform, four-tone result shape", async () => {

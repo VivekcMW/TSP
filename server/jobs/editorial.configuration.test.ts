@@ -50,4 +50,15 @@ describe("editorial worker initialization", () => {
     expect(initializeEditorialJobs()).toBeUndefined();
     expect(mocks.construct).not.toHaveBeenCalled();
   });
+
+  it("cleans up every connection for a production model/version partition", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AI_PROVIDER", "gemini");
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "");
+    expect(initializeEditorialJobs()).toBeDefined();
+    expect(mocks.construct).toHaveBeenCalledWith(expect.stringMatching(/^editorial_generation-production-[a-f0-9]{12}$/), expect.any(Object));
+    await closeEditorialJobs();
+    expect(mocks.close).toHaveBeenCalledTimes(1);
+    expect(mocks.disconnect).toHaveBeenCalledTimes(3);
+  });
 });

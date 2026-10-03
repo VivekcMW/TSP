@@ -9,7 +9,7 @@ import { z } from "zod";
 
 const TTL = 10 * 60_000;
 const stateSchema = z.object({
-  v: z.literal(1), provider: z.enum(["twitter", "reddit", "linkedin"]),
+  v: z.literal(1), provider: z.enum(["twitter", "reddit", "linkedin", "facebook", "threads"]),
   userId: z.string().min(1), tenantId: z.string().min(1),
   nonce: z.string().regex(/^[a-f0-9]{64}$/), exp: z.number().int(),
   codeVerifier: z.string().regex(/^[A-Za-z0-9_-]{43,128}$/).optional(),

@@ -25,10 +25,10 @@ export function StickyMobileCta() {
   return createPortal(
     <div
       data-testid="sticky-mobile-cta"
-      className={`fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 px-4 pt-3 backdrop-blur md:hidden [body[data-cookie-banner=open]_&]:hidden ${show ? "" : "hidden"}`}
+      className={`fixed inset-x-0 bottom-0 z-40 border-t bg-card px-4 pt-3 md:hidden [body[data-cookie-banner=open]_&]:hidden ${show ? "" : "hidden"}`}
       style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
     >
-      <Link href="/sign-up" className="flex h-12 w-full items-center justify-center rounded-md bg-primary text-base font-semibold text-primary-foreground">
+      <Link href="/sign-up" className="flex h-12 w-full items-center justify-center rounded-md bg-primary text-base font-semibold text-primary-foreground transition-colors hover:bg-primary-hover active:bg-primary-active ring-offset-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
         Start free
       </Link>
     </div>,

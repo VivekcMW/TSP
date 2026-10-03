@@ -3,6 +3,8 @@ import { Send, Zap } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Field, fieldControlClassName } from "@/components/ui/field";
+import { NativeSelect } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { OnboardingData } from "@/lib/onboarding-choices";
 import { browserSearchEdition, type SuggestionKind, type SuggestionStep, type PreviewHeadline } from "@/lib/onboarding-suggestions";
@@ -194,7 +196,16 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
     if (message.actions === "understand-failed" && understanding.status === "error") chips.push({ label: "Try again", onClick: understanding.retry });
     if (message.actions === "manual" && mode === "manual" && !completed) chips.push({ label: "Let Pundit help", primary: true, onClick: () => buildSetup(), disabled: locked });
     if (message.actions === "finish") {
-      chips.push({ label: "Draft a post from the first story", primary: true, onClick: () => writePost(preview.headlines[0]) }, { label: "Go to my dashboard", onClick: () => navigate("/dashboard") });
+      // The preview search runs in parallel with this message; guard against
+      // sending the user to a blank Create page before it resolves.
+      const previewPending = preview.hasTopics && (preview.status === "idle" || preview.status === "loading");
+      const previewReady = preview.status === "ready" && preview.headlines.length > 0;
+      chips.push({
+        label: previewPending ? "Finding your first story…" : previewReady ? "Draft a post from the first story" : "Open Discover",
+        primary: true,
+        disabled: previewPending,
+        onClick: () => previewReady ? writePost(preview.headlines[0]) : navigate("/dashboard/discover"),
+      }, { label: "Go to my dashboard", onClick: () => navigate("/dashboard") });
     }
     if (message.step && latestNote.get(message.step) === message.id && mode === "agent" && !completed && agent.state[message.step].status === "ready") {
       const step = message.step;
@@ -230,11 +241,11 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
     </SetupSection>
   );
   const textInput = (kind: SuggestionKind, label: string, placeholder: string, value: string, setValue: (value: string) => void, testId: string) => (
-    <div className="flex gap-2">
+    <div className="flex items-center gap-2">
       <Input value={value} aria-label={label} maxLength={100} placeholder={placeholder} className="flex-1" disabled={locked}
         onChange={event => setValue(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && selections.addCustom(kind, value)) setValue(""); }}
         data-testid={`input-custom-${testId}`} />
-      <Button variant="outline" className="min-h-10" disabled={!value.trim() || selections.lists[kind][0].length >= 20 || locked}
+      <Button variant="outline" disabled={!value.trim() || selections.lists[kind][0].length >= 20 || locked}
         onClick={() => { if (selections.addCustom(kind, value)) setValue(""); }} data-testid={`button-add-${testId}`}>Add</Button>
     </div>
   );
@@ -264,7 +275,7 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
       <div role="tablist" aria-label="Onboarding" className="flex shrink-0 gap-1 border-b bg-muted p-1 lg:hidden">
         {(["pundit", "setup"] as const).map(value => (
           <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}
-            className={cn("min-h-10 flex-1 rounded-md text-sm", tab === value ? "bg-card font-semibold text-primary shadow-sm" : "text-muted-foreground")}>
+            className={cn("control-touch-target min-h-8 flex-1 rounded-md px-2.5 py-1 text-[0.8125rem]", tab === value ? "bg-card font-semibold text-primary shadow-sm" : "text-muted-foreground")}>
             {value === "pundit" ? "Pundit" : `Your setup · ${selections.count}`}
           </button>
         ))}
@@ -278,12 +289,12 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
           finished={completed ? { summary: summaryText, preview, onWritePost: writePost, onOpenDiscover: () => navigate("/dashboard/discover"), onOpenDashboard: () => navigate("/dashboard") } : undefined}>
           {section("publications", (
             <div className="space-y-2">
-              <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <Input aria-label="Source name" value={customSource} maxLength={100} placeholder="Add your own publication" className="flex-1" disabled={locked}
                   onChange={event => setCustomSource(event.target.value)} onKeyDown={event => { if (event.key === "Enter") addSource(); }} />
                 <Input aria-label="Source website (optional)" value={customWebsite} maxLength={2048} placeholder="Website (optional)" className="flex-1" disabled={locked}
                   aria-invalid={websiteError} onChange={event => { setCustomWebsite(event.target.value); setWebsiteError(false); }} onKeyDown={event => { if (event.key === "Enter") addSource(); }} />
-                <Button variant="outline" className="min-h-10" onClick={addSource} disabled={!customSource.trim() || sources.length >= 20 || locked}>Add source</Button>
+                <Button variant="outline" onClick={addSource} disabled={!customSource.trim() || sources.length >= 20 || locked}>Add source</Button>
               </div>
               {websiteError && <p role="alert" className="text-xs text-destructive">Enter a valid website, or leave it empty.</p>}
               {sources.length > 0 && (
@@ -306,18 +317,17 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
         </SetupCanvas>
         <form onSubmit={send} className="col-start-1 row-start-2 flex flex-col gap-2 border-t bg-card p-3 lg:border-r">
           {mode !== "none" && !completed && (
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              About
-              <select aria-label="About" value={about} onChange={event => setAbout(event.target.value as SuggestionStep)} disabled={locked}
-                className="min-h-8 rounded-md border bg-background px-2 text-xs text-foreground">
+            <Field label="About" className="grid-cols-[auto_minmax(0,1fr)] items-center" render={(controlProps) => (
+              <NativeSelect {...controlProps} aria-label="About" value={about} onChange={event => setAbout(event.target.value as SuggestionStep)} disabled={locked}>
                 {STEPS.map(step => <option key={step} value={step}>{TITLES[step]}</option>)}
-              </select>
-            </label>
+              </NativeSelect>
+            )} />
           )}
-          <div className="flex items-center gap-2 rounded-xl border px-3 py-1.5 focus-within:ring-2 focus-within:ring-ring">
+          <div data-disabled={locked} className={cn(fieldControlClassName, "relative flex items-center pr-14 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:bg-muted data-[disabled=true]:text-muted-foreground")}>
             <input aria-label="Message Pundit" value={draft} onChange={event => setDraft(event.target.value)} maxLength={300} disabled={locked}
-              placeholder={placeholder} className="min-h-9 min-w-0 flex-1 bg-transparent text-sm outline-none" />
-            <Button type="submit" size="icon" aria-label="Send" disabled={locked || !draft.trim()} className="h-10 w-10 shrink-0"><Send className="h-4 w-4" /></Button>
+              placeholder={placeholder} className="min-w-0 flex-1 border-0 bg-transparent p-0 text-base leading-6 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed md:text-sm" />
+            {/* Keep the touch-sized action out of flow so it cannot enlarge the field frame. */}
+            <Button type="submit" size="icon" aria-label="Send" className="absolute right-1 top-1/2 -translate-y-1/2" disabled={locked || !draft.trim()}><Send className="h-4 w-4" /></Button>
           </div>
         </form>
       </div>

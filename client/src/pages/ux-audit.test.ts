@@ -88,7 +88,7 @@ async function mount(surface: string, responses: unknown[] = [], data: Record<st
   await page.route("https://ux.test/", route => route.fulfill({ contentType: "text/html", body: '<div id="root"></div>' }));
   await page.goto("https://ux.test/");
   await page.clock.install();
-  await page.evaluate(({ surface, responses, data, errors }) => Object.assign(window, { __surface: surface, __responses: responses, __errors: errors, __data: { "/api/inbox": [], "/api/integrations": [], "/api/drafts": [], "/api/profile": { onboardingStatus: "completed" }, "/api/me": { firstName: "Taylor" }, "/api/drafts/scheduled": { items: [] }, "/api/analytics/summary": { connected: { linkedin: false, twitter: false }, combined: { impressions: 0, engagements: 0, engagementRate: 0 } }, ...data } }), { surface, responses, data, errors });
+    await page.evaluate(({ surface, responses, data, errors }) => Object.assign(window, { __surface: surface, __responses: responses, __errors: errors, __data: { "/api/inbox": [], "/api/integrations": [], "/api/drafts": [], "/api/drafts/published": [], "/api/profile": { onboardingStatus: "completed" }, "/api/me": { firstName: "Taylor" }, "/api/drafts/scheduled": { items: [] }, "/api/analytics/summary": { connected: { linkedin: false, twitter: false }, combined: { impressions: 0, engagements: 0, engagementRate: 0 } }, ...data } }), { surface, responses, data, errors });
   await page.addStyleTag({ content: css });
   await page.addScriptTag({ content: bundle });
 }

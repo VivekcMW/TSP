@@ -58,7 +58,7 @@ export function InboxDetail({ item, onGeneratePost, onSave, onDismiss, inSheet =
           {matchedKeywords.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {matchedKeywords.map((keyword) => (
-                <Badge key={keyword} variant="outline" className="max-w-full break-words border-secondary/40 bg-secondary/5 text-xs font-normal text-secondary">{keyword}</Badge>
+                <Badge key={keyword} variant="info" className="max-w-full break-words text-xs font-normal">{keyword}</Badge>
               ))}
             </div>
           )}

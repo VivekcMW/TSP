@@ -13,18 +13,17 @@ export function Facts() {
   return (
     <section className="pb-20 lg:pb-28" data-testid="section-facts">
       <Reveal className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="relative overflow-hidden rounded-2xl bg-surface-ink text-surface-ink-foreground shadow-xl">
-          <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-secondary to-transparent" aria-hidden="true" />
-          <ul className="grid divide-y divide-surface-ink-foreground/10 md:grid-cols-3 md:divide-x md:divide-y-0">
+        <div className="relative overflow-hidden rounded-card border bg-card text-card-foreground shadow-sm">
+          <ul className="grid divide-y divide-border md:grid-cols-3 md:divide-x md:divide-y-0">
             {facts.map(fact => (
               <li key={fact.label} className="flex items-start gap-4 p-6 sm:p-8">
-                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-secondary/15 text-secondary-on-dark">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
                   <fact.icon className="h-5 w-5" aria-hidden="true" />
                 </span>
                 <div className="min-w-0">
                   <p className="font-heading text-4xl font-semibold leading-none tracking-tight sm:text-5xl">{fact.value}</p>
                   <p className="mt-2 text-lg font-medium">{fact.label}</p>
-                  <p className="mt-1 text-sm leading-relaxed text-surface-ink-foreground/70">{fact.detail}</p>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{fact.detail}</p>
                 </div>
               </li>
             ))}

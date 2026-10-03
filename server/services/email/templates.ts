@@ -1,5 +1,19 @@
 import { NEWSLETTER_PROMISE } from "@shared/newsletter";
 import { platformLabel } from "@shared/platform-labels";
+import { lightColors, type ColorToken } from "../../../client/src/design/tokens";
+
+/** Email clients cannot resolve CSS variables (or reliably parse modern HSL).
+ * Derive comma-separated RGB literals from the same authored light tokens. */
+export function emailColor(token: ColorToken): string {
+  const [hue, saturation, lightness] = lightColors[token].split(/\s+/).map(value => Number.parseFloat(value));
+  const light = lightness / 100;
+  const amplitude = saturation / 100 * Math.min(light, 1 - light);
+  const channel = (offset: number) => {
+    const k = (offset + hue / 30) % 12;
+    return Math.round(255 * (light - amplitude * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+  };
+  return `rgb(${channel(0)}, ${channel(8)}, ${channel(4)})`;
+}
 
 /** Content of the transactional emails. The shared wrapper adds the greeting, button and footer. */
 export interface EmailContent {
@@ -40,7 +54,7 @@ const tidyStory = (story: ReminderStory): ReminderStory => ({ ...story, headline
 const createFrom = (url: string) => `${appUrl()}/dashboard/create?article=${encodeURIComponent(url)}`;
 const namedTail = (firstName: string | null | undefined, text: string, joiner = ", ") => firstName ? `${text}${joiner}${firstName}` : text;
 const joinTopics = (topics: string[]) => topics.length > 1 ? `${topics.slice(0, -1).join(", ")} and ${topics.at(-1)}` : topics[0];
-const signOff = () => `<p style="margin:0">— Pundit, at TheSocialPundit</p><p style="font-size:13px;color:#667085">Too busy this week? No problem. You can <a href="${appUrl()}/dashboard/settings?tab=notifications" style="color:#1b2a4a">pause these reminders in Settings</a> anytime.</p>`;
+const signOff = () => `<p style="margin:0">— Pundit, at TheSocialPundit</p><p style="font-size:13px;color:${emailColor("muted-foreground")}">Too busy this week? No problem. You can <a href="${appUrl()}/dashboard/settings?tab=notifications" style="color:${emailColor("primary")}">pause these reminders in Settings</a> anytime.</p>`;
 
 export const emailTemplates = {
   welcome: (industryName: string | null | undefined): EmailContent => ({
@@ -57,7 +71,7 @@ export const emailTemplates = {
     preheader: "One click and you're on the list.",
     html: `<p>Thanks for signing up. Please confirm that you'd like our newsletter:</p><p><strong>${escapeHtml(NEWSLETTER_PROMISE)}</strong></p>`,
     primaryCta: { label: "Confirm subscription", url: confirmUrl },
-    afterCta: `<p style="font-size:13px;color:#667085">If you didn't ask for this, ignore this email and you won't be subscribed.</p>`,
+    afterCta: `<p style="font-size:13px;color:${emailColor("muted-foreground")}">If you didn't ask for this, ignore this email and you won't be subscribed.</p>`,
   }),
   passwordChanged: (): EmailContent => ({
     subject: "Your TheSocialPundit password was changed",
@@ -101,7 +115,7 @@ export const emailTemplates = {
       subject: "Your daily industry briefing",
       eyebrow: "Daily digest",
       preheader: picked[0]?.headline,
-      html: `<p>Your top stories today, picked from the topics, companies and people you follow.</p>${picked.map(article => `<article style="border-top:1px solid #e4e7ec;padding:16px 0"><p style="margin:0;color:#667085;font-size:11px;text-transform:uppercase">${escapeHtml(article.source)}</p><h2 style="font-size:18px;margin:7px 0"><a href="${escapeHtml(article.url)}" style="color:#1b2a4a;text-decoration:none">${escapeHtml(article.headline)}</a></h2>${article.summary ? `<p style="color:#667085;line-height:1.5;margin:0">${escapeHtml(article.summary)}</p>` : ""}</article>`).join("")}`,
+      html: `<p>Your top stories today, picked from the topics, companies and people you follow.</p>${picked.map(article => `<article style="border-top:1px solid ${emailColor("border")};padding:16px 0"><p style="margin:0;color:${emailColor("muted-foreground")};font-size:11px;text-transform:uppercase">${escapeHtml(article.source)}</p><h2 style="font-size:18px;margin:7px 0"><a href="${escapeHtml(article.url)}" style="color:${emailColor("primary")};text-decoration:none">${escapeHtml(article.headline)}</a></h2>${article.summary ? `<p style="color:${emailColor("muted-foreground")};line-height:1.5;margin:0">${escapeHtml(article.summary)}</p>` : ""}</article>`).join("")}`,
       text: ["Your top stories today, picked from the topics, companies and people you follow.",
         ...picked.map(article => `${article.source}: ${article.headline}\n${article.url}${article.summary ? `\n${article.summary}` : ""}`)].join("\n\n"),
       primaryCta: { label: "Open Discover", url: `${appUrl()}/dashboard/discover` },
@@ -127,7 +141,7 @@ export const emailTemplates = {
       subject,
       eyebrow: "Your weekly nudge",
       preheader: "Pick one and we'll draft it in your voice in under a minute.",
-      html: `<p>Quiet week on your feeds, busy week in ${where}. ${picked.length === 1 ? "One story" : `${picked.length === 3 ? "Three" : "Two"} stories`} picked up while you were heads-down:</p>${picked.map(story => `<div style="border-top:1px solid #e4e7ec;padding:14px 0"><p style="margin:0 0 4px;font-weight:700;color:#1b2a4a">${escapeHtml(story.headline)}</p><p style="margin:0;font-size:13px;color:#667085">${escapeHtml(story.source)} · <a href="${escapeHtml(createFrom(story.url))}" style="color:#1b2a4a;font-weight:700">Write about this →</a></p></div>`).join("")}<p>One thoughtful post a week keeps you in the conversation your peers are having. Pick one, and Pundit drafts it in your voice. You just add your take.</p>`,
+      html: `<p>Quiet week on your feeds, busy week in ${where}. ${picked.length === 1 ? "One story" : `${picked.length === 3 ? "Three" : "Two"} stories`} picked up while you were heads-down:</p>${picked.map(story => `<div style="border-top:1px solid ${emailColor("border")};padding:14px 0"><p style="margin:0 0 4px;font-weight:700;color:${emailColor("foreground")}">${escapeHtml(story.headline)}</p><p style="margin:0;font-size:13px;color:${emailColor("muted-foreground")}">${escapeHtml(story.source)} · <a href="${escapeHtml(createFrom(story.url))}" style="color:${emailColor("primary")};font-weight:700">Write about this →</a></p></div>`).join("")}<p>One thoughtful post a week keeps you in the conversation your peers are having. Pick one, and Pundit drafts it in your voice. You just add your take.</p>`,
       text: [`Quiet week on your feeds, busy week in ${topics.length ? joinTopics(topics.slice(0, 2)) : "your industry"}. These stories picked up while you were heads-down:`,
         ...picked.map(story => `${story.headline} (${story.source})\nWrite about this: ${createFrom(story.url)}`),
         "One thoughtful post a week keeps you in the conversation your peers are having. Pick one, and Pundit drafts it in your voice. You just add your take."].join("\n\n"),
@@ -143,7 +157,7 @@ export const emailTemplates = {
       eyebrow: "Your weekly nudge",
       preheader: "One story, one opinion, sixty seconds.",
       html: story
-        ? `<p>One story from your Discover stood out this week:</p><p style="margin:0 0 4px;font-weight:700;color:#1b2a4a">${escapeHtml(story.headline)}</p><p style="margin:0 0 16px;font-size:13px;color:#667085">${escapeHtml(story.source)}</p><p>You already have an opinion on this. Give Pundit sixty seconds and it becomes a ${escapeHtml(platformLabel(platform))} post in your voice. Edit it, or post it as is.</p>`
+        ? `<p>One story from your Discover stood out this week:</p><p style="margin:0 0 4px;font-weight:700;color:${emailColor("foreground")}">${escapeHtml(story.headline)}</p><p style="margin:0 0 16px;font-size:13px;color:${emailColor("muted-foreground")}">${escapeHtml(story.source)}</p><p>You already have an opinion on this. Give Pundit sixty seconds and it becomes a ${escapeHtml(platformLabel(platform))} post in your voice. Edit it, or post it as is.</p>`
         : `<p>Pick any story from your Discover. Give Pundit sixty seconds and it becomes a ${escapeHtml(platformLabel(platform))} post in your voice. Edit it, or post it as is.</p>`,
       primaryCta: story ? { label: "Turn this into a post", url: createFrom(story.url) } : { label: "Open Discover", url: `${appUrl()}/dashboard/discover` },
       afterCta: signOff(),
@@ -160,5 +174,13 @@ export const emailTemplates = {
   }),
   productUpdate: (title: string, body: string, url: string): EmailContent => ({
     subject: title, eyebrow: "Product update", html: `<p>${escapeHtml(body)}</p>`, primaryCta: { label: "Explore the update", url },
+  }),
+  teamInvitation: ({ inviterName, tenantName, role, acceptUrl }: { inviterName: string; tenantName: string; role: string; acceptUrl: string }): EmailContent => ({
+    subject: `${inviterName} invited you to join ${tenantName} on TheSocialPundit`,
+    eyebrow: "Team invitation",
+    preheader: `Join ${tenantName} as a ${role}.`,
+    html: `<p>${escapeHtml(inviterName)} invited you to join <strong>${escapeHtml(tenantName)}</strong> on TheSocialPundit as a <strong>${escapeHtml(role)}</strong>.</p><p>Accept to start collaborating on content for this workspace.</p>`,
+    primaryCta: { label: "Accept invitation", url: acceptUrl },
+    afterCta: `<p style="font-size:13px;color:${emailColor("muted-foreground")}">If you weren't expecting this, you can ignore this email.</p>`,
   }),
 };

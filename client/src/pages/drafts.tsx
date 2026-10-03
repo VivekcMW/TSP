@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { FileText, Search, Send, ExternalLink, CalendarPlus } from "lucide-react";
+import { FileText, Send, CalendarPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,12 +18,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/select";
+import { Field } from "@/components/ui/field";
 import { useToast } from "@/hooks/use-toast";
 import { useIsSignedIn } from "@/lib/dev-auth";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { accountCache, ApiError, apiRequest, queryClient } from "@/lib/queryClient";
+import { acknowledgeDraftSave, adoptDraftRevision, draftSaveBlocked, editDraftText, observeDraftRevision, parseDraftEditingSnapshot, type DraftEditingState } from "@shared/draft-revision";
+import { DraftRevisionNotice } from "@/components/dashboard/social-preview-card";
 import { getPlatformMeta, PLATFORMS } from "@/lib/platforms";
-import { PageHeader } from "@/components/dashboard/page-header";
+import { PageBody, PageHeader, PageToolbar } from "@/components/dashboard/page-header";
+import { WorkflowStatus } from "@/components/dashboard/workflow-status";
+import { PlatformComposeAction } from "@/components/platform-compose-action";
 import { DashboardEmptyState } from "@/components/dashboard/empty-state";
 import { ScheduleArticleModal } from "@/components/schedule-article-modal";
 import { DraftCard, canEditDraft, type DraftScheduleInfo } from "@/components/dashboard/draft-card";
@@ -31,9 +36,12 @@ import { usePublishSchedule } from "@/hooks/use-publish-schedule";
 import { useDraftPublishStatus } from "@/hooks/use-publish-status";
 import { usePublishingReadiness } from "@/hooks/use-publishing-readiness";
 import { ScheduleTargetActions } from "@/components/publishing-target-actions";
-import { canChangeSchedule, draftStatusGroup, fetchPublishingSchedules, invalidatePublishingQueries, selectionBlockers } from "@/lib/publishing";
+import { canChangeSchedule, draftStatusGroup, fetchDraftDetails, fetchPublishingSchedules, invalidatePublishingQueries, publishingTextValidation, scheduleConfirmationKey, selectionBlockers } from "@/lib/publishing";
+import { capturePublishingConsent, type PublishingConsent } from "@shared/publishing-consent";
 import { dateKeyInTimeZone, publishingDefaults, scheduleTimeValidation } from "@/lib/calendar";
+import { distinctDaySendSlots } from "@/lib/send-time";
 import type { Draft } from "@shared/schema";
+import { MAX_DRAFT_CHARACTERS, platformTextValidation } from "@shared/editorial";
 
 // Query cache is scoped/cleared with the authenticated app session. Keep only
 // IDs, not content, across Content remounts; hiding a monitor is not resolution.
@@ -44,17 +52,38 @@ export default function DraftsPage() {
   const search = useSearch();
   const [location, navigate] = useLocation();
   const requestedView = new URLSearchParams(search).get("view");
+  const requestedDraftId = new URLSearchParams(search).get("draft");
+  const appliedDraftLink = useRef<string | null>(null);
+  const focusedDraftLink = useRef<string | null>(null);
+  const linkedDraftElement = useRef<HTMLDivElement | null>(null);
   const isSignedIn = useIsSignedIn();
   const { toast } = useToast();
   const [editingDraft, setEditingDraft] = useState<Draft | null>(null);
   const [copyingDraft, setCopyingDraft] = useState<Draft | null>(null);
   const copyLock = useRef(false);
-  const [editContent, setEditContent] = useState("");
+  const [editRevision, setEditRevisionState] = useState<DraftEditingState>({ content: "", status: "unsaved" });
+  const editRevisionRef = useRef(editRevision);
+  const editSession = useRef<AbortController | null>(null);
+  const editRead = useRef<AbortController | null>(null);
+  const editSaveLock = useRef(false);
+  const editGuard = useRef({ dirty: false, saving: false });
+  const editContent = editRevision.content;
+  const editSaving = editRevision.status === "saving";
+  const setEditRevision = (next: DraftEditingState) => {
+    editRevisionRef.current = next;
+    editGuard.current = { dirty: next.content !== next.savedContent || ["conflict", "refresh-failed", "failed"].includes(next.status), saving: editSaveLock.current };
+    setEditRevisionState(next);
+  };
+  useEffect(() => () => { editSession.current?.abort(); editRead.current?.abort(); }, []);
   const [postingDraft, setPostingDraft] = useState<Draft | null>(null);
   const [schedulingDraft, setSchedulingDraft] = useState<Draft | null>(null);
   const [deletingDraft, setDeletingDraft] = useState<Draft | null>(null);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
+  const [bulkConfirmedKey, setBulkConfirmedKey] = useState<string | null>(null);
+  const [spreadAcrossWeek, setSpreadAcrossWeek] = useState(false);
+  const [bulkErrors, setBulkErrors] = useState<Record<string, { code: string; message: string }>>({});
+  const bulkLock = useRef(false);
   const [draftView, setDraftView] = useState<"ready" | "scheduled" | "attention" | "published">("ready");
   useEffect(() => {
     setDraftView(requestedView === "scheduled" || requestedView === "attention" || requestedView === "published" ? requestedView : "ready");
@@ -65,26 +94,63 @@ export default function DraftsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isPublishing, setIsPublishing] = useState(false);
   const publishLock = useRef(false);
+  const manualPendingRef = useRef(false);
+  const manualReadEpoch = useRef(0);
+  useEffect(() => queryClient.getQueryCache().subscribe(event => {
+    if (event.type !== "updated" || event.action.type !== "fetch") return;
+    const key = String(event.query.queryKey[0]);
+    if (key === "/api/drafts" || key.startsWith("/api/drafts/scheduled") || key.endsWith("/details")) manualReadEpoch.current++;
+  }), []);
+  const [manualPending, setManualPending] = useState(false);
+  const [reconfirmDraftId, setReconfirmDraftId] = useState<string | null>(null);
   const [trackedDraftId, setTrackedDraftId] = useState<string | null>(null);
   const [attemptedDraftIds, setAttemptedDraftIds] = useState<Set<string>>(() => new Set(queryClient.getQueryData<string[]>(attemptedDraftsKey) ?? []));
+  const attemptedDraftIdsRef = useRef(attemptedDraftIds);
   const [publishMessage, setPublishMessage] = useState("");
   const readiness = usePublishingReadiness(!!isSignedIn);
+  const editScope = JSON.stringify([isSignedIn, readiness.profile?.tenantId]);
+  const editScopeRef = useRef({ key: editScope });
+  if (editScopeRef.current.key !== editScope) editScopeRef.current = { key: editScope };
+  const renderEditScope = editScopeRef.current;
   const { timeZone, time: preferredTime } = publishingDefaults(readiness.profile);
   const { bulkSchedule, isLoading: isBulkScheduling } = usePublishSchedule();
   const { cancelSchedule } = usePublishSchedule();
   const publishStatus = useDraftPublishStatus(trackedDraftId);
 
-  const { data: drafts, isLoading, isError: draftsError, refetch: refetchDrafts } = useQuery<Draft[]>({
+  const { data: drafts, isLoading, isError: draftsError, isFetching: draftsFetching, refetch: refetchDrafts } = useQuery<Draft[]>({
     queryKey: ["/api/drafts"],
     enabled: !!isSignedIn,
     refetchInterval: 15_000,
   });
+  const linkedQuery = useQuery<Draft>({
+    queryKey: [`/api/drafts/${encodeURIComponent(requestedDraftId ?? "")}/details`],
+    queryFn: ({ signal }) => fetchDraftDetails(requestedDraftId!, signal),
+    enabled: !!isSignedIn && requestedDraftId !== null, retry: false, staleTime: 0, refetchInterval: 15_000,
+  });
+  const linkedDraft = !linkedQuery.isError ? linkedQuery.data : undefined;
+  const draftsList = requestedDraftId === null ? drafts ?? []
+    : [...(drafts ?? []).filter(draft => draft.id !== requestedDraftId), ...(linkedDraft ? [linkedDraft] : [])];
+
+  // A handoff selects the exact saved record, never an editor baseline, bulk
+  // checkbox or delivery action. A missing ID must not select a different draft.
+  useEffect(() => {
+    appliedDraftLink.current = null; focusedDraftLink.current = null;
+  }, [requestedDraftId]);
+  useEffect(() => {
+    if (requestedDraftId === null) { appliedDraftLink.current = null; focusedDraftLink.current = null; return; }
+    if (!linkedQuery.isSuccess || linkedQuery.isFetching || appliedDraftLink.current === requestedDraftId) return;
+    const linked = linkedDraft;
+    if (!linked) return;
+    appliedDraftLink.current = requestedDraftId;
+    setSearchQuery(""); setPlatformFilter("all");
+    setDraftView(draftStatusGroup(linked.publishStatus));
+  }, [requestedDraftId, linkedDraft, linkedQuery.isSuccess, linkedQuery.isFetching]);
 
   // Draft-level status (used for the tabs/cards) doesn't carry the scheduled
   // time or failure reason - those live on draft_schedules, so the schedule
   // endpoint is fetched once here and merged in, instead of rendering a whole
   // second, separate scheduled-drafts view below the main list.
-  const { data: scheduleData, isError: scheduleError } = useQuery({
+  const { data: scheduleData, isError: scheduleError, isFetching: schedulesFetching } = useQuery({
     queryKey: ["/api/drafts/scheduled-info"],
     queryFn: ({ signal }) => fetchPublishingSchedules(signal),
     enabled: !!isSignedIn,
@@ -95,6 +161,7 @@ export default function DraftsPage() {
     (scheduleData?.items ?? []).map((item) => [item.draftId, { scheduledPublishAt: item.scheduledPublishAt, lastError: item.lastError ?? null, schedule: item }]),
   );
   const scheduleFor = (draft: Draft) => scheduleData?.items.find((item) => item.draftId === draft.id && item.status !== "cancelled");
+  const consentFor = (draft: Draft) => scheduleData ? capturePublishingConsent(draft, scheduleData.items.find(item => item.draftId === draft.id) ?? null) : undefined;
   const editable = (draft: Draft) => !draftsError && !!scheduleData && !scheduleError && !attemptedDraftIds.has(draft.id)
     && canEditDraft(draft, scheduleInfoById.get(draft.id)?.schedule);
   const blockersFor = (draft: Draft) => {
@@ -104,32 +171,16 @@ export default function DraftsPage() {
     if (draftsError) warnings.push("Content could not be refreshed. Try again before publishing.");
     if (attemptedDraftIds.has(draft.id)) warnings.push("A publication was already requested for this draft. Check delivery status; do not send another copy.");
     if (!scheduleData || scheduleError) warnings.push("Schedule status is unavailable. Refresh before publishing.");
+    if (!consentFor(draft)) warnings.push("The exact publishing revision is unavailable. Refresh and review before confirming.");
     if (schedule && !canChangeSchedule(schedule)) warnings.push("Use per-target recovery; do not send another copy.");
     if (!["draft", "scheduled"].includes(draft.publishStatus)) warnings.push("Check target status before publishing again.");
     return warnings;
   };
-
-  const updateDraftMutation = useMutation({
-    mutationFn: async ({ id, content }: { id: string; content: string }) => {
-      const res = await apiRequest("PATCH", `/api/drafts/${id}`, { content });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/drafts"] });
-      toast({
-        title: "Draft updated",
-        description: "Your changes have been saved.",
-      });
-      setEditingDraft(null);
-    },
-    onError: (error) => {
-      toast({
-        title: "Failed to update",
-        description: `${error instanceof Error ? error.message : "Please try again."} Your text is retained.`,
-        variant: "destructive",
-      });
-    },
-  });
+  const canResolveScheduling = (draft: Draft) => {
+    if (draftsError || !scheduleData || scheduleError || attemptedDraftIds.has(draft.id)) return false;
+    const schedule = scheduleFor(draft);
+    return schedule ? draft.publishStatus === "scheduled" && canChangeSchedule(schedule) : draft.publishStatus === "draft";
+  };
 
   const approveDraftMutation = useMutation({
     mutationFn: async (draft: Draft) => (await apiRequest("POST", `/api/drafts/${encodeURIComponent(draft.id)}/approve-publishing`, { content: draft.content, updatedAt: draft.updatedAt })).json(),
@@ -137,13 +188,12 @@ export default function DraftsPage() {
     onError: (error: Error) => toast({ title: "Approval not recorded", description: error.message, variant: "destructive" }),
   });
 
-  const dirty = !!editingDraft && editContent !== editingDraft.content;
-  const editGuard = useRef({ dirty, saving: updateDraftMutation.isPending });
-  editGuard.current = { dirty, saving: updateDraftMutation.isPending };
   const confirmLeaveEdit = () => {
-    if (editGuard.current.saving) return false;
+    if (editSaveLock.current || editGuard.current.saving) return false;
     if (editGuard.current.dirty && !window.confirm("Discard unsaved draft changes?")) return false;
     editGuard.current.dirty = false;
+    editSession.current?.abort(); editSession.current = null;
+    editRead.current?.abort(); editRead.current = null;
     setEditingDraft(null);
     return true;
   };
@@ -216,7 +266,7 @@ export default function DraftsPage() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/drafts"] });
+      void invalidatePublishingQueries();
       toast({
         title: "Draft deleted",
         description: "The draft has been removed.",
@@ -233,31 +283,97 @@ export default function DraftsPage() {
   });
 
   const handleEdit = (draft: Draft) => {
-    if (!editable(draft)) return;
+    if (editSaveLock.current || !editable(draft)) return;
+    editSession.current?.abort(); editSession.current = new AbortController();
+    editRead.current?.abort(); editRead.current = null;
     setEditingDraft(draft);
-    setEditContent(draft.content);
+    try {
+      const snapshot = parseDraftEditingSnapshot({ ...draft, updatedAt: draft.updatedAt instanceof Date ? draft.updatedAt.toISOString() : draft.updatedAt }, draft);
+      setEditRevision(acknowledgeDraftSave({ content: draft.content, status: "unsaved" }, draft.content, snapshot));
+    } catch {
+      setEditRevision({ content: draft.content, savedId: draft.id, status: "refresh-failed", error: "The editing baseline is unavailable. Check latest before saving." });
+    }
   };
 
-  const handleSaveEdit = () => {
-    if (editingDraft && !updateDraftMutation.isPending) {
-      const latest = drafts?.find(draft => draft.id === editingDraft.id);
-      if (!latest || !editable(latest)) {
+  const refreshEdit = async () => {
+    const session = editSession.current, draft = editingDraft;
+    if (!session || session.signal.aborted || editSaveLock.current || !draft || editRevisionRef.current.savedId !== draft.id ||
+      editRevisionRef.current.status === "immutable" || editScopeRef.current !== renderEditScope) return;
+    editRead.current?.abort();
+    const read = new AbortController(); editRead.current = read;
+    const signal = AbortSignal.any([session.signal, read.signal, accountCache.getSignal()]);
+    const owns = () => !signal.aborted && editSession.current === session && editRead.current === read && editScopeRef.current === renderEditScope;
+    setEditRevision({ ...editRevisionRef.current, status: "checking", error: undefined });
+    try {
+      const response = await apiRequest("GET", `/api/drafts/${encodeURIComponent(draft.id)}/editing-snapshot`, undefined, { signal, cache: "no-store" });
+      const latest = parseDraftEditingSnapshot(await response.json(), draft);
+      if (owns()) setEditRevision(observeDraftRevision(editRevisionRef.current, latest));
+    } catch (error) {
+      if (owns()) setEditRevision({ ...editRevisionRef.current, status: "refresh-failed", error: error instanceof ApiError && error.status === 404
+        ? "The draft is missing or inaccessible. Local text is retained; nothing was recreated." : "Local text is retained. Cached data is not confirmation." });
+    } finally { if (editRead.current === read) editRead.current = null; }
+  };
+  const resolveEdit = (choice: "load" | "keep" | "adopt") => {
+    const current = editRevisionRef.current;
+    if (editSaveLock.current || current.status !== "conflict" || !editSession.current || editScopeRef.current !== renderEditScope || current.latestRevision !== editRevision.latestRevision) return;
+    if (choice === "keep") { setEditRevision({ ...current, keptLocal: true }); return; }
+    if (!current.latestRevision) return;
+    if (choice === "load" && current.content !== current.savedContent && current.content !== current.latestRevision.content &&
+      !window.confirm("Load latest and discard your local edits? This cannot be undone. Nothing will be saved.")) return;
+    setEditRevision(adoptDraftRevision(current, choice === "load"));
+  };
+  const handleSaveEdit = async () => {
+    const current = editRevisionRef.current, session = editSession.current;
+    if (editingDraft && current.savedId === editingDraft.id && session && !session.signal.aborted && !editSaveLock.current && !draftSaveBlocked(current) && editScopeRef.current === renderEditScope) {
+      const latest = draftsList.find(draft => draft.id === editingDraft.id);
+      if (!editable(latest ?? editingDraft)) {
         toast({ title: "Draft is read-only", description: "Delivery status has changed or is unavailable. Your unsaved text is retained.", variant: "destructive" });
         return;
       }
-      if (editContent.length > getPlatformMeta(editingDraft.platform).charLimit) {
-        toast({ title: "Draft is too long", description: `Keep it under ${getPlatformMeta(editingDraft.platform).charLimit} characters for ${getPlatformMeta(editingDraft.platform).label}.`, variant: "destructive" });
+      const validation = platformTextValidation(current.content, editingDraft.platform, getPlatformMeta(editingDraft.platform).charLimit);
+      if (validation.error) {
+        toast({ title: "Check draft length", description: validation.error, variant: "destructive" });
         return;
       }
-      updateDraftMutation.mutate({ id: editingDraft.id, content: editContent });
+      editSaveLock.current = true;
+      editRead.current?.abort(); editRead.current = null;
+      const signal = AbortSignal.any([session.signal, accountCache.getSignal()]);
+      const owns = () => !signal.aborted && editSession.current === session && editScopeRef.current === renderEditScope;
+      setEditRevision({ ...current, status: "saving", error: undefined });
+      try {
+        const response = await apiRequest("PATCH", `/api/drafts/${encodeURIComponent(editingDraft.id)}`, {
+          content: current.content, expectedContent: current.savedContent, expectedUpdatedAt: current.savedUpdatedAt,
+        }, { signal });
+        const saved = parseDraftEditingSnapshot(await response.json(), editingDraft);
+        if (!owns()) return;
+        const acknowledged = acknowledgeDraftSave(editRevisionRef.current, current.content, saved);
+        setEditRevision(acknowledged);
+        void invalidatePublishingQueries();
+        if (acknowledged.status === "saved") {
+          editGuard.current.dirty = false;
+          editSession.current = null;
+          setEditingDraft(null);
+          toast({ title: "Draft updated", description: "Your changes have been saved." });
+        }
+      } catch (error) {
+        if (!owns()) return;
+        let status: DraftEditingState["status"] = "failed";
+        if (error instanceof ApiError && error.status === 409) {
+          if (error.code === "draft_conflict") status = "conflict";
+          else if (error.code === "draft_immutable") status = "immutable";
+        }
+        setEditRevision({ ...editRevisionRef.current, latestRevision: undefined,
+          status,
+          error: `${error instanceof Error ? error.message : "Save could not be confirmed."} Your text is retained.` });
+        toast({ title: "Failed to update", description: editRevisionRef.current.error, variant: "destructive" });
+      } finally { editSaveLock.current = false; editGuard.current.saving = false; }
     }
   };
 
   const handleCancelSchedule = async (draft: Draft) => {
     const success = await cancelSchedule(draft.id);
     if (success) {
-      queryClient.invalidateQueries({ queryKey: ["/api/drafts"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/drafts/scheduled-info"] });
+      void invalidatePublishingQueries();
     }
   };
 
@@ -265,8 +381,7 @@ export default function DraftsPage() {
     try {
       await apiRequest("POST", `/api/drafts/${draft.id}/retry-publish`);
       toast({ title: "Retry started", description: "The publication has been re-queued." });
-      queryClient.invalidateQueries({ queryKey: ["/api/drafts"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/drafts/scheduled-info"] });
+      void invalidatePublishingQueries();
     } catch (error) {
       toast({ title: "Retry failed", description: error instanceof Error ? error.message : "Could not retry publication", variant: "destructive" });
     }
@@ -281,31 +396,25 @@ export default function DraftsPage() {
     setPostingDraft(draft);
   };
 
-  const handleCopyAndPost = async (draft: Draft) => {
-    const meta = getPlatformMeta(draft.platform);
-    try {
-      await navigator.clipboard.writeText(draft.content);
-      window.open(meta.composeUrl(draft.content), "_blank", "noopener,noreferrer");
-      toast({ title: "Content copied", description: `Paste and publish manually in ${meta.label}. This does not confirm publication here. If no tab opens, open the platform yourself.` });
-    } catch {
-      toast({ title: "Could not copy", description: "Select and copy the text manually, then open the platform. Nothing was published.", variant: "destructive" });
-    }
-  };
-
   const handlePublishNow = async (draft: Draft) => {
-    if (publishLock.current || trackedDraftId === draft.id || blockersFor(draft).length) return;
+    const consent = consentFor(draft);
+    if (publishLock.current || manualPendingRef.current || reconfirmDraftId === draft.id || !consent || trackedDraftId === draft.id || blockersFor(draft).length) return;
     publishLock.current = true;
     const attempted = new Set(attemptedDraftIds).add(draft.id);
+    attemptedDraftIdsRef.current = attempted;
     queryClient.setQueryData(attemptedDraftsKey, [...attempted]);
     setAttemptedDraftIds(attempted);
     setTrackedDraftId(null);
     setIsPublishing(true);
     setPublishMessage("Submitting direct publication request…");
     try {
-      await apiRequest("POST", `/api/drafts/${encodeURIComponent(draft.id)}/publish-now`);
+      await apiRequest("POST", `/api/drafts/${encodeURIComponent(draft.id)}/publish-now`, { consent });
       setPublishMessage("Request processed. Checking every target; a completed or skipped job is not confirmation of delivery.");
     } catch (error) {
-      setPublishMessage(`${error instanceof Error ? error.message : "Request interrupted"}. Delivery is not confirmed. Check target status before retrying.`);
+      if (error instanceof ApiError && error.status === 409 && error.code === "publishing_reconfirm_required") {
+        setReconfirmDraftId(draft.id);
+        setPublishMessage(error.message);
+      } else setPublishMessage(`${error instanceof Error ? error.message : "Request interrupted"}. Delivery is not confirmed. Check target status before retrying.`);
     } finally {
       // Also reconcile errors: admission/enqueue may have partially succeeded.
       setTrackedDraftId(draft.id);
@@ -332,7 +441,12 @@ export default function DraftsPage() {
     }
   }, [publishStatus.schedule, publishStatus.outcome, trackedDraftId]);
 
-  const draftsList = drafts || [];
+  const clearDraftLink = () => {
+    const params = new URLSearchParams(search);
+    params.delete("draft");
+    const suffix = params.size ? `?${params}` : "";
+    navigate(`${location}${suffix}`, { replace: true });
+  };
   const filteredDrafts = draftsList.filter((draft) => {
     if (platformFilter !== "all" && draft.platform !== platformFilter && !scheduleFor(draft)?.targets?.some((target) => target.platform === platformFilter)) return false;
     if (searchQuery.trim() && !draft.content.toLowerCase().includes(searchQuery.trim().toLowerCase())) return false;
@@ -345,6 +459,13 @@ export default function DraftsPage() {
     published: filteredDrafts.filter((draft) => draftStatusGroup(draft.publishStatus) === "published").length,
   };
   const visibleDrafts = filteredDrafts.filter((draft) => draftStatusGroup(draft.publishStatus) === draftView);
+  const linkedDraftVisible = visibleDrafts.some(draft => draft.id === requestedDraftId);
+  useEffect(() => {
+    if (requestedDraftId === null || !linkedDraftVisible || focusedDraftLink.current === requestedDraftId || !linkedDraftElement.current) return;
+    focusedDraftLink.current = requestedDraftId;
+    linkedDraftElement.current.scrollIntoView({ block: "nearest" });
+    linkedDraftElement.current.focus({ preventScroll: true });
+  }, [requestedDraftId, linkedDraftVisible]);
   const visibleSchedulableIds = visibleDrafts.filter((draft) => draft.publishStatus === "draft" && !blockersFor(draft).length).map((draft) => draft.id);
   const allVisibleSelected = visibleSchedulableIds.length > 0 && visibleSchedulableIds.every((id) => selectedDraftIds.has(id));
   const toggleDraft = (id: string) => setSelectedDraftIds((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
@@ -355,17 +476,34 @@ export default function DraftsPage() {
     return next;
   });
   const submitBulkSchedule = async () => {
-    const validation = scheduleTimeValidation(bulkDate, bulkTime, timeZone);
-    if (bulkWarnings.length || !validation.publishAt || isBulkScheduling) return;
-    const result = await bulkSchedule(Array.from(selectedDraftIds), validation.publishAt);
-    await invalidatePublishingQueries();
-    if (result) {
-      setSelectedDraftIds(new Set(result.failed));
-      if (!result.failed.length) setBulkScheduleOpen(false);
-    }
+    if (bulkLock.current || !bulkConfirmed || bulkWarnings.length || isBulkScheduling) return;
+    const sharedValidation = scheduleTimeValidation(bulkDate, bulkTime, timeZone);
+    if (!spreadAcrossWeek && !sharedValidation.publishAt) return;
+    const schedule = spreadAcrossWeek ? Object.fromEntries(bulkDrafts.map((draft, index) => [draft.id, spreadSlots[index]?.instant] as const).filter((entry): entry is [string, Date] => Boolean(entry[1]))) : undefined;
+    bulkLock.current = true;
+    try {
+      const consents: Record<string, PublishingConsent> = Object.create(null);
+      for (const draft of bulkDrafts) {
+        const consent = consentFor(draft);
+        if (!consent) return;
+        consents[draft.id] = consent;
+      }
+      const result = await bulkSchedule(Array.from(selectedDraftIds), consents, spreadAcrossWeek ? undefined : sharedValidation.publishAt ?? undefined, schedule);
+      await invalidatePublishingQueries();
+      if (result) {
+        setBulkErrors(result.errors ?? {});
+        setSelectedDraftIds(new Set(result.failed));
+        if (!result.failed.length) setBulkScheduleOpen(false);
+      }
+    } finally { bulkLock.current = false; setBulkConfirmedKey(null); }
   };
+  const bulkDrafts = draftsList.filter(draft => selectedDraftIds.has(draft.id));
+  const spreadSlots = distinctDaySendSlots([...new Set(bulkDrafts.map(draft => draft.platform))], timeZone, new Date(), bulkDrafts.length);
+  const bulkConfirmationKey = JSON.stringify(bulkDrafts.map((draft, index) => scheduleConfirmationKey(draft, [draft.platform], spreadAcrossWeek ? spreadSlots[index]?.date ?? "" : bulkDate, spreadAcrossWeek ? spreadSlots[index]?.time ?? "" : bulkTime, timeZone, scheduleData?.items.find(item => item.draftId === draft.id))));
+  const bulkConfirmed = bulkConfirmedKey === bulkConfirmationKey;
   const bulkValidation = scheduleTimeValidation(bulkDate, bulkTime, timeZone);
-  const bulkWarnings = [...(bulkValidation.error ? [bulkValidation.error] : [])];
+  const bulkWarnings = [...(!spreadAcrossWeek && bulkValidation.error ? [bulkValidation.error] : [])];
+  if (spreadAcrossWeek && spreadSlots.length < bulkDrafts.length) bulkWarnings.push("Too many drafts selected to spread across the available window. Reduce the selection or use a single shared time instead.");
   if (selectedDraftIds.size < 1 || selectedDraftIds.size > 50) bulkWarnings.push("Select between 1 and 50 drafts.");
   for (const id of selectedDraftIds) {
     const draft = draftsList.find((item) => item.id === id);
@@ -373,7 +511,36 @@ export default function DraftsPage() {
   }
   const postingWarnings = postingDraft ? blockersFor(draftsList.find((draft) => draft.id === postingDraft.id) ?? postingDraft) : [];
   const currentPostingDraft = draftsList.find(draft => draft.id === postingDraft?.id) ?? postingDraft;
-  const manualUnsafe = !!currentPostingDraft && (draftsError || !scheduleData || scheduleError || attemptedDraftIds.has(currentPostingDraft.id) || currentPostingDraft.publishStatus !== "draft" || !!scheduleFor(currentPostingDraft));
+  const postingDraftMissing = !!postingDraft && !draftsList.some(draft => draft.id === postingDraft.id);
+  const manualUnsafe = !!currentPostingDraft && (postingDraftMissing || draftsError || !scheduleData || scheduleError || attemptedDraftIds.has(currentPostingDraft.id) || currentPostingDraft.publishStatus !== "draft" || !!scheduleFor(currentPostingDraft));
+  // Own-history lexical check only, informational — never blocks publishing.
+  const repetitionCheck = useQuery<{ matches: Array<{ id: string; platform: string; publishedAt: string | null }> }>({
+    queryKey: ["drafts-repetition-check", postingDraft?.id, currentPostingDraft?.content],
+    queryFn: async ({ signal }) => {
+      const result = await (await apiRequest("POST", "/api/drafts/repetition-check", { content: currentPostingDraft!.content, excludeId: postingDraft!.id }, { signal })).json();
+      return { matches: Array.isArray(result?.matches) ? result.matches : [] };
+    },
+    enabled: !!postingDraft && !!currentPostingDraft?.content,
+    staleTime: 60_000,
+    retry: false,
+  });
+  // Identity changes fence the old operation even if a refetch later returns
+  // the same text. The guard is consulted immediately before external opening.
+  const manualContextKey = JSON.stringify([postingDraft?.id, currentPostingDraft?.id, currentPostingDraft?.content,
+    currentPostingDraft?.updatedAt, currentPostingDraft?.platform, requestedDraftId, editScope, manualUnsafe, draftsFetching, schedulesFetching, linkedQuery.isFetching]);
+  const manualContextRef = useRef({ key: manualContextKey, unsafe: true });
+  if (manualContextRef.current.key !== manualContextKey) manualContextRef.current = { key: manualContextKey,
+    unsafe: !postingDraft || manualUnsafe || draftsFetching || schedulesFetching || requestedDraftId !== null && linkedQuery.isFetching };
+  const manualContext = manualContextRef.current;
+  const manualReadGeneration = manualReadEpoch.current;
+  if (postingDraftMissing) postingWarnings.push("This draft is no longer available. Nothing can be published or handed off from this stale preview.");
+  let deliveryTone: "neutral" | "info" | "success" | "warning" | "error" = "warning";
+  if (publishStatus.outcome === "pending") deliveryTone = "info";
+  if (publishStatus.outcome === "simulated") deliveryTone = "neutral";
+  if (publishStatus.outcome === "published") deliveryTone = "success";
+  if (publishStatus.outcome === "attention" && (publishStatus.schedule?.status === "failed" || publishStatus.schedule?.targets?.some(target => target.status === "failed"))) deliveryTone = "error";
+  if (publishStatus.error) deliveryTone = "error";
+  const editValidation = platformTextValidation(editContent, editingDraft?.platform ?? "", editingDraft ? getPlatformMeta(editingDraft.platform).charLimit : MAX_DRAFT_CHARACTERS);
 
   const statusLabels: Record<"ready" | "scheduled" | "attention" | "published", string> = {
     ready: "Ready",
@@ -383,21 +550,27 @@ export default function DraftsPage() {
   };
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <main className="flex min-w-0 flex-col h-full overflow-hidden">
       <PageHeader
+        width="workbench"
         icon={FileText}
         title="Content"
         subtitle={draftsError ? "Content is unavailable" : `${draftsList.length} draft${draftsList.length !== 1 ? "s" : ""} saved`}
-          actions={<>
-            <div className="flex flex-wrap items-center gap-2">{((["ready", "scheduled", "attention", "published"] as const).map((view) => (
+      />
+
+      <PageBody as="div" width="workbench">
+        <PageToolbar aria-label="Content filters" className="mb-4" actions={selectedDraftIds.size > 0 && <Button onClick={() => { setBulkConfirmedKey(null); setSpreadAcrossWeek(false); setBulkTime(preferredTime); setBulkDate(dateKeyInTimeZone(new Date(), timeZone)); setBulkScheduleOpen(true); }}><CalendarPlus className="h-4 w-4" />Schedule {selectedDraftIds.size} selected</Button>}>
+            <div className="flex basis-full flex-wrap items-center gap-2">{((["ready", "scheduled", "attention", "published"] as const).map((view) => (
               <Button
                 key={view}
                 size="sm"
-                variant={draftView === view ? "secondary" : "outline"}
+                variant={draftView === view ? "selected" : "secondary"}
                 onClick={() => {
                   if (editingDraft && !confirmLeaveEdit()) return;
                   setDraftView(view);
-                  navigate(`${location}?view=${view}`);
+                  const params = new URLSearchParams(search);
+                  params.set("view", view); params.delete("draft");
+                  navigate(`${location}?${params}`);
                 }}
                 aria-pressed={draftView === view}
                 data-testid={`tab-${view}`}
@@ -405,24 +578,26 @@ export default function DraftsPage() {
                 {statusCounts[view]} {statusLabels[view]}
               </Button>
             )))}</div>
-            {selectedDraftIds.size > 0 && <Button onClick={() => { setBulkTime(preferredTime); setBulkDate(dateKeyInTimeZone(new Date(), timeZone)); setBulkScheduleOpen(true); }}><CalendarPlus className="mr-2 h-4 w-4" />Schedule {selectedDraftIds.size} selected</Button>}
-          </>}
-      />
-
-      <main className="flex-1 p-4 sm:p-6 overflow-y-auto">
-        {scheduleError && <p role="alert" className="mx-auto mb-4 max-w-3xl text-sm text-destructive">Schedule details could not be loaded. Direct publishing is disabled until status can be verified.</p>}
-        {trackedDraftId && !postingDraft && <div className="mx-auto mb-4 max-w-3xl rounded-md border p-3 text-sm"><p>{publishStatus.error || publishMessage}</p><Button variant="outline" size="sm" onClick={() => setPostingDraft(draftsList.find((draft) => draft.id === trackedDraftId) ?? null)}>View publishing status</Button><Button variant="ghost" size="sm" disabled={isPublishing} onClick={() => setTrackedDraftId(null)}>Dismiss monitor</Button></div>}
+            <Field label="Search drafts" className="flex-1 basis-48" render={props => <Input {...props} value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="Search drafts…" data-testid="input-search-drafts" />} />
+            <Field label="Filter by platform" className="flex-1 basis-44" render={props => <NativeSelect {...props} value={platformFilter} onChange={event => setPlatformFilter(event.target.value)} data-testid="select-platform-filter"><option value="all">All platforms</option>{PLATFORMS.map(platform => <option key={platform.value} value={platform.value}>{platform.label}</option>)}</NativeSelect>} />
+            {visibleSchedulableIds.length > 0 && <label className="flex min-h-11 cursor-pointer select-none items-center gap-2 text-sm text-muted-foreground"><Checkbox checked={allVisibleSelected} onCheckedChange={toggleSelectAllVisible} aria-label="Select all visible drafts" />Select all</label>}
+            {selectedDraftIds.size > 0 && <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><span>{selectedDraftIds.size} selected</span><Button variant="ghost" size="sm" onClick={() => setSelectedDraftIds(new Set())}>Clear</Button></div>}
+        </PageToolbar>
+        {requestedDraftId !== null && linkedQuery.isError && <div className="mb-4"><WorkflowStatus tone={linkedQuery.error instanceof ApiError && linkedQuery.error.status === 404 ? "warning" : "error"} title={linkedQuery.error instanceof ApiError && linkedQuery.error.status === 404 ? "Linked draft not found" : "Linked draft could not be checked"} actions={<><Button variant="outline" size="sm" onClick={() => void linkedQuery.refetch()}>Retry linked draft</Button><Button variant="outline" size="sm" onClick={clearDraftLink}>Clear draft selection</Button></>}>No other draft was selected. {linkedQuery.error instanceof ApiError && linkedQuery.error.status === 404 ? "The requested draft is missing or inaccessible." : "A read failure is not evidence that the draft was removed. Refresh before publishing."}</WorkflowStatus></div>}
+        {requestedDraftId !== null && linkedDraft && <div className="mb-4"><WorkflowStatus tone="info" title="Linked draft selected" actions={<Button variant="outline" size="sm" onClick={clearDraftLink}>Clear draft selection</Button>}>
+          Review this saved draft below. Saving, approval and delivery are separate; nothing was scheduled or published.
+          {linkedDraft && !linkedDraftVisible && <p>The linked draft is hidden by your current filters.</p>}
+        </WorkflowStatus></div>}
+        {scheduleError && <div className="mb-4"><WorkflowStatus tone="error" actions={<Button variant="outline" size="sm" onClick={() => void invalidatePublishingQueries()}>Refresh schedule status</Button>}>Schedule details could not be loaded. Direct publishing is disabled until status can be verified.</WorkflowStatus></div>}
+        {trackedDraftId && !postingDraft && <div className="mb-4"><WorkflowStatus tone={deliveryTone} actions={<><Button variant="outline" size="sm" onClick={() => setPostingDraft(draftsList.find((draft) => draft.id === trackedDraftId) ?? null)}>View publishing status</Button><Button variant="ghost" size="sm" disabled={isPublishing} onClick={() => setTrackedDraftId(null)}>Dismiss monitor</Button></>}>{publishStatus.error || publishMessage}</WorkflowStatus></div>}
         {isLoading ? (
-          <div className="grid gap-4 max-w-3xl mx-auto">
+          <div className="grid gap-4">
             {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-48 w-full rounded-lg" />
+              <Skeleton key={i} className="h-48 w-full rounded-md" />
             ))}
           </div>
-        ) : draftsError ? (
-          <div role="alert" className="mx-auto max-w-3xl rounded-md border p-4">
-            <p>Content could not be loaded. Your drafts have not been removed.</p>
-            <Button variant="outline" className="mt-3" onClick={() => void refetchDrafts()}>Try again</Button>
-          </div>
+        ) : draftsError && !linkedDraft ? (
+          <WorkflowStatus tone="error" actions={<Button variant="outline" onClick={() => void refetchDrafts()}>Try again</Button>}>Content could not be loaded. Your drafts have not been removed.</WorkflowStatus>
         ) : draftsList.length === 0 ? (
           <DashboardEmptyState
             icon={FileText}
@@ -431,50 +606,11 @@ export default function DraftsPage() {
           />
         ) : (
           <>
-          <div className="mx-auto mb-4 flex max-w-3xl flex-wrap items-center gap-2">
-            {visibleSchedulableIds.length > 0 && (
-              <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-muted-foreground">
-                <Checkbox checked={allVisibleSelected} onCheckedChange={toggleSelectAllVisible} aria-label="Select all visible drafts" />
-                Select all
-              </label>
-            )}
-            <div className="relative min-w-[180px] flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search drafts…"
-                aria-label="Search drafts"
-                className="pl-8"
-                data-testid="input-search-drafts"
-              />
-            </div>
-            <Select value={platformFilter} onValueChange={setPlatformFilter}>
-              <SelectTrigger className="w-[170px]" aria-label="Filter by platform" data-testid="select-platform-filter">
-                <SelectValue placeholder="All platforms" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All platforms</SelectItem>
-                {PLATFORMS.map((platform) => (
-                  <SelectItem key={platform.value} value={platform.value}>
-                    {platform.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {selectedDraftIds.size > 0 && (
-              <div className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
-                <span>{selectedDraftIds.size} selected</span>
-                <Button variant="ghost" size="sm" onClick={() => setSelectedDraftIds(new Set())}>
-                  Clear
-                </Button>
-              </div>
-            )}
-          </div>
-          <div className="grid gap-4 max-w-3xl mx-auto">
+          <div className="grid gap-4">
             {visibleDrafts.map((draft) => (
+              <div key={draft.id} ref={draft.id === requestedDraftId ? linkedDraftElement : undefined} tabIndex={draft.id === requestedDraftId ? -1 : undefined} data-linked-draft={draft.id === requestedDraftId || undefined} className={draft.id === requestedDraftId ? "rounded-md bg-accent p-2 ring-2 ring-primary ring-offset-2" : undefined}>
+              {draft.id === requestedDraftId && <p className="mb-2 text-sm font-medium text-accent-foreground">Linked draft</p>}
               <DraftCard
-                key={draft.id}
                 draft={draft}
                 scheduleInfo={scheduleInfoById.get(draft.id)}
                 timeZone={timeZone}
@@ -491,17 +627,19 @@ export default function DraftsPage() {
                 onRetry={() => handleRetry(draft)}
                 onDeleteRequest={() => setDeletingDraft(draft)}
               />
+              {!!blockersFor(draft).length && canResolveScheduling(draft) && <Button variant="outline" className="mt-2" onClick={() => setSchedulingDraft(draft)}>Resolve scheduling for {getPlatformMeta(draft.platform).label} draft</Button>}
+              </div>
             ))}
           </div>
           {visibleDrafts.length === 0 && (
-            <p className="mx-auto max-w-3xl py-10 text-center text-sm text-muted-foreground">
+            <WorkflowStatus tone="neutral" actions={(searchQuery || platformFilter !== "all") && <Button variant="outline" onClick={() => { setSearchQuery(""); setPlatformFilter("all"); }}>Clear filters</Button>}>
               No {draftView === "attention" ? "drafts needing attention" : `${draftView} drafts`}
               {searchQuery || platformFilter !== "all" ? " match your filters." : " right now."}
-            </p>
+            </WorkflowStatus>
           )}
           </>
         )}
-      </main>
+      </PageBody>
 
       <Dialog open={!!editingDraft} onOpenChange={(open) => !open && confirmLeaveEdit()}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto max-w-2xl">
@@ -509,42 +647,59 @@ export default function DraftsPage() {
             <DialogTitle>Edit Draft</DialogTitle>
           </DialogHeader>
           <div className="py-4">
+            <Field id="draft-edit-content" label="Draft content" error={editValidation.error} counter={<>
+              {editValidation.length} / {editValidation.maxCharacters} platform characters{editingDraft?.platform === "twitter" ? " (X links count as 23)" : ""}<br />
+              {editValidation.rawLength} / {MAX_DRAFT_CHARACTERS} raw characters (UTF-16 application cap)
+            </>} render={props =>
             <Textarea
+              {...props}
               value={editContent}
-              disabled={updateDraftMutation.isPending}
-              onChange={(e) => setEditContent(e.target.value)}
+              disabled={editSaving}
+              onChange={(e) => { if (!editSaveLock.current && editRevisionRef.current.savedId === editingDraft?.id && editScopeRef.current === renderEditScope) setEditRevision(editDraftText(editRevisionRef.current, e.target.value)); }}
               className="min-h-[200px] resize-none"
               placeholder="Your post content..."
-              aria-label="Draft content"
               data-testid="textarea-edit-content"
             />
-            <div className="mt-2 space-y-1.5">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{editContent.length} / {editingDraft ? getPlatformMeta(editingDraft.platform).charLimit : 0} characters</span>
-                <span className={editingDraft && editContent.length > getPlatformMeta(editingDraft.platform).charLimit ? "text-destructive" : ""}>{editingDraft ? getPlatformMeta(editingDraft.platform).label : ""}</span>
-              </div>
+            } />
+            <div className="mt-2">
               <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-                <div className={`h-full transition-[width] ${editingDraft && editContent.length > getPlatformMeta(editingDraft.platform).charLimit ? "bg-destructive" : "bg-secondary"}`} style={{ width: `${Math.min((editContent.length / (editingDraft ? getPlatformMeta(editingDraft.platform).charLimit : 1)) * 100, 100)}%` }} />
+                <div className={`h-full transition-[width] motion-reduce:transition-none ${editValidation.error ? "bg-destructive" : "bg-primary"}`} style={{ width: `${Math.min((editValidation.length / editValidation.maxCharacters) * 100, 100)}%` }} />
               </div>
             </div>
           </div>
+          {editRevision.status === "failed" && <WorkflowStatus tone="error" title="Could not save draft.">{editRevision.error}</WorkflowStatus>}
+          <DraftRevisionNotice state={editRevision} disabled={editSaving} onRefresh={() => void refreshEdit()} onResolve={resolveEdit} />
           <DialogFooter>
-            <Button variant="outline" disabled={updateDraftMutation.isPending} onClick={confirmLeaveEdit} data-testid="button-cancel-edit">
+            <Button variant="outline" disabled={editSaving} onClick={confirmLeaveEdit} data-testid="button-cancel-edit">
               Cancel
             </Button>
             <Button 
               onClick={handleSaveEdit} 
-              disabled={updateDraftMutation.isPending}
+              disabled={draftSaveBlocked(editRevision) || !!editValidation.error}
               data-testid="button-save-edit"
             >
-              Save Changes
+              {editSaving ? "Saving…" : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={bulkScheduleOpen} onOpenChange={setBulkScheduleOpen}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto"><DialogHeader><DialogTitle>Schedule selected drafts</DialogTitle><DialogDescription>Request direct delivery for {selectedDraftIds.size} drafts at the same time in {timeZone}. Each draft retains its target platforms.</DialogDescription></DialogHeader><div className="grid gap-4 py-3 sm:grid-cols-2"><div><label htmlFor="bulk-schedule-date" className="mb-2 block text-sm font-medium">Date</label><Input id="bulk-schedule-date" type="date" min={dateKeyInTimeZone(new Date(), timeZone)} value={bulkDate} onChange={(event) => setBulkDate(event.target.value)} /></div><div><label htmlFor="bulk-schedule-time" className="mb-2 block text-sm font-medium">Time ({timeZone})</label><Input id="bulk-schedule-time" type="time" value={bulkTime} onChange={(event) => setBulkTime(event.target.value)} /></div></div>{bulkWarnings.length > 0 && <ul role="alert" className="list-disc pl-4 text-sm text-destructive">{bulkWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}<DialogFooter><Button variant="outline" onClick={() => setBulkScheduleOpen(false)}>Cancel</Button><Button disabled={bulkWarnings.length > 0 || isBulkScheduling} onClick={submitBulkSchedule}>{isBulkScheduling ? "Scheduling…" : `Schedule ${selectedDraftIds.size} drafts`}</Button></DialogFooter></DialogContent>
+      <Dialog open={bulkScheduleOpen} onOpenChange={value => { if (!bulkLock.current) setBulkScheduleOpen(value); }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Schedule selected drafts</DialogTitle><DialogDescription>Schedule separate saved texts to each draft's own destination, not one text cross-posted to every platform. {spreadAcrossWeek ? "Each draft publishes on its own suggested day below." : `Requested delivery: ${bulkDate} at ${bulkTime} (${timeZone}).`}</DialogDescription></DialogHeader>
+          <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={spreadAcrossWeek} disabled={isBulkScheduling} onChange={event => { setSpreadAcrossWeek(event.target.checked); setBulkConfirmedKey(null); }} />Spread across the week (one post per day, suggested platform times) instead of one shared time</label>
+          {!spreadAcrossWeek && <div className="grid gap-4 py-3 sm:grid-cols-2"><Field id="bulk-schedule-date" label="Date" render={props => <Input {...props} disabled={isBulkScheduling} type="date" min={dateKeyInTimeZone(new Date(), timeZone)} value={bulkDate} onChange={(event) => setBulkDate(event.target.value)} />} /><Field id="bulk-schedule-time" label={`Time (${timeZone})`} error={bulkValidation.error} render={props => <Input {...props} disabled={isBulkScheduling} type="time" value={bulkTime} onChange={(event) => setBulkTime(event.target.value)} />} /></div>}
+          {spreadAcrossWeek && <p className="py-3 text-xs text-muted-foreground">General platform-guidance send times (not personalized to your own engagement).</p>}
+          <div className="space-y-3" aria-label="Selected draft confirmations">{bulkDrafts.map((draft, index) => {
+            const text = publishingTextValidation(draft.content, draft.platform, readiness);
+            const slot = spreadSlots[index];
+            return <section key={draft.id} className="min-w-0 rounded-md border p-3 text-sm"><h3 className="font-medium">{getPlatformMeta(draft.platform).label}</h3>{spreadAcrossWeek && <p className="text-xs text-muted-foreground">{slot ? `Scheduled for ${slot.date} at ${slot.time} (${timeZone})` : "No available slot — reduce the selection."}</p>}<p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words">{draft.content}</p><p>{text.length}/{text.maxCharacters} platform characters · {text.rawLength}/{MAX_DRAFT_CHARACTERS} raw characters</p>{draft.media?.map(item => <p key={item.id}>{item.type}: {item.name}</p>)}</section>;
+          })}</div>
+          <label className="flex min-h-11 items-start gap-2 py-2 text-sm"><input type="checkbox" checked={bulkConfirmed} disabled={isBulkScheduling} onChange={event => setBulkConfirmedKey(event.target.checked ? bulkConfirmationKey : null)} />I confirm these texts, destinations and timezone.</label>
+          {bulkWarnings.length > 0 && <WorkflowStatus tone="warning" title="Cannot schedule yet"><ul className="list-disc pl-4">{bulkWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></WorkflowStatus>}
+          {Object.keys(bulkErrors).some(id => selectedDraftIds.has(id)) && <WorkflowStatus tone="error" title="Selected drafts need another review"><ul>{Object.entries(bulkErrors).filter(([id]) => selectedDraftIds.has(id)).map(([id, error]) => <li key={id}>{error.message}</li>)}</ul>Nothing will be resubmitted automatically. Review the remaining selection and confirm again.</WorkflowStatus>}
+          <DialogFooter><Button variant="outline" disabled={isBulkScheduling} onClick={() => setBulkScheduleOpen(false)}>Cancel</Button><Button disabled={!bulkConfirmed || bulkWarnings.length > 0 || isBulkScheduling} onClick={submitBulkSchedule}>{isBulkScheduling ? "Scheduling…" : `Schedule ${selectedDraftIds.size} drafts`}</Button></DialogFooter>
+        </DialogContent>
       </Dialog>
 
       {schedulingDraft && <ScheduleArticleModal
@@ -552,7 +707,7 @@ export default function DraftsPage() {
         draftTitle={schedulingDraft.content.slice(0, 70)}
         open={!!schedulingDraft}
         onOpenChange={(open) => !open && setSchedulingDraft(null)}
-        onScheduled={() => { queryClient.invalidateQueries({ queryKey: ["/api/drafts"] }); setSchedulingDraft(null); }}
+        onScheduled={() => { void invalidatePublishingQueries(); setSchedulingDraft(null); }}
       />}
 
       <Dialog open={!!postingDraft} onOpenChange={(open) => !open && setPostingDraft(null)}>
@@ -570,31 +725,42 @@ export default function DraftsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <div className="bg-muted p-4 rounded-md text-sm whitespace-pre-wrap">
+            <div className="bg-muted p-4 rounded-md text-sm whitespace-pre-wrap break-words">
               {currentPostingDraft?.content}
             </div>
             {!!currentPostingDraft?.media?.length && <ul className="text-sm">{currentPostingDraft.media.map(item => <li key={item.id}>{item.type}: {item.name}</li>)}</ul>}
-            {currentPostingDraft && readiness.profile?.requirePublishReview && !currentPostingDraft.publishApprovedAt && ["draft", "scheduled", "failed"].includes(currentPostingDraft.publishStatus) && <Button className="mt-3" variant="outline" disabled={approveDraftMutation.isPending || draftsError} onClick={() => approveDraftMutation.mutate(currentPostingDraft)}>I reviewed this exact draft — approve publishing</Button>}
+            {currentPostingDraft && readiness.profile?.requirePublishReview && !currentPostingDraft.publishApprovedAt && ["draft", "scheduled", "failed"].includes(currentPostingDraft.publishStatus) && <Button className="mt-3" variant="outline" disabled={approveDraftMutation.isPending || draftsError || postingDraftMissing} onClick={() => approveDraftMutation.mutate(currentPostingDraft)}>I reviewed this exact draft — approve publishing</Button>}
+            {approveDraftMutation.isError && <WorkflowStatus tone="error" title="Approval not recorded">{approveDraftMutation.error.message}</WorkflowStatus>}
           </div>
+          {!!repetitionCheck.data?.matches?.length && <WorkflowStatus tone="info" title="Looks similar to a past post of yours">
+            {repetitionCheck.data.matches[0].publishedAt ? `You posted something very similar on ${new Date(repetitionCheck.data.matches[0].publishedAt).toLocaleDateString()}.` : "You wrote something very similar in another draft."} Make sure that's intentional before publishing again.
+          </WorkflowStatus>}
           {postingWarnings.length > 0 && <ul className="list-disc pl-4 text-sm text-muted-foreground">{postingWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
-          {trackedDraftId === postingDraft?.id && <div role="status" className="space-y-2 text-sm"><p>{publishStatus.error || publishMessage || "Delivery is unconfirmed. Check status before retrying."}</p>{publishStatus.schedule && <ScheduleTargetActions item={publishStatus.schedule} />}<Button variant="outline" size="sm" disabled={publishStatus.checking || isPublishing} onClick={publishStatus.recheck}>Check delivery status</Button><Button variant="ghost" size="sm" disabled={isPublishing} onClick={() => { setTrackedDraftId(null); setPostingDraft(null); }}>Dismiss monitor</Button><p>Dismissing does not resolve uncertainty or permit another publication of this draft.</p></div>}
+          {trackedDraftId === postingDraft?.id && <div className="space-y-2 text-sm"><WorkflowStatus tone={deliveryTone}>{publishStatus.error || publishMessage || "Delivery is unconfirmed. Check status before retrying."}</WorkflowStatus>{publishStatus.schedule && <ScheduleTargetActions item={publishStatus.schedule} />}<Button variant="outline" size="sm" disabled={publishStatus.checking || isPublishing} onClick={publishStatus.recheck}>Check delivery status</Button><Button variant="ghost" size="sm" disabled={isPublishing} onClick={() => { setTrackedDraftId(null); setPostingDraft(null); }}>Dismiss monitor</Button><p>Dismissing does not resolve uncertainty or permit another publication of this draft.</p></div>}
+          {manualUnsafe && <WorkflowStatus tone="warning">Manual handoff is disabled while this draft is scheduled, already submitted, unavailable or has uncertain delivery. Check its target status before sending another copy.</WorkflowStatus>}
+          {reconfirmDraftId === currentPostingDraft?.id && currentPostingDraft && <WorkflowStatus tone="warning" title="Confirm the latest draft again">The previous request was rejected before admission. Review the refreshed text and targets; this does not send a request.<Button variant="outline" disabled={draftsError || postingDraftMissing || !scheduleData || scheduleError || isPublishing || draftsFetching || schedulesFetching || linkedQuery.isFetching} onClick={() => {
+            const remaining = new Set(attemptedDraftIds); remaining.delete(currentPostingDraft.id);
+            attemptedDraftIdsRef.current = remaining;
+            queryClient.setQueryData(attemptedDraftsKey, [...remaining]); setAttemptedDraftIds(remaining);
+            setTrackedDraftId(null); setReconfirmDraftId(null); setPublishMessage("");
+          }}>I reviewed the latest draft — enable a new request</Button></WorkflowStatus>}
           {trackedDraftId !== postingDraft?.id && postingDraft && scheduleFor(postingDraft) && <ScheduleTargetActions item={scheduleFor(postingDraft)!} />}
           <DialogFooter className="gap-2 sm:flex-wrap">
             <Button variant="outline" onClick={() => setPostingDraft(null)} data-testid="button-cancel-post">
               Close
             </Button>
             <Button 
-              onClick={() => postingDraft && handlePublishNow(postingDraft)}
-              disabled={isPublishing || trackedDraftId === postingDraft?.id || postingWarnings.length > 0}
+              onClick={() => currentPostingDraft && handlePublishNow(currentPostingDraft)}
+              disabled={isPublishing || manualPending || reconfirmDraftId === postingDraft?.id || trackedDraftId === postingDraft?.id || postingWarnings.length > 0}
               data-testid="button-publish-now"
             >
               <Send className="w-4 h-4 mr-1.5" />
               {isPublishing ? "Submitting…" : "Publish directly now"}
             </Button>
-            <Button variant="outline" disabled={isPublishing || trackedDraftId === postingDraft?.id || manualUnsafe} onClick={() => postingDraft && handleCopyAndPost(postingDraft)} data-testid="button-copy-and-post">
-              <ExternalLink className="w-4 h-4 mr-1.5" />
-              Copy & Open
-            </Button>
+            {currentPostingDraft && <PlatformComposeAction key={currentPostingDraft.id} platform={currentPostingDraft.platform} text={currentPostingDraft.content}
+              disabled={isPublishing || trackedDraftId === postingDraft?.id || manualUnsafe || manualContext.unsafe}
+              canProceed={() => manualContextRef.current === manualContext && manualReadEpoch.current === manualReadGeneration && !manualContext.unsafe && !publishLock.current && !attemptedDraftIdsRef.current.has(currentPostingDraft.id)}
+              onBusyChange={busy => { manualPendingRef.current = busy; setManualPending(busy); }} testId="button-copy-and-post" />}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -634,6 +800,6 @@ export default function DraftsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </main>
   );
 }

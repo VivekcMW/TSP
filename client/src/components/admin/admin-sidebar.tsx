@@ -1,6 +1,5 @@
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import {
   LayoutDashboard, Building2, Users, ScrollText, Activity, Flag, Plug, ArrowLeft,
 } from "lucide-react";
@@ -70,16 +69,15 @@ export function AdminSidebar() {
                       isActive={isActive}
                       data-testid={`admin-nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
                     >
-                      <Link href={item.url} className="relative">
+                      <Link href={item.url} className="relative" aria-current={isActive ? "page" : undefined}>
                         {isActive && (
-                          <motion.div
-                            layoutId="admin-sidebar-active-pill"
-                            className="absolute inset-0 rounded-md bg-sidebar-accent border-l-2 border-secondary -z-10"
-                            transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                          <div
+                            aria-hidden="true"
+                            className="pointer-events-none absolute inset-y-1 left-0 border-l-2 border-sidebar-primary"
                           />
                         )}
-                        <item.icon className={`w-4 h-4 ${isActive ? "text-secondary" : ""}`} />
-                        <span className={isActive ? "font-medium text-sidebar-foreground" : ""}>{item.title}</span>
+                        <item.icon className={`w-4 h-4 ${isActive ? "text-sidebar-accent-foreground" : ""}`} />
+                        <span className={isActive ? "font-medium text-sidebar-accent-foreground" : ""}>{item.title}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -106,7 +104,7 @@ export function AdminSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 group-data-[collapsible=icon]:p-2">
-        <div className="flex items-center gap-3 p-2 rounded-md bg-sidebar-accent group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:bg-transparent">
+        <div className="flex items-center gap-3 p-2 rounded-md bg-muted group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:bg-transparent">
           <Avatar className="h-8 w-8 shrink-0">
             <AvatarImage src={user?.imageUrl || undefined} alt={firstName || "User"} />
             <AvatarFallback className="text-xs">{initials}</AvatarFallback>

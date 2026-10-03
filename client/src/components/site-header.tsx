@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "wouter";
 import { useIsSignedIn } from "@/lib/dev-auth";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowRight, BookOpen, Compass, FileText, Menu, Newspaper, PenLine, Sparkles, X, Zap } from "lucide-react";
 import {
   NavigationMenu, NavigationMenuContent, NavigationMenuItem, NavigationMenuLink, NavigationMenuList, NavigationMenuTrigger,
@@ -27,8 +27,8 @@ const plainLinks = [
 function MenuLink({ href, label, description, icon: Icon, testId }: { href: string; label: string; description: string; icon: typeof Compass; testId?: string }) {
   return (
     <NavigationMenuLink asChild>
-      <a href={href} className="flex gap-3 rounded-lg p-3 transition-colors hover:bg-accent focus:bg-accent focus:outline-none" data-testid={testId}>
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"><Icon className="h-4 w-4" aria-hidden="true" /></span>
+      <a href={href} className="flex gap-3 rounded-lg p-3 transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2" data-testid={testId}>
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground"><Icon className="h-4 w-4" aria-hidden="true" /></span>
         <span className="space-y-0.5">
           <span className="block text-sm font-semibold text-foreground">{label}</span>
           <span className="block text-sm text-muted-foreground">{description}</span>
@@ -40,13 +40,14 @@ function MenuLink({ href, label, description, icon: Icon, testId }: { href: stri
 
 export function SiteHeader() {
   const isSignedIn = useIsSignedIn();
+  const reducedMotion = useReducedMotion();
   const [location] = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const close = () => setMobileMenuOpen(false);
   const linkClass = (href: string) => `text-sm font-medium transition-colors hover:text-primary ${location === href ? "text-foreground" : "text-muted-foreground"}`;
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <header className="sticky top-0 z-50 w-full border-b bg-card text-card-foreground">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between gap-4">
           <div className="flex items-center gap-8">
@@ -65,11 +66,11 @@ export function SiteHeader() {
                         {productLinks.map(link => <MenuLink key={link.href} {...link} />)}
                       </div>
                       <NavigationMenuLink asChild>
-                        <Link href="/how-it-works" className="flex flex-col justify-end rounded-xl bg-surface-ink p-5 text-surface-ink-foreground" data-testid="link-nav-how-it-works">
-                          <Sparkles className="mb-auto h-6 w-6 text-secondary-on-dark" aria-hidden="true" />
+                        <Link href="/how-it-works" className="flex flex-col justify-end rounded-card border bg-muted p-5 text-foreground" data-testid="link-nav-how-it-works">
+                          <Sparkles className="mb-auto h-6 w-6 text-muted-foreground" aria-hidden="true" />
                           <span className="mt-10 block font-heading text-lg font-semibold">How it works</span>
-                          <span className="mt-1 block text-sm text-surface-ink-foreground/80">From one sentence about your work to your first post, step by step.</span>
-                          <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-secondary-on-dark">See the walkthrough<ArrowRight className="h-4 w-4" aria-hidden="true" /></span>
+                          <span className="mt-1 block text-sm text-muted-foreground">From one sentence about your work to your first post, step by step.</span>
+                          <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary underline underline-offset-4">See the walkthrough<ArrowRight className="h-4 w-4" aria-hidden="true" /></span>
                         </Link>
                       </NavigationMenuLink>
                     </div>
@@ -129,7 +130,7 @@ export function SiteHeader() {
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              transition={{ duration: reducedMotion ? 0 : 0.18, ease: [0.16, 1, 0.3, 1] }}
               className="overflow-hidden lg:hidden"
               data-testid="mobile-menu"
             >

@@ -12,13 +12,13 @@ interface DashboardEmptyStateProps {
 // user doesn't see the same gray circle four times with no personality.
 export function DashboardEmptyState({ icon: Icon, title, description, action }: Readonly<DashboardEmptyStateProps>) {
   return (
-    <div className="dashboard-touch-targets flex min-w-0 flex-col items-center justify-center px-4 py-12 text-center sm:py-16">
-      <div className="w-16 h-16 rounded-full bg-secondary/15 flex items-center justify-center mb-4">
-        <Icon className="w-8 h-8 text-secondary" aria-hidden="true" />
+    <div className="dashboard-touch-targets flex min-w-0 max-w-full flex-col items-center justify-center px-4 py-12 text-center sm:py-16">
+      <div className="w-16 h-16 shrink-0 rounded-full bg-accent flex items-center justify-center mb-4">
+        <Icon className="w-8 h-8 text-accent-foreground" aria-hidden="true" />
       </div>
-      <h2 className="font-heading text-lg font-medium mb-2 break-words">{title}</h2>
-      <div className="text-sm leading-relaxed text-muted-foreground max-w-md mb-4 break-words">{description}</div>
-      {action}
+      <h2 className="max-w-full font-heading text-lg font-medium mb-2 [overflow-wrap:anywhere]">{title}</h2>
+      <div className="min-w-0 max-w-full text-sm leading-relaxed text-muted-foreground sm:max-w-md mb-4 [overflow-wrap:anywhere]">{description}</div>
+      {action && <div className="min-w-0 max-w-full">{action}</div>}
     </div>
   );
 }

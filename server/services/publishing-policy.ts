@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { mediaAssets, platformIntegrations, publishingRules, socialAccounts, userProfiles, type Draft } from "@shared/schema";
 import { publishingCapability, type PublishingIntent, type PublishingMode } from "@shared/publishing-capabilities";
+import { platformTextValidation } from "@shared/editorial";
 import type { db } from "../db";
 import type { TenantScope } from "../storage";
 import { assertTenantEntitlement, EntitlementError } from "./entitlements";
@@ -47,7 +48,8 @@ export async function assertPublishingPolicy(tx: Tx, scope: TenantScope, draft: 
     if (!profile.enabledPlatforms.includes(platform)) throw new PublishingPolicyError("Platform is disabled in publishing preferences.");
     const [rule] = await tx.select().from(publishingRules).where(and(eq(publishingRules.tenantId, scope.tenantId), eq(publishingRules.userId, scope.userId), eq(publishingRules.platform, platform)));
     if (rule?.enabled === false || draft.platformPublishRules?.[platform] === false) throw new PublishingPolicyError("Publishing is disabled by a rule.");
-    if (!draft.content.trim() || draft.content.length < (rule?.minCharacters ?? 1) || draft.content.length > Math.min(capability.maxCharacters, rule?.maxCharacters ?? Infinity)) throw new PublishingPolicyError("Draft does not meet platform character limits.");
+    const text = platformTextValidation(draft.content, platform, Math.min(capability.maxCharacters, rule?.maxCharacters ?? Infinity), rule?.minCharacters ?? 1);
+    if (text.error) throw new PublishingPolicyError(`Draft does not meet platform character limits or the application storage cap. ${text.error}`);
     const media = draft.media ?? [];
     if (media.length > capability.maxMedia || new Set(media.map(item => item.id)).size !== media.length) throw new PublishingPolicyError("Attached media exceeds this adapter's supported capability.");
     for (const item of media) {

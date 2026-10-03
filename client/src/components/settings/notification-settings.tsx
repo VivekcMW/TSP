@@ -4,8 +4,11 @@ import { useLocation, useSearch } from "wouter";
 import type { EmailPreferencePatch, EmailPreferenceValues } from "@shared/email-preferences";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Field, fieldLabelRowClassName } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { Label } from "@/components/ui/label";
 import { useSettingsDraft } from "./use-settings-draft";
 
@@ -72,25 +75,34 @@ export function NotificationSettings() {
   const pausedUntil = profile?.remindersPausedUntil ? new Date(profile.remindersPausedUntil) : null;
   const paused = pausedUntil && pausedUntil.getTime() > Date.now() ? pausedUntil : null;
   if (isLoading) return <output>Loading notification preferences…</output>;
-  if (isError || !profile) return <div role="alert">Notification preferences could not be loaded. <Button className="min-h-11" variant="outline" onClick={() => refetch()}>Retry</Button></div>;
-  return <Card><CardHeader><CardTitle>Notification preferences</CardTitle><CardDescription>Choose what updates you want to receive.</CardDescription></CardHeader><CardContent className="space-y-6">
-    <fieldset disabled={mutation.isPending} className="space-y-4">
-      {preferences.map(({ key, label, description }) => <Label key={key} className="flex min-h-11 cursor-pointer items-center justify-between gap-4" htmlFor={key}>
-        <span><span className="block text-sm font-medium">{label}</span><span id={`${key}-help`} className="block text-sm text-muted-foreground">{description}</span></span>
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center"><input id={key} type="checkbox" role="switch" aria-describedby={`${key}-help`} checked={draft[key]} onChange={(event) => edit(key, event.target.checked)} className="h-5 w-5 accent-primary" /></span>
-      </Label>)}
+  if (isError || !profile) return <div role="alert">Notification preferences could not be loaded. <Button variant="outline" onClick={() => refetch()}>Retry</Button></div>;
+  return <Card><CardHeader><CardTitle help="Choose what updates you want to receive.">Notification preferences</CardTitle></CardHeader><CardContent className="space-y-6">
+    <fieldset disabled={mutation.isPending} className="min-w-0 space-y-4">
+      {preferences.map(({ key, label, description }) => {
+        // Keep optional-offer and account-update consent visible.
+        const keepDescriptionVisible = key === "marketing" || key === "accountAlerts";
+        return <div key={key} className="flex min-h-11 items-center justify-between gap-4">
+          <div className="min-w-0 [overflow-wrap:anywhere]">
+            <div className={fieldLabelRowClassName}>
+              <Label id={`${key}-label`} htmlFor={key} className="flex min-h-11 min-w-0 cursor-pointer items-center">{label}</Label>
+              {!keepDescriptionVisible && <InfoTooltip label={label} descriptionId={`${key}-help`}>{description}</InfoTooltip>}
+            </div>
+            {keepDescriptionVisible && <p id={`${key}-help`} className="text-sm text-muted-foreground">{description}</p>}
+          </div>
+          <label htmlFor={key} className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center"><span className="sr-only">{label}</span><input id={key} type="checkbox" role="switch" aria-labelledby={`${key}-label`} aria-describedby={`${key}-help`} checked={draft[key]} onChange={(event) => edit(key, event.target.checked)} className="h-5 w-5 accent-primary" /></label>
+        </div>;
+      })}
       {paused && <p className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
         <span>Reminders are paused until {longDate(paused)}.</span>
-        <button type="button" className="min-h-11 font-medium text-primary underline underline-offset-4 disabled:opacity-50" disabled={pause.isPending} onClick={() => pause.mutate(null)}>Resume reminders</button>
+        <button type="button" className="control-touch-target min-h-8 min-w-8 font-medium text-primary underline underline-offset-4 disabled:opacity-50" disabled={pause.isPending} onClick={() => pause.mutate(null)}>Resume reminders</button>
       </p>}
-      <Label className="block" htmlFor="digest-time"><span className="block">Daily digest time</span>
-        <input id="digest-time" type="time" value={draft.digestTime} onChange={event => edit("digestTime", event.target.value)} className="block min-h-11 rounded border p-2" />
-      </Label>
-      <Label className="block" htmlFor="digest-timezone"><span className="block">Digest timezone (IANA name)</span>
-        <input id="digest-timezone" value={draft.digestTimezone} placeholder="Asia/Kolkata" onChange={event => edit("digestTimezone", event.target.value)} className="block min-h-11 rounded border p-2" />
-      </Label>
-      <p className="text-sm text-muted-foreground">Essential security and billing messages remain enabled. Digest times follow daylight saving changes.</p>
+      <div className="min-w-0 space-y-2">
+        <div className={fieldLabelRowClassName}><Label htmlFor="digest-time">Daily digest time</Label><InfoTooltip label="Daily digest time" descriptionId="digest-time-help">Digest times follow daylight saving changes.</InfoTooltip></div>
+        <Input id="digest-time" aria-describedby="digest-time-help" type="time" value={draft.digestTime} onChange={event => edit("digestTime", event.target.value)} />
+      </div>
+      <Field id="digest-timezone" label="Digest timezone (IANA name)" render={(controlProps) => <Input {...controlProps} value={draft.digestTimezone} placeholder="Asia/Kolkata" onChange={event => edit("digestTimezone", event.target.value)} />} />
+      <p className="text-sm text-muted-foreground">Essential security and billing messages remain enabled.</p>
     </fieldset>
-    <Button className="min-h-11" disabled={!dirty || mutation.isPending} onClick={() => mutation.mutate({ values: draft, patch: { ...edits.current } })} data-testid="button-save-notifications">{mutation.isPending ? "Saving…" : "Save Notifications"}</Button>
+    <Button disabled={!dirty || mutation.isPending} onClick={() => mutation.mutate({ values: draft, patch: { ...edits.current } })} data-testid="button-save-notifications">{mutation.isPending ? "Saving…" : "Save Notifications"}</Button>
   </CardContent></Card>;
 }
