@@ -49,17 +49,26 @@ DSN=$(gcloud run services describe tsp-app --region asia-south1 --format=json \
   | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const e=JSON.parse(d).spec.template.spec.containers[0].env.find(x=>x.name==="VITE_SENTRY_DSN");process.stdout.write(e?.value??"")})')
 docker buildx build --platform linux/amd64 --build-arg VITE_SENTRY_DSN="$DSN" -t "$IMAGE" --push .
 
-# New revision with no traffic, reachable at a tagged URL for testing.
-gcloud run deploy tsp-app --region asia-south1 --image "$IMAGE" --no-traffic --tag "rc-$SHA"
+# Tagged candidates must not start a second scheduler against production.
+gcloud run deploy tsp-app --region asia-south1 --image "$IMAGE" --no-traffic --tag "rc-$SHA" \
+  --update-env-vars BACKGROUND_JOBS_ENABLED=false,CRON_SCHEDULER=false
 ```
 
 Test the tagged URL (`https://rc-<sha>---tsp-app-yxmmzfzara-el.a.run.app`):
 `/readyz` must return `"status":"ok"`. Cloud Run reserves `/healthz` on
 `*.run.app` URLs, so it returns a Google 404 there; check it through the
-domain instead. Then move traffic and verify through the domain:
+domain instead. Once candidate checks and CI pass, move traffic to the checked
+candidate, then restore workers in a production revision of the same image.
+Scheduled dispatch briefly pauses during this handover rather than running a
+candidate scheduler alongside the live scheduler. Keep the previous production
+revision available for rollback, and remove the temporary candidate tag:
 
 ```bash
 gcloud run services update-traffic tsp-app --region asia-south1 --to-latest
+gcloud run deploy tsp-app --region asia-south1 --image "$IMAGE" --no-traffic \
+  --update-env-vars BACKGROUND_JOBS_ENABLED=true,CRON_SCHEDULER=true
+gcloud run services update-traffic tsp-app --region asia-south1 --to-latest
+gcloud run services update-traffic tsp-app --region asia-south1 --remove-tags "rc-$SHA"
 E2E_BASE_URL=https://www.thesocialpundit.com E2E_API_BASE_URL=https://www.thesocialpundit.com \
   pnpm exec playwright test --config=playwright.deployment.config.ts
 ```

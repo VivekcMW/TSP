@@ -50,8 +50,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.0
 
       - uses: actions/setup-node@v4
         with:
@@ -76,11 +74,11 @@ jobs:
         env:
           OWNER_DATABASE_URL: ${{ env.DATABASE_URL }}
 
-      # Includes the cross-tenant isolation contract tests. A failure here is a
-      # data-leak risk, not a flaky test — do not skip or retry this step.
       - name: Install Chromium for browser regression tests
         run: pnpm exec playwright install --with-deps chromium
 
+      # Includes the cross-tenant isolation contract tests. A failure here is a
+      # data-leak risk, not a flaky test — do not skip or retry this step.
       - name: Tests
         run: pnpm test
 
