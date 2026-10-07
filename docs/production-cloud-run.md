@@ -70,6 +70,12 @@ worker in the candidate. Unset retains the existing local/legacy worker behavior
 use explicit flags for both candidate and production revisions. Check candidate
 startup logs for the worker-disabled messages before promotion.
 
+Relevance scoring reuses each article field's Unicode span projection and only
+advances it through matched text. Batch scoring yields between articles so HTTP
+requests and Bull lock-renewal timers remain responsive during large refreshes.
+Check for missed-cron and lost-queue-heartbeat warnings as well as HTTP readiness;
+a successful readiness response alone does not prove responsiveness.
+
 ```bash
 gcloud run services update-traffic tsp-app --region asia-south1 --to-latest
 gcloud run deploy tsp-app --region asia-south1 --image "$IMAGE" --no-traffic \

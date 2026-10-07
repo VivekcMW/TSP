@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { RELEVANCE_LIMITS, scoreArticleRelevance, type RelevanceProfile } from "./articleRelevance";
 import type { FetchedArticle } from "./engines/types";
 
@@ -9,6 +9,51 @@ const ownSource = { userSourceProvenance: { kind: "active-user-source" as const,
 const score = (content: string, profile: RelevanceProfile) => scoreArticleRelevance(article(content), profile);
 
 describe("deterministic lexical relevance", () => {
+  it("projects Unicode evidence once and only through matched prefixes, not the full body per interest", () => {
+    const originalSegment = Intl.Segmenter.prototype.segment;
+    let visited = 0;
+    const segment = vi.spyOn(Intl.Segmenter.prototype, "segment").mockImplementation(function(this: Intl.Segmenter, input: string) {
+      const segments = originalSegment.call(this, input);
+      return {
+        containing: (index?: number) => segments.containing(index),
+        *[Symbol.iterator](): Generator<Intl.SegmentData, undefined, unknown> {
+          for (const part of segments) { visited++; yield part; }
+          return undefined;
+        },
+      };
+    });
+    try {
+      const prefix = "  ＡＩ and CAFE\u0301 with office \uFB03 tools.  ";
+      const content = prefix + "background ".repeat(9000);
+      const result = scoreArticleRelevance(article(content), { keywords: ["tools", "AI", "café", "office ffi"] }, { mode: "exact" });
+      expect(result.evidence.map(item => item.matchedSurface)).toEqual(["ＡＩ", "CAFE\u0301", "office \uFB03", "tools"]);
+      for (const evidence of result.evidence) {
+        expect(evidence.span).toEqual({ start: content.indexOf(evidence.matchedSurface), end: content.indexOf(evidence.matchedSurface) + evidence.matchedSurface.length });
+      }
+      expect(segment).toHaveBeenCalledTimes(2);
+      expect(segment.mock.calls[1][0].length).toBeLessThanOrEqual(1024);
+      expect(visited).toBeLessThanOrEqual(prefix.length);
+    } finally {
+      segment.mockRestore();
+    }
+  });
+  it("reuses projected spans when later interests match earlier positions", () => {
+    const content = "Zebra precedes the full-width ＡＬＰＨＡ.";
+    const result = scoreArticleRelevance(article(content), { keywords: ["Zebra", "alpha"] }, { mode: "exact" });
+    expect(result.evidence.map(item => ({ surface: item.matchedSurface, span: item.span }))).toEqual([
+      { surface: "ＡＬＰＨＡ", span: { start: content.indexOf("Ａ"), end: content.length - 1 } },
+      { surface: "Zebra", span: { start: 0, end: 5 } },
+    ]);
+  });
+  it.each([1020, 1021, 1022, 1023, 2045, 98000])("preserves graphemes and original offsets across projection chunks at %s", offset => {
+    const surface = "CAFE\u0301 \uFB03";
+    const content = " ".repeat(offset) + surface + " and ＡＩ.";
+    const result = scoreArticleRelevance(article(content), { keywords: ["café ffi", "AI"] }, { mode: "exact" });
+    expect(result.evidence.map(item => ({ surface: item.matchedSurface, span: item.span }))).toEqual([
+      { surface: "ＡＩ", span: { start: content.indexOf("Ａ"), end: content.length - 1 } },
+      { surface, span: { start: offset, end: offset + surface.length } },
+    ]);
+  });
   it.each([0.00001, Number.MIN_VALUE])("preserves positive evidence at tiny weight %s", weight => {
     const result = score("AI", { keywords: [{ keyword: "AI", weight }] });
     expect(result.relevanceScore).toBe(0.0001);

@@ -52,6 +52,17 @@ beforeEach(() => {
 });
 
 describe("engine shared relevance", () => {
+  it("yields to request and heartbeat callbacks while scoring a batch", async () => {
+    let heartbeat = false;
+    const scheduled = setImmediate(() => { heartbeat = true; });
+    try {
+      const result = await new Engine().scoreArticles([article("first", "AI"), article("second", "AI")], profile({ keywords: [{ keyword: "AI", weight: 0.7 }] }));
+      expect(heartbeat).toBe(true);
+      expect(result).toHaveLength(2);
+    } finally {
+      clearImmediate(scheduled);
+    }
+  });
   it("ranks by real weights and breaks ties by link, regardless of fetch order", async () => {
     const engine = new Engine();
     const articles = [article("z", "AI"), article("low", "Cloud"), article("a", "AI")];

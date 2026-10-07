@@ -142,8 +142,9 @@ export function scoreArticleRelevance(
   const conceptDisabled = (concept: typeof DOMAIN_CONCEPTS[number]) => [concept.label, ...concept.aliases].some(a => disabled.has(normalizeText(a)));
   const focus = expanded && typeof profile.focusDescription === "string" && profile.focusDescription.length <= 2000
     ? profile.focusDescription : "";
+  const findFocus = createSurfaceMatcher(focus, 2000);
   const focusConcepts = DOMAIN_CONCEPTS.filter(c => !conceptDisabled(c) &&
-    findSurface(focus, c.label, 2000)).slice(0, 6);
+    findFocus(c.label)).slice(0, 6);
   for (const concept of focusConcepts) {
     if (!signals.has(concept.label)) signals.set(concept.label, { label: concept.label, type: "focus", weight: 0.1 });
   }
@@ -156,11 +157,11 @@ export function scoreArticleRelevance(
     return noMatch("No positive textual interests configured and no active user-source provenance.");
   }
 
-  const fields = [{ field: "title" as const, text: article.title, limit: RELEVANCE_LIMITS.title },
-    { field: "content" as const, text: article.content, limit: RELEVANCE_LIMITS.content }];
+  const fields = [{ field: "title" as const, text: article.title, find: createSurfaceMatcher(article.title, RELEVANCE_LIMITS.title) },
+    { field: "content" as const, text: article.content, find: createSurfaceMatcher(article.content, RELEVANCE_LIMITS.content) }];
   const locate = (surface: string) => {
-    for (const { field, text, limit } of fields) {
-      const span = findSurface(text, surface, limit);
+    for (const { field, text, find } of fields) {
+      const span = find(surface);
       if (span) return { field, span, matchedSurface: text.slice(span.start, span.end) };
     }
   };
@@ -238,28 +239,54 @@ export function scoreArticleRelevance(
   };
 }
 
+function* projectionSegments(input: string) {
+  const segmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
+  const boundaries = segmenter.segment(input);
+  let offset = 0;
+  while (offset < input.length) {
+    const boundary = boundaries.containing(Math.min(offset + 1024, input.length) - 1);
+    const end = boundary.index + boundary.segment.length;
+    // Node 20 copies the segment input while iterating. Bound that copy without
+    // splitting combining marks, surrogate pairs, or joined grapheme clusters.
+    for (const part of segmenter.segment(input.slice(offset, end))) {
+      yield { segment: part.segment, index: offset + part.index };
+    }
+    offset = end;
+  }
+}
+
 /** NFKC/case/whitespace matching with exact original UTF-16 span projection. */
-function findSurface(input: string, term: string, limit: number): { start: number; end: number } | undefined {
+function createSurfaceMatcher(input: string, limit: number) {
   let end = Math.min(input.length, limit);
   if (input.length > limit) while (end > 0 && !/\s/u.test(input[end - 1])) end--;
   const original = input.slice(0, end);
-  const needle = normalizeText(term);
   const normalized = boundedText(original, limit);
-  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
-  const match = new RegExp(String.raw`(?<![\p{L}\p{M}\p{N}\p{Pc}])${escaped}(?![\p{L}\p{M}\p{N}\p{Pc}])`, "u").exec(normalized);
-  if (!match) return undefined;
-  // Build the mapping only for fields with an actual match.
-  let mapped = ""; const starts: number[] = []; const ends: number[] = [];
-  for (const segment of new Intl.Segmenter("en", { granularity: "grapheme" }).segment(original)) {
-    for (const char of segment.segment.normalize("NFKC").toLowerCase()) {
-      const value = /\s/u.test(char) ? " " : char;
-      if (value === " " && (!mapped || mapped.endsWith(" "))) {
-        if (mapped.endsWith(" ")) ends[ends.length - 1] = segment.index + segment.segment.length;
-        continue;
+  let segments: ReturnType<typeof projectionSegments> | undefined;
+  let mappedLength = 0;
+  let lastWasSpace = false;
+  const starts: number[] = []; const ends: number[] = [];
+  return (term: string): { start: number; end: number } | undefined => {
+    const escaped = normalizeText(term).replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+    const match = new RegExp(String.raw`(?<![\p{L}\p{M}\p{N}\p{Pc}])${escaped}(?![\p{L}\p{M}\p{N}\p{Pc}])`, "u").exec(normalized);
+    if (!match) return undefined;
+    // Reuse each field's projection, advancing only as far as a matched span.
+    segments ??= projectionSegments(original);
+    const matchEnd = match.index + match[0].length;
+    while (mappedLength < matchEnd) {
+      const next = segments.next();
+      if (next.done) throw new Error("Relevance span projection is incomplete");
+      const segment = next.value;
+      for (const char of segment.segment.normalize("NFKC").toLowerCase()) {
+        const value = /\s/u.test(char) ? " " : char;
+        if (value === " " && (!mappedLength || lastWasSpace)) {
+          if (lastWasSpace) ends[ends.length - 1] = segment.index + segment.segment.length;
+          continue;
+        }
+        mappedLength += value.length;
+        lastWasSpace = value === " ";
+        for (let i = 0; i < value.length; i++) { starts.push(segment.index); ends.push(segment.index + segment.segment.length); }
       }
-      mapped += value;
-      for (let i = 0; i < value.length; i++) { starts.push(segment.index); ends.push(segment.index + segment.segment.length); }
     }
-  }
-  return { start: starts[match.index], end: ends[match.index + match[0].length - 1] };
+    return { start: starts[match.index], end: ends[matchEnd - 1] };
+  };
 }

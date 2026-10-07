@@ -26,6 +26,7 @@ import type { UserProfile } from "@shared/schema";
 import { getSearchEdition } from "@shared/search-editions";
 import { storage, type TenantScope } from "../../storage.js";
 import { randomUUID } from "node:crypto";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { canonicalHttpUrl, isVideoPageUrl } from "@shared/canonical-url";
 import { INBOX_CAPACITY, INBOX_CANDIDATE_LIMIT, InboxOperationConflictError, inboxRefreshMessage, type InboxRefreshOptions } from "@shared/inbox-refresh";
 
@@ -227,10 +228,12 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
     userProfile: UserProfile,
     now = Date.now(),
   ): Promise<ScoredArticle[]> {
-    const scored = articles.map((article) => {
+    const scored: Array<ScoredArticle & { rankingScore: number }> = [];
+    for (const article of articles) {
       const relevance = scoreArticleRelevance(article, userProfile);
-      return { ...article, ...relevance, rankingScore: relevance.relevanceScore * freshnessMultiplier(article.publicationDate?.publishedAt, now) };
-    });
+      scored.push({ ...article, ...relevance, rankingScore: relevance.relevanceScore * freshnessMultiplier(article.publicationDate?.publishedAt, now) });
+      await yieldToEventLoop();
+    }
 
     return scored
       .filter((item) => item.relevanceScore > 0)
