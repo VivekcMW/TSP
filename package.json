@@ -105,6 +105,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@better-auth/core": "1.7.5",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/typography": "^0.5.15",
     "@tailwindcss/vite": "^4.1.18",
@@ -113,6 +114,7 @@
     "@types/multer": "^2.0.0",
     "@types/node": "20.19.27",
     "@types/node-cron": "^3.0.11",
+    "@types/passport": "1.0.17",
     "@types/pg": "^8.23.1",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
