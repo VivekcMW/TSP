@@ -164,7 +164,7 @@ export async function deliverAppEmail(email: AppEmail): Promise<{ skipped?: bool
 export function initializeEmailQueue() {
   // Recovery also runs when optional queue/digest sending is disabled. It never
   // sends messages, and therefore cannot turn uncertainty into a blind replay.
-  if (!recoveryTimer) {
+  if (!recoveryTimer && process.env.BACKGROUND_JOBS_ENABLED !== "false") {
     recoveryTimer = setInterval(async () => {
       if (recovering) return;
       recovering = true;
@@ -186,6 +186,10 @@ export function initializeEmailQueue() {
 }
 
 export function registerEmailWorker() {
+  if (process.env.BACKGROUND_JOBS_ENABLED === "false") {
+    console.log("[email] Queue worker explicitly disabled; producer remains available");
+    return;
+  }
   if (!emailQueue || emailWorkerRegistered) return;
   emailWorkerRegistered = true;
   emailQueue.process(3, async (job) => {

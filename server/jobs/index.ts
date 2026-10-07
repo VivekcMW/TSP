@@ -10,6 +10,10 @@ import type { PublishDraftJobData, PublishDraftJobProgress } from "./handlers/pu
  * Called on app startup to set up queue event listeners and processors.
  */
 export async function registerJobHandlers(): Promise<void> {
+  if (process.env.BACKGROUND_JOBS_ENABLED === "false") {
+    console.log("[jobs] Queue workers explicitly disabled; producers remain available");
+    return;
+  }
   const inboxQueue = getInboxRefreshQueue();
   const publishQueue = getPublishDraftQueue();
 

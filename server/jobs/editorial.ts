@@ -282,10 +282,14 @@ export function initializeEditorialJobs() {
   const worker = jobs;
   queue.on("error", () => console.error("[editorial] Queue connection failure"));
   queue.on("failed", () => console.error("[editorial] Worker failed; automatic retry disabled"));
-  queue.process(2, async job => {
-    try { await worker.process(job.data.id); }
-    catch { throw new EditorialQueueUnavailableError(); }
-  });
+  if (process.env.BACKGROUND_JOBS_ENABLED === "false") {
+    console.log("[editorial] Queue worker explicitly disabled; producer remains available");
+  } else {
+    queue.process(2, async job => {
+      try { await worker.process(job.data.id); }
+      catch { throw new EditorialQueueUnavailableError(); }
+    });
+  }
   return jobs;
 }
 

@@ -63,6 +63,13 @@ Scheduled dispatch briefly pauses during this handover rather than running a
 candidate scheduler alongside the live scheduler. Keep the previous production
 revision available for rollback, and remove the temporary candidate tag:
 
+An explicit `BACKGROUND_JOBS_ENABLED=false` disables inbox, publishing,
+editorial-generation, and email queue consumers, plus email recovery maintenance.
+Queue producers remain available so requests can be admitted without a second
+worker in the candidate. Unset retains the existing local/legacy worker behavior;
+use explicit flags for both candidate and production revisions. Check candidate
+startup logs for the worker-disabled messages before promotion.
+
 ```bash
 gcloud run services update-traffic tsp-app --region asia-south1 --to-latest
 gcloud run deploy tsp-app --region asia-south1 --image "$IMAGE" --no-traffic \

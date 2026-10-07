@@ -3,11 +3,11 @@ import { emailPreferenceDefaults } from "@shared/email-preferences";
 import { guardNotificationsMediaNetwork } from "../../../test/notifications-media-network";
 const mock = vi.hoisted(() => {
   process.env.RESEND_API_KEY = "test-placeholder-not-real";
-  return { send: vi.fn(), preferences: vi.fn(), claim: vi.fn(), begin: vi.fn(), finish: vi.fn(), process: vi.fn(), add: vi.fn() };
+  return { send: vi.fn(), preferences: vi.fn(), claim: vi.fn(), begin: vi.fn(), finish: vi.fn(), process: vi.fn(), add: vi.fn(), recover: vi.fn() };
 });
 vi.mock("resend", () => ({ Resend: class { emails = { send: mock.send }; } }));
 vi.mock("./preferences", () => ({ getEmailPreferences: mock.preferences }));
-vi.mock("./delivery-store", () => ({ claimDelivery: mock.claim, beginDelivery: mock.begin, finishDelivery: mock.finish, deliveryKey: (email: AppEmail) => typeof email.dedupeKey === "string" && email.dedupeKey.trim() ? "hashed-key" : null, recoverEmailDeliveries: vi.fn() }));
+vi.mock("./delivery-store", () => ({ claimDelivery: mock.claim, beginDelivery: mock.begin, finishDelivery: mock.finish, deliveryKey: (email: AppEmail) => typeof email.dedupeKey === "string" && email.dedupeKey.trim() ? "hashed-key" : null, recoverEmailDeliveries: mock.recover }));
 vi.mock("bull", () => ({ default: class { process = mock.process; add = mock.add; on = vi.fn(); close = vi.fn(); } }));
 import { deliverAppEmail, initializeEmailQueue, registerEmailWorker, closeEmailQueue, sendAppEmail, sendVerificationEmail, sendPasswordResetEmail, type AppEmail } from "./index";
 guardNotificationsMediaNetwork();
@@ -20,13 +20,27 @@ beforeEach(() => {
   mock.finish.mockResolvedValue(undefined);
   mock.send.mockResolvedValue({ data: { id: "provider-id" }, error: null });
 });
-afterEach(async () => { await closeEmailQueue(); vi.unstubAllEnvs(); vi.mocked(console.warn).mockRestore?.(); });
+afterEach(async () => { await closeEmailQueue(); vi.unstubAllEnvs(); vi.useRealTimers(); vi.mocked(console.warn).mockRestore?.(); });
 function worker() {
   vi.stubEnv("REDIS_URL", "redis://127.0.0.1:1"); vi.stubEnv("EMAIL_QUEUE_ENABLED", "true");
   initializeEmailQueue(); registerEmailWorker();
   return mock.process.mock.calls[0][1];
 }
 describe("email dispatch boundaries", () => {
+  it("keeps queued email admission but disables dispatch and recovery in a no-worker candidate", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("BACKGROUND_JOBS_ENABLED", "false");
+    vi.stubEnv("REDIS_URL", "redis://127.0.0.1:1");
+    vi.stubEnv("EMAIL_QUEUE_ENABLED", "true");
+    initializeEmailQueue();
+    registerEmailWorker();
+    await sendAppEmail(email);
+    await vi.advanceTimersByTimeAsync(60_001);
+    expect(mock.add).toHaveBeenCalledOnce();
+    expect(mock.process).not.toHaveBeenCalled();
+    expect(mock.send).not.toHaveBeenCalled();
+    expect(mock.recover).not.toHaveBeenCalled();
+  });
   it.each([
     [undefined, "hello@thesocialpundit.com"],
     ["", "hello@thesocialpundit.com"],

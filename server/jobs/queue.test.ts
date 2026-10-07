@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const { add, clients, redisState, redisConstructor, bull } = vi.hoisted(() => ({
-  add: vi.fn(), clients: [] as any[], redisState: { enabled: true }, redisConstructor: vi.fn(), bull: vi.fn(),
+const { add, getJob, processJob, clients, redisState, redisConstructor, bull } = vi.hoisted(() => ({
+  add: vi.fn(), getJob: vi.fn(), processJob: vi.fn(), clients: [] as any[], redisState: { enabled: true }, redisConstructor: vi.fn(), bull: vi.fn(),
 }));
 vi.mock("ioredis", () => ({ default: class { constructor(...args: unknown[]) { redisConstructor(...args); clients.push(this); } on = vi.fn(); disconnect = vi.fn(); } }));
 vi.mock("../lib/redis", async (original) => ({ ...await original<typeof import("../lib/redis")>(), get redis() { return redisState.enabled ? { ping: vi.fn() } : undefined; } }));
-vi.mock("bull", () => ({ default: class { constructor(...args: unknown[]) { bull(...args); } add = add; on = vi.fn(); close = vi.fn(); } }));
+vi.mock("bull", () => ({ default: class { constructor(...args: unknown[]) { bull(...args); } add = add; getJob = getJob; process = processJob; on = vi.fn(); close = vi.fn(); } }));
+vi.mock("./handlers/inbox-refresh", () => ({ handleInboxRefresh: vi.fn() }));
+vi.mock("./handlers/publish-draft", () => ({ handlePublishDraft: vi.fn() }));
 import { initializeQueues, closeQueues, enqueuePublishDraft, enqueueInboxRefresh, queueOptions } from "./queue";
+import { registerJobHandlers } from "./index";
 import { redisOptions } from "../lib/redis";
 
 beforeEach(() => { vi.clearAllMocks(); redisState.enabled = true; vi.stubEnv("NODE_ENV", "test"); add.mockResolvedValue({ id: "job" }); });
@@ -13,6 +16,21 @@ afterEach(async () => { await closeQueues(); vi.unstubAllEnvs(); vi.useRealTimer
 const data = { tenantId: "t", userId: "u", draftId: "d", draftScheduleId: "s", draftScheduleTargetId: "target", platform: "twitter", publishAt: new Date(0), attemptNumber: 1 };
 
 describe("queue reliability", () => {
+  it.each([undefined, "true", "false"])("only disables consumers for an explicit false flag (%s), preserving producers", async flag => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("BACKGROUND_JOBS_ENABLED", flag);
+    getJob.mockResolvedValue({ id: "job", data: { tenantId: "t", userId: "u" }, getState: async () => "waiting" });
+    initializeQueues();
+    await registerJobHandlers();
+    expect(processJob).toHaveBeenCalledTimes(flag === "false" ? 0 : 2);
+    if (flag !== "false") {
+      expect(processJob).toHaveBeenNthCalledWith(1, 1, expect.any(Function));
+      expect(processJob).toHaveBeenNthCalledWith(2, 2, expect.any(Function));
+    }
+    await expect(enqueueInboxRefresh({ tenantId: "t", userId: "u" })).resolves.toBe("job");
+    await expect(enqueuePublishDraft(data)).resolves.toBe("job");
+    expect(add).toHaveBeenCalledTimes(2);
+  });
   it("uses complete TLS URLs and distinct blocking/request settings", () => {
     const url = "rediss://test-user:test-password@redis.invalid:6380/2";
     const options = queueOptions(url);

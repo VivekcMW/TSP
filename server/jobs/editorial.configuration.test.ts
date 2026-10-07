@@ -26,6 +26,15 @@ beforeEach(() => {
 afterEach(async () => { await closeEditorialJobs(); vi.unstubAllEnvs(); });
 
 describe("editorial worker initialization", () => {
+  it("keeps the production producer available without starting a candidate worker", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AI_PROVIDER", "gemini");
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "");
+    vi.stubEnv("BACKGROUND_JOBS_ENABLED", "false");
+    expect(initializeEditorialJobs()).toBeDefined();
+    expect(mocks.construct).toHaveBeenCalledOnce();
+    expect(mocks.process).not.toHaveBeenCalled();
+  });
   it("uses the existing full-URL Redis options, disables all Bull replay, and starts once", async () => {
     expect(initializeEditorialJobs()).toBeDefined(); initializeEditorialJobs();
     expect(mocks.options).toHaveBeenCalledWith("rediss://redis.invalid:6380/2");
