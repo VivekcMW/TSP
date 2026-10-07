@@ -10,6 +10,9 @@ quotes, paragraph alignment, clear formatting, and undo/redo. It is not a
 oversized typing/pastes are rejected with an explicit message, not truncated.
 Chat instructions are limited to 4,000 characters.
 
+Ctrl/Cmd+B formats the focused document without toggling navigation. The sidebar
+shortcut remains available outside editable controls and respects handled keys.
+
 The workspace expands up to 1,280px on desktop. The formatting toolbar stays
 within the document's scroll area and scrolls horizontally on narrow screens;
 the bottom chat stays visible independently of document scrolling.

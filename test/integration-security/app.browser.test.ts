@@ -1129,6 +1129,28 @@ describe("UX-01 real App navigation (mocked APIs, Chromium touch emulation)", ()
     },
   );
 
+  it("keeps editing shortcuts inside the document and fields without toggling navigation", async () => {
+    await openWorkspace("/dashboard/create", 1440);
+    const toggle = page.getByTestId("button-navbar-navigation");
+    const editor = page.getByRole("textbox", { name: "Document text", exact: true });
+    const text = "A reversible document formatting test.";
+    await editor.fill(text);
+    await editor.press("ControlOrMeta+a");
+    await editor.press("ControlOrMeta+b");
+    await browserExpect(editor.locator("strong")).toHaveText(text);
+    await browserExpect(toggle).toHaveAttribute("aria-expanded", "true");
+    for (const name of ["Document title", "Message Pundit"]) {
+      await page.getByRole("textbox", { name, exact: true }).press("ControlOrMeta+b");
+      await browserExpect(toggle).toHaveAttribute("aria-expanded", "true");
+    }
+    await toggle.focus();
+    await page.keyboard.press("ControlOrMeta+b");
+    await browserExpect(toggle).toHaveAttribute("aria-expanded", "false");
+    await page.keyboard.press("ControlOrMeta+b");
+    await browserExpect(toggle).toHaveAttribute("aria-expanded", "true");
+    expectNoCreationRequests();
+  });
+
   it.each([768, 1440])("preserves desktop collapse and all workspace navigation at %s px", async width => {
     await openWorkspace("/dashboard", width);
     const sidebar = page.locator('[data-slot="sidebar-container"]');
