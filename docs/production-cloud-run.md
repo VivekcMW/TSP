@@ -60,7 +60,19 @@ gcloud run deploy tsp-app --region asia-south1 --image "$IMAGE" --no-traffic --t
 Test the tagged URL (`https://rc-<sha>---tsp-app-yxmmzfzara-el.a.run.app`):
 `/readyz` must return `"status":"ok"`. Cloud Run reserves `/healthz` on
 `*.run.app` URLs, so it returns a Google 404 there; check it through the
-domain instead. Once candidate checks and CI pass, move traffic to the checked
+domain instead. Also open the candidate in a browser: anonymous HTTP smoke does
+not exercise module loading or browser `Origin` headers.
+
+The tagged origin is not automatically in the production CORS allowlist. For
+browser QA, add that exact HTTPS origin to a **candidate-only** `ALLOWED_ORIGINS`
+binding while retaining the production origins. Do not modify the shared
+secret's latest version. Cloud Run CLI update flags reject changing an existing
+secret binding to a literal; a declarative service replacement or the regional
+Cloud Run API can make that change atomically. Preserve the existing production
+traffic allocation and both disabled-worker flags during the replacement.
+Verify JavaScript and CSS return 200 with the candidate `Origin` header.
+
+Once candidate checks and CI pass, move traffic to the checked
 candidate, then restore workers in a production revision of the same image.
 Scheduled dispatch briefly pauses during this handover rather than running a
 candidate scheduler alongside the live scheduler. Keep the previous production
@@ -84,6 +96,11 @@ advances it through matched text. Batch scoring yields between articles so HTTP
 requests and Bull lock-renewal timers remain responsive during large refreshes.
 Check for missed-cron and lost-queue-heartbeat warnings as well as HTTP readiness;
 a successful readiness response alone does not prove responsiveness.
+
+If validation created a configuration-only successor, update `CANDIDATE` to
+that exact checked revision before moving traffic. Restore the original
+`ALLOWED_ORIGINS` Secret Manager binding in the final revision; do not carry the
+candidate-only literal allowlist into production.
 
 ```bash
 gcloud run services update-traffic tsp-app --region asia-south1 --to-revisions "$CANDIDATE=100"
