@@ -298,6 +298,7 @@ describe("Settings navigation guard", () => {
     await page.getByRole("tab", { name: "content", exact: true }).click();
     await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("Unsaved voice");
     await page.getByTestId("button-save-content-preferences").click();
+    await browserExpect(page.getByText("Your preferences have been saved.", { exact: true })).toBeVisible();
     await browserExpect(page.getByTestId("button-save-content-preferences")).toBeDisabled();
     expect(await reloadBlocked()).toBe(false);
     await page.getByRole("link", { name: "Leave Settings", exact: true }).click();
@@ -430,6 +431,7 @@ describe("Settings consolidation and trust", () => {
     await browserExpect(page.getByLabel("URL for Publication", { exact: true })).toHaveValue("https://publication.invalid/news");
     await page.getByTestId("input-focus-description").fill("Only the voice changed");
     await page.getByTestId("button-save-content-preferences").click();
+    await browserExpect(page.getByText("Your preferences have been saved.", { exact: true })).toBeVisible();
     await browserExpect(page.getByTestId("button-save-content-preferences")).toBeDisabled();
     const payload = requests.find(request => request.method === "PATCH" && request.url === "/api/profile")!.body;
     expect(payload.publications).toEqual(["Publication"]);
@@ -467,6 +469,7 @@ describe("Settings consolidation and trust", () => {
     await browserExpect(input).toHaveValue("https://publication.invalid/news#section");
     failures.clear();
     await save.click();
+    await browserExpect(page.getByText("Your preferences have been saved.", { exact: true })).toBeVisible();
     await browserExpect(save).toBeDisabled();
     const saves = requests.filter(request => request.method === "PATCH" && request.url === "/api/profile");
     expect(saves).toHaveLength(2);
@@ -487,6 +490,7 @@ describe("Settings consolidation and trust", () => {
     profile.publicationCandidates = [];
     await refetchProfile();
     await page.getByTestId("button-save-content-preferences").click();
+    await browserExpect(page.getByText("Your preferences have been saved.", { exact: true })).toBeVisible();
     await browserExpect(page.getByTestId("button-save-content-preferences")).toBeDisabled();
     const payload = requests.find(request => request.method === "PATCH" && request.url === "/api/profile")!.body;
     expect(payload.publicationCandidates).toEqual([]);
@@ -541,6 +545,7 @@ describe("Settings consolidation and trust", () => {
     await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("Original focus");
     await page.getByTestId("input-focus-description").fill("Only my voice changed");
     await page.getByTestId("button-save-content-preferences").click();
+    await browserExpect(page.getByText("Your preferences have been saved.", { exact: true })).toBeVisible();
     await browserExpect(page.getByTestId("button-save-content-preferences")).toBeDisabled();
     expect(requests.filter((request) => request.method === "PATCH" && request.url === "/api/profile").map((request) => request.body)).toEqual([{
       searchEdition: "en-US", focusDescription: "Only my voice changed", publications: ["Publication"],
@@ -566,6 +571,7 @@ describe("Settings consolidation and trust", () => {
     await refetchProfile();
     await browserExpect(page.getByRole("button", { name: "Remove keyword Brand new topic", exact: true })).toBeVisible();
     await page.getByTestId("button-save-content-preferences").click();
+    await browserExpect(page.getByText("Your preferences have been saved.", { exact: true })).toBeVisible();
     await browserExpect(page.getByTestId("button-save-content-preferences")).toBeDisabled();
     expect(requests.find((request) => request.method === "PATCH" && request.url === "/api/profile")?.body.keywords).toEqual([
       { keyword: "Cloud", weight: 0, category: "Infrastructure" }, { keyword: "Brand new topic", weight: 0.7 },
@@ -585,6 +591,7 @@ describe("Settings consolidation and trust", () => {
     await browserExpect(page.getByTestId("button-save-content-preferences")).toBeEnabled();
     failures.clear();
     await page.getByTestId("button-save-content-preferences").click();
+    await browserExpect(page.getByText("Your preferences have been saved.", { exact: true })).toBeVisible();
     await browserExpect(page.getByTestId("button-save-content-preferences")).toBeDisabled();
     const saves = requests.filter((request) => request.method === "PATCH" && request.url === "/api/profile");
     expect(saves).toHaveLength(2);
@@ -665,6 +672,7 @@ describe("Settings consolidation and trust", () => {
     await browserExpect(page.getByTestId("input-focus-description")).toBeVisible();
     await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("My unsaved voice");
     await page.getByTestId("button-save-content-preferences").click();
+    await browserExpect(page.getByText("Your preferences have been saved.", { exact: true })).toBeVisible();
     await browserExpect(page.getByTestId("button-save-content-preferences")).toBeDisabled();
     expect(profile.focusDescription).toBe("My unsaved voice");
   }, 15000);
