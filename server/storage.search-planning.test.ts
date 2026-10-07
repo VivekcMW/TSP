@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { requireLocalTestDatabase } from "../test/database-safety";
+import { assertLocalTestServerAddress, requireLocalTestDatabase } from "../test/database-safety";
 import express from "express";
 import request from "supertest";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -43,7 +43,7 @@ beforeAll(async () => {
       inet_server_port() as port, inet_server_addr()::text as address, rolsuper, rolbypassrls
       from pg_roles where rolname = current_user`);
     expect(identity).toMatchObject({ db: target.database, role: user, port: target.port });
-    expect(["127.0.0.1/32", "::1/128", "127.0.0.1", "::1"]).toContain(identity.address);
+    assertLocalTestServerAddress(identity.address);
     if (user === "tsp_app") expect(identity).toMatchObject({ rolsuper: false, rolbypassrls: false });
   }
   validatedTarget = true;

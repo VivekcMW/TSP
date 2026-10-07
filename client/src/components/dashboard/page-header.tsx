@@ -66,7 +66,7 @@ export type PageBodyProps = ComponentPropsWithoutRef<"main"> & PageContentProps 
 /** Shares PageHeader's width/gutters; className retains the existing scroll escape hatch. */
 export function PageBody({ children, as: Comp = "main", width = "standard", scrollable = true, className, contentClassName, ...props }: Readonly<PageBodyProps>) {
   return (
-    <Comp {...props} data-page-body="" data-page-width={width} data-page-scroll={scrollable ? "body" : "parent"} className={cn("dashboard-gutter min-h-0 min-w-0 flex-1 px-4 py-4 sm:px-6 sm:py-6", scrollable && "overflow-y-auto", className)}>
+    <Comp {...props} data-page-body="" data-page-width={width} data-page-scroll={scrollable ? "body" : "parent"} className={cn("dashboard-gutter min-h-0 min-w-0 flex-1 px-4 py-4 sm:px-6 sm:py-6 [overflow-wrap:anywhere]", scrollable && "overflow-y-auto", className)}>
       <div data-page-container="" data-page-width={width} className={cn("dashboard-container", pageWidths[width], contentClassName)}>{children}</div>
     </Comp>
   );

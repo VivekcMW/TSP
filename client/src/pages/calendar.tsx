@@ -225,14 +225,14 @@ export default function CalendarPage() {
         <div className="flex w-full min-w-0 flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 flex-wrap items-center gap-3">
-              <h2 className="text-xl font-semibold" aria-live="polite" data-testid="calendar-period">{periodLabel}</h2>
+              <h2 className="min-w-0 [overflow-wrap:anywhere] text-xl font-semibold" aria-live="polite" data-testid="calendar-period">{periodLabel}</h2>
               <div className="flex items-center gap-1">
                 <Button variant="ghost" size="icon" onClick={() => moveCursor(-1)} aria-label="Previous period"><ChevronLeft className="h-4 w-4" /></Button>
                 <Button variant="outline" size="sm" onClick={() => { setCursorTouched(false); setCursor(utcMidnight(todayKey)); }}>Today</Button>
                 <Button variant="ghost" size="icon" onClick={() => moveCursor(1)} aria-label="Next period"><ChevronRight className="h-4 w-4" /></Button>
               </div>
             </div>
-            <div role="group" aria-label="Calendar view" className="flex gap-1 rounded-lg border bg-muted/30 p-1">
+            <div role="group" aria-label="Calendar view" className="flex min-w-0 max-w-full flex-wrap gap-1 rounded-lg border bg-muted/30 p-1">
               {(["month", "week", "list"] as const).map(mode => <Button key={mode} size="sm" variant={view === mode ? "selected" : "ghost"} aria-pressed={view === mode} onClick={() => setView(mode)}>
                 {mode === "list" && <List className="h-4 w-4" />}{mode === "list" ? "Agenda" : mode === "month" ? "Month" : "Week"}
               </Button>)}
@@ -280,12 +280,12 @@ export default function CalendarPage() {
         <aside className="min-w-0 space-y-5">
           {view !== "list" && <section ref={dayPanel} aria-label="Selected day" className="overflow-hidden rounded-xl border bg-card">
             <div className="border-b bg-muted/20 p-4">
-              <div className="mb-1 flex items-center justify-between gap-2">
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs font-medium text-muted-foreground">{dayKey(cursor) === todayKey ? "TODAY" : "SELECTED DAY"}</p>
                 <Button size="sm" variant="ghost" className="xl:hidden" onClick={() => planningPanel.current?.scrollIntoView({ block: "start" })}><ChevronLeft className="h-3.5 w-3.5" />Back to calendar</Button>
               </div>
-              <div className="flex items-start justify-between gap-2">
-                <h3 className="font-semibold" data-testid="selected-day-heading">{formatCalendarDate(cursor, "UTC", { weekday: "long", month: "long", day: "numeric" })}</h3>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <h3 className="min-w-0 [overflow-wrap:anywhere] font-semibold" data-testid="selected-day-heading">{formatCalendarDate(cursor, "UTC", { weekday: "long", month: "long", day: "numeric" })}</h3>
                 <div className="flex shrink-0"><Button variant="ghost" size="compact" aria-label="Previous day" onClick={() => selectDay(addDays(cursor, -1))}><ChevronLeft className="h-3.5 w-3.5" /></Button><Button variant="ghost" size="compact" aria-label="Next day" onClick={() => selectDay(addDays(cursor, 1))}><ChevronRight className="h-3.5 w-3.5" /></Button></div>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">Times in {timeZone}</p>

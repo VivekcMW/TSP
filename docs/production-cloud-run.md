@@ -44,6 +44,8 @@ Cloud Build is not enabled; images are built locally for `linux/amd64`.
 ```bash
 SHA=$(git rev-parse --short HEAD)
 IMAGE=asia-south1-docker.pkg.dev/tsp-social-pundit/tsp-repo/tsp-app:$SHA
+CANDIDATE=tsp-app-rc-$SHA
+FINAL=tsp-app-r-$SHA
 # The browser DSN is public and is inlined by Vite at build time.
 DSN=$(gcloud run services describe tsp-app --region asia-south1 --format=json \
   | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const e=JSON.parse(d).spec.template.spec.containers[0].env.find(x=>x.name==="VITE_SENTRY_DSN");process.stdout.write(e?.value??"")})')
@@ -51,6 +53,7 @@ docker buildx build --platform linux/amd64 --build-arg VITE_SENTRY_DSN="$DSN" -t
 
 # Tagged candidates must not start a second scheduler against production.
 gcloud run deploy tsp-app --region asia-south1 --image "$IMAGE" --no-traffic --tag "rc-$SHA" \
+  --revision-suffix "rc-$SHA" \
   --update-env-vars BACKGROUND_JOBS_ENABLED=false,CRON_SCHEDULER=false
 ```
 
@@ -62,6 +65,12 @@ candidate, then restore workers in a production revision of the same image.
 Scheduled dispatch briefly pauses during this handover rather than running a
 candidate scheduler alongside the live scheduler. Keep the previous production
 revision available for rollback, and remove the temporary candidate tag:
+
+Require CI on the exact release commit, including the Linux browser/text-zoom
+regressions. Database tests still require a loopback client URL, the designated
+test database, and the restricted role with no RLS bypass. On GitHub Actions,
+the PostgreSQL service may report a Docker bridge address rather than loopback;
+the shared test guard permits that only for the explicitly authorized CI target.
 
 An explicit `BACKGROUND_JOBS_ENABLED=false` disables inbox, publishing,
 editorial-generation, and email queue consumers, plus email recovery maintenance.
@@ -77,10 +86,11 @@ Check for missed-cron and lost-queue-heartbeat warnings as well as HTTP readines
 a successful readiness response alone does not prove responsiveness.
 
 ```bash
-gcloud run services update-traffic tsp-app --region asia-south1 --to-latest
+gcloud run services update-traffic tsp-app --region asia-south1 --to-revisions "$CANDIDATE=100"
 gcloud run deploy tsp-app --region asia-south1 --image "$IMAGE" --no-traffic \
+  --revision-suffix "r-$SHA" \
   --update-env-vars BACKGROUND_JOBS_ENABLED=true,CRON_SCHEDULER=true
-gcloud run services update-traffic tsp-app --region asia-south1 --to-latest
+gcloud run services update-traffic tsp-app --region asia-south1 --to-revisions "$FINAL=100"
 gcloud run services update-traffic tsp-app --region asia-south1 --remove-tags "rc-$SHA"
 E2E_BASE_URL=https://www.thesocialpundit.com E2E_API_BASE_URL=https://www.thesocialpundit.com \
   pnpm exec playwright test --config=playwright.deployment.config.ts

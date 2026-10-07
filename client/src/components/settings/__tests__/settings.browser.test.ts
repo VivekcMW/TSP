@@ -208,6 +208,7 @@ describe("Saved search edition settings", () => {
     expect(profile.searchEdition).toBe("en-GB");
     failures.clear();
     await save.click();
+    await browserExpect(page.getByText("Your preferences have been saved.", { exact: true })).toBeVisible();
     await browserExpect(save).toBeDisabled();
     const saves = requests.filter(request => request.method === "PATCH" && request.url === "/api/profile");
     expect(saves).toHaveLength(2);

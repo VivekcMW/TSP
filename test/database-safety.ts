@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 type TestEnvironment = Readonly<Record<string, string | undefined>>;
 type DatabaseVariable = "TEST_DATABASE_URL" | "OWNER_TEST_DATABASE_URL";
 
@@ -20,6 +22,16 @@ export function requireLocalTestDatabase(env: TestEnvironment = process.env) {
     throw new Error("Only explicitly matching local test or isolated acceptance database targets are authorized");
   }
   return { database: runtime.pathname.slice(1), port: Number(runtime.port) };
+}
+
+export function assertLocalTestServerAddress(address: unknown, env: TestEnvironment = process.env) {
+  const target = requireLocalTestDatabase(env);
+  const host = typeof address === "string" ? address.replace(/\/(?:32|128)$/, "") : "";
+  const loopback = host === "127.0.0.1" || host === "::1";
+  // Actions forwards localhost:5432 to its Docker service's bridge interface.
+  const actionsService = env.CI === "true" && env.GITHUB_ACTIONS === "true" && target.port === 5432
+    && isIP(host) === 4 && /^172\.(?:1[6-9]|2\d|3[01])\./.test(host);
+  if (!loopback && !actionsService) throw new Error("Unexpected test database server address");
 }
 
 const LOCAL_TEST_DATABASE = "localhost:5433/thesocialpundit_test";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveTestDatabaseUrls } from "./database-safety";
+import { assertLocalTestServerAddress, resolveTestDatabaseUrls } from "./database-safety";
 
 const runtime = "postgresql://tsp_app:runtime-secret@localhost:5433/thesocialpundit_test";
 const owner = "postgresql://local_owner:owner-secret@localhost:5433/thesocialpundit_test";
@@ -7,6 +7,21 @@ const valid = { TEST_DATABASE_URL: runtime, OWNER_TEST_DATABASE_URL: owner };
 const variables = ["TEST_DATABASE_URL", "OWNER_TEST_DATABASE_URL"] as const;
 
 describe("test database safety", () => {
+  it("accepts the Docker bridge only behind the explicitly authorized Actions loopback service", () => {
+    const local = { ...valid, DATABASE_URL: runtime };
+    const ciRuntime = runtime.replace("5433", "5432");
+    const ci = { CI: "true", GITHUB_ACTIONS: "true", TEST_DATABASE_URL: ciRuntime, DATABASE_URL: ciRuntime, OWNER_TEST_DATABASE_URL: owner.replace("5433", "5432") };
+    for (const address of ["127.0.0.1", "127.0.0.1/32", "::1", "::1/128"]) {
+      expect(() => assertLocalTestServerAddress(address, local)).not.toThrow();
+    }
+    expect(() => assertLocalTestServerAddress("172.18.0.2/32", ci)).not.toThrow();
+    expect(() => assertLocalTestServerAddress("172.18.0.2/32", local)).toThrow("Unexpected test database server address");
+    expect(() => assertLocalTestServerAddress("172.18.0.2/32", { ...ci, GITHUB_ACTIONS: "" })).toThrow();
+    for (const address of [null, "", "10.0.0.1", "172.15.0.2", "172.32.0.2", "172.18.0.999", "8.8.8.8"]) {
+      expect(() => assertLocalTestServerAddress(address, ci)).toThrow();
+    }
+    expect(() => assertLocalTestServerAddress("172.18.0.2", { ...ci, DATABASE_URL: runtime })).toThrow();
+  });
   it("returns explicit local defaults without using ambient provider settings or mutating input", () => {
     const env = Object.freeze({
       DATABASE_URL: "postgresql://provider:secret@production.example/live",

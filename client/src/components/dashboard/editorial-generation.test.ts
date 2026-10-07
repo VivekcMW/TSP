@@ -212,8 +212,9 @@ async function proposeMain() {
   await closePanel();
   await chat().fill("Create a careful draft from the supplied source.");
   await chat().press("Enter");
-  await browserExpect(page.getByTestId("proposed-draft")).toHaveText(source);
-  await page.getByRole("button", { name: "Apply changes", exact: true }).click();
+  await browserExpect(page.getByTestId("textarea-main-draft")).toHaveText(source);
+  await browserExpect(page.getByRole("button", { name: "Undo AI update", exact: true })).toBeVisible();
+  await browserExpect(articlePlatformTrigger()).toBeEnabled();
 }
 async function changeLength(format: string) {
   await command("length");
