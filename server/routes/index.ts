@@ -28,6 +28,7 @@ import { registerWebSubRoutes } from "./websub";
 import { registerProfileSocialLinksRoutes } from "./profile-social-links";
 import { registerEditorialVoiceRoutes } from "./editorial-voice";
 import { registerTeamRoutes } from "./team";
+import { registerCreationSessionRoutes } from "./creation-session";
 
 /**
  * Mounts the HTTP API.
@@ -52,6 +53,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerInboxRoutes(app);
   registerSourcesRoutes(app);
   registerDraftsRoutes(app);
+  registerCreationSessionRoutes(app);
   registerSocialRoutes(app);
   registerAnalyticsRoutes(app);
   registerAdminRoutes(app);

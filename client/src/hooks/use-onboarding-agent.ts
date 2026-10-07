@@ -8,7 +8,7 @@ import type { SearchEditionId } from "@shared/search-editions";
 
 export const SUGGESTION_REFRESH_DELAY_MS = 1200;
 export const MAX_SUGGESTION_REFRESHES = 3;
-const AGENT_TIMEOUT_MS = 90_000;
+const AGENT_TIMEOUT_MS = 165_000;
 const REFRESH_TIMEOUT_MS = 25_000;
 const FEED_LINES = 12;
 const STEPS: SuggestionStep[] = ["publications", "topics", "people"];
@@ -53,12 +53,14 @@ const key = (value: string) => value.trim().toLowerCase();
 const unique = (values: string[]) => [...new Map(values.map(value => [key(value), value])).values()];
 
 function failureMessage(code: string | undefined, timedOut = false, retryAfterSeconds?: number) {
-  if (timedOut || code === "ai_timeout") return "The agent took too long.";
+  if (timedOut) return "The full setup took too long.";
+  if (code === "ai_timeout") return "The AI request timed out on this step.";
   if (code === "rate_limited" || code === "ai_budget") return "You've asked the agent a lot in the last hour. Try again in a few minutes.";
   if (code === "ai_quota" || code === "ai_rate_limit" || code === "ai_busy") {
     return `The AI service is busy right now. Try again in ${retryAfterSeconds && retryAfterSeconds > 90 ? "a few minutes" : "about a minute"}.`;
   }
   if (code === "ai_unavailable") return "The AI service didn't respond.";
+  if (code === "ai_invalid_output") return "The AI returned an incomplete or unusable answer.";
   return "The agent couldn't finish this step.";
 }
 

@@ -11,9 +11,11 @@ export function requireLocalTestDatabase(env: TestEnvironment = process.env) {
   const owner = new URL(resolved.OWNER_TEST_DATABASE_URL);
   const legacy = ["localhost", "127.0.0.1"].includes(runtime.hostname)
     && runtime.port === "5433" && runtime.pathname === "/thesocialpundit_test";
+  const ci = env.CI === "true" && runtime.hostname === "localhost"
+    && runtime.port === "5432" && runtime.pathname === "/thesocialpundit_test";
   const isolated = runtime.hostname === "127.0.0.1" && runtime.pathname === "/thesocialpundit_acceptance_test"
     && Number(runtime.port) > 0 && !["5432", "5433"].includes(runtime.port);
-  if ((!legacy && !isolated) || new URL(env.DATABASE_URL).href !== runtime.href
+  if ((!legacy && !ci && !isolated) || new URL(env.DATABASE_URL).href !== runtime.href
     || (env.OWNER_DATABASE_URL && new URL(env.OWNER_DATABASE_URL).href !== owner.href)) {
     throw new Error("Only explicitly matching local test or isolated acceptance database targets are authorized");
   }

@@ -1,6 +1,116 @@
 # Create post: local end-to-end findings
 
-## Outcome: paid-key mismatch fixed; four-platform live generation passed
+## Current workflow: document editor and Pundit chat
+
+Create is a paper-style, directly editable document with a persistent bottom
+Pundit chat. The main document supports **saved rich-text formatting**: bold,
+italic, underline, strikethrough, highlighting, headings, bulleted/numbered lists,
+quotes, paragraph alignment, clear formatting, and undo/redo. It is not a
+`.docx` importer/exporter. The document is limited to 5,000 plain-text characters;
+oversized typing/pastes are rejected with an explicit message, not truncated.
+Chat instructions are limited to 4,000 characters.
+
+The workspace expands up to 1,280px on desktop. The formatting toolbar stays
+within the document's scroll area and scrolls horizontally on narrow screens;
+the bottom chat stays visible independently of document scrolling.
+
+1. Write directly, or describe a draft/change in chat.
+2. Attach multiple crawled articles using **Articles** or `/sources`. Up to six
+   references are supported per suggestion, with a shared 24,000-character
+   evidence budget and passage slots divided between sources, so a dense first
+   source cannot crowd later sources out of the writer's evidence. Selection is scoped to the signed-in
+   workspace and checked again when a queued request executes.
+3. Review **Proposed changes**, then explicitly **Apply changes** or **Discard**.
+   Suggestions never silently replace the document. Applying preserves a title
+   already entered by the user. Editing after a proposal makes that proposal
+   stale and prevents applying it over newer text or formatting. Applying an AI
+   suggestion replaces the body and clears its previous formatting, as disclosed
+   beside Apply. The title remains unchanged.
+4. Use **Adapt for platforms** or `/platforms`, choose up to four platforms, and
+   generate their versions. No platforms are selected automatically.
+
+Type `/` for keyboard-navigable commands: `/sources`, `/tone`, `/length`,
+`/platforms`, `/versions`, `/link`, `/notes`, `/evidence`, and `/new`. Options open
+in dialogs rather than permanent dropdowns. Enter sends; Shift+Enter inserts a
+newline; Escape closes the command list. `/notes` retains source/media upload.
+The conversation can be expanded without leaving the editor.
+
+While a suggestion is pending, Pundit displays animated writing dots and a
+skeleton preview without modifying the document. A completed, validated
+suggestion is then revealed progressively (up to 2.2 seconds). This is a
+presentation animation, **not provider token streaming**. **Show full suggestion**
+skips the reveal; Apply becomes available when the complete suggestion is shown.
+Reduced-motion preferences disable the reveal and loading animations.
+Cancellation or failure removes the writing state and preserves the document.
+
+Platform adaptation uses the exact reviewed main-draft title and text, with the
+original source URL retained for provenance. It does not fetch the original
+article again instead of using the user's edits. Each generation stage can
+consume AI usage; no generation publishes or schedules a post.
+Social versions remain plain text: rich formatting JSON/HTML is never sent as
+platform content. Paragraphs use two newlines, soft breaks one newline; list text
+is retained without its rich list markers.
+
+One active creation per user and tenant is autosaved on the server, including
+source inputs, document text and formatting, platform selection, edited versions, attached article
+links, conversation, unsent chat text, and pending proposals. **Save progress**
+confirms the current state explicitly. Wait for **All changes saved**
+before closing or reloading. A failed or conflicting save retains the local
+text, stops automatic retries, and offers explicit retry/reload actions. Reload
+requires confirmation before discarding unsaved changes. Draft text is not
+written to browser storage; existing opaque job-recovery pointers remain.
+Recovered neutral jobs also require Apply/Discard. An interrupted suggestion
+without a recoverable job is shown explicitly and never retried automatically.
+
+Editing the main-draft wording or title retains platform text but marks older versions as out of
+date. Those versions cannot be copied, saved, or handed off until regenerated.
+Regeneration asks before overwriting edited text. Platform publication drafts
+remain separate records in Content, with their existing revision/conflict
+checks. **Start new** replaces the active creation, not saved Content drafts.
+Automatic article links do not overwrite a saved creation.
+Formatting-only edits are saved without increasing the main text revision,
+making existing social versions stale, or preventing continuation of an
+interrupted platform batch. Starting a new creation or replacing the source
+also resets editor undo history so the previous document cannot reappear.
+
+Formatting is validated, size-bounded structured JSON, not arbitrary HTML.
+Unsupported nodes, marks, attributes, excessive nesting, and formatting that
+does not match the saved text are rejected. Older plain-text creations remain
+compatible. Formatting uses the existing JSONB store; no additional migration
+is required beyond the creation-session migration below.
+
+Deployment requires migration
+[`0051_creation_sessions.sql`](../migrations/0051_creation_sessions.sql) through
+the existing migration runner before starting the new application. It creates
+the owner-scoped, revision-protected store with forced row-level security.
+
+Focused coverage:
+
+- `draft-first.browser.test.ts`: real React/Chromium document/chat workflow,
+  Apply/Discard, stale proposals, slash keyboard controls, multi-reference input,
+  exact edited adaptation input, server-state restoration, save races, stale
+  versions, selection cap, failures, and desktop/mobile sticky-chat geometry
+  with mocked AI/HTTP boundaries. Rich-editor coverage includes every toolbar
+  action, formatting save/reload/navigation, exact plain-text adaptation,
+  formatting-only revisions, safe undo boundaries, paste/typing limits,
+  pending/cancelled generation, progressive reveal, skip, and reduced motion.
+- `document-format.test.ts`: supported formatting, plain-text round trips,
+  paragraph/soft-break boundaries, legacy compatibility, invalid structures,
+  complexity/size limits, and text/format consistency.
+- `draft-reconciliation.browser.test.ts`: existing Content/Create revision
+  conflicts, acknowledgement checks, and source/account ownership.
+- `creationSession.test.ts`: real local PostgreSQL persistence, concurrent
+  writes, lost-acknowledgement replay, tenant/user isolation, input limits, and
+  rich-format persistence without accepting mismatched text.
+- `punditBrain.generation.test.ts` and `editorial-request.deadline.test.ts`:
+  neutral generation, editing instructions, reviewed-content adaptation,
+  scoped multi-source evidence budgets/failures, provenance, cancellation,
+  and unchanged execution deadlines.
+
+These tests are not live-provider or production certification. The live
+generation evidence below predates the document/chat workflow.
+
+## Historical outcome: paid-key mismatch fixed; four-platform live generation passed
 
 Preview: `http://localhost:4301/dashboard/create`.
 Current provider/model: direct Gemini / `gemini-3.1-pro-preview`; OpenRouter fallback disabled.

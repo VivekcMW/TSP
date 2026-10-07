@@ -65,7 +65,7 @@ describe("rendered billing and public catalog (mocked, no browser/providers)", (
     state.mode = "subscription"; data.plans = [{ ...plan, recurringAvailable: false }];
     const html = render(); expect(html).toContain('id="billing-cycles"'); expect(html).toContain("1–100");
     expect(html).toContain("Recurring checkout is not configured for this plan");
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Start recurring checkout<\/button>/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>[\s\S]*?Start recurring checkout[\s\S]*?<\/button>/);
   });
   it("says when the visitor's country currency can't be paid in yet, and which currency checkout uses", () => {
     // Outside a browser the country guess is the United States, so US dollars are preferred.

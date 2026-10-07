@@ -71,6 +71,21 @@ beforeAll(async () => {
       } } });
       window.fetch = async (url, options = {}) => {
         window.__calls.push({ url, method: options.method, body: options.body instanceof FormData ? { files: options.body.getAll("files").length } : options.body ? JSON.parse(options.body) : null, signal: options.signal });
+        if (url === "/api/creation-session") {
+          const current = window.__creations[window.__scope] ||= { revision: 0, state: null };
+          if (options.method === "PUT") {
+            const body = JSON.parse(options.body);
+            if (body.revision !== current.revision) return new Response(JSON.stringify({ message: "Creation changed" }), { status: 409 });
+            window.__creations[window.__scope] = { revision: current.revision + 1, state: body.state };
+          }
+          return new Response(JSON.stringify(window.__creations[window.__scope]), { headers: { "Content-Type": "application/json" } });
+        }
+        if (String(url).includes("instant-review") && JSON.parse(options.body).stage === "main") {
+          const request = JSON.parse(options.body);
+          const sourceUrl = request.url || request.sourceUrls?.[0] || request.sourceUrl || "";
+          const article = { ...window.__fallback.article, title: sourceUrl ? "Pilot" : request.title || "Manual source", url: sourceUrl, source: sourceUrl ? "Desk" : "Your draft", domain: sourceUrl ? "news.test" : "manual" };
+          return new Response(JSON.stringify({ ...window.__fallback, article, posts: {}, details: {}, mainDraft: { content: ${JSON.stringify(source)} } }), { headers: { "Content-Type": "application/json" } });
+        }
         let next;
         if (url === "/api/media/upload") next = window.__uploadResponses.shift();
         else if (String(url).endsWith("/editing-snapshot") && options.method === "GET") next = { body: window.__draftRows[String(url).split("/")[3]] };
@@ -124,6 +139,8 @@ beforeAll(async () => {
       }
       function Harness() {
         const [scope, setScope] = useState("account-a:tenant-a");
+        window.__scope = scope;
+        window.__creations ||= {};
         window.__setScope = setScope;
         if (window.__surface === "handoff") return <HandoffFixture />;
         return <QueryClientProvider client={queryClient}>{window.__surface === "public" ? <Launcher /> : <CreatePostProvider key={scope}><Launcher /><Route path="/dashboard/create" component={CreatePostPage} /></CreatePostProvider>}</QueryClientProvider>;
@@ -150,6 +167,7 @@ afterAll(async () => { await browser?.close(); });
 
 async function mount(surface: "panel" | "modal" | "discover" | "public" | "handoff", responses: unknown[] = [], profile: object = {}, reducedMotion: "reduce" | "no-preference" = "no-preference") {
   page = await browser.newPage({ viewport: { width: 1280, height: 1100 }, reducedMotion });
+  page.setDefaultTimeout(5000);
   await page.route("**/*", route => route.abort());
   await page.route("https://editorial.test/", route => route.fulfill({ contentType: "text/html", body: '<!doctype html><html><head></head><body><div id="root"></div></body></html>' }));
   await page.goto("https://editorial.test/");
@@ -161,17 +179,47 @@ async function mount(surface: "panel" | "modal" | "discover" | "public" | "hando
   if (surface !== "discover" && surface !== "handoff") await page.locator("#open").click();
 }
 async function calls() {
-  return page.evaluate(() => (window as any).__calls.map((call: any) => ({ url: call.url, method: call.method, body: call.body, aborted: call.signal?.aborted })));
+  // These legacy orchestration assertions count platform/publication traffic.
+  // Main generation is exercised and asserted separately by preparePlatforms.
+  return page.evaluate(() => (window as any).__calls.filter((call: any) => call.url !== "/api/creation-session" && call.body?.stage !== "main").map((call: any) => ({ url: call.url, method: call.method, body: call.body, aborted: call.signal?.aborted })));
 }
 const card = (platform = "linkedin") => page.getByTestId(`social-preview-${platform}`);
 const cardGenerate = (platform = "linkedin") => card(platform).getByRole("button", { name: /^(Generate .+|Regenerate)$/ });
 const cardSave = (platform = "linkedin") => card(platform).getByRole("button", { name: /^(Save draft|Save changes|Saving…|Saved)$/ });
 const cardCopy = (platform = "linkedin") => card(platform).getByRole("button", { name: "Copy", exact: true });
 const cardHandoff = (platform = "linkedin") => card(platform).getByTestId(`button-open-${platform}`);
-const articlePlatformTrigger = () => page.getByTestId("button-platforms");
+const articlePlatformTrigger = () => page.getByRole("button", { name: /^(Adapt for )?platforms$/ });
 const articlePlatformCheckbox = (name: string) => page.getByRole("group", { name: "Platforms to generate" }).getByRole("checkbox", { name, exact: true });
-const ideaPlatformButton = (name: string) => page.getByRole("group", { name: "Platform", exact: true }).getByRole("button", { name, exact: true });
-const articleTone = () => page.getByLabel("Tone", { exact: true });
+const documentButton = () => page.getByRole("button", { name: "Document", exact: true });
+const chat = () => page.getByRole("textbox", { name: "Message Pundit", exact: true });
+async function command(action: string) { await chat().fill(`/${action}`); await chat().press("Enter"); }
+async function closePanel() {
+  if (await page.locator('[role="dialog"][data-state="open"]').count()) await page.getByRole("button", { name: "Close", exact: true }).click();
+  await browserExpect(page.getByRole("dialog")).toHaveCount(0);
+}
+async function versionsView() { await closePanel(); await page.getByRole("button", { name: /^Versions(?: \(\d+\))?$/ }).click(); }
+async function useLink(url: string) {
+  await closePanel(); await command("link");
+  await page.getByRole("textbox", { name: "Article URL", exact: true }).fill(url);
+  await page.getByRole("button", { name: "Use article link", exact: true }).click();
+}
+async function useNotes() {
+  await closePanel(); await command("notes");
+  const use = page.getByRole("button", { name: "Use notes as source", exact: true });
+  if (await use.count()) await use.click();
+}
+async function proposeMain() {
+  await closePanel();
+  await chat().fill("Create a careful draft from the supplied source.");
+  await chat().press("Enter");
+  await browserExpect(page.getByTestId("proposed-draft")).toHaveText(source);
+  await page.getByRole("button", { name: "Apply changes", exact: true }).click();
+}
+async function changeLength(format: string) {
+  await command("length");
+  await page.getByRole("button", { name: format === "article" ? "Expanded article" : "Short draft", exact: true }).click();
+  await closePanel();
+}
 const generationProgress = () => page.getByRole("status").filter({ hasText: "Results appear when complete" });
 async function cardEditor(platform = "linkedin") {
   const editor = card(platform).getByTestId(`textarea-post-content-${platform}`);
@@ -179,48 +227,92 @@ async function cardEditor(platform = "linkedin") {
   return editor;
 }
 async function generate(platform = "linkedin") {
-  await page.getByTestId("input-instant-review-url").fill("https://news.test/a");
-  // A normal generation is one card, even when the picker selects three.
+  await useLink("https://news.test/a");
+  await preparePlatforms();
   await cardGenerate(platform).click();
 }
-async function generateIdea() {
-  await page.getByRole("button", { name: "Idea", exact: true }).click();
-  await page.getByLabel("Article title", { exact: true }).fill("Manual source");
-  await page.getByLabel("Article text", { exact: true }).fill(source);
-  await page.getByTestId("button-regenerate").click();
+async function preparePlatforms(targets?: string[], versions = true) {
+  await proposeMain();
+  await browserExpect(page.getByTestId("textarea-main-draft")).toHaveText(source);
+  const mainRequest = await page.evaluate(() => (window as any).__calls.findLast((call: any) => call.body?.stage === "main").body);
+  expect(mainRequest.selectedPlatforms).toEqual([]);
+  await articlePlatformTrigger().click();
+  const options = page.getByRole("group", { name: "Platforms to generate" }).getByRole("checkbox");
+  await browserExpect(page.getByRole("group", { name: "Platforms to generate" }).locator("input:checked")).toHaveCount(0);
+  if (targets) for (const name of targets) await articlePlatformCheckbox(name).check();
+  else for (const option of (await options.all()).slice(0, 4)) await option.check();
+  if (versions) await versionsView();
+}
+async function changeTone(tone: string) {
+  await command("tone");
+  const label = { thoughtLeader: "Thought Leader", industryInsider: "Industry Insider", provocateur: "Provocateur", dataDriven: "Data-Driven" }[tone];
+  await page.getByRole("button", { name: label, exact: true }).click();
+  await closePanel();
+}
+async function generateIdea(platform = "linkedin") {
+  await useNotes();
+  await page.getByRole("textbox", { name: "Article title", exact: true }).fill("Manual source");
+  await page.getByRole("textbox", { name: "Article text", exact: true }).fill(source);
+  await preparePlatforms();
+  await cardGenerate(platform).click();
 }
 async function expectContent(pattern: string | RegExp, platform = "linkedin") { await browserExpect(await cardEditor(platform)).toHaveValue(pattern); }
-async function expectIdeaContent(pattern: string | RegExp) { await browserExpect(page.getByTestId("textarea-post-content")).toHaveValue(pattern); }
+async function expectIdeaContent(pattern: string | RegExp) { await expectContent(pattern); }
 
-describe("editorial generation UI (mocked browser)", () => {
+describe("editorial generation UI (mocked browser)", { timeout: 15_000 }, () => {
+  it("keeps publication actions absent until the main draft has been reviewed and platforms explicitly chosen", async () => {
+    await mount("panel");
+    await useLink("https://news.test/a");
+    await proposeMain();
+    await browserExpect(page.getByTestId("textarea-main-draft")).toHaveText(source);
+    await browserExpect(page.locator('[data-testid^="social-preview-"]')).toHaveCount(0);
+    await browserExpect(page.getByRole("button", { name: "Save draft", exact: true })).toHaveCount(0);
+    await articlePlatformTrigger().click();
+    await browserExpect(page.getByRole("group", { name: "Platforms to generate" }).locator("input:checked")).toHaveCount(0);
+    await browserExpect(page.getByTestId("button-generate-selected")).toBeDisabled();
+    expect(await calls()).toEqual([]);
+  });
+
+  it("uses reviewed main edits rather than re-fetching the source for platform requests", async () => {
+    await mount("panel");
+    await useLink("https://news.test/a");
+    await proposeMain();
+    const reviewed = `${source} My interpretation is deliberately cautious.`;
+    await page.getByTestId("textarea-main-draft").fill(reviewed);
+    await articlePlatformTrigger().click();
+    await articlePlatformCheckbox("LinkedIn").check();
+    await page.getByTestId("button-generate-selected").click();
+    await expectContent(/linkedin original/);
+    expect(await calls()).toEqual([expect.objectContaining({ url: "/api/instant-review/manual", body: expect.objectContaining({
+      stage: "platform", content: reviewed, sourceUrl: "https://news.test/a", sourceLabel: "Desk", selectedPlatforms: ["linkedin"],
+    }) })]);
+  });
   it.each([
-    ["Story", "Choose a saved story or paste an article URL. Only one source is needed."],
-    ["Article URL", "Use the original public article URL. Changing a source replaces this creation only after your confirmation."],
-    ["Generate posts", "Enter a valid public HTTP(S) article URL or choose a story."],
-    ["Your platform posts", "Choose up to four. Posts generate one at a time and remain visible as you review."],
-  ])("shows %s guidance on its info icon without starting or altering a creation", async (label, guidance) => {
+    ["sources", "Select up to"],
+    ["link", "Changing the source replaces the current creation only after your confirmation."],
+  ])("shows /%s guidance without starting or altering a creation", async (action, guidance) => {
     await mount("panel", [], {}, "reduce");
-    const help = page.getByRole("button", { name: `About ${label}`, exact: true });
-    const popup = page.locator("[data-info-popup]");
+    const popup = page.getByRole("dialog");
     await browserExpect(popup).toHaveCount(0);
     const before = await page.evaluate(() => {
       const c = (window as any).__composer as CreatePostComposer;
       return { url: c.url, selected: c.selectedPlatforms, tone: c.tone, versions: c.versions };
     });
     const requests = await calls();
-    await help.hover();
+    await command(action);
     await browserExpect(popup).toBeVisible();
     await browserExpect(popup).toContainText(guidance);
-    await help.press("Escape");
+    await page.keyboard.press("Escape");
     await browserExpect(popup).toHaveCount(0);
-    await browserExpect(page.getByTestId("button-generate-selected")).toBeDisabled();
+    await browserExpect(articlePlatformTrigger()).toBeDisabled();
     expect(await calls()).toEqual(requests);
     expect(await page.evaluate(() => {
       const c = (window as any).__composer as CreatePostComposer;
       return { url: c.url, selected: c.selectedPlatforms, tone: c.tone, versions: c.versions };
     })).toEqual(before);
+    await command("link");
     await page.getByRole("textbox", { name: "Article URL", exact: true }).fill("invalid-url");
-    await browserExpect(page.getByRole("alert")).toContainText("Enter a valid HTTP(S) URL without embedded credentials.");
+    await browserExpect(page.getByRole("button", { name: "Use article link", exact: true })).toBeDisabled();
   });
 
   it("provides a safe unavailable action outside the provider", async () => {
@@ -239,39 +331,42 @@ describe("editorial generation UI (mocked browser)", () => {
     await page.locator("#open").click();
     await browserExpect(page.locator('[data-testid^="textarea-post-content-"]')).toHaveCount(0);
     await browserExpect(page.locator('[data-testid^="text-post-content-"]')).toHaveCount(0);
-    await browserExpect(card()).toContainText("Ready to generate");
-    await browserExpect(page.getByTestId("input-instant-review-url")).toHaveValue("");
+    await browserExpect(card()).toHaveCount(0);
+    await browserExpect(page.getByRole("textbox", { name: "Document text", exact: true })).toHaveText("");
     expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]);
   });
 
   it("admits only one generation for two synchronous clicks", async () => {
     await mount("panel", [{ defer: true, body: response() }]);
-    await page.getByTestId("input-instant-review-url").fill("https://news.test/a");
+    await useLink("https://news.test/a");
+    await preparePlatforms();
     await cardGenerate().evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
     await browserExpect(cardGenerate()).toBeDisabled();
     expect(await calls()).toHaveLength(1);
-    expect((await calls())[0]).toMatchObject({ url: "/api/instant-review/selected", body: { selectedPlatforms: ["linkedin"], tones: ["thoughtLeader"] } });
+    expect((await calls())[0]).toMatchObject({ url: "/api/instant-review/manual", body: { stage: "platform", content: source, sourceUrl: "https://news.test/a", selectedPlatforms: ["linkedin"], tones: ["thoughtLeader"] } });
     await page.evaluate(() => (window as any).__pending.shift()());
     await expectContent(/linkedin original/);
   });
 
   it("blocks generation during upload and discards a late attachment after leaving Create", async () => {
     await mount("panel");
-    await page.getByRole("button", { name: "Idea", exact: true }).click();
-    await page.getByLabel("Article title", { exact: true }).fill("Manual source");
-    await page.getByLabel("Article text", { exact: true }).fill(source);
+    await useNotes();
+    await page.getByRole("textbox", { name: "Article title", exact: true }).fill("Manual source");
+    await page.getByRole("textbox", { name: "Article text", exact: true }).fill(source);
     await page.evaluate(() => { (window as any).__uploadResponses = [{ defer: true, body: { assets: [{ id: "00000000-0000-4000-8000-000000000001", type: "image", name: "late.png", url: "/uploads/late.png" }] } }]; });
     await page.getByTestId("input-article-media").setInputFiles({ name: "late.png", mimeType: "image/png", buffer: Buffer.from("mock image") });
     await browserExpect(page.getByText("Uploading…", { exact: true })).toBeVisible();
-    await browserExpect(page.getByTestId("button-regenerate")).toBeDisabled();
-    await browserExpect(page.getByRole("button", { name: "Article", exact: true })).toBeDisabled();
+    await browserExpect(page.getByRole("textbox", { name: "Article title", exact: true })).toBeDisabled();
+    expect(await page.evaluate(() => ((window as any).__composer as CreatePostComposer).canGenerate)).toBe(false);
+    await closePanel();
     await page.locator("#route").click();
-    await browserExpect(page.getByTestId("button-regenerate")).toHaveCount(0);
+    await browserExpect(chat()).toHaveCount(0);
     await page.evaluate(() => (window as any).__pending.shift()());
     await page.locator("#open").click();
+    await useNotes();
     await browserExpect(page.getByText("late.png (image)")).toHaveCount(0);
-    await browserExpect(page.getByLabel("Article text", { exact: true })).toHaveText(source);
-    await browserExpect(page.getByTestId("button-regenerate")).toBeEnabled();
+    await browserExpect(page.getByRole("textbox", { name: "Article text", exact: true })).toHaveText(source);
+    await browserExpect(page.getByRole("textbox", { name: "Article title", exact: true })).toBeEnabled();
     expect((await calls())[0].aborted).toBe(true);
   });
 
@@ -295,18 +390,18 @@ describe("editorial generation UI (mocked browser)", () => {
 
   it("uses saved tone and only globally available profile platforms without generating", async () => {
     await mount("panel", [], { defaultTone: "contrarian", defaultPlatform: "medium", enabledPlatforms: ["medium", "bluesky"] });
-    await browserExpect(articleTone()).toHaveValue("provocateur");
-    await articlePlatformTrigger().click();
-    await browserExpect(articlePlatformCheckbox("Medium")).toBeChecked();
+    await command("tone");
+    await browserExpect(page.getByRole("button", { name: "Provocateur", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await closePanel();
+    await useLink("https://news.test/a");
+    await preparePlatforms([], false);
+    await browserExpect(articlePlatformCheckbox("Medium")).not.toBeChecked();
     expect(await page.getByRole("group", { name: "Platforms to generate" }).locator("label").allTextContents()).toEqual(["Medium"]);
-    await page.keyboard.press("Escape");
-    await browserExpect(cardGenerate("medium")).toHaveText("Generate Medium");
-    await browserExpect(page.locator('[data-testid^="social-preview-"]')).toHaveCount(1);
+    await browserExpect(page.locator('[data-testid^="social-preview-"]')).toHaveCount(0);
     expect(await calls()).toEqual([]);
     await page.evaluate(() => {
       (window as any).__queryClient.setQueryData(["/api/profile"], { enabledPlatforms: [] });
     });
-    await browserExpect(articlePlatformTrigger()).toBeDisabled();
     await browserExpect(page.getByTestId("button-generate-selected")).toBeDisabled();
     await browserExpect(page.locator('[data-testid^="social-preview-"]')).toHaveCount(0);
     await browserExpect(page.getByText(/No enabled platforms are available/)).toBeVisible();
@@ -317,11 +412,11 @@ describe("editorial generation UI (mocked browser)", () => {
     await generate();
     await (await cardEditor()).fill("My reviewed wording");
     await browserExpect(card().getByText(/attribution mappings describe the original generated text only/)).toBeVisible();
-    await articleTone().selectOption("provocateur");
+    await changeTone("provocateur");
     await browserExpect(card()).toContainText("Ready to generate");
     await browserExpect(card().getByTestId("textarea-post-content-linkedin")).toHaveCount(0);
     await browserExpect(card().getByTestId("text-post-content-linkedin")).toHaveCount(0);
-    await articleTone().selectOption("thoughtLeader");
+    await changeTone("thoughtLeader");
     await expectContent("My reviewed wording");
     expect(await calls()).toHaveLength(1);
     page.once("dialog", dialog => dialog.dismiss());
@@ -337,33 +432,32 @@ describe("editorial generation UI (mocked browser)", () => {
     await mount("panel", [{ body: response() }, { body: response("linkedin", "bold") }]);
     await generate();
     await expectContent(/linkedin original:/);
-    await articleTone().selectOption("provocateur");
+    await changeTone("provocateur");
     expect(await calls()).toHaveLength(1);
     await cardGenerate().click();
     await expectContent(/linkedin bold:/);
-    await articleTone().selectOption("thoughtLeader");
+    await changeTone("thoughtLeader");
     await expectContent(/linkedin original:/);
     expect((await calls()).map((call: any) => [call.body.selectedPlatforms, call.body.tones])).toEqual([[["linkedin"], ["thoughtLeader"]], [["linkedin"], ["provocateur"]]]);
-    expect((await calls()).every((call: any) => call.url === "/api/instant-review/selected")).toBe(true);
+    expect((await calls()).every((call: any) => call.url === "/api/instant-review/manual" && call.body.stage === "platform" && call.body.content === source)).toBe(true);
   });
 
   it("retains failed saves, deduplicates rapid clicks, and PATCHes acknowledged draft IDs", async () => {
-    // Saved Content/Calendar links belong to the single-platform Idea review.
     await mount("panel", [{ body: manualResponse() }]); await generateIdea(); await expectIdeaContent(/linkedin original/);
-    await page.getByTestId("textarea-post-content").fill("Reviewed draft");
+    await (await cardEditor()).fill("Reviewed draft");
     await page.evaluate(() => { (window as any).__saveResponses = [{ status: 500, body: { message: "Storage unavailable" } }, { defer: true, savedId: "draft-a" }, { savedId: "draft-a" }]; });
-    await page.getByTestId("button-save-draft").click();
+    await cardSave().click();
     await browserExpect(page.getByRole("alert")).toContainText("Your text is retained");
     await expectIdeaContent("Reviewed draft");
-    await page.getByTestId("button-save-draft").evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
-    await browserExpect(page.getByTestId("button-save-draft")).toHaveText("Saving…");
+    await cardSave().evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
+    await browserExpect(cardSave()).toHaveText("Saving…");
     expect((await calls()).filter((call: any) => call.url === "/api/drafts")).toHaveLength(2);
     await page.evaluate(() => (window as any).__pending.shift()());
-    await browserExpect(page.getByTestId("button-save-draft")).toHaveText("Saved");
+    await browserExpect(cardSave()).toHaveText("Saved");
     await browserExpect(page.getByRole("link", { name: "Go to Calendar" })).toBeVisible();
-    await page.getByTestId("textarea-post-content").fill("Reviewed again");
-    await page.getByTestId("button-save-draft").click();
-    await browserExpect(page.getByTestId("button-save-draft")).toHaveText("Saved");
+    await (await cardEditor()).fill("Reviewed again");
+    await cardSave().click();
+    await browserExpect(cardSave()).toHaveText("Saved");
     expect((await calls()).at(-1)).toMatchObject({ url: "/api/drafts/draft-a", method: "PATCH", body: { content: "Reviewed again" } });
     expect((await calls())[0]).toMatchObject({ url: "/api/instant-review/manual", body: { selectedPlatforms: ["linkedin"] } });
     expect((await calls()).some((call: any) => /publish|schedule/.test(call.url))).toBe(false);
@@ -388,26 +482,25 @@ describe("editorial generation UI (mocked browser)", () => {
 
   it("guards unsaved work on reload, source replacement and saved-link navigation", async () => {
     await mount("panel", [{ body: manualResponse() }, { body: manualResponse("twitter", "second") }]);
-    // Exercise the actual saved-link navigation guard on Idea, not a test-only Article footer.
     await generateIdea(); await expectIdeaContent(/linkedin original/);
-    await page.getByTestId("textarea-post-content").fill("Keep this text");
+    await (await cardEditor()).fill("Keep this text");
     expect(await page.evaluate(() => { const event = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })).toBe(true);
     page.once("dialog", dialog => dialog.dismiss());
     await page.evaluate(() => (window as any).__openCreate({ id: "b", headline: "Other source", articleUrl: "https://news.test/b" }));
     await expectIdeaContent("Keep this text");
-    await browserExpect(page.getByLabel("Article title", { exact: true })).toHaveValue("Manual source");
-    await browserExpect(page.getByLabel("Article text", { exact: true })).toHaveText(source);
-    await browserExpect(page.getByTestId("input-instant-review-url")).toHaveCount(0);
-    await page.getByTestId("button-save-draft").click();
-    await browserExpect(page.getByTestId("button-save-draft")).toHaveText("Saved");
-    await ideaPlatformButton("Twitter/X").click();
-    await page.getByTestId("button-regenerate").click();
-    await expectIdeaContent(/twitter second/);
-    await ideaPlatformButton("LinkedIn").click();
+    expect(await page.evaluate(() => ((window as any).__composer as CreatePostComposer).manual)).toMatchObject({ title: "Manual source", content: source });
+    await browserExpect(page.getByRole("dialog")).toHaveCount(0);
+    await cardSave().click();
+    await browserExpect(cardSave()).toHaveText("Saved");
+    await cardGenerate("twitter").click();
+    await expectContent(/twitter second/, "twitter");
     await expectIdeaContent("Keep this text");
-    page.once("dialog", dialog => dialog.dismiss());
+    await page.getByRole("button", { name: "Save progress", exact: true }).click();
+    await browserExpect(page.getByText("All changes saved", { exact: true }).first()).toBeVisible();
+    expect(await page.evaluate(() => { const event = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })).toBe(false);
     await page.getByRole("link", { name: "Go to Content" }).click();
-    expect(new URL(page.url()).pathname).toBe("/dashboard/create");
+    expect(new URL(page.url()).pathname).toBe("/dashboard/content");
+    await page.locator("#open").click();
     await expectIdeaContent("Keep this text");
     expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]);
   });
@@ -416,7 +509,7 @@ describe("editorial generation UI (mocked browser)", () => {
     await mount("panel"); await page.setViewportSize({ width: 320, height: 740 });
     await generate(); await expectContent(/linkedin original/);
     expect(await card().evaluate(element => { const scroller = element.closest(".overflow-y-auto")!; return scroller.scrollWidth <= scroller.clientWidth; })).toBe(true);
-    for (const control of [articlePlatformTrigger(), articleTone(), cardSave()]) {
+    for (const control of [articlePlatformTrigger(), cardSave()]) {
       expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     }
     await articlePlatformTrigger().click();
@@ -442,21 +535,21 @@ describe("editorial generation UI (mocked browser)", () => {
     await browserExpect.poll(() => page.evaluate(() => (window as any).__toasts.at(-1)?.title)).toBe("Story saved");
     await page.getByRole("button", { name: "Create draft", exact: true }).last().click();
     await browserExpect(page.locator("#route-content")).toHaveText("/dashboard/create");
-    await browserExpect(page.getByTestId("input-instant-review-url")).toHaveValue(/https:\/\/news\.test\/[ab]/);
+    await browserExpect.poll(() => page.evaluate(() => ((window as any).__composer as CreatePostComposer).url)).toMatch(/https:\/\/news\.test\/[ab]/);
     expect((await calls()).filter((call: any) => call.url.includes("instant-review"))).toHaveLength(0);
   });
 
   it("turns Create draft into sequential social-preview cards without changing Idea mode", async () => {
     await mount("panel", [{ body: response("linkedin") }, { body: response("twitter") }, { body: response("medium") }]);
-    await page.locator("#open-story").click();
-    await browserExpect(page.getByRole("heading", { name: "Your platform posts" })).toBeVisible();
+    await page.locator("#open-story").click(); await preparePlatforms();
+    await browserExpect(page.getByRole("heading", { name: "Platform versions" })).toBeVisible();
     await browserExpect(page.getByTestId("social-preview-linkedin")).toContainText("LinkedIn preview");
     await browserExpect(page.getByTestId("social-preview-twitter")).toContainText("@ada");
     await browserExpect(page.getByTestId("social-preview-medium")).toContainText("Ready to generate");
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     await page.setViewportSize({ width: 1280, height: 1100 });
-    await page.getByTestId("button-generate-selected").click();
+    await articlePlatformTrigger().click(); await page.getByTestId("button-generate-selected").click();
     await browserExpect(page.getByTestId("text-post-content-linkedin")).toContainText("linkedin original");
     await browserExpect(page.getByTestId("text-post-content-twitter")).toContainText("twitter original");
     await browserExpect(page.getByTestId("text-post-content-medium")).toContainText("medium original");
@@ -469,22 +562,23 @@ describe("editorial generation UI (mocked browser)", () => {
     await linkedIn.getByRole("button", { name: "Save draft", exact: true }).click();
     await browserExpect(linkedIn.getByRole("button", { name: "Saved", exact: true })).toBeVisible();
     expect((await calls()).at(-1)).toMatchObject({ url: "/api/drafts", method: "POST", body: { platform: "linkedin", content: "Reviewed LinkedIn card" } });
-    await page.getByLabel("Tone", { exact: true }).selectOption("provocateur");
+    await changeTone("provocateur");
     await browserExpect(linkedIn).toContainText("Ready to generate");
-    await page.getByLabel("Tone", { exact: true }).selectOption("thoughtLeader");
+    await changeTone("thoughtLeader");
     await browserExpect(page.getByTestId("text-post-content-linkedin")).toHaveText("Reviewed LinkedIn card");
+    await documentButton().click();
     page.once("dialog", dialog => dialog.accept());
-    await page.getByRole("button", { name: "Idea", exact: true }).click();
+    await useNotes();
     await browserExpect(page.getByTestId("editor-manual-article")).toBeVisible();
     await browserExpect(page.getByTestId("editor-manual-article")).toHaveText("");
     await browserExpect(page.getByTestId("input-manual-article-title")).toHaveValue("");
-    await browserExpect(page.getByTestId("textarea-post-content")).toHaveCount(0);
-    await browserExpect(page.getByRole("heading", { name: "Your platform posts" })).toHaveCount(0);
+    await browserExpect(page.locator('[data-testid^="social-preview-"]')).toHaveCount(0);
+    await browserExpect(page.getByRole("heading", { name: "Platform versions" })).toHaveCount(0);
   });
 
   it.each(["no-preference", "reduce"] as const)("uses 6px neutral cards with accessible motion (%s)", async reducedMotion => {
     await mount("panel", [{ defer: true, body: response("linkedin") }, { body: response("twitter") }, { body: response("medium") }], {}, reducedMotion);
-    await page.locator("#open-story").click();
+    await page.locator("#open-story").click(); await preparePlatforms();
     const cards = page.locator('[data-testid^="social-preview-"]');
     await browserExpect(cards).toHaveCount(3);
     for (const card of await cards.all()) {
@@ -498,7 +592,7 @@ describe("editorial generation UI (mocked browser)", () => {
       })).toBe(true);
       await browserExpect(card).toHaveCSS("transition-property", reducedMotion === "reduce" ? "none" : "box-shadow");
     }
-    await page.getByTestId("button-generate-selected").click();
+    await articlePlatformTrigger().click(); await page.getByTestId("button-generate-selected").click();
     const skeleton = page.getByTestId("social-preview-linkedin").locator("output span").first();
     await browserExpect(skeleton).toHaveCSS("animation-name", reducedMotion === "reduce" ? "none" : "pulse");
     await page.evaluate(() => (window as any).__pending.shift()());
@@ -513,7 +607,7 @@ describe("editorial generation UI (mocked browser)", () => {
     { width: 320, sidebar: 0 }, { width: 375, sidebar: 0 }, { width: 390, sidebar: 0 },
     { width: 768, sidebar: 224 }, { width: 1080, sidebar: 224 },
     { width: 1280, sidebar: 48 }, { width: 1440, sidebar: 224 },
-  ])("contains the scrollable platform dropdown at $width px with $sidebar px sidebar", async ({ width, sidebar }) => {
+  ])("contains the native platform picker at $width px with $sidebar px sidebar", async ({ width, sidebar }) => {
     await mount("panel", [], { enabledPlatforms: PLATFORMS.map(platform => platform.value) }, "reduce");
     await page.setViewportSize({ width, height: 900 });
     // Reproduce the available width of the dashboard shell, not just the viewport.
@@ -522,7 +616,7 @@ describe("editorial generation UI (mocked browser)", () => {
       root.style.width = `calc(100% - ${sidebar}px)`;
       root.style.height = "100vh";
     }, sidebar);
-    await page.locator("#open-story").click();
+    await page.locator("#open-story").click(); await preparePlatforms();
     const card = page.getByTestId("social-preview-linkedin");
     await browserExpect(card).toBeVisible();
     const layout = await card.evaluate(element => {
@@ -545,43 +639,29 @@ describe("editorial generation UI (mocked browser)", () => {
     }
     await articlePlatformTrigger().click();
     const options = page.getByRole("group", { name: "Platforms to generate" });
-    const popup = page.getByRole("dialog", { name: "Choose platforms" });
+    const popup = page.getByRole("dialog", { name: "Adapt for platforms", exact: true });
     await browserExpect(popup).toBeVisible();
     expect(await options.getByRole("checkbox").count()).toBeGreaterThan(20);
     const popupBox = (await popup.boundingBox())!;
     expect(popupBox.x).toBeGreaterThanOrEqual(0);
     expect(popupBox.x + popupBox.width).toBeLessThanOrEqual(width);
-    const before = await card.boundingBox();
-    expect(before!.x).toBeGreaterThanOrEqual(sidebar);
-    const outerScroll = await card.evaluate(element => {
-      const scroller = element.closest(".overflow-y-auto")!;
-      return { top: scroller.scrollTop, height: scroller.scrollHeight };
-    });
+    await browserExpect(options.getByRole("checkbox", { checked: true })).toHaveCount(4);
     const lastPlatform = options.getByRole("checkbox").last();
     await browserExpect(lastPlatform).toBeDisabled();
-    await browserExpect(lastPlatform).not.toBeInViewport();
-    // The catalog scrolls vertically inside the popup, never the underlying page.
+    // Native fieldset rows remain reachable within the dialog scroller.
     await options.locator("label").last().scrollIntoViewIfNeeded();
-    expect(await popup.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
     expect(await popup.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
-    expect((await card.boundingBox())!.x).toBe(before!.x);
     await browserExpect(lastPlatform).toBeInViewport({ ratio: 1 });
-    expect(await card.evaluate(element => {
-      const scroller = element.closest(".overflow-y-auto")!;
-      return { scrollLeft: scroller.scrollLeft, scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight };
-    })).toEqual({ scrollLeft: 0, scrollTop: outerScroll.top, scrollHeight: outerScroll.height });
-    await page.keyboard.press("Escape");
-    await browserExpect(articlePlatformTrigger()).toBeFocused();
-    for (const control of [page.getByLabel("Tone", { exact: true }), page.getByLabel("Format", { exact: true }), page.getByTestId("button-generate-selected")]) {
+    for (const control of [options, page.getByTestId("button-generate-selected")]) {
       const bounds = (await control.boundingBox())!;
-      expect(bounds.x).toBeGreaterThanOrEqual(sidebar);
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
     }
   });
 
   it("keeps completed cards when a later platform generation fails", async () => {
     await mount("panel", [{ body: response("linkedin") }, { status: 422, body: { message: "X generation failed" } }]);
-    await page.locator("#open-story").click();
+    await page.locator("#open-story").click(); await preparePlatforms(undefined, false);
     await page.getByTestId("button-generate-selected").click();
     await browserExpect(page.getByTestId("text-post-content-linkedin")).toContainText("linkedin original");
     await browserExpect(page.getByTestId("social-preview-twitter")).toContainText("Needs retry");
@@ -591,7 +671,7 @@ describe("editorial generation UI (mocked browser)", () => {
 
   it("stops a batch after the current platform and retains its completed card", async () => {
     await mount("panel", [{ defer: true, body: response("linkedin") }, { body: response("twitter") }]);
-    await page.locator("#open-story").click();
+    await page.locator("#open-story").click(); await preparePlatforms(undefined, false);
     await page.getByTestId("button-generate-selected").click();
     await browserExpect(page.getByRole("button", { name: "Stop after current post" })).toBeVisible();
     await page.getByRole("button", { name: "Stop after current post" }).click();
@@ -607,7 +687,7 @@ describe("editorial generation UI (mocked browser)", () => {
     await mount("panel", [{ body: response("linkedin") }, { status: 202, body: { jobId } },
       { body: { status: "failed", error: { status: 503, body: { code: "ai_configuration", message } } } },
       { defer: true, body: response("twitter", "retried") }, { body: response("medium") }]);
-    await page.locator("#open-story").click();
+    await page.locator("#open-story").click(); await preparePlatforms(undefined, false);
     await page.getByTestId("button-generate-selected").click();
     const linkedin = page.getByTestId("social-preview-linkedin");
     const twitter = page.getByTestId("social-preview-twitter");
@@ -617,9 +697,9 @@ describe("editorial generation UI (mocked browser)", () => {
     await linkedin.getByRole("button", { name: "Edit", exact: true }).click();
     await linkedin.getByRole("textbox", { name: "LinkedIn post content", exact: true }).fill("Keep my completed LinkedIn edit");
     await linkedin.getByRole("button", { name: "Preview", exact: true }).click();
-    await page.getByLabel("Tone", { exact: true }).selectOption("provocateur");
+    await changeTone("provocateur");
     await browserExpect(twitter).not.toContainText("Needs retry");
-    await page.getByLabel("Tone", { exact: true }).selectOption("thoughtLeader");
+    await changeTone("thoughtLeader");
     await twitter.getByRole("button", { name: "Generate Twitter/X again", exact: true }).evaluate(button => {
       (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click();
     });
@@ -651,7 +731,7 @@ describe("editorial generation UI (mocked browser)", () => {
 
   it("hands off the exact edited card text, article URL, hashtags and Unicode", async () => {
     await mount("panel", [{ body: response("linkedin") }]);
-    await page.locator("#open-story").click();
+    await page.locator("#open-story").click(); await preparePlatforms();
     const card = page.getByTestId("social-preview-linkedin");
     await card.getByRole("button", { name: "Generate LinkedIn", exact: true }).click();
     await card.getByRole("button", { name: "Edit", exact: true }).click();
@@ -677,7 +757,7 @@ describe("editorial generation UI (mocked browser)", () => {
 
   it("hands off only each selected platform/tone and leaves other cards untouched", async () => {
     await mount("panel", [{ body: response("linkedin") }, { body: response("twitter") }, { body: response("threads") }, { body: response("linkedin", "bold") }], { enabledPlatforms: ["linkedin", "twitter", "threads"] });
-    await page.locator("#open-story").click();
+    await page.locator("#open-story").click(); await preparePlatforms(undefined, false);
     await page.getByTestId("button-generate-selected").click();
     await browserExpect(page.getByTestId("text-post-content-threads")).toBeVisible();
     for (const platform of ["linkedin", "twitter", "threads"]) {
@@ -688,28 +768,23 @@ describe("editorial generation UI (mocked browser)", () => {
       expect(new URL(actions.at(-1)[1]).searchParams.get("text")).toBe(response(platform).content);
       await browserExpect(page.getByTestId(`text-post-content-${platform}`)).toHaveText(response(platform).content);
     }
-    await page.getByLabel("Tone", { exact: true }).selectOption("provocateur");
+    await changeTone("provocateur");
     await page.getByTestId("social-preview-linkedin").getByRole("button", { name: "Generate LinkedIn", exact: true }).click();
     await page.getByTestId("button-open-linkedin").click();
     await browserExpect(page.getByTestId("social-preview-linkedin").getByText(/Post text copied/)).toBeVisible();
     expect(await page.evaluate(() => (window as any).__actions.at(-3))).toEqual(["copy", response("linkedin", "bold").content]);
-    await page.getByLabel("Tone", { exact: true }).selectOption("thoughtLeader");
+    await changeTone("thoughtLeader");
     await browserExpect(page.getByTestId("text-post-content-linkedin")).toHaveText(response().content);
     expect((await calls()).some((call: any) => /publish|schedule|drafts/.test(call.url))).toBe(false);
   });
 
   it("uses the same copy-and-paste fallback for Idea and platforms without intents", async () => {
     await mount("panel", [{ body: { ...response("medium"), article: { title: "Idea", content: source, source: "Your draft", url: "", domain: "manual" } } }]);
-    await page.getByRole("button", { name: "Idea", exact: true }).click();
-    await ideaPlatformButton("Medium").click();
-    await page.getByLabel("Article title", { exact: true }).fill("My idea");
-    await page.getByLabel("Article text", { exact: true }).fill(source);
-    await page.getByTestId("button-regenerate").click();
-    await page.getByText("Your supplied article content", { exact: true }).click();
-    await browserExpect(page.getByTestId("text-source-content")).toHaveText(source);
+    await generateIdea("medium");
+    await browserExpect(card("medium").getByTestId("text-source-content")).toHaveText(source);
     const text = "My edited idea\n\n#Thoughts";
-    await page.getByTestId("textarea-post-content").fill(text);
-    await page.getByTestId("button-post-now").click();
+    await (await cardEditor("medium")).fill(text);
+    await cardHandoff("medium").click();
     await browserExpect(page.getByText(/Post text copied. Opening Medium/)).toBeVisible();
     const actions = await page.evaluate(() => (window as any).__actions);
     expect(actions[0]).toEqual(["copy", text]);
@@ -922,7 +997,7 @@ describe("editorial generation UI (mocked browser)", () => {
     if (mode === "Article") { await generate(); await expectContent(/linkedin original/); }
     else { await generateIdea(); await expectIdeaContent(/linkedin original/); }
     await page.evaluate(() => { (window as any).__deferCopy = true; });
-    await (mode === "Article" ? cardHandoff() : page.getByTestId("button-post-now")).click();
+    await cardHandoff().click();
     if (change === "source") page.once("dialog", dialog => dialog.accept());
     await page.evaluate(change => {
       const w = window as any, c = w.__composer as CreatePostComposer;
@@ -935,7 +1010,7 @@ describe("editorial generation UI (mocked browser)", () => {
     await browserExpect(page.getByText(/Post text copied. Opening/)).toHaveCount(0);
     if (change === "edit") {
       if (mode === "Article") await expectContent("New reviewed wording"); else await expectIdeaContent("New reviewed wording");
-    } else await browserExpect(page.getByTestId("input-instant-review-url")).toHaveValue("https://news.test/replacement");
+    } else await browserExpect.poll(() => page.evaluate(() => ((window as any).__composer as CreatePostComposer).url)).toBe("https://news.test/replacement");
     expect(await calls()).toHaveLength(1);
   });
 
@@ -973,7 +1048,7 @@ describe("editorial generation UI (mocked browser)", () => {
 
   it("hides handoff for invalid text but keeps completed-card handoff during unrelated generation", async () => {
     await mount("panel", [{ body: response("linkedin") }, { defer: true, body: response("twitter") }]);
-    await page.locator("#open-story").click();
+    await page.locator("#open-story").click(); await preparePlatforms();
     const card = page.getByTestId("social-preview-linkedin");
     await card.getByRole("button", { name: "Generate LinkedIn", exact: true }).click();
     await card.getByRole("button", { name: "Edit", exact: true }).click();
@@ -995,7 +1070,7 @@ describe("editorial generation UI (mocked browser)", () => {
   it("keeps populated handoff controls inside mobile and narrow dashboard cards", async () => {
     const platforms = ["linkedin", "twitter", "threads", "substack"];
     await mount("panel", platforms.map(platform => ({ body: response(platform) })), { enabledPlatforms: platforms }, "reduce");
-    await page.locator("#open-story").click();
+    await page.locator("#open-story").click(); await preparePlatforms(undefined, false);
     await page.getByTestId("button-generate-selected").click();
     await browserExpect(page.getByTestId("button-open-substack")).toBeVisible();
     for (const { width, sidebar } of [{ width: 320, sidebar: 0 }, { width: 768, sidebar: 224 }, { width: 1080, sidebar: 224 }]) {
@@ -1024,7 +1099,7 @@ describe("editorial generation UI (mocked browser)", () => {
     { kind: "missing article", body: { posts: response().posts } },
   ])("stops a batch on $kind output rather than marking it complete", async ({ kind, body }) => {
     await mount("panel", [{ body }, { body: response("twitter") }]);
-    await page.locator("#open-story").click();
+    await page.locator("#open-story").click(); await preparePlatforms(undefined, false);
     await page.getByTestId("button-generate-selected").click();
     await browserExpect(page.getByText(/No usable text was returned/)).toBeVisible();
     await browserExpect(page.getByTestId("social-preview-linkedin")).toContainText("Needs retry");
@@ -1042,7 +1117,7 @@ describe("editorial generation UI (mocked browser)", () => {
     const jobId = "00000000-0000-4000-8000-000000000092";
     await mount("panel", [{ networkError: true }, { status: 202, body: { jobId } },
       { body: { status: "completed" } }, { body: response("linkedin", "recovered") }]);
-    await page.locator("#open-story").click();
+    await page.locator("#open-story").click(); await preparePlatforms(undefined, false);
     await page.getByTestId("button-generate-selected").click();
     await browserExpect(page.getByRole("alert")).toContainText("Failed to fetch");
     await browserExpect(page.getByRole("button", { name: "Generate LinkedIn again", exact: true })).toBeDisabled();
@@ -1057,12 +1132,12 @@ describe("editorial generation UI (mocked browser)", () => {
 
   it("clears failed card metadata when a new story replaces the source", async () => {
     await mount("panel", [{ status: 422, body: { message: "Source unavailable" } }]);
-    await page.locator("#open-story").click();
+    await page.locator("#open-story").click(); await preparePlatforms(undefined, false);
     await page.getByTestId("button-generate-selected").click();
     await browserExpect(page.getByTestId("social-preview-linkedin")).toContainText("Needs retry");
     page.once("dialog", dialog => dialog.accept());
     await page.evaluate(() => (window as any).__openCreate({ id: "b", headline: "Other source", articleUrl: "https://news.test/b" }));
-    await browserExpect(page.getByTestId("social-preview-linkedin")).toContainText("Ready to generate");
+    await browserExpect(page.getByTestId("social-preview-linkedin")).toHaveCount(0);
     await browserExpect(page.getByRole("alert")).toHaveCount(0);
   });
 
@@ -1098,13 +1173,14 @@ describe("editorial generation UI (mocked browser)", () => {
     await card().getByText("Source evidence excerpts (1)").click();
     await browserExpect(card().getByRole("blockquote").locator("p")).toHaveText(source);
     await browserExpect(card().getByText("p1", { exact: true })).toBeVisible();
-    expect((await calls())[0]).toMatchObject({ url: "/api/instant-review/selected", body: { url: "https://news.test/a", selectedPlatforms: ["linkedin"] } });
+    expect((await calls())[0]).toMatchObject({ url: "/api/instant-review/manual", body: { stage: "platform", content: source, sourceUrl: "https://news.test/a", sourceLabel: "Desk", selectedPlatforms: ["linkedin"] } });
     expect(await page.evaluate(() => (window as any).__actions)).toEqual([]);
   });
 
   it("keeps save and composer disabled on actionable errors and empty output", async () => {
     await mount("panel", [{ status: 422, body: { code: "ai_budget", message: "Generation budget reached. Try again later or contact your administrator." } }, { body: response("linkedin", "empty", true) }]);
-    await page.getByTestId("input-instant-review-url").fill("https://news.test/a");
+    await useLink("https://news.test/a");
+    await preparePlatforms();
     await cardGenerate().click();
     await browserExpect(page.getByRole("alert")).toContainText("budget reached");
     await browserExpect(cardSave()).toHaveCount(0);
@@ -1120,7 +1196,8 @@ describe("editorial generation UI (mocked browser)", () => {
   it("cancels long generation, forwards AbortSignal, and discards a late success", async () => {
     const jobId = "00000000-0000-4000-8000-000000000011";
     await mount("panel", [{ status: 202, body: { jobId } }, { defer: true, body: { status: "completed" } }, { body: { status: "cancelled" } }]);
-    await page.getByTestId("input-instant-review-url").fill("https://news.test/a");
+    await useLink("https://news.test/a");
+    await preparePlatforms();
     await cardGenerate().click();
     await browserExpect(generationProgress()).toContainText("Results appear when complete");
     await browserExpect.poll(async () => (await calls()).length).toBe(2);
@@ -1135,43 +1212,40 @@ describe("editorial generation UI (mocked browser)", () => {
 
   it("supports article format only on suitable platforms and sends the selection", async () => {
     await mount("panel", [{ body: { ...manualResponse(), format: "article" } }, { body: manualResponse("twitter") }]);
-    // Idea has one active platform, so its format option is disabled for unsupported platforms.
-    await page.getByRole("button", { name: "Idea", exact: true }).click();
-    await page.getByLabel("Format", { exact: true }).selectOption("article");
-    await page.getByLabel("Article title", { exact: true }).fill("Manual source");
-    await page.getByLabel("Article text", { exact: true }).fill(source);
+    await changeLength("article");
+    await useNotes();
+    await page.getByRole("textbox", { name: "Article title", exact: true }).fill("Manual source");
+    await page.getByRole("textbox", { name: "Article text", exact: true }).fill(source);
     expect(await calls()).toEqual([]);
-    await page.getByTestId("button-regenerate").click();
+    await preparePlatforms();
+    await cardGenerate().click();
     await expectIdeaContent(/linkedin original/);
-    await browserExpect(page.getByTestId("button-regenerate")).toBeEnabled();
+    await browserExpect(cardGenerate()).toBeEnabled();
     expect((await calls()).at(-1).body.format).toBe("article");
-    await ideaPlatformButton("Twitter/X").click();
-    await browserExpect(page.getByLabel("Format", { exact: true })).toHaveValue("short-post");
-    await browserExpect(page.getByLabel("Format", { exact: true }).locator('option[value="article"]')).toBeDisabled();
-    await browserExpect(page.getByTestId("button-regenerate")).toBeEnabled();
+    expect(await page.evaluate(() => ((window as any).__composer as CreatePostComposer).requestedFormat)).toBe("article");
+    await browserExpect(cardGenerate("twitter")).toBeEnabled();
     expect(await calls()).toHaveLength(1);
-    await page.getByTestId("button-regenerate").click();
+    await cardGenerate("twitter").click();
     await browserExpect.poll(async () => (await calls()).length).toBe(2);
     expect((await calls()).at(-1).body).toMatchObject({ selectedPlatforms: ["twitter"], format: "short-post" });
-    await expectIdeaContent(/twitter original/);
+    await expectContent(/twitter original/, "twitter");
     expect((await calls()).every((call: any) => call.url === "/api/instant-review/manual")).toBe(true);
   });
 
   it("uses the requested Article format per card and falls back only for unsupported platforms", async () => {
     await mount("panel", [{ body: { ...response(), format: "article" } }, { body: response("twitter") }]);
-    await page.getByLabel("Format", { exact: true }).selectOption("article");
-    await browserExpect(page.getByText("Platforms without article support will receive a short post.")).toBeVisible();
+    await changeLength("article");
     expect(await calls()).toEqual([]);
     await generate();
     await expectContent(/linkedin original/);
     await cardGenerate("twitter").click();
     await expectContent(/twitter original/, "twitter");
-    await browserExpect(page.getByLabel("Format", { exact: true })).toHaveValue("article");
+    expect(await page.evaluate(() => ((window as any).__composer as CreatePostComposer).requestedFormat)).toBe("article");
     await browserExpect(cardGenerate()).toBeEnabled();
     await browserExpect(cardGenerate("twitter")).toBeEnabled();
-    expect((await calls()).map((call: any) => [call.url, call.body.url, call.body.selectedPlatforms, call.body.format])).toEqual([
-      ["/api/instant-review/selected", "https://news.test/a", ["linkedin"], "article"],
-      ["/api/instant-review/selected", "https://news.test/a", ["twitter"], "short-post"],
+    expect((await calls()).map((call: any) => [call.url, call.body.sourceUrl, call.body.selectedPlatforms, call.body.format])).toEqual([
+      ["/api/instant-review/manual", "https://news.test/a", ["linkedin"], "article"],
+      ["/api/instant-review/manual", "https://news.test/a", ["twitter"], "short-post"],
     ]);
   });
 
@@ -1195,7 +1269,7 @@ describe("editorial generation UI (mocked browser)", () => {
     await browserExpect(card("twitter").getByRole("blockquote").locator("p")).toHaveText(`${source} Snapshot: regenerated.`);
     const requests = await calls();
     expect(requests.map((call: any) => call.body.selectedPlatforms)).toEqual([["linkedin"], ["twitter"], ["twitter"]]);
-    expect(requests.every((call: any) => call.url === "/api/instant-review/selected")).toBe(true);
+    expect(requests.every((call: any) => call.url === "/api/instant-review/manual")).toBe(true);
     expect(new Set(requests.map((call: any) => call.body.requestIntent)).size).toBe(3);
     expect(requests.every((call: any) => /^[0-9a-f-]{36}$/.test(call.body.requestIntent))).toBe(true);
     expect(await page.evaluate(() => (window as any).__actions)).toEqual([]);
@@ -1203,14 +1277,13 @@ describe("editorial generation UI (mocked browser)", () => {
 
   it("keeps the selected manual platform and prevents empty option saves", async () => {
     await mount("panel", [{ body: { ...response("medium", "manual", true), article: { title: "Manual", content: source, source: "Your draft", url: "", domain: "manual" } } }]);
-    await page.getByRole("button", { name: "Idea", exact: true }).click();
-    await ideaPlatformButton("Medium").click();
-    await browserExpect(ideaPlatformButton("Medium")).toHaveAttribute("aria-pressed", "true");
+    await useNotes();
     await page.getByTestId("input-manual-article-title").fill("Manual");
     await page.getByTestId("editor-manual-article").fill(source);
-    await page.getByTestId("button-regenerate").click();
-    await browserExpect(page.getByRole("button", { name: "Regenerate Medium" })).toBeVisible();
-    await browserExpect(page.getByTestId("button-save-draft")).toBeDisabled();
+    await preparePlatforms(["Medium"]);
+    await cardGenerate("medium").click();
+    await browserExpect(cardGenerate("medium")).toHaveText("Generate Medium again");
+    await browserExpect(cardSave("medium")).toBeDisabled();
     for (const button of await page.getByRole("button", { name: "Save draft", exact: true }).all()) await browserExpect(button).toBeDisabled();
     expect((await calls())[0]).toMatchObject({ url: "/api/instant-review/manual", body: { selectedPlatforms: ["medium"] } });
   });
@@ -1232,11 +1305,12 @@ describe("editorial generation UI (mocked browser)", () => {
 
   it("locks platform changes during generation and never calls legacy save/post owners", async () => {
     await mount("panel", [{ defer: true, body: response() }, { body: response("twitter", "latest") }]);
-    await page.getByTestId("input-instant-review-url").fill("https://news.test/a");
+    await useLink("https://news.test/a");
+    await preparePlatforms();
     await cardGenerate().click();
     await browserExpect(generationProgress()).toBeVisible();
     await browserExpect(articlePlatformTrigger()).toBeDisabled();
-    await browserExpect(articleTone()).toBeDisabled();
+    await browserExpect(documentButton()).toBeDisabled();
     await page.evaluate(() => (window as any).__pending.shift()());
     await expectContent(/linkedin original/);
     await articlePlatformTrigger().click();
@@ -1245,7 +1319,7 @@ describe("editorial generation UI (mocked browser)", () => {
     await browserExpect(card("twitter")).toHaveCount(0);
     await articlePlatformCheckbox("Twitter/X").check();
     await browserExpect(articlePlatformCheckbox("Twitter/X")).toBeChecked();
-    await page.keyboard.press("Escape");
+    await versionsView();
     expect(await calls()).toHaveLength(1);
     await cardGenerate("twitter").click();
     await expectContent(/twitter latest/, "twitter");
@@ -1275,16 +1349,10 @@ describe("editorial generation UI (mocked browser)", () => {
   it.each(["Article", "Idea"] as const)("associates the raw 5,000-character cap with the X field in %s", async mode => {
     await mount("panel", [{ body: mode === "Article" ? response("twitter") : manualResponse("twitter") }]);
     if (mode === "Article") await generate("twitter");
-    else {
-      await page.getByRole("button", { name: "Idea", exact: true }).click();
-      await ideaPlatformButton("Twitter/X").click();
-      await page.getByLabel("Article title", { exact: true }).fill("Manual source");
-      await page.getByLabel("Article text", { exact: true }).fill(source);
-      await page.getByTestId("button-regenerate").click();
-    }
-    const editor = mode === "Article" ? await cardEditor("twitter") : page.getByTestId("textarea-post-content");
-    const save = mode === "Article" ? cardSave("twitter") : page.getByTestId("button-save-draft");
-    const handoff = mode === "Article" ? cardHandoff("twitter") : page.getByTestId("button-post-now");
+    else await generateIdea("twitter");
+    const editor = await cardEditor("twitter");
+    const save = cardSave("twitter");
+    const handoff = cardHandoff("twitter");
     const text = `https://news.test/${"a".repeat(5001)}`;
     await editor.fill(text);
     await browserExpect(editor).toHaveAttribute("aria-invalid", "true");
@@ -1366,10 +1434,10 @@ describe("editorial generation UI (mocked browser)", () => {
     await page.evaluate(() => (window as any).__pending.pop()());
     await browserExpect(cardSave("medium")).toHaveText("Saved");
     expect(await page.evaluate(() => ((window as any).__composer as CreatePostComposer).saving)).toBe(true);
-    await browserExpect(articleTone()).toBeDisabled();
+    await browserExpect(documentButton()).toBeDisabled();
     await page.evaluate(() => (window as any).__pending.shift()());
     await browserExpect(cardSave()).toHaveText("Saved");
-    await browserExpect(articleTone()).toBeEnabled();
+    await browserExpect(documentButton()).toBeEnabled();
     await expectContent("Completed card edited while X runs");
     const saves = (await calls()).filter((call: any) => call.url.startsWith("/api/drafts"));
     expect(saves.map((call: any) => [call.method, call.body.platform, call.body.content])).toEqual([
@@ -1391,7 +1459,7 @@ describe("editorial generation UI (mocked browser)", () => {
     });
     await browserExpect.poll(() => page.evaluate(() => (window as any).__pending.length)).toBe(2);
     expect((await calls()).map((call: any) => [call.method, call.url])).toEqual([
-      ["POST", "/api/instant-review/selected"], ["POST", "/api/drafts"], ["POST", "/api/instant-review/selected"],
+      ["POST", "/api/instant-review/manual"], ["POST", "/api/drafts"], ["POST", "/api/instant-review/manual"],
     ]);
     await page.evaluate(() => (window as any).__pending.pop()());
     await browserExpect(cardCopy("twitter")).toBeEnabled();
@@ -1412,7 +1480,7 @@ describe("editorial generation UI (mocked browser)", () => {
     await (await cardEditor()).fill("Completed text during uncertainty");
     await cardCopy().click(); await cardSave().click();
     await browserExpect(cardSave()).toHaveText("Saved");
-    await browserExpect(articleTone()).toBeDisabled();
+    await browserExpect(documentButton()).toBeDisabled();
     await page.getByRole("button", { name: "Retry same request" }).click();
     await expectContent(/twitter recovered/, "twitter");
     await expectContent("Completed text during uncertainty");
@@ -1427,14 +1495,14 @@ describe("editorial generation UI (mocked browser)", () => {
     else { await generateIdea(); await expectIdeaContent(/linkedin original/); }
     const id = "draft/id ?é#one";
     await page.evaluate(id => { (window as any).__saveResponses = [{ savedId: id }]; }, id);
-    const save = mode === "Article" ? cardSave() : page.getByTestId("button-save-draft");
+    const save = cardSave();
     await save.click(); await browserExpect(save).toHaveText("Saved");
     for (const [label, destination] of [["Content", "content"], ["Calendar", "calendar"]]) {
       const link = page.getByRole("link", { name: `Go to ${label}`, exact: true });
       await browserExpect(link).toHaveAttribute("href", `/dashboard/${destination}?draft=${encodeURIComponent(id)}`);
       expect(await link.evaluate(element => Boolean(element.closest("button") || element.querySelector("button, a")))).toBe(false);
     }
-    const editor = mode === "Article" ? await cardEditor() : page.getByTestId("textarea-post-content");
+    const editor = await cardEditor();
     await editor.fill("Changed since save");
     await browserExpect(save).toHaveText("Save changes");
     await browserExpect(page.getByRole("link", { name: "Go to Content" })).toHaveCount(0);
@@ -1514,7 +1582,7 @@ describe("editorial generation UI (mocked browser)", () => {
     const requests = await calls();
     expect(requests).toHaveLength(3);
     expect(requests[1].body).toEqual(requests[2].body);
-    expect(requests.every((call: any) => call.url === "/api/instant-review/selected")).toBe(true);
+    expect(requests.every((call: any) => call.url === "/api/instant-review/manual")).toBe(true);
   });
 
   it("cancels a real async UI request after status 503 with exactly one DELETE", async () => {
@@ -1582,8 +1650,8 @@ describe("editorial generation UI (mocked browser)", () => {
   });
 });
 
-describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
-  const primary = () => page.getByTestId("button-generate-selected");
+describe("UX-06 — partial batch recovery (mocked Chromium)", { timeout: 15_000 }, () => {
+  const primary = () => page.getByRole("button", { name: /^(Create platform versions|Continue remaining versions)$/ });
   const checkOriginal = () => page.getByRole("button", { name: "Retry same request", exact: true });
   const posts = async () => (await calls()).filter((call: any) => call.url.includes("instant-review") && call.method === "POST");
   const finish = async () => {
@@ -1594,7 +1662,7 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
     await browserExpect.poll(() => page.evaluate(() => ((window as any).__composer as CreatePostComposer).busy)).toBe(false);
   };
   const batchStart = async () => {
-    await page.locator("#open-story").click();
+    await page.locator("#open-story").click(); await preparePlatforms(undefined, false);
     await primary().click();
   };
   const failure = { status: 422, body: { message: "Fixture terminal failure" } };
@@ -1605,7 +1673,7 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
     await batchStart();
     await browserExpect(card("twitter")).toContainText("Needs retry");
     await browserExpect(card("medium")).toContainText("Not attempted");
-    await browserExpect(primary()).toHaveText("Continue 1 not attempted");
+    await browserExpect(primary()).toHaveText("Continue remaining versions");
     await (await cardEditor()).fill("Completed LinkedIn edit must survive recovery");
     await cardSave().click();
     await browserExpect(cardSave()).toHaveText("Saved");
@@ -1616,7 +1684,7 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
     expect((await posts()).map((call: any) => call.body.selectedPlatforms)).toEqual([["linkedin"], ["twitter"], ["medium"]]);
     await finish();
     await browserExpect(card("medium").getByTestId("text-post-content-medium")).toContainText("medium continued");
-    await browserExpect(primary()).toHaveText("No unattempted posts");
+    await browserExpect(primary()).toHaveText("Continue remaining versions");
     await browserExpect(primary()).toBeDisabled();
     await browserExpect(card("twitter")).toContainText("may count toward usage");
     await cardGenerate("twitter").evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
@@ -1628,7 +1696,7 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
     const requests = await posts();
     expect(requests.map((call: any) => call.body.selectedPlatforms)).toEqual([["linkedin"], ["twitter"], ["medium"], ["twitter"]]);
     expect(new Set(requests.map((call: any) => call.body.requestIntent)).size).toBe(4);
-    expect(requests.every((call: any) => call.body.url === "https://news.test/a" && call.body.tones.join() === "thoughtLeader")).toBe(true);
+    expect(requests.every((call: any) => call.body.sourceUrl === "https://news.test/a" && call.body.content === source && call.body.tones.join() === "thoughtLeader")).toBe(true);
   });
 
   it("stops safely and continues the untouched queue sequentially despite duplicate and competing clicks", async () => {
@@ -1636,7 +1704,7 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
     await batchStart();
     await page.getByRole("button", { name: "Stop after current post", exact: true }).click();
     await finish();
-    await browserExpect(primary()).toHaveText("Continue 2 not attempted");
+    await browserExpect(primary()).toHaveText("Continue remaining versions");
     await idle();
     await browserExpect(card("twitter")).toContainText("Not attempted");
     await browserExpect(card("medium")).toContainText("Not attempted");
@@ -1648,11 +1716,13 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
       c.setTone("provocateur"); c.setFormat("article"); c.setPlatform("medium");
       return c.setUrl("https://news.test/b");
     })).toBe(false);
-    await browserExpect(articleTone()).toHaveValue("thoughtLeader");
-    await browserExpect(page.getByLabel("Format", { exact: true })).toHaveValue("short-post");
-    await browserExpect(page.getByTestId("input-instant-review-url")).toHaveValue("https://news.test/a");
+    expect(await page.evaluate(() => {
+      const c = (window as any).__composer as CreatePostComposer;
+      return { tone: c.tone, format: c.requestedFormat, url: c.url };
+    })).toEqual({ tone: "thoughtLeader", format: "short-post", url: "https://news.test/a" });
     await browserExpect(card("twitter")).toContainText("Generating");
-    await browserExpect(card("medium")).toContainText("Queued");
+    await browserExpect(card("medium")).toContainText("Not attempted");
+    await browserExpect(cardGenerate("medium")).toBeDisabled();
     expect((await posts()).map((call: any) => call.body.selectedPlatforms)).toEqual([["linkedin"], ["twitter"]]);
     await finish();
     await browserExpect(card("medium")).toContainText("Generating");
@@ -1666,7 +1736,7 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
   it.each(["tone", "format"] as const)("fences same-turn and rendered continuation after changing %s until the original input is restored", async field => {
     await mount("panel", [{ body: response() }, failure, { body: response("medium", "original snapshot") }]);
     await batchStart();
-    await browserExpect(primary()).toHaveText("Continue 1 not attempted");
+    await browserExpect(primary()).toHaveText("Continue remaining versions");
     await idle();
     await page.evaluate(field => {
       const c = (window as any).__composer as CreatePostComposer;
@@ -1675,14 +1745,14 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
       void c.generatePlatform("twitter"); void c.generate(true);
     }, field);
     await browserExpect(primary()).toBeDisabled();
-    await browserExpect(page.getByText(/Restore the original Thought Leader tone and short-post format/)).toBeVisible();
+    expect(await page.evaluate(() => ((window as any).__composer as CreatePostComposer).batchInputMatches)).toBe(false);
     expect(await posts()).toHaveLength(2);
     await page.evaluate(() => {
       const c = (window as any).__composer as CreatePostComposer;
       void c.continueBatch(); void c.generateBatch(["linkedin", "twitter", "medium"]);
     });
     expect(await posts()).toHaveLength(2);
-    if (field === "tone") await articleTone().selectOption("thoughtLeader");
+    if (field === "tone") await changeTone("thoughtLeader");
     else {
       await browserExpect(cardGenerate("twitter")).toBeDisabled();
       await browserExpect(cardGenerate("medium")).toBeDisabled();
@@ -1691,38 +1761,38 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
         void c.generatePlatform("twitter"); void c.generatePlatform("medium");
       });
       expect(await posts()).toHaveLength(2);
-      await page.getByLabel("Format", { exact: true }).selectOption("short-post");
+      await changeLength("short-post");
     }
     await browserExpect(primary()).toBeEnabled();
     await primary().click();
     await browserExpect(card("medium").getByTestId("text-post-content-medium")).toContainText("original snapshot");
-    expect((await posts()).at(-1).body).toMatchObject({ url: "https://news.test/a", selectedPlatforms: ["medium"], tones: ["thoughtLeader"], format: "short-post" });
+    expect((await posts()).at(-1).body).toMatchObject({ sourceUrl: "https://news.test/a", content: source, selectedPlatforms: ["medium"], tones: ["thoughtLeader"], format: "short-post" });
   });
 
   it("keeps later cards Not attempted if continuation itself fails, never replaying earlier attempts", async () => {
     await mount("panel", [{ body: response() }, failure, failure, { body: response("medium") }],
       { enabledPlatforms: ["linkedin", "twitter", "threads", "medium", "substack"] });
-    await page.locator("#open-story").click();
+    await page.locator("#open-story").click(); await preparePlatforms();
     await page.evaluate(() => {
       const c = (window as any).__composer as CreatePostComposer;
       void c.generateBatch(["linkedin", "twitter", "threads", "medium", "substack", "linkedin"]);
     });
-    await browserExpect(primary()).toHaveText("Continue 2 not attempted");
+    await browserExpect(primary()).toHaveText("Continue remaining versions");
     await idle();
     expect(await page.evaluate(() => ((window as any).__composer as CreatePostComposer).batch.targets)).toEqual(["linkedin", "twitter", "threads", "medium"]);
     await primary().click();
     await browserExpect(card("threads")).toContainText("Needs retry");
-    await browserExpect(primary()).toHaveText("Continue 1 not attempted");
+    await browserExpect(primary()).toHaveText("Continue remaining versions");
     // The initial four visible platforms include Substack, not Medium; the
     // continuation ledger still owns Medium even after selection changes.
     await articlePlatformTrigger().click();
     await articlePlatformCheckbox("Substack Notes").uncheck();
     await articlePlatformCheckbox("Medium").check();
-    await page.keyboard.press("Escape");
+    await versionsView();
     await browserExpect(card("medium")).toContainText("Not attempted");
     await primary().click();
     await browserExpect(card("medium").getByTestId("text-post-content-medium")).toBeVisible();
-    await browserExpect(primary()).toHaveText("No unattempted posts");
+    await browserExpect(primary()).toHaveText("Continue remaining versions");
     await browserExpect(primary()).toBeDisabled();
     expect((await posts()).map((call: any) => call.body.selectedPlatforms)).toEqual([["linkedin"], ["twitter"], ["threads"], ["medium"]]);
   });
@@ -1730,6 +1800,7 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
   it("requires fresh overwrite consent for an edited unattempted card while leaving completed cards alone", async () => {
     await mount("panel", [{ body: response("medium", "old") }, failure, { body: response("twitter") }, { body: response("medium", "continued") }]);
     await generate("medium");
+    await articlePlatformTrigger().click();
     await primary().click();
     await browserExpect(card()).toContainText("Needs retry");
     await browserExpect(card("medium")).toContainText("Not attempted");
@@ -1748,7 +1819,7 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
   it("clears the recovery ledger on accepted source replacement and rejects old continuation callbacks", async () => {
     await mount("panel", [{ body: response() }, failure]);
     await batchStart();
-    await browserExpect(primary()).toHaveText("Continue 1 not attempted");
+    await browserExpect(primary()).toHaveText("Continue remaining versions");
     await idle();
     page.once("dialog", dialog => dialog.accept());
     await page.evaluate(() => {
@@ -1757,9 +1828,9 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
       void old.continueBatch(); void old.generateBatch(["linkedin", "twitter", "medium"]);
       void old.generatePlatform("twitter"); void old.generate(true);
     });
-    await browserExpect(page.getByTestId("input-instant-review-url")).toHaveValue("https://news.test/b");
-    await browserExpect(primary()).toHaveText("Generate 3 posts");
-    for (const platform of ["linkedin", "twitter", "medium"]) await browserExpect(card(platform)).toContainText("Ready to generate");
+    expect(await page.evaluate(() => ((window as any).__composer as CreatePostComposer).url)).toBe("https://news.test/b");
+    await browserExpect(chat()).toBeEnabled();
+    for (const platform of ["linkedin", "twitter", "medium"]) await browserExpect(card(platform)).toHaveCount(0);
     expect(await page.evaluate(() => ((window as any).__composer as CreatePostComposer).batchRecovery)).toBeUndefined();
     expect(await posts()).toHaveLength(2);
   });
@@ -1774,7 +1845,7 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
     await browserExpect(card("twitter")).not.toContainText("Needs retry");
     await browserExpect(card("medium")).toContainText("Not attempted");
     await browserExpect(primary()).toBeDisabled();
-    await browserExpect(articleTone()).toBeDisabled();
+    await browserExpect(documentButton()).toBeDisabled();
     await idle();
     await page.evaluate(() => {
       const c = (window as any).__composer as CreatePostComposer;
@@ -1784,7 +1855,7 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
       void c.generate(true); void c.generate(true); void c.generation.retry();
     });
     await browserExpect(card("twitter").getByTestId("text-post-content-twitter")).toContainText("twitter recovered");
-    await browserExpect(primary()).toHaveText("Continue 1 not attempted");
+    await browserExpect(primary()).toHaveText("Continue remaining versions");
     await idle();
     const requests = await posts();
     expect(requests.map((call: any) => call.body.selectedPlatforms)).toEqual([["linkedin"], ["twitter"], ["twitter"]]);
@@ -1856,7 +1927,7 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
     await finish();
     await browserExpect(page.getByRole("alert")).toContainText("Generation cancelled");
     await browserExpect(card()).toContainText("Needs retry");
-    await browserExpect(primary()).toHaveText("Continue 2 not attempted");
+    await browserExpect(primary()).toHaveText("Continue remaining versions");
     await primary().click();
     await browserExpect(card("medium").getByTestId("text-post-content-medium")).toBeVisible();
     expect((await posts()).map((call: any) => call.body.selectedPlatforms)).toEqual([["linkedin"], ["twitter"], ["medium"]]);
@@ -1909,13 +1980,14 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", () => {
     await cardSave().click();
     await browserExpect(cardSave()).toHaveText("Saved");
     const before = await page.evaluate(() => ((window as any).__composer as CreatePostComposer).versions["linkedin:thoughtLeader"]);
+    await articlePlatformTrigger().click();
     page.once("dialog", dialog => dialog.accept());
     await primary().click();
     await browserExpect(card()).toContainText("Needs retry");
     await browserExpect(page.getByText(/No usable text was returned/)).toBeVisible();
     await browserExpect(card("twitter")).toContainText("Not attempted");
     await browserExpect(card("medium")).toContainText("Not attempted");
-    await browserExpect(primary()).toHaveText("Continue 2 not attempted");
+    await browserExpect(primary()).toHaveText("Continue remaining versions");
     expect(await page.evaluate(() => ((window as any).__composer as CreatePostComposer).versions["linkedin:thoughtLeader"])).toEqual(before);
     expect((await posts()).map((call: any) => call.body.selectedPlatforms)).toEqual([["linkedin"], ["linkedin"]]);
     await browserExpect(cardSave()).toHaveText("Saved");

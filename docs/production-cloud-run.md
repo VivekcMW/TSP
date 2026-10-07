@@ -75,6 +75,13 @@ gcloud run services update-traffic tsp-app --region asia-south1 --to-revisions <
 
 ## Database migrations
 
+The saved-document editor requires `0051_creation_sessions.sql` before its
+revision receives traffic. The release preflight also checks any earlier
+pending migrations, including `0049_friend_invitations.sql` and
+`0050_tenant_invitations.sql`; do not skip dependencies or bypass ledger checks.
+Run the migration tool's read-only `--dry` check first, apply the reviewed
+additive migrations, and repeat it to verify zero pending migrations.
+
 The production database was fully migrated on 2026-09-23 (39 files, 0 pending).
 Run migrations with the migration tool against the direct (non-pooler)
 endpoint, with an explicit `:5432` and only `sslmode=require` in the URL. The

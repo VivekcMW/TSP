@@ -34,10 +34,15 @@ beforeAll(async () => {
       import CreatePostPage from "@/pages/create-post";
       import { Route } from "wouter";
       window.__calls = [];
+      window.__creation = { revision: 0, state: null };
       window.fetch = async (url, options = {}) => {
         window.__calls.push({ url, method: options.method || "GET" });
         let body;
-        if (url === "/api/inbox?status=active") body = window.__records.filter(item => item.status === "active").slice(0, 500);
+        if (url === "/api/creation-session") {
+          if (options.method === "PUT") window.__creation = { revision: window.__creation.revision + 1, state: JSON.parse(options.body).state };
+          body = window.__creation;
+        }
+        else if (url === "/api/inbox?status=active") body = window.__records.filter(item => item.status === "active").slice(0, 500);
         else if (url === "/api/inbox") body = window.__records.slice(0, 500);
         else if (window.__refreshJob && String(url) === "/api/inbox/refresh/" + window.__refreshJob.jobId) body = window.__refreshJob;
         else if (url === "/api/trends") {
@@ -69,7 +74,9 @@ beforeAll(async () => {
     define: { "process.env.NODE_ENV": '"test"' },
     plugins: [{ name: "mock-auth-and-toasts", setup(builder) {
       builder.onResolve({ filter: /^@\/lib\/(auth|dev-auth)$|^@\/hooks\/use-toast$/ }, args => ({ path: args.path, namespace: "mock" }));
-      builder.onLoad({ filter: /.*/, namespace: "mock" }, args => ({ contents: args.path.includes("auth")
+      builder.onLoad({ filter: /.*/, namespace: "mock" }, args => ({ contents: args.path.endsWith("dev-auth")
+        ? 'export const useIsSignedIn = () => window.__devBypass === true || window.__signedIn !== false;'
+        : args.path.endsWith("/auth")
         ? 'export const useIsSignedIn = () => window.__signedIn !== false; export const useAuth = () => ({user: {firstName: "Reader"}});'
         : "export const useToast = () => ({toast: () => {}});", loader: "js" }));
     } }],
@@ -96,11 +103,20 @@ async function mount(surface = "discover", items = records, state: Record<string
 const storyRows = () => page.locator('[data-testid^="row-inbox-"]');
 async function expectUnchanged(items = records) {
   expect(await page.evaluate(() => (window as any).__cachedInbox())).toEqual(items.slice(0, 500));
-  expect(await page.evaluate(() => (window as any).__calls)).toEqual(
+  expect(await page.evaluate(() => (window as any).__calls.filter((call: { url: string }) => call.url !== "/api/creation-session"))).toEqual(
     await page.evaluate(() => (window as any).__surface) === "home" ? [] : [{ url: "/api/inbox?status=active", method: "GET" }]);
 }
 
 describe("legacy inbox quality UI", () => {
+  it("loads local articles and trends with development bypass but no auth session", async () => {
+    await mount("discover", records, { __signedIn: false, __devBypass: true });
+    await browserExpect(storyRows()).toHaveCount(3);
+    await expectUnchanged();
+    await page.getByRole("button", { name: "Topics in your recent articles" }).click();
+    await browserExpect(page.getByText("No topics with at least two newly discovered articles yet.")).toBeVisible();
+    expect(await page.evaluate(() => (window as any).__calls)).toContainEqual({ url: "/api/trends", method: "GET" });
+  });
+
   it("loads trends only when opened and describes admitted-content limitations", async () => {
     await mount("discover", records, { __trends: [{ topic: "ai", count: 3, velocityPercent: null, sourceCount: 1, unknownSourceCount: 2,
       articles: [], coverage: { partial: true, rowLimit: 5000 } }] });
@@ -191,11 +207,15 @@ describe("legacy inbox quality UI", () => {
     await mount();
     await page.getByTestId("button-filter-saved").click();
     await page.getByTestId("button-generate-saved").click();
-    await browserExpect(page.getByLabel("Story", { exact: true })).toHaveValue("saved");
-    await browserExpect(page.getByTestId("input-instant-review-url")).toHaveValue("https://news.test/saved");
-    expect(await page.getByLabel("Story", { exact: true }).locator("option").allTextContents()).toEqual([
-      "Choose a story (no generation yet)", loginTitle, "Authentication and DNS research",
-    ]);
+    const attached = page.getByRole("region", { name: "Pundit chat" });
+    await browserExpect(attached).toContainText(loginTitle);
+    await browserExpect(attached).not.toContainText("Excerpt unavailable");
+    await attached.getByRole("button", { name: "Articles (1)", exact: true }).click();
+    const choices = page.getByRole("group", { name: "Crawled articles" });
+    await browserExpect(choices.getByRole("checkbox", { name: `${loginTitle} Fixture publication`, exact: true })).toBeChecked();
+    await browserExpect(choices.getByRole("checkbox")).toHaveCount(2);
+    await browserExpect(choices).toContainText("Authentication and DNS research");
+    await browserExpect(choices).not.toContainText("littleblackbook.com");
     await expectUnchanged();
   });
 });

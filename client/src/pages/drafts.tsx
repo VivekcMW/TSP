@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { useSearch, useLocation } from "wouter";
+import { Link, useSearch, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { FileText, Send, CalendarPlus } from "lucide-react";
+import { FileText, Send, CalendarPlus, CalendarDays, ChevronLeft, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,7 +31,7 @@ import { WorkflowStatus } from "@/components/dashboard/workflow-status";
 import { PlatformComposeAction } from "@/components/platform-compose-action";
 import { DashboardEmptyState } from "@/components/dashboard/empty-state";
 import { ScheduleArticleModal } from "@/components/schedule-article-modal";
-import { DraftCard, canEditDraft, type DraftScheduleInfo } from "@/components/dashboard/draft-card";
+import { DraftCard, DraftListItem, canEditDraft, type DraftScheduleInfo } from "@/components/dashboard/draft-card";
 import { usePublishSchedule } from "@/hooks/use-publish-schedule";
 import { useDraftPublishStatus } from "@/hooks/use-publish-status";
 import { usePublishingReadiness } from "@/hooks/use-publishing-readiness";
@@ -47,6 +47,7 @@ import { MAX_DRAFT_CHARACTERS, platformTextValidation } from "@shared/editorial"
 // IDs, not content, across Content remounts; hiding a monitor is not resolution.
 const attemptedDraftsKey = ["content-publish-attempts"];
 queryClient.setQueryDefaults(attemptedDraftsKey, { gcTime: Infinity });
+type ContentView = "all" | ReturnType<typeof draftStatusGroup>;
 
 export default function DraftsPage() {
   const search = useSearch();
@@ -56,6 +57,11 @@ export default function DraftsPage() {
   const appliedDraftLink = useRef<string | null>(null);
   const focusedDraftLink = useRef<string | null>(null);
   const linkedDraftElement = useRef<HTMLDivElement | null>(null);
+  const previewPanel = useRef<HTMLElement>(null);
+  const postList = useRef<HTMLDivElement>(null);
+  const [previewDraftId, setPreviewDraftId] = useState<string | null>(null);
+  const [mobilePreview, setMobilePreview] = useState(false);
+  const [sortOrder, setSortOrder] = useState("updated");
   const isSignedIn = useIsSignedIn();
   const { toast } = useToast();
   const [editingDraft, setEditingDraft] = useState<Draft | null>(null);
@@ -84,9 +90,10 @@ export default function DraftsPage() {
   const [spreadAcrossWeek, setSpreadAcrossWeek] = useState(false);
   const [bulkErrors, setBulkErrors] = useState<Record<string, { code: string; message: string }>>({});
   const bulkLock = useRef(false);
-  const [draftView, setDraftView] = useState<"ready" | "scheduled" | "attention" | "published">("ready");
+  const [draftView, setDraftView] = useState<ContentView>("ready");
   useEffect(() => {
-    setDraftView(requestedView === "scheduled" || requestedView === "attention" || requestedView === "published" ? requestedView : "ready");
+    setDraftView(requestedView === "all" || requestedView === "scheduled" || requestedView === "attention" || requestedView === "published" ? requestedView : "ready");
+    setMobilePreview(false);
   }, [requestedView]);
   const [bulkDate, setBulkDate] = useState("");
   const [bulkTime, setBulkTime] = useState("09:00");
@@ -143,6 +150,7 @@ export default function DraftsPage() {
     if (!linked) return;
     appliedDraftLink.current = requestedDraftId;
     setSearchQuery(""); setPlatformFilter("all");
+    setPreviewDraftId(linked.id);
     setDraftView(draftStatusGroup(linked.publishStatus));
   }, [requestedDraftId, linkedDraft, linkedQuery.isSuccess, linkedQuery.isFetching]);
 
@@ -253,6 +261,7 @@ export default function DraftsPage() {
       queryClient.setQueryData<Draft[]>(["/api/drafts"], current => [draft, ...(current ?? [])]);
       void invalidatePublishingQueries();
       setCopyingDraft(null);
+      setPreviewDraftId(draft.id);
       navigate(`${location}?view=ready`);
       toast({ title: "New draft created", description: "The published original and its receipts are unchanged. Nothing was scheduled or published." });
     },
@@ -453,21 +462,46 @@ export default function DraftsPage() {
     return true;
   });
   const statusCounts = {
+    all: filteredDrafts.length,
     ready: filteredDrafts.filter((draft) => draftStatusGroup(draft.publishStatus) === "ready").length,
     scheduled: filteredDrafts.filter((draft) => draftStatusGroup(draft.publishStatus) === "scheduled").length,
     attention: filteredDrafts.filter((draft) => draftStatusGroup(draft.publishStatus) === "attention").length,
     published: filteredDrafts.filter((draft) => draftStatusGroup(draft.publishStatus) === "published").length,
   };
-  const visibleDrafts = filteredDrafts.filter((draft) => draftStatusGroup(draft.publishStatus) === draftView);
+  const visibleDrafts = filteredDrafts.filter((draft) => draftView === "all" || draftStatusGroup(draft.publishStatus) === draftView).sort((a, b) => {
+    const timestamp = (draft: Draft) => new Date((sortOrder === "updated" ? draft.updatedAt ?? draft.createdAt : draft.createdAt ?? draft.updatedAt) ?? 0).getTime();
+    return sortOrder === "oldest" ? timestamp(a) - timestamp(b) : timestamp(b) - timestamp(a);
+  });
+  const previewDraft = requestedDraftId !== null
+    ? visibleDrafts.find(draft => draft.id === requestedDraftId)
+    : visibleDrafts.find(draft => draft.id === previewDraftId) ?? visibleDrafts[0];
+  const firstVisibleId = visibleDrafts[0]?.id;
+  useEffect(() => {
+    if (requestedDraftId === null && previewDraftId === null && firstVisibleId) setPreviewDraftId(firstVisibleId);
+  }, [requestedDraftId, previewDraftId, firstVisibleId]);
+  const openPreview = (draft: Draft) => {
+    setPreviewDraftId(draft.id);
+    if (requestedDraftId !== null) clearDraftLink();
+    if (window.matchMedia("(max-width: 1279px)").matches) {
+      setMobilePreview(true);
+      requestAnimationFrame(() => { previewPanel.current?.scrollIntoView({ block: "start" }); previewPanel.current?.focus({ preventScroll: true }); });
+    }
+  };
+  const backToPosts = () => {
+    setMobilePreview(false);
+    requestAnimationFrame(() => postList.current?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')?.focus());
+  };
   const linkedDraftVisible = visibleDrafts.some(draft => draft.id === requestedDraftId);
   useEffect(() => {
     if (requestedDraftId === null || !linkedDraftVisible || focusedDraftLink.current === requestedDraftId || !linkedDraftElement.current) return;
     focusedDraftLink.current = requestedDraftId;
-    linkedDraftElement.current.scrollIntoView({ block: "nearest" });
-    linkedDraftElement.current.focus({ preventScroll: true });
+    setMobilePreview(true);
+    requestAnimationFrame(() => { linkedDraftElement.current?.scrollIntoView({ block: "nearest" }); linkedDraftElement.current?.focus({ preventScroll: true }); });
   }, [requestedDraftId, linkedDraftVisible]);
   const visibleSchedulableIds = visibleDrafts.filter((draft) => draft.publishStatus === "draft" && !blockersFor(draft).length).map((draft) => draft.id);
   const allVisibleSelected = visibleSchedulableIds.length > 0 && visibleSchedulableIds.every((id) => selectedDraftIds.has(id));
+  const someVisibleSelected = visibleSchedulableIds.some(id => selectedDraftIds.has(id));
+  const hiddenSelectedCount = [...selectedDraftIds].filter(id => !visibleDrafts.some(draft => draft.id === id)).length;
   const toggleDraft = (id: string) => setSelectedDraftIds((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
   const toggleSelectAllVisible = () => setSelectedDraftIds((current) => {
     const next = new Set(current);
@@ -542,8 +576,9 @@ export default function DraftsPage() {
   if (publishStatus.error) deliveryTone = "error";
   const editValidation = platformTextValidation(editContent, editingDraft?.platform ?? "", editingDraft ? getPlatformMeta(editingDraft.platform).charLimit : MAX_DRAFT_CHARACTERS);
 
-  const statusLabels: Record<"ready" | "scheduled" | "attention" | "published", string> = {
-    ready: "Ready",
+  const statusLabels: Record<ContentView, string> = {
+    all: "All posts",
+    ready: "Drafts",
     scheduled: "Scheduled",
     attention: "Needs attention",
     published: "Published",
@@ -555,19 +590,22 @@ export default function DraftsPage() {
         width="workbench"
         icon={FileText}
         title="Content"
-        subtitle={draftsError ? "Content is unavailable" : `${draftsList.length} draft${draftsList.length !== 1 ? "s" : ""} saved`}
+        subtitle="Your saved posts, from first draft to published."
+        actions={<><Button asChild variant="outline"><Link href="/dashboard/calendar"><CalendarDays className="h-4 w-4" />Calendar</Link></Button><Button asChild><Link href="/dashboard/create"><Plus className="h-4 w-4" />Create post</Link></Button></>}
       />
 
       <PageBody as="div" width="workbench">
-        <PageToolbar aria-label="Content filters" className="mb-4" actions={selectedDraftIds.size > 0 && <Button onClick={() => { setBulkConfirmedKey(null); setSpreadAcrossWeek(false); setBulkTime(preferredTime); setBulkDate(dateKeyInTimeZone(new Date(), timeZone)); setBulkScheduleOpen(true); }}><CalendarPlus className="h-4 w-4" />Schedule {selectedDraftIds.size} selected</Button>}>
-            <div className="flex basis-full flex-wrap items-center gap-2">{((["ready", "scheduled", "attention", "published"] as const).map((view) => (
+        <PageToolbar aria-label="Content filters" className="mb-5">
+          <div className="w-full min-w-0 space-y-4">
+            <div role="group" aria-label="Content status" className="flex flex-wrap items-center gap-1">{((["all", "ready", "scheduled", "attention", "published"] as const).map((view) => (
               <Button
                 key={view}
                 size="sm"
-                variant={draftView === view ? "selected" : "secondary"}
+                variant={draftView === view ? "selected" : "ghost"}
                 onClick={() => {
                   if (editingDraft && !confirmLeaveEdit()) return;
                   setDraftView(view);
+                  setMobilePreview(false);
                   const params = new URLSearchParams(search);
                   params.set("view", view); params.delete("draft");
                   navigate(`${location}?${params}`);
@@ -575,13 +613,20 @@ export default function DraftsPage() {
                 aria-pressed={draftView === view}
                 data-testid={`tab-${view}`}
               >
-                {statusCounts[view]} {statusLabels[view]}
+                {statusLabels[view]}<span className={`rounded-md px-1.5 py-0.5 text-xs tabular-nums ${draftView === view ? "bg-primary/10" : "bg-muted text-muted-foreground"}`}>{isLoading || draftsError ? "-" : statusCounts[view]}</span>
               </Button>
             )))}</div>
-            <Field label="Search drafts" className="flex-1 basis-48" render={props => <Input {...props} value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="Search drafts…" data-testid="input-search-drafts" />} />
-            <Field label="Filter by platform" className="flex-1 basis-44" render={props => <NativeSelect {...props} value={platformFilter} onChange={event => setPlatformFilter(event.target.value)} data-testid="select-platform-filter"><option value="all">All platforms</option>{PLATFORMS.map(platform => <option key={platform.value} value={platform.value}>{platform.label}</option>)}</NativeSelect>} />
-            {visibleSchedulableIds.length > 0 && <label className="flex min-h-11 cursor-pointer select-none items-center gap-2 text-sm text-muted-foreground"><Checkbox checked={allVisibleSelected} onCheckedChange={toggleSelectAllVisible} aria-label="Select all visible drafts" />Select all</label>}
-            {selectedDraftIds.size > 0 && <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><span>{selectedDraftIds.size} selected</span><Button variant="ghost" size="sm" onClick={() => setSelectedDraftIds(new Set())}>Clear</Button></div>}
+            <div className="grid min-w-0 grid-cols-2 gap-3 lg:grid-cols-4">
+              <Field label="Search drafts" className="col-span-2 min-w-0" render={props => <div className="relative"><Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" /><Input {...props} type="search" className="pl-9" value={searchQuery} onChange={event => { setSearchQuery(event.target.value); setMobilePreview(false); }} placeholder="Find a saved post..." data-testid="input-search-drafts" /></div>} />
+              <Field label="Filter by platform" className="min-w-0" render={props => <NativeSelect {...props} value={platformFilter} onChange={event => { setPlatformFilter(event.target.value); setMobilePreview(false); }} data-testid="select-platform-filter"><option value="all">All platforms</option>{PLATFORMS.map(platform => <option key={platform.value} value={platform.value}>{platform.label}</option>)}</NativeSelect>} />
+              <Field label="Sort posts" className="min-w-0" render={props => <NativeSelect {...props} value={sortOrder} onChange={event => setSortOrder(event.target.value)}><option value="updated">Recently updated</option><option value="newest">Newest saved</option><option value="oldest">Oldest saved</option></NativeSelect>} />
+            </div>
+            {(searchQuery || platformFilter !== "all") && <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground"><span>{visibleDrafts.length} matching {visibleDrafts.length === 1 ? "post" : "posts"}</span><Button variant="ghost" size="sm" onClick={() => { setSearchQuery(""); setPlatformFilter("all"); }}>Clear filters</Button></div>}
+            {selectedDraftIds.size > 0 && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-3">
+              <span className="text-sm font-medium">{selectedDraftIds.size} selected{hiddenSelectedCount > 0 && <span className="font-normal text-muted-foreground"> · {hiddenSelectedCount} not in this view</span>}</span>
+              <div className="flex flex-wrap gap-2"><Button variant="ghost" size="sm" onClick={() => setSelectedDraftIds(new Set())}>Clear selection</Button><Button size="sm" onClick={() => { setBulkConfirmedKey(null); setSpreadAcrossWeek(false); setBulkTime(preferredTime); setBulkDate(dateKeyInTimeZone(new Date(), timeZone)); setBulkScheduleOpen(true); }}><CalendarPlus className="h-4 w-4" />Schedule {selectedDraftIds.size} selected</Button></div>
+            </div>}
+          </div>
         </PageToolbar>
         {requestedDraftId !== null && linkedQuery.isError && <div className="mb-4"><WorkflowStatus tone={linkedQuery.error instanceof ApiError && linkedQuery.error.status === 404 ? "warning" : "error"} title={linkedQuery.error instanceof ApiError && linkedQuery.error.status === 404 ? "Linked draft not found" : "Linked draft could not be checked"} actions={<><Button variant="outline" size="sm" onClick={() => void linkedQuery.refetch()}>Retry linked draft</Button><Button variant="outline" size="sm" onClick={clearDraftLink}>Clear draft selection</Button></>}>No other draft was selected. {linkedQuery.error instanceof ApiError && linkedQuery.error.status === 404 ? "The requested draft is missing or inaccessible." : "A read failure is not evidence that the draft was removed. Refresh before publishing."}</WorkflowStatus></div>}
         {requestedDraftId !== null && linkedDraft && <div className="mb-4"><WorkflowStatus tone="info" title="Linked draft selected" actions={<Button variant="outline" size="sm" onClick={clearDraftLink}>Clear draft selection</Button>}>
@@ -602,42 +647,52 @@ export default function DraftsPage() {
           <DashboardEmptyState
             icon={FileText}
             title="No drafts yet"
-            description="Go to Discover, select an article, and generate a post. Saved drafts will appear here."
+            description="Create a post from an idea or a Discover article, then save a platform version. It will appear here for review and scheduling."
           />
         ) : (
-          <>
-          <div className="grid gap-4">
-            {visibleDrafts.map((draft) => (
-              <div key={draft.id} ref={draft.id === requestedDraftId ? linkedDraftElement : undefined} tabIndex={draft.id === requestedDraftId ? -1 : undefined} data-linked-draft={draft.id === requestedDraftId || undefined} className={draft.id === requestedDraftId ? "rounded-md bg-accent p-2 ring-2 ring-primary ring-offset-2" : undefined}>
-              {draft.id === requestedDraftId && <p className="mb-2 text-sm font-medium text-accent-foreground">Linked draft</p>}
-              <DraftCard
-                draft={draft}
-                scheduleInfo={scheduleInfoById.get(draft.id)}
-                timeZone={timeZone}
-                canSchedule={!blockersFor(draft).length}
-                scheduleBlocker={blockersFor(draft)[0]}
-                selected={selectedDraftIds.has(draft.id)}
-                onToggleSelect={() => toggleDraft(draft.id)}
-                onPost={() => handlePost(draft)}
-                onEdit={() => handleEdit(draft)}
-                canEdit={editable(draft)}
-                onCopyToDraft={() => setCopyingDraft(draft)}
-                onSchedule={() => setSchedulingDraft(draft)}
-                onCancelSchedule={() => handleCancelSchedule(draft)}
-                onRetry={() => handleRetry(draft)}
-                onDeleteRequest={() => setDeletingDraft(draft)}
-              />
-              {!!blockersFor(draft).length && canResolveScheduling(draft) && <Button variant="outline" className="mt-2" onClick={() => setSchedulingDraft(draft)}>Resolve scheduling for {getPlatformMeta(draft.platform).label} draft</Button>}
+          <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <section aria-label="Post library" className={`min-w-0 overflow-hidden rounded-xl border bg-card ${mobilePreview ? "hidden xl:block" : ""}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4">
+                <div><h2 className="font-semibold">{statusLabels[draftView]} <span className="text-sm font-normal text-muted-foreground">({visibleDrafts.length})</span></h2><p className="mt-1 text-xs text-muted-foreground">Select a post to review and plan.</p></div>
+                {visibleSchedulableIds.length > 0 && <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs text-muted-foreground"><Checkbox checked={allVisibleSelected || (someVisibleSelected ? "indeterminate" : false)} onCheckedChange={toggleSelectAllVisible} aria-label="Select all visible drafts" />Select all</label>}
               </div>
-            ))}
+              <div ref={postList} className="xl:max-h-[36rem] xl:overflow-y-auto">
+                {visibleDrafts.map(draft => <DraftListItem key={draft.id} draft={draft} scheduleInfo={scheduleInfoById.get(draft.id)} timeZone={timeZone}
+                  active={previewDraft?.id === draft.id} selected={selectedDraftIds.has(draft.id)}
+                  selectable={visibleSchedulableIds.includes(draft.id)} onToggleSelect={() => toggleDraft(draft.id)} onOpen={() => openPreview(draft)} />)}
+                {visibleDrafts.length === 0 && <div className="p-8 text-center">
+                  <FileText className="mx-auto mb-3 h-7 w-7 text-muted-foreground" /><h3 className="text-sm font-medium">{searchQuery || platformFilter !== "all" ? "No matching posts" : `No ${draftView === "attention" ? "posts needing attention" : statusLabels[draftView].toLowerCase()} yet`}</h3>
+                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{searchQuery || platformFilter !== "all" ? "Try another search or clear the filters above." : "Switch to All posts to browse your library, or create something new."}</p>
+                </div>}
+              </div>
+            </section>
+            <section ref={previewPanel} id="content-preview" tabIndex={-1} aria-label="Post preview" className={`min-w-0 rounded-xl border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring ${mobilePreview ? "" : "hidden xl:block"}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/20 p-4">
+                <h2 className="font-semibold">Post preview</h2>
+                <Button variant="ghost" size="sm" className="xl:hidden" onClick={backToPosts}><ChevronLeft className="h-3.5 w-3.5" />Back to posts</Button>
+                {previewDraft && <span className="text-xs text-muted-foreground">{previewDraft.content.length.toLocaleString()} characters</span>}
+              </div>
+              {previewDraft ? <div key={previewDraft.id} ref={previewDraft.id === requestedDraftId ? linkedDraftElement : undefined} tabIndex={previewDraft.id === requestedDraftId ? -1 : undefined} data-linked-draft={previewDraft.id === requestedDraftId || undefined}>
+              {previewDraft.id === requestedDraftId && <p className="px-5 pt-4 text-sm font-medium text-primary">Linked draft</p>}
+              <DraftCard
+                draft={previewDraft}
+                scheduleInfo={scheduleInfoById.get(previewDraft.id)}
+                timeZone={timeZone}
+                canSchedule={!blockersFor(previewDraft).length}
+                scheduleBlocker={blockersFor(previewDraft)[0]}
+                onResolveScheduling={blockersFor(previewDraft).length && canResolveScheduling(previewDraft) ? () => setSchedulingDraft(previewDraft) : undefined}
+                onPost={() => handlePost(previewDraft)}
+                onEdit={() => handleEdit(previewDraft)}
+                canEdit={editable(previewDraft)}
+                onCopyToDraft={() => setCopyingDraft(previewDraft)}
+                onSchedule={() => setSchedulingDraft(previewDraft)}
+                onCancelSchedule={() => handleCancelSchedule(previewDraft)}
+                onRetry={() => handleRetry(previewDraft)}
+                onDeleteRequest={() => setDeletingDraft(previewDraft)}
+              />
+              </div> : <div className="p-8 text-center"><FileText className="mx-auto mb-3 h-8 w-8 text-muted-foreground" /><p className="text-sm font-medium">Choose a post to preview</p><p className="mt-2 text-xs leading-relaxed text-muted-foreground">Review the full text and delivery details here before taking an action.</p></div>}
+            </section>
           </div>
-          {visibleDrafts.length === 0 && (
-            <WorkflowStatus tone="neutral" actions={(searchQuery || platformFilter !== "all") && <Button variant="outline" onClick={() => { setSearchQuery(""); setPlatformFilter("all"); }}>Clear filters</Button>}>
-              No {draftView === "attention" ? "drafts needing attention" : `${draftView} drafts`}
-              {searchQuery || platformFilter !== "all" ? " match your filters." : " right now."}
-            </WorkflowStatus>
-          )}
-          </>
         )}
       </PageBody>
 

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useIsSignedIn } from "@/lib/auth";
+import { useIsSignedIn } from "@/lib/dev-auth";
 import { Button } from "@/components/ui/button";
 import type { PersonalTrend } from "@shared/article-quality";
 

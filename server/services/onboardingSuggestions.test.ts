@@ -69,6 +69,9 @@ describe("topic suggestions grounded in headlines", () => {
       { name: "Programmatic DOOH", weight: 1, evidence: { count: 2, headline: "Vistar Media expands programmatic DOOH in India" } },
       { name: "Retail media screens", weight: 0.7, evidence: { count: 1, headline: "Retail media networks add in-store screens" } },
     ]);
+    const topicsCall = generateText.mock.calls.find(([prompt]) => prompt.includes("EXTRACT TOPICS"));
+    expect(topicsCall?.[1]).toMatchObject({ maxTokens: 4096, timeoutMs: 40_000 });
+    expect(generateText).toHaveBeenCalledTimes(1);
     expect(headlines.mock.calls.map(call => call[0])).toContain("site:www.exchangewire.com programmatic DOOH");
   });
 });
@@ -80,6 +83,9 @@ describe("people and company suggestions grounded in headlines", () => {
       companies: [{ name: "Vistar Media", why: "Programmatic DOOH platform", headlines: [1] }, { name: "Moving Walls", why: "DOOH measurement", headlines: [3] }, { name: "Clear Channel", why: "Not in headlines", headlines: [2] }],
     } });
     const result = await suggest(request("people", { topics: ["Programmatic DOOH"] }), scope);
+    const peopleCall = generateText.mock.calls.find(([prompt]) => prompt.includes("EXTRACT PEOPLE"));
+    expect(peopleCall?.[1]).toMatchObject({ maxTokens: 4096, timeoutMs: 40_000 });
+    expect(generateText).toHaveBeenCalledTimes(1);
     expect(result.people).toEqual([]);
     expect(result.companies).toEqual([
       { name: "Vistar Media", reason: "Programmatic DOOH platform", evidence: { count: 1, headline: "Vistar Media expands programmatic DOOH in India" } },

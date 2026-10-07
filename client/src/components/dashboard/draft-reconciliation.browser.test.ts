@@ -24,13 +24,17 @@ beforeAll(async () => {
       const w = window;
       w.calls = []; w.pending = {}; w.unexpected = []; w.failSnapshot = false; w.snapshotBody = undefined; w.defer = null;
       w.profile = { tenantId: "tenant-a", enabledPlatforms: ["linkedin"], defaultPlatform: "linkedin", defaultTone: "professional", requirePublishReview: false };
-      w.row = null; w.revision = 0; w.queryClient = queryClient; w.accountCache = accountCache;
+      w.row = null; w.revision = 0; w.creation = { revision: 0, state: null }; w.queryClient = queryClient; w.accountCache = accountCache;
       w.advance = content => w.row = { ...w.row, content, updatedAt: new Date(Date.UTC(2030, 0, 1, 0, 0, ++w.revision)).toISOString() };
       window.fetch = async (input, options = {}) => {
         const url = String(input), method = options.method || "GET", body = options.body ? JSON.parse(options.body) : null;
         w.calls.push({ url, method, body, cache: options.cache });
         let result, status = 200;
-        if (url.includes("instant-review")) result = { article: { title: "Source", content: "Source evidence never changes.", source: "Desk", url: "https://news.test/a", domain: "news.test" }, posts: { linkedin: { thoughtLeader: ${JSON.stringify(original)} } }, details: {}, format: "short-post" };
+        if (url === "/api/creation-session") {
+          if (method === "PUT") w.creation = { revision: w.creation.revision + 1, state: body.state };
+          result = w.creation;
+        }
+        else if (url.includes("instant-review")) result = { article: { title: "Source", content: "Source evidence never changes.", source: "Desk", url: "https://news.test/a", domain: "news.test" }, posts: body.stage === "main" ? {} : { linkedin: { thoughtLeader: ${JSON.stringify(original)} } }, mainDraft: body.stage === "main" ? { content: ${JSON.stringify(original)} } : undefined, details: {}, format: "short-post" };
         else if (method === "GET" && url.endsWith("/editing-snapshot")) {
           status = w.failSnapshot || (w.row ? 200 : 404);
           result = w.snapshotBody === undefined ? w.row : w.snapshotBody;
@@ -72,7 +76,7 @@ beforeAll(async () => {
         return <><nav><Link id="create" href="/dashboard/create">Create route</Link><Link id="content" href="/dashboard/content">Content route</Link></nav><Route path="/dashboard/create" component={Create}/><Route path="/dashboard/content" component={Content}/></>;
       }
       function App() {
-        const [scope, setScope] = useState("a"); w.setScope = setScope;
+        const [scope, setScope] = useState("a"); w.setScope = next => { w.creation = { revision: 0, state: null }; setScope(next); };
         return <QueryClientProvider client={queryClient}><CreatePostProvider key={scope}><Routes/></CreatePostProvider></QueryClientProvider>;
       }
       createRoot(document.getElementById("root")).render(<App/>);
@@ -100,8 +104,10 @@ async function mount() {
   await page.goto("https://revision.test/");
   await page.evaluate(() => history.replaceState(null, "", "/dashboard/create"));
   await page.addScriptTag({ content: bundle });
-  await page.getByTestId("input-instant-review-url").fill("https://news.test/a");
-  await card().getByRole("button", { name: "Generate LinkedIn", exact: true }).click();
+  await page.getByRole("textbox", { name: "Document text", exact: true }).fill("Source evidence never changes.");
+  await page.getByRole("button", { name: "Adapt for platforms", exact: true }).click();
+  await page.getByRole("checkbox", { name: "LinkedIn", exact: true }).check();
+  await page.getByTestId("button-generate-selected").click();
   await check(card().getByTestId("text-post-content-linkedin")).toHaveText(original);
   await card().getByRole("button", { name: "Save draft", exact: true }).click();
   await check(card().getByRole("button", { name: "Saved", exact: true })).toBeDisabled();
@@ -236,7 +242,7 @@ describe("UX09 actual Create / Content reconciliation", () => {
     await card().getByRole("button", { name: "Save changes", exact: true }).click();
     await check.poll(() => page.evaluate(() => Boolean((window as any).pending.json))).toBe(true);
     await page.evaluate(() => (window as any).setScope("b"));
-    await check(card()).toContainText("Ready to generate");
+    await check(page.getByRole("textbox", { name: "Document text", exact: true })).toHaveText("");
     await release("json");
     expect(await page.evaluate(() => (window as any).composer.versions)).toEqual({});
   });
@@ -250,9 +256,12 @@ describe("UX09 actual Create / Content reconciliation", () => {
     expect((await version()).content).toBe("C typed during refresh");
     await page.evaluate(() => { (window as any).defer = "GET /api/drafts/saved-a/editing-snapshot"; void (window as any).composer.refreshVersion("linkedin", "thoughtLeader"); });
     await check(card()).toContainText("Checking latest draft");
+    await page.getByRole("textbox", { name: "Message Pundit", exact: true }).fill("/link");
+    await page.getByRole("textbox", { name: "Message Pundit", exact: true }).press("Enter");
+    await page.getByRole("textbox", { name: "Article URL", exact: true }).fill("https://news.test/replacement");
     page.once("dialog", dialog => dialog.accept());
-    await page.getByTestId("input-instant-review-url").fill("https://news.test/replacement");
-    await check(card()).toContainText("Ready to generate"); await release();
+    await page.getByRole("button", { name: "Use article link", exact: true }).click();
+    await check(page.getByRole("textbox", { name: "Document text", exact: true })).toHaveText(""); await release();
     expect(await page.evaluate(() => (window as any).composer.versions)).toEqual({});
     expect(await writes()).toHaveLength(1);
   });

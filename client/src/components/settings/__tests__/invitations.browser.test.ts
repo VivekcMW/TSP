@@ -217,7 +217,7 @@ describe("Public invitation preferences", () => {
     await context.addCookies([{ name: "session", value: "fixture", url: origin }]);
     for (let attempt = 0; attempt < 2; attempt++) {
       await page.goto(`${origin}/invitation-preferences#token=fixture%2Btoken`);
-      await browserExpect(page.getByRole("heading", { name: "Invitation preferences" })).toBeVisible();
+      await browserExpect(page.getByRole("heading", { level: 1, name: "Invitation preferences" })).toBeVisible();
       await browserExpect(page).toHaveURL(`${origin}/invitation-preferences`);
       expect(optouts()).toHaveLength(attempt);
       await browserExpect(page.locator("body")).not.toContainText("fixture+token");

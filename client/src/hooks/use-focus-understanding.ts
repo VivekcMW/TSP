@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiRequest } from "@/lib/queryClient";
 import { parseUnderstanding, type Understanding } from "@/lib/onboarding-suggestions";
 
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 30_000;
 export type UnderstandingStatus = "idle" | "loading" | "ready" | "error";
 
 /** Settle on abort even if the response never finishes. */

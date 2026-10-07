@@ -39,16 +39,16 @@ test("reduced motion renders public content immediately", async ({ page }) => {
   })).toBe("1");
 });
 
-test("public pages remain usable on a phone viewport", async ({ page }) => {
-  await page.setViewportSize({ width: 375, height: 812 });
-  for (const route of ["/", "/pricing", "/blog", "/resources"]) {
-    await page.goto(route);
+for (const route of publicRoutes) {
+  test(`${route.path} remains usable on a phone viewport`, async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto(route.path);
+    await expect(page.locator("h1").first()).toHaveText(route.heading);
     await expect(page.locator("h1").first()).toBeVisible();
-    await page.waitForTimeout(700);
-    const dimensions = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth, offenders: [...document.querySelectorAll("*")].filter((element) => element.getBoundingClientRect().right > document.documentElement.clientWidth + 1).slice(0, 3).map((element) => ({ tag: element.tagName, className: typeof element.className === "string" ? element.className : "", text: element.textContent?.trim().slice(0, 40) })) }));
-    expect(dimensions.scrollWidth, `${route} horizontal overflow: ${JSON.stringify(dimensions)}`).toBeLessThanOrEqual(dimensions.clientWidth);
-  }
-});
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  });
+}
 
 test("authenticated workspace routes load without overflow", async ({ page }) => {
   test.skip(!process.env.E2E_TEST_EMAIL || !process.env.E2E_TEST_PASSWORD, "Set E2E_TEST_EMAIL and E2E_TEST_PASSWORD for authenticated route coverage.");

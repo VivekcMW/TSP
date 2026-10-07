@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import type { InboxItem } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
@@ -23,11 +23,12 @@ export function CreatePostProvider({ children }: Readonly<{ children: ReactNode 
   const [isOpen, setOpen] = useState(false);
   const onCreateRoute = location === "/dashboard/create";
   const composer = useCreatePostComposer(isOpen, onCreateRoute);
+  const pendingEntry = useRef<{ item: InboxItem } | { startNew: true }>();
   useEffect(() => { if (onCreateRoute) setOpen(true); }, [onCreateRoute]);
   // Onboarding's "Write a post" (navigation state) and reminder emails (?article=) arrive with a story link;
   // use it once, then drop it from history.
   useEffect(() => {
-    if (!onCreateRoute) return;
+    if (!onCreateRoute || !composer.persistence.ready) return;
     const { pathname, search } = window.location;
     const link = storyLinkFromState(window.history.state) ?? storyLinkFromSearch(search);
     const hasStoryState = window.history.state && typeof window.history.state === "object" &&
@@ -37,21 +38,31 @@ export function CreatePostProvider({ children }: Readonly<{ children: ReactNode 
     if (!link) return;
     composer.prefillUrl(link);
     // Runs only on arrival at Create; the composer's later state must not re-apply the link.
-  }, [onCreateRoute]);
+  }, [onCreateRoute, composer.persistence.ready]);
+  useEffect(() => {
+    if (!onCreateRoute || !composer.persistence.ready || !pendingEntry.current) return;
+    const entry = pendingEntry.current;
+    pendingEntry.current = undefined;
+    if ("item" in entry) composer.prefill(entry.item);
+    else composer.startNewCreate();
+  }, [onCreateRoute, composer.persistence.ready]);
   useEffect(() => { if (composer.generation.reattached) setOpen(true); }, [composer.generation.reattached]);
   const openCreate = (item?: InboxItem) => {
-    if (!composer.prefill(item)) return;
+    if (!composer.persistence.ready) {
+      if (item) pendingEntry.current = { item };
+    } else if (!composer.prefill(item)) return;
     setOpen(true);
     if (!onCreateRoute) navigate("/dashboard/create");
   };
   const startNewCreate = () => {
-    if (!composer.startNewCreate()) return;
+    if (!composer.persistence.ready) pendingEntry.current = { startNew: true };
+    else if (!composer.startNewCreate()) return;
     setOpen(true);
     if (!onCreateRoute) navigate("/dashboard/create");
   };
   const close = () => {
     if ((composer.dirty || composer.busy || composer.generation.recoverable) && !window.confirm(
-      "Close Create? Unsaved text is lost on reload or sign-out. An admitted generation can reconnect in this tab while its server result is retained. Generation continues; unfinished uploads are cancelled. Choose Cancel to keep editing.",
+      "Leave Create while changes or generation are pending? Wait for All changes saved before reloading or signing out. Saved progress will be available when you return. Choose Cancel to keep editing.",
     )) return false;
     setOpen(false);
     if (onCreateRoute) navigate("/dashboard");

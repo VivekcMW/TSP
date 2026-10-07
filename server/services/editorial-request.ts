@@ -5,12 +5,14 @@ import { authedOf } from "../middlewares/requireDbUser";
 import { storage } from "../storage";
 import { editorialContext, editorialPreferences, reviewUrl, validateEditorialFormat } from "../routes/editorial-context";
 import { AIGenerationError } from "./openRouter";
-import { generatePlatformReviewsDetailed, type EditorialOptions } from "./punditBrain";
+import { generateMainDraftDetailed, generatePlatformReviewsDetailed, type EditorialOptions } from "./punditBrain";
 import { fetchArticleFromUrl, type FetchedArticle } from "./urlFetcher";
 import { findPooledArticle } from "./articlePool";
 import { publicationDate } from "./articleDates";
 import { CrawlError } from "./crawlerFetch";
 import { isGoogleNewsArticleUrl, resolveGoogleNewsArticleUrl } from "./keywordSearch";
+import { MAX_CREATION_REFERENCES } from "@shared/creation-session";
+import { buildEvidenceBrief, MAX_SOURCE_CHARACTERS, MAX_SOURCE_PASSAGES } from "./editorialEvidence";
 
 // One link, so it can wait longer than the per-result budget during Discover refreshes.
 const GOOGLE_NEWS_RESOLVE_TIMEOUT_MS = 5000;
@@ -41,17 +43,30 @@ async function readArticle(url: string, signal: AbortSignal): Promise<FetchedArt
   return fetchArticleFromUrl(target, signal);
 }
 
-const selection = z.array(z.enum(ALL_PLATFORM_KEYS)).min(1).max(4);
+const selection = z.array(z.enum(ALL_PLATFORM_KEYS)).max(4);
 const requestIntent = z.string().uuid().optional();
-export const selectedReviewSchema = z.object({ ...editorialPreferences, requestIntent, url: reviewUrl, selectedPlatforms: selection });
+const stage = z.enum(["main", "platform"]).optional();
+const draftEditing = {
+  instruction: z.string().trim().min(1).max(4000).optional(),
+  currentDraft: z.string().max(5000).optional(),
+};
+const validSelection = (input: { stage?: "main" | "platform"; selectedPlatforms: string[] }) =>
+  input.stage === "main" ? input.selectedPlatforms.length === 0 : input.selectedPlatforms.length > 0;
+export const selectedReviewSchema = z.object({ ...editorialPreferences, ...draftEditing, requestIntent, stage, url: reviewUrl, selectedPlatforms: selection }).refine(validSelection);
 export const manualReviewSchema = z.object({
   ...editorialPreferences,
+  ...draftEditing,
   requestIntent,
+  stage,
   title: z.string().trim().min(1).max(200),
-  content: z.string().trim().min(20).max(20_000),
+  content: z.string().trim().max(24_000),
   media: z.array(z.object({ id: z.string().uuid().optional(), type: z.enum(["image", "video", "audio"]), name: z.string().max(255), url: z.string().max(2_000) })).max(8).default([]),
   selectedPlatforms: selection.default(["linkedin"]),
-});
+  sourceUrl: reviewUrl.optional(),
+  sourceLabel: z.string().trim().min(1).max(300).optional(),
+  sourceUrls: z.array(reviewUrl).min(1).max(MAX_CREATION_REFERENCES).optional(),
+}).refine(validSelection).refine(input => input.sourceUrls
+  ? input.stage === "main" : input.content.length >= 20 && input.content.length <= (input.stage === "main" ? 24_000 : 20_000));
 
 export type EditorialKind = "selected" | "manual";
 export interface PreparedEditorialRequest {
@@ -88,9 +103,50 @@ export async function prepareEditorialRequest(req: Request, kind: EditorialKind,
         throw Object.assign(new Error("An attached media item is not available to this account"), { status: 403 });
       }
     }
+    for (const url of input.sourceUrls ?? []) {
+      if (!await storage.getInboxItemByUrl(scope, url)) {
+        throw Object.assign(new Error("A selected article is no longer available in this workspace. Refresh your sources."), { status: 404 });
+      }
+      signal.throwIfAborted();
+    }
   }
   const options = preparedOptions(await editorialContext(req, input, signal));
   return { input: { ...input, selectedPlatforms: [...new Set(input.selectedPlatforms)] }, options };
+}
+
+async function readSelectedArticles(urls: string[], prepared: PreparedEditorialRequest, signal: AbortSignal) {
+  const scope = prepared.options.voiceScope;
+  if (!scope) throw new AIGenerationError("ai_invalid_input");
+  const articles = await Promise.all([...new Set(urls)].map(async url => {
+    if (!await storage.getInboxItemByUrl(scope, url)) {
+      throw new AIGenerationError("ai_invalid_input");
+    }
+    signal.throwIfAborted();
+    return readArticle(url, signal);
+  }));
+  const headers = articles.map(article => `Source: ${article.source}\nTitle: ${article.title}\nURL: ${article.url}\n`);
+  const available = MAX_SOURCE_CHARACTERS - headers.reduce((total, text) => total + text.length + 2, 0);
+  if (available < articles.length * 20) throw new AIGenerationError("ai_invalid_input");
+  const perArticle = Math.floor(available / articles.length);
+  const passagesPerArticle = Math.floor(MAX_SOURCE_PASSAGES / articles.length);
+  const content = articles.map((article, index) => {
+    const section = headers[index] + article.content.slice(0, perArticle);
+    // Reserve passage slots as well as characters so dense first sources cannot
+    // displace every later source when the writer's evidence brief is built.
+    const passages = buildEvidenceBrief({ ...article, content: section }).excerpts.slice(0, passagesPerArticle);
+    const last = passages.at(-1);
+    if (!last) throw new AIGenerationError("ai_invalid_input");
+    return section.slice(0, last.end);
+  }).join("\n\n");
+  const originalLength = articles.reduce((total, article, index) => total + headers[index].length +
+    Math.max(article.content.length, article.contentMetadata?.originalLength ?? 0), (articles.length - 1) * 2);
+  return { ...articles[0], content,
+    references: articles.map(({ title, source, url }) => ({ title, source, url })),
+    contentMetadata: {
+      extractionMethod: articles.some(article => article.contentMetadata?.extractionMethod === "metadata") ? "metadata" as const : "article" as const,
+      originalLength, retainedLength: content.length, truncated: originalLength > content.length,
+    },
+  };
 }
 
 /** Same source fetch, evidence pipeline, and response contract for both transports. */
@@ -101,20 +157,25 @@ export async function executeEditorialRequest(prepared: PreparedEditorialRequest
   const deadlineAt = Math.min(timeoutMs === undefined ? Infinity : Date.now() + timeoutMs, budget.data.deadlineAt ?? Infinity);
   if (deadlineAt <= Date.now()) throw new AIGenerationError("ai_timeout");
   const { input, options } = prepared;
-  const article = "url" in input ? await readArticle(input.url, signal) : {
-    title: input.title, content: input.content, source: "Your draft", url: "",
+  const article = "url" in input ? await readArticle(input.url, signal) : input.sourceUrls
+    ? { ...await readSelectedArticles(input.sourceUrls, prepared, signal), title: input.title } : {
+    title: input.title, content: input.content, source: input.sourceLabel ?? "Your draft", url: input.sourceUrl ?? "",
     contentMetadata: { extractionMethod: "manual" as const, originalLength: input.content.length, retainedLength: input.content.length, truncated: false },
   };
   signal.throwIfAborted();
   const remaining = deadlineAt - Date.now();
   if (remaining <= 0) throw new AIGenerationError("ai_timeout");
   // Attachments are returned for the editor, never treated as inspected evidence.
-  const result = await generatePlatformReviewsDetailed(article, input.selectedPlatforms, { ...preparedOptions(options), signal,
+  const executionOptions = { ...preparedOptions(options), signal,
+    ...(input.stage === "platform" ? { adaptReviewedDraft: true } : {}),
+    ...(input.stage === "main" ? { draftInstruction: input.instruction, currentDraft: input.currentDraft } : {}),
     ...(input.tones ? { tones: input.tones } : {}),
     ...(onPlatformComplete ? { onPlatformComplete } : {}),
     ...(timeoutMs === undefined ? {} : { timeoutMs: remaining }),
     ...(Number.isFinite(deadlineAt) ? { deadlineAt } : {}),
-    ...(budget.data.jobId ? { jobId: budget.data.jobId } : {}) });
+    ...(budget.data.jobId ? { jobId: budget.data.jobId } : {}) };
+  const result = input.stage === "main" ? await generateMainDraftDetailed(article, executionOptions)
+    : await generatePlatformReviewsDetailed(article, input.selectedPlatforms, executionOptions);
   signal.throwIfAborted();
   return { article: "media" in input ? { ...article, media: input.media, domain: "manual" } : article, ...result, format: input.format };
 }

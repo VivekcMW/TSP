@@ -111,7 +111,7 @@ describe("optional voice and honest human review UI", () => {
   it("retains an approved edit only after a separate explicit consent and submit", async () => {
     await page.getByRole("button", { name: "Approve an edit as a voice sample…" }).click();
     const text = "A revised conclusion that I explicitly approve.";
-    await page.getByLabel("Approved edit sample").fill(text);
+    await page.getByRole("textbox", { name: "Approved edit sample" }).fill(text);
     await page.getByRole("checkbox", { name: /I explicitly approve/ }).check();
     expect(calls).toEqual([]);
     await page.getByRole("button", { name: "Retain approved edit" }).click();

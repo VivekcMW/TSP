@@ -113,6 +113,7 @@ app.use((_req, res, next) => {
   next();
 });
 
+app.use("/api/creation-session", express.json({ limit: "2mb" }));
 app.use(
   express.json({
     verify: (req, _res, buf) => {

@@ -6,7 +6,7 @@ import type { EditorialFormat } from "@shared/editorial";
 
 export type { DetailedPostResult };
 export type ReviewResponse = DetailedReviewResult & {
-  article: FetchedArticle & { media?: ArticleMedia[] };
+  article: FetchedArticle & { media?: ArticleMedia[]; references?: { title: string; source: string; url: string }[] };
   format: EditorialFormat;
 };
 export type PostResponse = DetailedPostResult & { article: EditorialArticle; format: EditorialFormat };

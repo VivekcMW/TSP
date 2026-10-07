@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { useCreatePost } from "./create-post-provider";
 import { useQuery } from "@tanstack/react-query";
-import { signOut, useAuth, useIsSignedIn } from "@/lib/auth";
+import { signOut, useAuth } from "@/lib/auth";
+import { useIsSignedIn } from "@/lib/dev-auth";
 import type { User as DbUser } from "@shared/models/auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {

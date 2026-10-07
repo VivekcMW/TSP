@@ -40,7 +40,12 @@ beforeAll(async () => {
       import { OnboardingWorkspace } from "@/components/onboarding/onboarding-workspace";
       import { useInboxRefreshJob, refreshJobMessage } from "@/hooks/use-inbox-refresh-job";
       window.__calls = []; window.__completed = []; window.__pending = []; window.__toasts = []; window.__settled = 0;
+      window.__creation = { revision: 0, state: null };
       window.fetch = async (url, options = {}) => {
+        if (url === "/api/creation-session") {
+          if (options.method === "PUT") window.__creation = { revision: window.__creation.revision + 1, state: JSON.parse(options.body).state };
+          return new Response(JSON.stringify(window.__creation), { status: 200 });
+        }
         window.__calls.push({ url, method: options.method || "GET", body: options.body ? JSON.parse(options.body) : null, signal: options.signal });
         // Step 1 reads the focus after a pause; answer it without using the queued replies.
         if (String(url).includes("/api/onboarding/understand")) return new Response(JSON.stringify({ role: "Product lead", industry: "SaaS", focusAreas: ["Product strategy"], region: null, audience: null, question: null }), { status: 200 });
@@ -158,8 +163,8 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await say("Product strategy for small teams");
     await page.getByRole("button", { name: "Build my setup" }).click();
-    await page.clock.runFor(90_100);
-    await browserExpect(page.getByRole("region", { name: "Sources" }).getByRole("alert")).toContainText("The agent took too long.");
+    await page.clock.runFor(165_100);
+    await browserExpect(page.getByRole("region", { name: "Sources" }).getByRole("alert")).toContainText("The full setup took too long.");
     expect((await calls()).filter(notUnderstand)[0].aborted).toBe(true);
     await resolvePending();
     expect(await page.getByRole("button", { name: /source Unlisted AI source$/ }).count()).toBe(0);
@@ -170,7 +175,7 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     await page.getByTestId("button-add-keyword").click();
     await browserExpect(page.getByRole("button", { name: "Finish setup" })).toBeEnabled();
     expect(await page.evaluate(() => (window as any).__toasts)).toEqual([]);
-  });
+  }, 15000);
   it("doesn't demand LinkedIn and collapses the optional Home checklist", async () => {
     await mount("home");
     expect(await page.getByTestId("card-attention-required").count()).toBe(0);

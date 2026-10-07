@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, Building2, Users, ScrollText, Activity, Flag, Plug, ArrowLeft,
 } from "lucide-react";
-import { useAuth, useIsSignedIn } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
+import { useIsSignedIn } from "@/lib/dev-auth";
 import type { User as DbUser } from "@shared/models/auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {

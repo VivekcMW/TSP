@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Inbox, RefreshCw } from "lucide-react";
-import { useIsSignedIn } from "@/lib/auth";
+import { useIsSignedIn } from "@/lib/dev-auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useInboxRefreshJob, refreshJobMessage } from "@/hooks/use-inbox-refresh-job";

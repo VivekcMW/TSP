@@ -4,6 +4,7 @@ import { databasePoolConfig } from "../server/lib/db-pool-config";
 const required = [
   "DATABASE_URL",
   "BETTER_AUTH_SECRET",
+  "WEBHOOK_ENCRYPTION_SECRET",
   "BETTER_AUTH_URL",
   "APP_URL",
   "ALLOWED_ORIGINS",
@@ -28,6 +29,8 @@ if (process.env.PUBLISHING_MODE !== "live") failures.push("PUBLISHING_MODE must 
 if (process.env.BACKGROUND_JOBS_ENABLED !== "true") failures.push("BACKGROUND_JOBS_ENABLED must be true");
 if (process.env.PROCESS_ROLE === "scheduler" && process.env.CRON_SCHEDULER !== "true") failures.push("CRON_SCHEDULER must be true on the scheduler instance");
 if (process.env.BETTER_AUTH_SECRET && process.env.BETTER_AUTH_SECRET.length < 32) failures.push("BETTER_AUTH_SECRET must be at least 32 characters");
+if (process.env.WEBHOOK_ENCRYPTION_SECRET && process.env.WEBHOOK_ENCRYPTION_SECRET.length < 32) failures.push("WEBHOOK_ENCRYPTION_SECRET must be at least 32 characters");
+if (process.env.WEBHOOK_ENCRYPTION_SECRET && process.env.WEBHOOK_ENCRYPTION_SECRET === process.env.BETTER_AUTH_SECRET) failures.push("WEBHOOK_ENCRYPTION_SECRET must be distinct from BETTER_AUTH_SECRET");
 if (process.env.DIAGNOSTICS_TOKEN && process.env.DIAGNOSTICS_TOKEN.trim().length < 32) failures.push("DIAGNOSTICS_TOKEN must be at least 32 characters");
 
 if (missing.length || failures.length) {

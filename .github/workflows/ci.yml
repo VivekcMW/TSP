@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
   pull_request:
 
 # A newer push supersedes an in-flight run on the same ref.
@@ -43,51 +43,53 @@ jobs:
       APP_URL: http://localhost:3000
       # Must never be true here: the tests assert real authorization behaviour.
       DEV_AUTH_BYPASS: ""
+      E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+      E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: pnpm
 
-      # `npm ci` rather than `npm install`, so a dependency that is imported
-      # but not declared fails here rather than in production. That is exactly
-      # how the undeclared `nanoid` import was found.
-      - run: npm ci
+      # Keep CI aligned with the checked-in pnpm lockfile.
+      - run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: pnpm check
 
       - name: Design tokens are in sync
-        run: npm run design:check
+        run: pnpm run design:check
 
       # Migrations, not `drizzle-kit push`. push diffs against the live
       # database and was observed dropping the RLS policies, which would make
       # the isolation tests pass against an unprotected schema — the worst
       # possible failure mode for this suite.
       - name: Migrate the test database
-        run: npm run db:migrate
+        run: pnpm run db:migrate
         env:
           OWNER_DATABASE_URL: ${{ env.DATABASE_URL }}
 
       # Includes the cross-tenant isolation contract tests. A failure here is a
       # data-leak risk, not a flaky test — do not skip or retry this step.
+      - name: Install Chromium for browser regression tests
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: Tests
-        run: npm test
+        run: pnpm test
 
       - name: Browser E2E tests
-        if: ${{ secrets.E2E_TEST_EMAIL != '' && secrets.E2E_TEST_PASSWORD != '' }}
-        run: |
-          npx playwright install --with-deps chromium
-          npm run test:e2e
-        env:
-          E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
-          E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+        if: ${{ env.E2E_TEST_EMAIL != '' && env.E2E_TEST_PASSWORD != '' }}
+        run: pnpm run test:e2e
 
       - name: Build
-        run: npm run build
+        run: pnpm run build
 
       - name: Verify production artifact
         run: test -f dist/index.cjs && test -f dist/public/index.html

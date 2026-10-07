@@ -8,9 +8,9 @@ import { understandFocus, understandRequestSchema } from "../services/onboarding
 import { AIGenerationError, getAIErrorResponse } from "../services/openRouter";
 
 const SUGGESTION_BUDGET_MS = 25_000;
-const UNDERSTAND_BUDGET_MS = 15_000;
+const UNDERSTAND_BUDGET_MS = 25_000;
 // A full build researches three steps in sequence.
-const AGENT_BUDGET_MS = 75_000;
+const AGENT_BUDGET_MS = 150_000;
 
 /** Run one AI-backed JSON request with a time budget, stopping the work if the user leaves. */
 async function respondWithAi(res: Response, budgetMs: number, work: (signal: AbortSignal) => Promise<unknown>) {

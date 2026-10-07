@@ -126,7 +126,7 @@ describe("select-engine onboarding validation", () => {
   });
 
   // A transient 5xx gets exactly one retry of the same provider; nothing else is retried.
-  it.each([[500, 503, "ai_unavailable", 2], [504, 504, "ai_timeout", 1], [400, 400, "ai_invalid_input", 1]] as const)("does not disguise provider HTTP %i as success", async (providerStatus, status, code, calls) => {
+  it.each([[500, 503, "ai_unavailable", 1], [503, 503, "ai_unavailable", 2], [504, 504, "ai_timeout", 1], [400, 400, "ai_invalid_input", 1]] as const)("does not disguise provider HTTP %i as success", async (providerStatus, status, code, calls) => {
     network.mockImplementation(async () => new Response("private provider detail", { status: providerStatus }));
     const response = await request(app).post(`/api/ai/${endpoint}`).send(body);
     expect(response.status).toBe(status);

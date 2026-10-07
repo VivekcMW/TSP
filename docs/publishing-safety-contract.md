@@ -1,5 +1,72 @@
 # Publishing safety contract — roadmap 18, 19, 20, 22
 
+## Content library experience
+
+- Content opens in **Drafts**, with **All posts**, **Scheduled**,
+  **Needs attention**, and **Published** filters. "Drafts" means saved work,
+  not that a post has passed publishing readiness checks.
+- A compact post list sits beside one full-text preview on desktop. Selecting
+  a row only changes the preview; it does not approve, edit, schedule, or
+  publish anything. On narrow screens, the preview replaces the list;
+  **Back to posts** restores focus to the selected row.
+- Search and platform filters work across each status view, including a
+  scheduled post's additional target platforms. Sort by recently updated,
+  newest saved, or oldest saved. A selected post remains selected across
+  background refreshes and sort changes while it remains in the result set.
+- **Edit draft** is a primary preview action. Existing revision conflict,
+  unsaved-change, and immutable-post safeguards still apply. **Schedule**
+  and **Publishing options** retain their explicit review/confirmation
+  flows; blocked but recoverable drafts offer **Review scheduling**.
+- Bulk checkboxes are separate from preview selection. Only eligible saved
+  drafts can be selected. The selection bar counts items hidden by filters
+  or status views; confirmation still reviews every selected draft and
+  rejects stale revisions or changed readiness.
+- The preview retains media, timezone-aware timestamps, per-target recovery,
+  lazy publishing receipts, copying published posts, and confirmed deletion.
+  Content and Calendar share schedule status presentation; simulations and
+  unverified delivery are not labeled verified publication.
+- Exact draft links resolve independently of the list and open that record's
+  preview. A missing or failed linked read never selects another preview
+  automatically. Choosing another row explicitly clears the old draft link.
+  A failed list read is an error, not an empty library.
+
+The library flow and existing publishing safeguards are covered by isolated
+browser tests in `client/src/pages/publishing-ux.test.ts`. These use mocked
+network boundaries, not live publishing.
+
+## Calendar planning experience
+
+- Calendar now opens in a seven-column **Month** view, with **Week** and
+  **Agenda** alternatives. Weeks align Sunday through Saturday; Agenda shows
+  the displayed month, and previous/next navigation changes that month.
+- Select a day to review its posts in the day panel or plan a saved draft from
+  the **Draft queue**. The queue excludes drafts with existing active or
+  uncertain schedules, even if an old draft flag still says `draft`.
+  Queue membership is not a publishing-readiness claim.
+- Search and platform filters apply to both posts and the draft queue.
+  Status filters apply to calendar posts. Cancelled schedules are hidden
+  by default and available through the Cancelled filter. Demo and unverified
+  outcomes are never presented as verified publication.
+- Date grouping and displayed times use the chosen timezone; date selection
+  is a civil calendar date, independent of the browser timezone. Changing
+  a date, view or filter does not write a schedule. Arrow keys, Home/End and
+  Page Up/Down support date navigation. On narrow screens, selecting a day
+  brings its details into view; **Back to calendar** returns to the grid.
+- **Plan post** preselects that exact draft and selected date in the review
+  panel. Scheduling still requires current readiness and explicit consent
+  to exact text, destinations and timezone. Dragging an eligible scheduled
+  post proposes a new date in the existing confirmation dialog; it never
+  reschedules immediately. Existing retry, cancellation and uncertain-delivery
+  recovery controls remain in day details and Agenda.
+- A linked existing schedule opens Agenda at the schedule's month, including
+  older or future schedules. Missing/inaccessible linked drafts never silently
+  select another draft. Failed reads are shown as errors, not empty success states.
+
+Calendar interactions are covered by isolated browser tests in
+`client/src/pages/publishing-ux.test.ts`; status labels and target controls by
+`client/src/pages/calendar.scheduling.test.ts`. These checks use mocked publishing
+boundaries and do not establish live-provider readiness.
+
 ## Superseding local acceptance — 2026-09-19
 
 This supersedes earlier **local** migration/test status below, not rollout prerequisites. Earlier counts, failed attempts and “not run/not applied” statements are historical authoring records.

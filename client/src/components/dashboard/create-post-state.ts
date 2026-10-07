@@ -12,12 +12,21 @@ export type CreateTone = typeof CREATE_TONES[number]["key"];
 export interface ManualArticle { title: string; content: string; media: ArticleMedia[] }
 export const emptyArticle = (): ManualArticle => ({ title: "", content: "", media: [] });
 export interface PostVersion extends DraftEditingState {
+  mainRevision?: number;
   platform: string;
   tone: CreateTone;
   content: string;
   original: string;
   review: ReviewResponse;
   inboxItemId?: string;
+}
+export interface MainDraft {
+  title: string;
+  content: string;
+  original: string;
+  revision: number;
+  formatJson?: string;
+  review?: ReviewResponse;
 }
 export type PostVersions = Record<string, PostVersion>;
 export const versionKey = (platform: string, tone: CreateTone) => `${platform}:${tone}`;

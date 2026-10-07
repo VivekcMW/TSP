@@ -317,8 +317,8 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
         </SetupCanvas>
         <form onSubmit={send} className="col-start-1 row-start-2 flex flex-col gap-2 border-t bg-card p-3 lg:border-r">
           {mode !== "none" && !completed && (
-            <Field label="About" className="grid-cols-[auto_minmax(0,1fr)] items-center" render={(controlProps) => (
-              <NativeSelect {...controlProps} aria-label="About" value={about} onChange={event => setAbout(event.target.value as SuggestionStep)} disabled={locked}>
+            <Field label="Refine" className="grid-cols-[auto_minmax(0,1fr)] items-center" render={(controlProps) => (
+              <NativeSelect {...controlProps} aria-label="Refine" value={about} onChange={event => setAbout(event.target.value as SuggestionStep)} disabled={locked}>
                 {STEPS.map(step => <option key={step} value={step}>{TITLES[step]}</option>)}
               </NativeSelect>
             )} />
@@ -334,4 +334,3 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
     </div>
   );
 }
-

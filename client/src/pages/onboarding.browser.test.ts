@@ -235,7 +235,7 @@ describe("Pundit builds your setup", () => {
     await browserExpect(page.getByRole("button", { name: /source SRE Digest$/ })).toHaveCount(0);
     expect(sent("agent")[1]).toMatchObject({ steps: ["publications"], instruction: "More India-focused", exclude: ["SRE Digest"] });
     await section("Topics").getByRole("button", { name: "Select topic Chaos engineering", exact: true }).click();
-    await browserExpect(page.getByRole("combobox", { name: "About" })).toHaveValue("topics");
+    await browserExpect(page.getByRole("combobox", { name: "Refine" })).toHaveValue("topics");
     await say("fewer event topics");
     await browserExpect(pundit().getByRole("list", { name: "Conversation" })).toContainText("fewer event topics");
     await browserExpect.poll(() => sent("agent").length).toBe(3);

@@ -380,6 +380,14 @@ export const featureFlags = pgTable("feature_flags", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const creationSessions = pgTable("creation_sessions", {
+  tenantId: varchar("tenant_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  revision: integer("revision").notNull().default(0),
+  state: jsonb("state").$type<import("./creation-session").CreationSession>(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [primaryKey({ columns: [table.tenantId, table.userId] })]);
+
 export const emailPreferences = pgTable("email_preferences", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().unique(),

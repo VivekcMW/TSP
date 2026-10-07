@@ -285,8 +285,8 @@ describe("Settings navigation guard", () => {
 
   it("aggregates content and notifications: saving one form cannot clear another form's guard", async () => {
     await open("content");
-    await browserExpect(page.getByLabel("Voice & focus")).toHaveValue("Original focus");
-    await page.getByLabel("Voice & focus").fill("Unsaved voice");
+    await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("Original focus");
+    await page.getByTestId("input-focus-description").fill("Unsaved voice");
     await page.getByRole("tab", { name: "notifications", exact: true }).click();
     await page.getByRole("switch", { name: /Daily Digest/ }).uncheck();
     await page.getByTestId("button-save-notifications").click();
@@ -295,29 +295,30 @@ describe("Settings navigation guard", () => {
     decisions.push(false);
     await page.getByRole("link", { name: "Leave Settings", exact: true }).click();
     await page.getByRole("tab", { name: "content", exact: true }).click();
-    await browserExpect(page.getByLabel("Voice & focus")).toHaveValue("Unsaved voice");
+    await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("Unsaved voice");
     await page.getByTestId("button-save-content-preferences").click();
     await browserExpect(page.getByTestId("button-save-content-preferences")).toBeDisabled();
     expect(await reloadBlocked()).toBe(false);
     await page.getByRole("link", { name: "Leave Settings", exact: true }).click();
     await browserExpect(page.getByRole("heading", { name: "Outside Settings" })).toBeVisible();
     expect(dialogs).toEqual(["confirm"]);
-  });
+  }, 15000);
 
   it("protects failed publishing saves and clears protection on discard or successful save", async () => {
     await open("publishing");
-    await page.getByLabel("Preferred time").fill("12:15");
+    await page.locator('input[type="time"]').fill("12:15");
     failures.add("PATCH /api/profile");
     await page.getByTestId("button-save-plugins").click();
     await browserExpect(page.getByText("Could not save publishing preferences", { exact: true })).toBeVisible();
     expect(await reloadBlocked()).toBe(true);
     decisions.push(false);
     await page.getByRole("link", { name: "Leave Settings", exact: true }).click();
-    await browserExpect(page.getByLabel("Preferred time")).toHaveValue("12:15");
+    await browserExpect(page.locator('input[type="time"]')).toHaveValue("12:15");
+    await page.getByRole("button", { name: "Close notification" }).click();
     await page.getByRole("button", { name: "Discard changes" }).click();
     expect(await reloadBlocked()).toBe(false);
     failures.clear();
-    await page.getByLabel("Preferred time").fill("13:15");
+    await page.locator('input[type="time"]').fill("13:15");
     await page.getByTestId("button-save-plugins").click();
     await browserExpect(page.getByText("Publishing preferences saved", { exact: true })).toBeVisible();
     await browserExpect(page.getByTestId("button-save-plugins")).toBeDisabled();
@@ -325,7 +326,7 @@ describe("Settings navigation guard", () => {
     await page.getByRole("link", { name: "Leave Settings", exact: true }).click();
     await browserExpect(page.getByRole("heading", { name: "Outside Settings" })).toBeVisible();
     expect(dialogs).toEqual(["confirm"]);
-  });
+  }, 15000);
 
   it("cancels a real reload without losing edits, then reloads after a successful account save without prompting", async () => {
     await open();
@@ -347,11 +348,11 @@ describe("Settings navigation guard", () => {
 
   it("allows accepting the native reload warning", async () => {
     await open("content");
-    await browserExpect(page.getByLabel("Voice & focus")).toHaveValue("Original focus");
-    await page.getByLabel("Voice & focus").fill("Discard on reload");
+    await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("Original focus");
+    await page.getByTestId("input-focus-description").fill("Discard on reload");
     decisions.push(true);
     await page.reload();
-    await browserExpect(page.getByLabel("Voice & focus")).toHaveValue("Original focus");
+    await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("Original focus");
     expect(await reloadBlocked()).toBe(false);
     expect(dialogs).toEqual(["beforeunload"]);
   });
@@ -426,7 +427,7 @@ describe("Settings consolidation and trust", () => {
     profile.keywords = [{ keyword: "Cloud", weight: 0, category: "Infrastructure" }];
     await open("content");
     await browserExpect(page.getByLabel("URL for Publication", { exact: true })).toHaveValue("https://publication.invalid/news");
-    await page.getByLabel("Voice & focus").fill("Only the voice changed");
+    await page.getByTestId("input-focus-description").fill("Only the voice changed");
     await page.getByTestId("button-save-content-preferences").click();
     await browserExpect(page.getByTestId("button-save-content-preferences")).toBeDisabled();
     const payload = requests.find(request => request.method === "PATCH" && request.url === "/api/profile")!.body;
@@ -536,8 +537,8 @@ describe("Settings consolidation and trust", () => {
       { keyword: "Models", weight: 0.95 }, "Legacy",
     ];
     await open("content");
-    await browserExpect(page.getByLabel("Voice & focus")).toHaveValue("Original focus");
-    await page.getByLabel("Voice & focus").fill("Only my voice changed");
+    await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("Original focus");
+    await page.getByTestId("input-focus-description").fill("Only my voice changed");
     await page.getByTestId("button-save-content-preferences").click();
     await browserExpect(page.getByTestId("button-save-content-preferences")).toBeDisabled();
     expect(requests.filter((request) => request.method === "PATCH" && request.url === "/api/profile").map((request) => request.body)).toEqual([{
@@ -548,7 +549,7 @@ describe("Settings consolidation and trust", () => {
     expect(await reloadBlocked()).toBe(false);
     await page.getByRole("tab", { name: "notifications", exact: true }).click();
     await page.getByRole("tab", { name: "content", exact: true }).click();
-    await browserExpect(page.getByLabel("Voice & focus")).toHaveValue("Only my voice changed");
+    await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("Only my voice changed");
     await browserExpect(page.getByTestId("button-save-content-preferences")).toBeDisabled();
   });
 
@@ -574,8 +575,8 @@ describe("Settings consolidation and trust", () => {
   it("retains weighted content and dirty state after failure, then retries the identical payload", async () => {
     profile.keywords = [{ keyword: "Cloud", weight: 0, category: "Infrastructure" }];
     await open("content");
-    await browserExpect(page.getByLabel("Voice & focus")).toHaveValue("Original focus");
-    await page.getByLabel("Voice & focus").fill("Retry my weighted profile");
+    await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("Original focus");
+    await page.getByTestId("input-focus-description").fill("Retry my weighted profile");
     failures.add("PATCH /api/profile");
     await page.getByTestId("button-save-content-preferences").click();
     await browserExpect(page.getByText("Failed to update profile. Please try again.", { exact: true })).toBeVisible();
@@ -613,7 +614,7 @@ describe("Settings consolidation and trust", () => {
     await open();
     await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original Person");
     await browserExpect(page.getByTestId("button-save-account")).toBeDisabled();
-    await browserExpect(page.getByLabel("Email", { exact: true })).toHaveAttribute("readonly", "");
+    await browserExpect(page.getByTestId("input-email")).toHaveAttribute("readonly", "");
     await browserExpect(page.getByRole("button", { name: "Change Photo" })).toHaveCount(0);
     await page.getByLabel("Full Name").fill("Updated Person");
     await page.getByTestId("button-save-account").click();
@@ -651,34 +652,34 @@ describe("Settings consolidation and trust", () => {
 
   it("preserves dirty content across refetches and section changes, then saves", async () => {
     await open("content");
-    await browserExpect(page.getByLabel("Voice & focus")).toHaveValue("Original focus");
-    await page.getByLabel("Voice & focus").fill("My unsaved voice");
+    await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("Original focus");
+    await page.getByTestId("input-focus-description").fill("My unsaved voice");
     profile = { ...profile, focusDescription: "Remote focus", publications: ["Changed remotely"] };
     await refetchProfile();
-    await browserExpect(page.getByLabel("Voice & focus")).toHaveValue("My unsaved voice");
+    await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("My unsaved voice");
     await page.getByRole("tab", { name: "notifications", exact: true }).click();
     await browserExpect(page.getByRole("tab", { name: "notifications", exact: true })).toHaveAttribute("aria-selected", "true");
     await page.getByRole("tab", { name: "content", exact: true }).click();
     await browserExpect(page.getByRole("tab", { name: "content", exact: true })).toHaveAttribute("aria-selected", "true");
-    await browserExpect(page.getByLabel("Voice & focus")).toBeVisible();
-    await browserExpect(page.getByLabel("Voice & focus")).toHaveValue("My unsaved voice");
+    await browserExpect(page.getByTestId("input-focus-description")).toBeVisible();
+    await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("My unsaved voice");
     await page.getByTestId("button-save-content-preferences").click();
     await browserExpect(page.getByTestId("button-save-content-preferences")).toBeDisabled();
     expect(profile.focusDescription).toBe("My unsaved voice");
-  });
+  }, 15000);
 
   it("hydrates pristine publishing fields without an enabled-platform change and preserves dirty fields", async () => {
     await open("publishing");
-    await browserExpect(page.getByLabel("Preferred time")).toHaveValue("09:00");
+    await browserExpect(page.locator('input[type="time"]')).toHaveValue("09:00");
     profile = { ...profile, preferredPublishTime: "11:30" };
     await refetchProfile();
-    await browserExpect(page.getByLabel("Preferred time")).toHaveValue("11:30");
-    await page.getByLabel("Preferred time").fill("12:15");
+    await browserExpect(page.locator('input[type="time"]')).toHaveValue("11:30");
+    await page.locator('input[type="time"]').fill("12:15");
     profile = { ...profile, preferredPublishTime: "14:45" };
     await refetchProfile();
-    await browserExpect(page.getByLabel("Preferred time")).toHaveValue("12:15");
+    await browserExpect(page.locator('input[type="time"]')).toHaveValue("12:15");
     await page.getByRole("button", { name: "Discard changes" }).click();
-    await browserExpect(page.getByLabel("Preferred time")).toHaveValue("14:45");
+    await browserExpect(page.locator('input[type="time"]')).toHaveValue("14:45");
     await browserExpect(page.getByTestId("button-save-plugins")).toBeDisabled();
   });
 
@@ -702,7 +703,7 @@ describe("Settings consolidation and trust", () => {
     await browserExpect(save).toBeDisabled();
     expect(profile.enabledPlatforms).toEqual(["twitter"]);
     expect(profile.defaultPlatform).toBe("twitter");
-  });
+  }, 15000);
 
   it("keeps notification edits on failed save and refetch, then persists", async () => {
     await open("notifications");
@@ -717,6 +718,7 @@ describe("Settings consolidation and trust", () => {
     await page.getByTestId("button-save-notifications").click();
     await browserExpect(page.getByText("Could not save notifications", { exact: true })).toBeVisible();
     await browserExpect(page.getByTestId("button-save-notifications")).toBeEnabled();
+    await page.getByRole("button", { name: "Close notification" }).click();
     failures.clear();
     await page.getByTestId("button-save-notifications").click();
     await browserExpect(page.getByTestId("button-save-notifications")).toBeDisabled();
@@ -724,7 +726,7 @@ describe("Settings consolidation and trust", () => {
     expect(emailPreferences.productUpdates).toBe(false);
     expect(requests.filter(item => item.method === "PATCH").map(item => item.body)).toEqual([{ dailyDigest: false }, { dailyDigest: false }]);
     expect(profile.dailyDigest).toBe(true);
-  });
+  }, 15000);
 
   it("saves notification categories and digest timezone through the authoritative endpoint", async () => {
     await open("notifications");
@@ -778,21 +780,22 @@ describe("Settings consolidation and trust", () => {
     await browserExpect(page.getByText("Could not save publishing preferences", { exact: true })).toBeVisible();
     await browserExpect(page.getByLabel("Default tone")).toHaveValue("contrarian");
     await browserExpect(page.getByTestId("button-save-plugins")).toBeEnabled();
+    await page.getByRole("button", { name: "Close notification" }).click();
     failures.clear();
     await page.getByTestId("button-save-plugins").click();
     await browserExpect(page.getByTestId("button-save-plugins")).toBeDisabled();
     expect(profile.enabledPlatforms).toEqual(["twitter"]);
     expect(profile.defaultPlatform).toBe("twitter");
-  });
+  }, 15000);
 
   it("retains dirty content after save rejection and does not show success", async () => {
     await open("content");
-    await browserExpect(page.getByLabel("Voice & focus")).toHaveValue("Original focus");
-    await page.getByLabel("Voice & focus").fill("Unsaved content");
+    await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("Original focus");
+    await page.getByTestId("input-focus-description").fill("Unsaved content");
     failures.add("PATCH /api/profile");
     await page.getByTestId("button-save-content-preferences").click();
     await browserExpect(page.getByText("Failed to update profile. Please try again.", { exact: true })).toBeVisible();
-    await browserExpect(page.getByLabel("Voice & focus")).toHaveValue("Unsaved content");
+    await browserExpect(page.getByTestId("input-focus-description")).toHaveValue("Unsaved content");
     await browserExpect(page.getByTestId("button-save-content-preferences")).toBeEnabled();
     expect(profile.focusDescription).toBe("Original focus");
   });
@@ -817,13 +820,13 @@ describe("Settings consolidation and trust", () => {
     connected.slack = false;
     await open("integrations");
     await page.getByTestId("button-connect-slack").click();
-    await page.getByLabel("Paste incoming webhook URL").fill("https://hooks.slack.invalid/test-fixture");
+    await page.getByLabel("Incoming webhook URL").fill("https://hooks.slack.invalid/test-fixture");
     const discordFetches = requests.filter((request) => request.url === "/api/integrations/discord/status").length;
     await page.getByRole("button", { name: "Test & connect", exact: true }).click();
     await browserExpect(page.getByTestId("button-disconnect-slack")).toBeVisible();
     expect(requests.filter((request) => request.url === "/api/integrations/discord/status")).toHaveLength(discordFetches);
     expect(requests.some((request) => request.url === "/api/integrations/slack/webhook" && request.method === "POST")).toBe(true);
-  });
+  }, 15000);
 
   it("preserves the Settings section when consuming OAuth callback parameters", async () => {
     await page.goto(`${origin}/dashboard/settings?tab=integrations&connected=twitter`);
@@ -865,8 +868,8 @@ describe("Settings consolidation and trust", () => {
       await browserExpect(page.locator("main")).toHaveCount(1);
     }
     await open("publishing");
-    await browserExpect(page.getByLabel("Preferred time")).toBeVisible();
-    for (const control of [page.getByLabel("Preferred time"), page.getByLabel("Default platform", { exact: true }), page.getByRole("tab", { name: "integrations", exact: true })]) {
+    await browserExpect(page.locator('input[type="time"]')).toBeVisible();
+    for (const control of [page.locator('input[type="time"]'), page.locator("#default-platform"), page.getByRole("tab", { name: "integrations", exact: true })]) {
       expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

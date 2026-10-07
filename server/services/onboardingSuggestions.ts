@@ -94,6 +94,15 @@ USER: ${context(request)}`, z.object({ phrases: z.array(z.string().trim().min(2)
   }
 }
 
+function contextualSearchPhrases(request: OnboardingSuggestionRequest): string[] {
+  const areas = request.topics.length ? request.topics : request.understanding?.focusAreas;
+  const source = areas?.length
+    ? areas
+    : request.focusDescription.split(/[,.;]|\band\b|\bfocused on\b/i).reverse().map(part => part.trim().split(/\s+/).slice(-4).join(" "));
+  const region = request.understanding?.region;
+  return [...new Set(source.flatMap(area => [region ? short(`${area} ${region}`) : "", short(area)]).filter(Boolean))].slice(0, 4);
+}
+
 function hostOf(url?: string): string | null {
   const canonical = url ? canonicalHttpUrl(url) : null;
   return canonical ? new URL(canonical).hostname : null;
@@ -158,7 +167,7 @@ Return JSON only: {"topics":[{"topic":"...","weight":0.8,"headlines":[1,4]}],"no
 USER: ${context(request)}
 HEADLINES:
 ${numbered(headlines)}`,
-  z.object({ topics: tolerantList(z.object({ topic: z.string().trim().min(2).max(60), weight: z.number().min(0).max(1).default(0.6), headlines: z.array(z.number().int()).max(40) }), 30), note: noteText, followUps: followUpList }), scope, signal);
+z.object({ topics: tolerantList(z.object({ topic: z.string().trim().min(2).max(60), weight: z.number().min(0).max(1).default(0.6), headlines: z.array(z.number().int()).max(40) }), 30), note: noteText, followUps: followUpList }), scope, signal, { maxTokens: 4096, timeoutMs: 40_000 });
   const seen = new Set<string>();
   const items = topics.flatMap(topic => {
     const support = cited(topic.headlines, headlines);
@@ -189,7 +198,7 @@ Return JSON only: {"people":[{"name":"...","role":"...","headlines":[2]}],"compa
 USER: ${context(request)}
 HEADLINES:
 ${numbered(headlines)}`,
-  z.object({ people: entity, companies: entity, knownPeople: known, note: noteText, followUps: followUpList }), scope, signal);
+  z.object({ people: entity, companies: entity, knownPeople: known, note: noteText, followUps: followUpList }), scope, signal, { maxTokens: 4096, timeoutMs: 40_000 });
   // A name counts only if it literally appears in a headline it cites.
   const ground = (name: string, indexes: number[], reason: string): EntitySuggestion[] => {
     const mentioning = cited(indexes, headlines).filter(headline => headline.title.toLowerCase().includes(key(name)));
@@ -305,7 +314,9 @@ export async function suggestOnboardingItems(input: OnboardingSuggestionRequest,
   }
   const excluded = new Set([...request.exclude, ...request.publications.map(publication => publication.name), ...request.topics].map(key));
   onProgress("Working out what to search for…");
-  const phrases = await searchPhrases(request, scope, signal);
+  const phrases = request.step === "publications"
+    ? await searchPhrases(request, scope, signal)
+    : contextualSearchPhrases(request);
   const sites = request.step === "topics" ? request.publications.flatMap(publication => { const host = hostOf(publication.url); return host ? [{ name: publication.name, host }] : []; }).slice(0, 3) : [];
   const queries = request.step === "publications" ? phrases
     : request.step === "topics" ? [...phrases, ...sites.map(site => `site:${site.host} ${phrases[0] ?? ""}`.trim())]

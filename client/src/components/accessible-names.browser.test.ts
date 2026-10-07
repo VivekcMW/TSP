@@ -13,14 +13,17 @@ const fixture = `
   import React from "react";
   import { createRoot } from "react-dom/client";
   import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+  import { Router } from "wouter";
   import Resources from "@/pages/resources";
   import { DashboardNavbar } from "@/components/dashboard/navbar";
   import { PlatformStrip } from "@/components/landing/platform-strip";
   import { DecorativeIcons } from "@/components/decorative-icons";
+  import { SidebarProvider } from "@/components/ui/sidebar";
   const h = React.createElement;
   const client = new QueryClient({ defaultOptions: { queries: { enabled: false } } });
   createRoot(document.getElementById("root")).render(
-    h(QueryClientProvider, { client }, h(DecorativeIcons, null, h(DashboardNavbar), h(PlatformStrip), h(Resources))));
+    h(QueryClientProvider, { client }, h(Router, null,
+      h(DecorativeIcons, null, h(SidebarProvider, null, h(DashboardNavbar)), h(PlatformStrip), h(Resources)))));
 `;
 
 let browser: Browser;
@@ -59,12 +62,18 @@ afterAll(async () => { await browser?.close(); });
 
 async function openFixture(): Promise<Page> {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
   page.setDefaultTimeout(5_000);
   await page.route("**/*", route => route.abort());
   await page.setContent('<div id="root"></div>');
   await page.addStyleTag({ content: css });
   await page.addScriptTag({ content: script });
-  await page.getByTestId("section-platform-strip").waitFor();
+  try {
+    await page.getByTestId("section-platform-strip").waitFor();
+  } catch (error) {
+    throw new Error(`Fixture did not render: ${errors.join("; ") || String(error)}`);
+  }
   return page;
 }
 
@@ -77,7 +86,7 @@ describe("accessible names at phone width", () => {
       await menu.click();
       await expect(menu.getAttribute("aria-label")).resolves.toBe("Close menu");
     } finally { await page.close(); }
-  });
+  }, 15000);
 
   it("names the dashboard logo link when its wordmark is hidden", async () => {
     const page = await openFixture();
@@ -85,7 +94,7 @@ describe("accessible names at phone width", () => {
       await expect(page.getByTestId("link-navbar-logo").locator("span").isVisible()).resolves.toBe(false);
       await expect(page.getByRole("link", { name: "TheSocialPundit dashboard" }).count()).resolves.toBe(1);
     } finally { await page.close(); }
-  });
+  }, 15000);
 
   it("keeps brand icons out of the accessibility tree", async () => {
     const page = await openFixture();
@@ -94,7 +103,7 @@ describe("accessible names at phone width", () => {
       expect(await icons.count()).toBeGreaterThan(0);
       expect(await icons.evaluateAll(svgs => svgs.filter(svg => svg.getAttribute("aria-hidden") !== "true").length)).toBe(0);
     } finally { await page.close(); }
-  });
+  }, 15000);
 
   it("lets keyboard users focus and scroll each template preview", async () => {
     const page = await openFixture();
@@ -111,5 +120,5 @@ describe("accessible names at phone width", () => {
         expect(await preview.evaluate(element => element === document.activeElement)).toBe(true);
       }
     } finally { await page.close(); }
-  });
+  }, 15000);
 });

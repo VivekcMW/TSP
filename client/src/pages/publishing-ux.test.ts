@@ -204,6 +204,161 @@ async function openPublish(scheduled = false) {
   await browserExpect(page.getByTestId("button-publish-now")).toBeEnabled();
 }
 
+describe("content library redesign", () => {
+  afterEach(async () => {
+    expect((await calls()).filter((call: { method: string }) => call.method !== "GET")).toEqual([]);
+  });
+  const rows = () => page.locator('[data-testid^="content-row-"]');
+  const preview = () => page.getByRole("region", { name: "Post preview", exact: true });
+  it.each([375, 1280])("keeps the Twitter/X preview header evenly padded at %ipx", async width => {
+    await mount("drafts", { drafts: [draft("twitter-post", "draft", "twitter")] }, width);
+    await page.getByTestId("button-preview-twitter-post").click();
+    const spacing = await page.getByTestId("card-draft-twitter-post").evaluate(card => {
+      const content = card.firstElementChild!;
+      const header = content.firstElementChild!;
+      const box = card.getBoundingClientRect(), headerBox = header.getBoundingClientRect();
+      return { top: headerBox.top - box.top, left: headerBox.left - box.left, right: box.right - headerBox.right };
+    });
+    const padding = width < 640 ? 16 : 20;
+    expect(spacing).toEqual({ top: padding, left: padding, right: padding });
+  });
+  it("opens a compact list beside one full preview without selecting drafts for bulk publishing", async () => {
+    await mount("drafts", { drafts: [draft(), draft("other", "draft", "twitter")] });
+    await browserExpect(rows()).toHaveCount(2);
+    await browserExpect(page.getByTestId("tab-ready")).toContainText("Drafts");
+    await browserExpect(page.locator('[data-testid^="card-draft-"]')).toHaveCount(1);
+    await browserExpect(preview()).toContainText(draft().content);
+    await browserExpect(page.getByTestId("button-edit-preview-d")).toBeEnabled();
+    await browserExpect(page.getByTestId("checkbox-select-d")).not.toBeChecked();
+    const listBox = await page.getByRole("region", { name: "Post library" }).boundingBox();
+    const previewBox = await preview().boundingBox();
+    expect(previewBox!.x).toBeGreaterThan(listBox!.x + listBox!.width);
+    await page.getByTestId("button-preview-other").click();
+    await browserExpect(preview()).toContainText(draft("other").content);
+    await browserExpect(page.getByTestId("card-draft-d")).toHaveCount(0);
+    await browserExpect(page.getByTestId("checkbox-select-other")).not.toBeChecked();
+    await browserExpect(page.getByRole("dialog")).toHaveCount(0);
+  });
+  it("keeps a chosen post selected across sort changes and background refreshes", async () => {
+    const first = { ...draft(), createdAt: "2026-08-01T10:00:00Z" };
+    const second = { ...draft("other"), createdAt: "2026-09-01T10:00:00Z", updatedAt: "2026-09-18T09:00:00Z" };
+    await mount("drafts", { drafts: [first, second] });
+    await browserExpect(rows().first()).toHaveAttribute("data-testid", "content-row-other");
+    await page.getByTestId("button-preview-d").click();
+    await page.getByLabel("Sort posts").selectOption("oldest");
+    await browserExpect(rows().first()).toHaveAttribute("data-testid", "content-row-d");
+    await page.getByLabel("Sort posts").selectOption("newest");
+    await browserExpect(rows().first()).toHaveAttribute("data-testid", "content-row-other");
+    await browserExpect(preview()).toContainText(first.content);
+    await change({ drafts: [first, { ...second, content: "Changed elsewhere", updatedAt: "2026-09-19T09:00:00Z" }] }, true);
+    await browserExpect(page.getByTestId("content-row-other")).toContainText("Changed elsewhere");
+    await browserExpect(preview()).toContainText(first.content);
+  });
+  it("searches and filters every status, including scheduled sibling platforms, and resets filters", async () => {
+    await mount("drafts", { drafts: [draft(), draft("planned", "scheduled"), draft("done", "published"), draft("review", "unknown")], schedules: [schedule(["scheduled", "scheduled"], "scheduled", "planned")] });
+    await page.getByTestId("tab-all").click();
+    await browserExpect(rows()).toHaveCount(4);
+    await page.getByLabel("Filter by platform").selectOption("twitter");
+    await browserExpect(rows()).toHaveCount(1);
+    await browserExpect(rows().first()).toContainText("planned");
+    await page.getByLabel("Search drafts", { exact: true }).fill("missing words");
+    await browserExpect(page.getByText("No matching posts", { exact: true })).toBeVisible();
+    await browserExpect(page.locator('[data-testid^="card-draft-"]')).toHaveCount(0);
+    await page.getByRole("button", { name: "Clear filters", exact: true }).click();
+    await browserExpect(rows()).toHaveCount(4);
+    await page.getByTestId("tab-attention").click();
+    await browserExpect(rows()).toHaveCount(1);
+    await browserExpect(preview()).toContainText("review");
+  });
+  it("separates preview selection from bulk checkboxes, including hidden selected drafts", async () => {
+    await mount("drafts", { drafts: [draft(), draft("other", "draft", "twitter")] });
+    await page.getByTestId("checkbox-select-d").check();
+    await browserExpect(page.getByRole("checkbox", { name: "Select all visible drafts" })).toHaveAttribute("aria-checked", "mixed");
+    await page.getByRole("checkbox", { name: "Select all visible drafts" }).check();
+    await page.getByLabel("Filter by platform").selectOption("twitter");
+    await browserExpect(page.getByText("1 not in this view", { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: "Schedule 2 selected", exact: true }).click();
+    await browserExpect(page.getByRole("dialog")).toContainText(draft().content);
+    await browserExpect(page.getByRole("dialog")).toContainText(draft("other").content);
+    await browserExpect(page.getByRole("button", { name: "Schedule 2 drafts", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByRole("button", { name: "Clear selection", exact: true }).click();
+    await browserExpect(page.getByRole("button", { name: "Schedule 2 selected", exact: true })).toHaveCount(0);
+  });
+  it("opens the exact selected post for editing and scheduling only after an explicit action", async () => {
+    await mount("drafts", { drafts: [draft(), draft("other", "draft", "twitter")] });
+    await page.getByTestId("button-preview-other").click();
+    await page.getByTestId("button-edit-preview-other").click();
+    await browserExpect(page.getByLabel("Draft content")).toHaveValue(draft("other").content);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByTestId("button-schedule-other").click();
+    await browserExpect(page.getByTestId("schedule-exact-text")).toHaveText(draft("other").content);
+    await browserExpect(page.getByRole("checkbox", { name: "I confirm this exact text, destinations and timezone." })).not.toBeChecked();
+  });
+  it("shows full text without truncation and resets expanded receipts when switching posts", async () => {
+    const longText = "An important detail. ".repeat(40) + "Final review line.";
+    await mount("drafts", { drafts: [{ ...draft("long", "published"), content: longText }, draft("other", "published")] });
+    await page.getByTestId("tab-published").click();
+    await browserExpect(preview().locator("#draft-content-long")).toHaveText(longText);
+    expect(await preview().locator("#draft-content-long").evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+    await page.getByRole("button", { name: "Show publishing receipts", exact: true }).click();
+    await page.getByTestId("button-preview-other").click();
+    await browserExpect(page.getByRole("button", { name: "Show publishing receipts", exact: true })).toBeVisible();
+    expect((await calls()).filter((call: { url: string }) => call.url === "/api/drafts/other/publish-logs")).toHaveLength(0);
+  });
+  it("shows connection blockers only in the selected preview and keeps review scheduling accessible", async () => {
+    await mount("drafts", { drafts: [draft(), draft("other")], connections: { linkedin: { connected: false } } });
+    await browserExpect(page.getByRole("region", { name: "Post library" })).not.toContainText("Connect or reconnect");
+    await browserExpect(preview()).toContainText("Connect or reconnect this account before publishing.");
+    await browserExpect(page.getByTestId("button-schedule-d")).toBeDisabled();
+    await page.getByRole("button", { name: "Resolve scheduling for LinkedIn draft" }).click();
+    await browserExpect(page.getByRole("dialog")).toBeVisible();
+  });
+  it.each([375, 768, 1024])("uses an accessible list-to-preview flow at %ipx without overflow", async width => {
+    await mount("drafts", { drafts: [draft(), draft("other", "draft", "twitter")] }, width);
+    await browserExpect(page.getByRole("region", { name: "Post library" })).toBeVisible();
+    await browserExpect(preview()).not.toBeVisible();
+    await page.getByTestId("button-preview-other").focus(); await page.keyboard.press("Enter");
+    await browserExpect(preview()).toBeVisible();
+    await browserExpect(preview()).toBeFocused();
+    await browserExpect(page.getByRole("region", { name: "Post library" })).not.toBeVisible();
+    await browserExpect(preview()).toContainText(draft("other").content);
+    await page.getByRole("button", { name: "Back to posts", exact: true }).click();
+    await browserExpect(page.getByTestId("button-preview-other")).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+  it("does not replace a missing exact linked preview with the first post", async () => {
+    await mount("drafts", {}, 1280, "/dashboard/content?draft=missing");
+    await browserExpect(page.getByText("Linked draft not found", { exact: true })).toBeVisible();
+    await browserExpect(page.locator('[data-testid^="card-draft-"]')).toHaveCount(0);
+    await browserExpect(page.getByTestId("button-preview-d")).toHaveAttribute("aria-pressed", "false");
+    await page.getByTestId("button-preview-d").click();
+    await browserExpect(preview()).toContainText(draft().content);
+    expect(new URL(page.url()).searchParams.has("draft")).toBe(false);
+  });
+  it("retains an honest empty state and errors without reporting zero saved posts on a failed read", async () => {
+    await mount("drafts", { drafts: [] });
+    await browserExpect(page.getByText("No drafts yet", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("link", { name: "Create post", exact: true })).toHaveAttribute("href", "/dashboard/create");
+    await change({ draftsError: true }, true);
+    await browserExpect(page.getByRole("alert")).toContainText("Content could not be loaded");
+    await browserExpect(page.getByTestId("tab-ready")).not.toContainText("0");
+  });
+  it("uses Calendar's honest delivery labels, including uncertain and simulated outcomes", async () => {
+    await mount("drafts", { drafts: [draft("pending", "scheduled"), draft("done", "published"), draft("unknown", "unknown"), draft("demo", "simulated"), draft("legacy", "published")],
+      schedules: [schedule(["scheduled"], "scheduled", "pending"), schedule(["published"], "published", "done"), schedule(["unknown"], "unknown", "unknown"), schedule(["simulated"], "simulated", "demo")] });
+    await page.getByTestId("tab-all").click();
+    await browserExpect(page.getByTestId("content-row-pending")).toContainText("Scheduled");
+    await browserExpect(page.getByTestId("content-row-done")).toContainText("Published");
+    await browserExpect(page.getByTestId("content-row-unknown")).toContainText("Needs attention");
+    await browserExpect(page.getByTestId("content-row-demo")).toContainText("Demo only");
+    await browserExpect(page.getByTestId("content-row-legacy")).toContainText("Check delivery");
+    await page.getByTestId("button-preview-unknown").click();
+    await browserExpect(page.getByTestId("button-edit-preview-unknown")).toBeDisabled();
+    await browserExpect(preview()).toContainText("delivery could have succeeded");
+  });
+});
+
 async function beginSchedule(surface: "modal" | "calendar", overrides: Record<string, unknown> = {}) {
   await mount(surface, overrides);
   if (surface === "calendar") await page.getByRole("button", { name: "Schedule draft", exact: true }).click();
@@ -217,6 +372,151 @@ async function beginSchedule(surface: "modal" | "calendar", overrides: Record<st
   await date.fill("2026-09-20");
   return { dialog, date, time, confirmation, submit };
 }
+
+describe("calendar planner redesign", () => {
+  afterEach(async () => {
+    expect((await calls()).filter((call: { method: string }) => call.method !== "GET")).toEqual([]);
+  });
+  const day = (key: string) => page.locator(`[data-select-day="${key}"]`);
+  it("opens a real seven-column month with selected-day details and a draft queue", async () => {
+    await mount("calendar");
+    await browserExpect(page.getByRole("button", { name: "Month", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await browserExpect(page.getByTestId("calendar-period")).toHaveText("September 2026");
+    await browserExpect(page.locator("[data-calendar-day]")).toHaveCount(35);
+    const bounds = await page.locator("[data-calendar-day]").evaluateAll(elements => elements.slice(0, 8).map(element => {
+      const { x, y } = element.getBoundingClientRect(); return { x, y };
+    }));
+    expect(new Set(bounds.slice(0, 7).map(box => box.y)).size).toBe(1);
+    expect(bounds[7].y).toBeGreaterThan(bounds[0].y);
+    await browserExpect(day("2026-09-17")).toHaveAttribute("aria-current", "date");
+    await browserExpect(day("2026-09-17")).toHaveAttribute("aria-pressed", "true");
+    await browserExpect(page.getByRole("region", { name: "Draft queue", exact: true })).toContainText(draft().content);
+  });
+  it("changes month, week and agenda periods and returns to today", async () => {
+    await mount("calendar");
+    await page.getByRole("button", { name: "Next period" }).click();
+    await browserExpect(page.getByTestId("calendar-period")).toHaveText("October 2026");
+    await page.getByRole("button", { name: "Previous period" }).click();
+    await browserExpect(page.getByTestId("calendar-period")).toHaveText("September 2026");
+    await page.getByRole("button", { name: "Today", exact: true }).click();
+    await page.getByRole("button", { name: "Week", exact: true }).click();
+    await browserExpect(page.locator("[data-calendar-day]")).toHaveCount(7);
+    await browserExpect(day("2026-09-13")).toBeVisible();
+    await page.getByRole("button", { name: "Next period" }).click();
+    await browserExpect(day("2026-09-20")).toBeVisible();
+    await page.getByRole("button", { name: "Today", exact: true }).click();
+    await browserExpect(day("2026-09-17")).toHaveAttribute("aria-pressed", "true");
+  });
+  it("shows full selected-day details and opens scheduling on that exact date", async () => {
+    await mount("calendar", { schedules: [schedule(["scheduled"], "scheduled", "planned")] });
+    await day("2026-09-20").click();
+    await browserExpect(page.getByRole("region", { name: "Selected day", exact: true })).toContainText("Review this planned post");
+    await page.getByRole("button", { name: "Next day", exact: true }).click();
+    await browserExpect(day("2026-09-21")).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Previous day", exact: true }).click();
+    await browserExpect(day("2026-09-20")).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Schedule draft on 2026-09-20", exact: true }).click();
+    await browserExpect(page.getByRole("dialog").getByLabel("Date", { exact: true })).toHaveValue("2026-09-20");
+    await browserExpect(page.getByRole("dialog").getByRole("button", { name: "Schedule 1 platform", exact: true })).toBeDisabled();
+  });
+  it("plans the explicitly chosen queue draft, not the first draft", async () => {
+    await mount("calendar", { drafts: [draft(), draft("second", "draft", "twitter")] });
+    await day("2026-09-22").click();
+    await page.getByTestId("queue-draft-second").getByRole("button", { name: /^Plan Twitter/ }).click();
+    const dialog = page.getByRole("dialog");
+    await browserExpect(dialog.getByRole("combobox", { name: "Draft", exact: true })).toHaveValue("second");
+    await browserExpect(dialog.getByTestId("schedule-exact-text")).toHaveText(draft("second").content);
+    await browserExpect(dialog.getByLabel("Date", { exact: true })).toHaveValue("2026-09-22");
+    await browserExpect(dialog.getByRole("checkbox", { name: "Twitter/X", exact: true })).toBeChecked();
+    await browserExpect(dialog.getByRole("checkbox", { name: "I confirm this exact text, destinations and timezone." })).not.toBeChecked();
+  });
+  it("keeps scheduled or uncertain drafts out of the planning queue even when draft flags are stale", async () => {
+    await mount("calendar", { drafts: [draft(), draft("blocked")], schedules: [schedule(["unknown"], "unknown", "blocked")] });
+    await browserExpect(page.getByTestId("queue-draft-d")).toBeVisible();
+    await browserExpect(page.getByTestId("queue-draft-blocked")).toHaveCount(0);
+  });
+  it("filters both calendar posts and draft queue by platform and text, then resets all filters", async () => {
+    const xSchedule = schedule(["scheduled"], "scheduled", "x");
+    xSchedule.targets[0].platform = "twitter";
+    await mount("calendar", { drafts: [draft(), draft("x-draft", "draft", "twitter")], schedules: [schedule(["scheduled"]), xSchedule] });
+    await page.getByLabel("Platform", { exact: true }).selectOption("twitter");
+    await browserExpect(day("2026-09-20")).toHaveAttribute("aria-label", /, 1 post$/);
+    await browserExpect(page.getByTestId("queue-draft-x-draft")).toBeVisible();
+    await browserExpect(page.getByTestId("queue-draft-d")).toHaveCount(0);
+    await page.getByLabel("Search posts", { exact: true }).fill("not-a-matching-post");
+    await browserExpect(day("2026-09-20")).toHaveAttribute("aria-label", /, 0 posts$/);
+    await browserExpect(page.getByRole("region", { name: "Draft queue", exact: true })).toContainText("No matching drafts");
+    await page.getByRole("button", { name: "Clear filters", exact: true }).click();
+    await browserExpect(day("2026-09-20")).toHaveAttribute("aria-label", /, 2 posts$/);
+    await browserExpect(page.getByLabel("Search posts", { exact: true })).toHaveValue("");
+  });
+  it.each([
+    ["published", "published", "Published"],
+    ["unknown", "attention", "Needs attention"],
+    ["simulated", "simulated", "Demo only"],
+    ["cancelled", "cancelled", "Cancelled"],
+  ])("filters %s outcomes without treating them as verified publication", async (status, filter, label) => {
+    await mount("calendar", { schedules: [schedule([status], status)] });
+    await page.getByLabel("Status", { exact: true }).selectOption(filter);
+    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    await browserExpect(page.getByLabel("Monthly agenda")).toContainText(label);
+    await browserExpect(page.getByLabel("Monthly agenda").locator("article")).toHaveCount(1);
+    if (status !== "published") await browserExpect(page.getByLabel("Monthly agenda").getByText("Published", { exact: true })).toHaveCount(0);
+  });
+  it("moves posts between calendar dates when the display timezone changes", async () => {
+    await mount("calendar", { schedules: [{ ...schedule(["scheduled"]), scheduledPublishAt: "2026-09-20T00:15:00Z" }] });
+    await browserExpect(day("2026-09-20")).toHaveAttribute("aria-label", /, 1 post$/);
+    await page.getByLabel("Display & scheduling timezone").selectOption("America/Los_Angeles");
+    await browserExpect(day("2026-09-19")).toHaveAttribute("aria-label", /, 1 post$/);
+    await browserExpect(day("2026-09-20")).toHaveAttribute("aria-label", /, 0 posts$/);
+    await day("2026-09-19").click();
+    await browserExpect(page.getByRole("region", { name: "Selected day", exact: true })).toContainText("Times in America/Los_Angeles");
+  });
+  it("paginates the agenda by month instead of showing unrelated dates", async () => {
+    await mount("calendar", { schedules: [schedule(["scheduled"]), { ...schedule(["scheduled"], "scheduled", "october"), scheduledPublishAt: "2026-10-03T09:00:00Z" }] });
+    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    await browserExpect(page.getByLabel("Monthly agenda")).toContainText("Review this d post");
+    await browserExpect(page.getByLabel("Monthly agenda")).not.toContainText("Review this october post");
+    await page.getByRole("button", { name: "Next period" }).click();
+    await browserExpect(page.getByLabel("Monthly agenda")).toContainText("Review this october post");
+    await browserExpect(page.getByLabel("Monthly agenda")).not.toContainText("Review this d post");
+  });
+  it("supports keyboard date navigation across month boundaries without opening scheduling", async () => {
+    await mount("calendar"); await day("2026-09-30").focus(); await page.keyboard.press("ArrowRight");
+    await browserExpect(page.getByTestId("calendar-period")).toHaveText("October 2026");
+    await browserExpect(day("2026-10-01")).toBeFocused();
+    await page.keyboard.press("ArrowDown"); await browserExpect(day("2026-10-08")).toBeFocused();
+    await page.keyboard.press("Home"); await browserExpect(day("2026-10-04")).toBeFocused();
+    await page.keyboard.press("Home");
+    await day("2026-10-06").click(); await browserExpect(day("2026-10-06")).toBeFocused();
+    await page.keyboard.press("PageUp"); await browserExpect(day("2026-09-01")).toBeFocused();
+    await browserExpect(page.getByRole("dialog")).toHaveCount(0);
+  });
+  it("navigates to the correct month for a linked schedule outside the current month", async () => {
+    const existing = { ...schedule(["unknown"], "unknown", "linked"), scheduledPublishAt: "2026-12-03T09:00:00Z" };
+    await mount("calendar", { drafts: [draft("linked", "unknown")], schedules: [existing] }, 1280, "/dashboard/calendar?draft=linked");
+    await browserExpect(page.getByTestId("calendar-period")).toHaveText("December 2026");
+    await browserExpect(page.locator('article[data-linked-draft="true"]')).toContainText("Linked draft schedule");
+    await browserExpect(page.getByRole("dialog")).toHaveCount(0);
+  });
+  it("shows a data failure rather than an empty calendar on a failed read", async () => {
+    await mount("calendar", { scheduleError: true });
+    await browserExpect(page.getByText("Could not load publishing data. Scheduling is disabled until status is verified.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("group", { name: "Month calendar", exact: true })).toHaveCount(0);
+    await change({ scheduleError: false });
+    await page.getByRole("button", { name: "Refresh status", exact: true }).click();
+    await browserExpect(page.getByRole("group", { name: "Month calendar", exact: true })).toBeVisible();
+  });
+  it("brings selected-day details into view on a narrow screen without horizontal overflow", async () => {
+    await mount("calendar", { schedules: [schedule(["scheduled"])] }, 390);
+    await day("2026-09-20").click();
+    const region = page.getByRole("region", { name: "Selected day", exact: true });
+    await browserExpect(region).toContainText("Review this d post");
+    await browserExpect.poll(async () => (await region.boundingBox())!.y).toBeLessThan(400);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await browserExpect(region.getByRole("button", { name: /^Reschedule/ })).toBeVisible();
+  });
+});
 
 describe("UX-07 and UX-08 counts and scheduling intent (isolated browser)", () => {
   it.each(["modal", "calendar"] as const)("rejects silent writer B after %s confirmation of A, despite B being approved", async surface => {
@@ -522,7 +822,7 @@ describe("Content and Calendar page-adoption layout (authored, isolated browser)
 
   it.each(["drafts", "calendar"])("scrolls the %s toolbar with its content, not with page identity", async surface => {
     await mount(surface, { drafts: Array.from({ length: 16 }, (_, index) => draft(`draft-${index}`)) }, 375);
-    if (surface === "drafts") await page.getByTestId("card-draft-draft-0").waitFor();
+    if (surface === "drafts") await page.getByTestId("content-row-draft-0").waitFor();
     else await page.locator("[data-calendar-day]").first().waitFor();
     const positions = await page.evaluate(() => {
       const body = document.querySelector<HTMLElement>("[data-page-body]")!;
@@ -553,7 +853,7 @@ describe("page adoption: exact draft handoffs and revision safety (authored, iso
     }
     expect((await calls()).some((call: any) => call.url === `/api/drafts/${encodeURIComponent(older.id)}/details`)).toBe(true);
     expect((await calls()).filter((call: any) => call.method !== "GET")).toEqual([]);
-  });
+  }, 15000);
   it.each(["drafts", "calendar"])("retains receipt-projected legacy delivery on the older %s detail", async surface => {
     const older = draft("older", "legacy_unverified");
     await mount(surface, { detailDrafts: [older] }, 1280, `/dashboard/${surface === "drafts" ? "content" : "calendar"}?draft=older`);
@@ -614,7 +914,8 @@ describe("page adoption: exact draft handoffs and revision safety (authored, iso
     const selected = page.locator('[data-linked-draft="true"]');
     await browserExpect(selected).toHaveCount(1);
     await browserExpect(selected.getByTestId(`card-draft-${linked.id}`)).toBeVisible();
-    await browserExpect(page.getByTestId("card-draft-first")).toBeVisible();
+    await page.getByRole("button", { name: "Back to posts", exact: true }).click();
+    await browserExpect(page.getByTestId("content-row-first")).toBeVisible();
     await browserExpect(page.getByTestId(`checkbox-select-${linked.id}`)).not.toBeChecked();
     await browserExpect(page.getByRole("dialog")).toHaveCount(0);
     expect((await calls()).filter((call: any) => call.method !== "GET")).toEqual([]);
@@ -624,7 +925,7 @@ describe("page adoption: exact draft handoffs and revision safety (authored, iso
     expect(new URL(page.url()).searchParams.get("keep")).toBe("context");
     expect(new URL(page.url()).searchParams.has("draft")).toBe(false);
     await page.getByTestId("tab-ready").click();
-    await browserExpect(page.getByTestId(`card-draft-${linked.id}`)).toBeVisible();
+    await browserExpect(page.getByTestId(`content-row-${linked.id}`)).toBeVisible();
   });
 
   it.each(["scheduled", "unknown", "published"])("selects a linked %s Content record's actual view without opening publishing", async status => {
@@ -647,7 +948,8 @@ describe("page adoption: exact draft handoffs and revision safety (authored, iso
       await browserExpect(page.getByTestId("schedule-exact-text")).toHaveCount(0);
       await browserExpect(page.getByRole("button", { name: /^Schedule\s+platforms$/ })).toBeDisabled();
     } else {
-      await browserExpect(page.getByTestId("card-draft-d")).toBeVisible();
+      await browserExpect(page.getByTestId("content-row-d")).toBeVisible();
+      await browserExpect(page.locator('[data-testid^="card-draft-"]')).toHaveCount(0);
       await browserExpect(page.getByTestId("checkbox-select-d")).not.toBeChecked();
     }
     expect((await calls()).filter((call: any) => call.method !== "GET")).toEqual([]);
@@ -687,7 +989,7 @@ describe("page adoption: exact draft handoffs and revision safety (authored, iso
   it.each(["scheduled", "unknown"])("highlights an existing %s Calendar schedule rather than creating another", async status => {
     const existing = schedule([status], status, "linked");
     await mount("calendar", { drafts: [draft("first"), draft("linked", status)], schedules: [existing] }, 1280, "/dashboard/calendar?draft=linked");
-    await browserExpect(page.getByRole("button", { name: "list", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await browserExpect(page.getByRole("button", { name: "Agenda", exact: true })).toHaveAttribute("aria-pressed", "true");
     await browserExpect(page.locator('article[data-linked-draft="true"]')).toContainText("Linked draft schedule");
     await browserExpect(page.getByRole("dialog")).toHaveCount(0);
     await browserExpect(page.getByRole("link", { name: "Review linked draft in Content" })).toHaveAttribute("href", "/dashboard/content?draft=linked");
@@ -774,7 +1076,7 @@ describe("UX-22 shared Content manual handoff (authored, isolated browser)", () 
     await mount("drafts", { drafts: [draft(), draft("other")], deferClipboard: true }); await openPublish();
     await page.getByTestId("button-copy-and-post").click();
     await browserExpect.poll(() => page.evaluate(() => (window as any).__clipboardPending.length)).toBe(1);
-    await page.getByTestId("button-cancel-post").click(); await page.getByTestId("button-post-other").click();
+    await page.getByTestId("button-cancel-post").click(); await page.getByTestId("button-preview-other").click(); await page.getByTestId("button-post-other").click();
     await page.evaluate(() => (window as any).__clipboardPending.shift()());
     await browserExpect.poll(() => page.evaluate(() => (window as any).__popupCloses)).toBe(1);
     expect(await page.evaluate(() => (window as any).__handoffs)).toEqual([]);
@@ -1009,6 +1311,7 @@ describe("audited publishing UX (isolated browser)", () => {
     await openPublish(); await page.getByTestId("button-publish-now").click();
     await browserExpect(page.getByRole("button", { name: "Dismiss monitor", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Dismiss monitor", exact: true }).click();
+    await page.getByTestId("button-preview-other").click();
     await page.getByTestId("button-post-other").click();
     await browserExpect(page.getByTestId("button-publish-now")).toBeEnabled();
     await browserExpect(page.getByTestId("button-copy-and-post")).toBeEnabled();
@@ -1026,10 +1329,12 @@ describe("audited publishing UX (isolated browser)", () => {
     await mount("drafts", { drafts: [draft("d", "partial"), draft("u", "unknown"), draft("future", "future-state")], schedules: [schedule(["published", "failed"], "partial"), schedule(["unknown"], "unknown", "u")] });
     await page.getByTestId("tab-attention").click();
     await browserExpect(page.getByTestId("tab-attention")).toContainText("3");
-    for (const id of ["d", "u", "future"]) await browserExpect(page.getByTestId(`card-draft-${id}`)).toBeVisible();
+    for (const id of ["d", "u", "future"]) await browserExpect(page.getByTestId(`content-row-${id}`)).toBeVisible();
     await browserExpect(page.getByRole("button", { name: "Retry twitter", exact: true })).toBeEnabled();
     expect(await page.getByRole("button", { name: "Retry linkedin", exact: true }).count()).toBe(0);
+    await page.getByTestId("button-preview-u").click();
     await browserExpect(page.getByTestId("card-draft-u")).toContainText("delivery could have succeeded");
+    await page.getByTestId("button-preview-d").click();
     await page.getByRole("button", { name: "Retry twitter", exact: true }).click();
     expect((await calls()).filter((call: any) => call.method === "POST").map((call: any) => call.url)).toEqual(["/api/drafts/d/schedule/targets/t1/retry"]);
   });
@@ -1238,14 +1543,14 @@ describe("audited publishing UX (isolated browser)", () => {
   });
   it("keeps recovery visible in list/month and provides keyboard rescheduling", async () => {
     await mount("calendar", { drafts: [draft("d", "scheduled")], schedules: [schedule(["scheduled"])] });
-    await page.getByRole("button", { name: "list", exact: true }).click();
+    await page.getByRole("button", { name: "Agenda", exact: true }).click();
     await browserExpect(page.getByRole("button", { name: "Cancel linkedin", exact: true })).toBeVisible();
     const rescheduleButton = page.getByRole("button", { name: /^Reschedule Review/ });
     await rescheduleButton.focus(); await page.keyboard.press("Enter");
     await browserExpect(page.getByRole("dialog")).toBeVisible();
     await browserExpect(page.getByLabel("Publication Time (Asia/Kolkata)")).toHaveValue("14:30");
     await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: "month", exact: true }).click();
+    await page.getByRole("button", { name: "Month", exact: true }).click();
     await browserExpect(page.getByRole("button", { name: "Cancel linkedin", exact: true })).toBeVisible();
   });
   it("stops terminal/skipped job polling and ignores an old job's late response", async () => {
@@ -1262,6 +1567,7 @@ describe("audited publishing UX (isolated browser)", () => {
   it("fits mobile cards and scheduling dialog with named keyboard controls", async () => {
     await mount("drafts", {}, 375);
     await browserExpect(page.getByLabel("Search drafts", { exact: true })).toBeVisible();
+    await page.getByTestId("button-preview-d").click();
     await browserExpect(page.getByRole("button", { name: "Actions for LinkedIn draft" })).toBeVisible();
     await browserExpect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.getByTestId("button-schedule-d").click();

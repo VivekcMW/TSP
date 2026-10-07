@@ -10,24 +10,44 @@ import { getPlatformMeta, PLATFORMS } from "@/lib/platforms";
 import { usablePost, type ReviewResponse } from "@/lib/editorial";
 import { isUsableInboxArticle } from "@/lib/inbox-quality";
 import { useEditorialGeneration } from "@/hooks/use-editorial-generation";
-import { applyReview, CREATE_TONES, emptyArticle, isEdited, isUnsaved, publicSourceUrl, versionKey, type CreateTone, type ManualArticle, type PostVersion, type PostVersions } from "./create-post-state";
+import { useCreationSession } from "@/hooks/use-creation-session";
+import { MAX_CREATION_REFERENCES, type CreationChat, type CreationSession, type CreationStep } from "@shared/creation-session";
+import { ALL_PLATFORM_KEYS } from "@shared/schema";
+import { applyReview, CREATE_TONES, emptyArticle, isEdited, publicSourceUrl, versionKey, type CreateTone, type MainDraft, type ManualArticle, type PostVersion, type PostVersions } from "./create-post-state";
 
-type ComposerSource = { mode: "article" | "manual"; url: string; item?: InboxItem; manual: ManualArticle };
-type GenerationInput = { source: ComposerSource; tone: CreateTone; format: EditorialFormat };
+type ComposerSource = { mode: "article" | "manual"; url: string; item?: InboxItem; inboxItemId?: string; manual: ManualArticle };
+type GenerationInput = { source: ComposerSource; tone: CreateTone; format: EditorialFormat; main?: MainDraft };
 type GenerationSnapshot = GenerationInput & { platform: string; inboxItemId?: string };
 type GenerationState = "generating" | "ready" | "failed" | "uncertain" | "not-attempted";
 type Batch = { targets: string[]; completed: string[]; current?: string; failed?: string };
 type BatchRecovery = GenerationInput & { unattempted: string[] };
 const emptySource = (mode: ComposerSource["mode"]): ComposerSource => ({ mode, url: "", manual: emptyArticle() });
+const emptyChat = (): CreationChat => ({ input: "", referenceUrls: [], messages: [] });
 const hasSourceInput = (source: ComposerSource) => Boolean(source.url.trim() || source.manual.title.trim() || source.manual.content.trim() || source.manual.media.length);
-const sameInput = (a: GenerationInput, b: GenerationInput) => a.source === b.source && a.tone === b.tone && a.format === b.format;
+const sameInput = (a: GenerationInput, b: GenerationInput) =>
+  a.source === b.source && a.tone === b.tone && a.format === b.format &&
+  a.main?.revision === b.main?.revision && a.main?.title === b.main?.title && a.main?.content === b.main?.content;
 
 // Validate the fields rendered or saved with a card before replacing its prior
 // revision. Optional legacy metadata stays optional; malformed metadata does not.
+const detailMetadataSchema = z.object({
+  content: z.string(),
+  attributions: z.array(z.object({ text: z.string(), excerptIds: z.array(z.string()) })).optional(),
+  generation: z.object({ provider: z.string(), model: z.string(), fallbackUsed: z.boolean().optional() }).optional(),
+  claimSupport: z.object({
+    method: z.literal("conservative-source-comparison-v1"), status: z.literal("needs-review"),
+    factualVerification: z.literal("not-performed"), requiresHumanReview: z.literal(true), truncated: z.boolean(),
+    claims: z.array(z.object({
+      text: z.string(), start: z.number(), end: z.number(), status: z.enum(["supported", "unsupported", "contradictory", "unknown"]),
+      reason: z.string(), sourceSpans: z.array(z.object({ excerptId: z.string(), text: z.string(), start: z.number(), end: z.number() })),
+    })),
+  }).optional(),
+});
 const reviewMetadataSchema = z.object({
   article: z.object({
     title: z.string(), content: z.string(), source: z.string(), url: z.string(), domain: z.string(),
     media: z.array(z.object({ id: z.string().optional(), type: z.enum(["image", "video", "audio"]), name: z.string(), url: z.string() })).optional(),
+    references: z.array(z.object({ title: z.string(), source: z.string(), url: z.string() })).optional(),
   }),
   format: z.enum(["short-post", "article"]).optional(),
   evidence: z.object({
@@ -35,22 +55,23 @@ const reviewMetadataSchema = z.object({
     warnings: z.array(z.object({ code: z.string(), message: z.string() })),
     excerpts: z.array(z.object({ id: z.string(), text: z.string() })),
   }).optional(),
-  details: z.record(z.record(z.object({
-    content: z.string(),
-    attributions: z.array(z.object({ text: z.string(), excerptIds: z.array(z.string()) })).optional(),
-    generation: z.object({ provider: z.string(), model: z.string(), fallbackUsed: z.boolean().optional() }).optional(),
-    claimSupport: z.object({
-      method: z.literal("conservative-source-comparison-v1"), status: z.literal("needs-review"),
-      factualVerification: z.literal("not-performed"), requiresHumanReview: z.literal(true), truncated: z.boolean(),
-      claims: z.array(z.object({
-        text: z.string(), start: z.number(), end: z.number(), status: z.enum(["supported", "unsupported", "contradictory", "unknown"]),
-        reason: z.string(), sourceSpans: z.array(z.object({ excerptId: z.string(), text: z.string(), start: z.number(), end: z.number() })),
-      })),
-    }).optional(),
-  }))).optional(),
+  details: z.record(z.record(detailMetadataSchema)).optional(),
+  mainDraft: detailMetadataSchema.extend({ content: z.string().min(1).max(5000) }).optional(),
 });
 
-/** Content stays in memory; only the scoped job/intent pointer survives reload. */
+function isReviewResponse(value: unknown): value is ReviewResponse {
+  return reviewMetadataSchema.safeParse(value).success && z.object({
+    posts: z.record(z.record(z.string())), details: z.record(z.record(z.unknown())),
+    mainDraft: z.object({ content: z.string().min(1).max(5000) }).optional(),
+  }).safeParse(value).success;
+}
+function storedReview(json: string): ReviewResponse {
+  const value: unknown = JSON.parse(json);
+  if (!isReviewResponse(value)) throw new Error("The saved generation details are invalid. Your saved creation was not overwritten.");
+  return value;
+}
+
+/** One server-saved creation; platform publication drafts remain separate. */
 export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   const client = useQueryClient();
   const { user } = useAuth();
@@ -66,14 +87,36 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   const [format, setFormatChoice] = useState<EditorialFormat>("short-post");
   const [source, setSource] = useState<ComposerSource>(() => emptySource("article"));
   const sourceRef = useRef(source);
-  const { mode, url, item, manual } = source;
+  const { mode, url, manual } = source;
+  const item = source.item ?? inbox.data?.find(value => value.id === source.inboxItemId);
   const [versions, setVersions] = useState<PostVersions>({});
   const versionsRef = useRef(versions);
+  const [step, setStep] = useState<CreationStep>("source");
+  const [main, setMainState] = useState<MainDraft>();
+  const mainRef = useRef(main);
+  const [chat, setChatState] = useState<CreationChat>(emptyChat);
+  const chatRef = useRef(chat);
+  const proposalReview = useMemo(() => chat.proposal ? storedReview(chat.proposal.reviewJson) : undefined, [chat.proposal]);
+  const [reviewedRevision, setReviewedRevision] = useState<number>();
+  const reviewedRef = useRef(reviewedRevision);
+  const mainAttempt = useRef(false);
   const lifetime = useRef(new AbortController());
   const scopeKey = JSON.stringify([user?.id, profile.data?.tenantId]);
   const renderScope = useMemo(() => ({ key: scopeKey }), [scopeKey]);
   const scopeRef = useRef(renderScope);
   scopeRef.current = renderScope;
+  const persistence = useCreationSession(isOpen && profile.isSuccess, scopeKey, () => ({
+    version: 1, step, source: { mode, url, manual, inboxItemId: item?.id ?? source.inboxItemId }, tone, format,
+    selectedPlatforms: ALL_PLATFORM_KEYS.filter(value => platformSelection.includes(value)),
+    main: main && { title: main.title, content: main.content, original: main.original, revision: main.revision, formatJson: main.formatJson, reviewJson: JSON.stringify(main.review) },
+    reviewedRevision,
+    chat: chatRef.current,
+    versions: Object.values(versions).map(value => ({
+      platform: z.enum(ALL_PLATFORM_KEYS).parse(value.platform), tone: value.tone, content: value.content, original: value.original,
+      mainRevision: value.mainRevision, inboxItemId: value.inboxItemId, reviewJson: JSON.stringify(value.review),
+      savedId: value.savedId, savedContent: value.savedContent, savedUpdatedAt: value.savedUpdatedAt,
+    })),
+  }), restoreCreation);
   const revisionReads = useRef(new Map<string, AbortController>());
   const refreshOnArrival = useRef(false);
   const wasOnCreate = useRef(false);
@@ -110,14 +153,16 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   const batchStop = useRef(false);
   const lastGeneration = useRef<GenerationSnapshot>();
   const generation = useEditorialGeneration<ReviewResponse>({
-    scope: user?.id && profile.data?.tenantId ? { userId: user.id, tenantId: profile.data.tenantId } : undefined,
+    scope: persistence.ready && user?.id && profile.data?.tenantId ? { userId: user.id, tenantId: profile.data.tenantId } : undefined,
     onRecovered: data => {
+      if (data?.mainDraft) { receiveSuggestion(data); return; }
       const recoveredPlatform = Object.keys(data?.posts ?? {})[0];
       const recoveredTone = CREATE_TONES.find(value => typeof data?.posts?.[recoveredPlatform]?.[value.key] === "string")?.key;
       if (!PLATFORMS.some(value => value.value === recoveredPlatform) || !recoveredTone) {
         setNotice("The recovered job returned no supported platform. Nothing was regenerated."); return;
       }
-      const snapshot = { platform: recoveredPlatform, tone: recoveredTone, source: sourceRef.current, format: data.format };
+      const snapshot = { platform: recoveredPlatform, tone: recoveredTone, source: sourceRef.current, format: data.format,
+        main: mainRef.current?.content === data.article?.content && mainRef.current?.title === data.article?.title ? mainRef.current : undefined };
       lastGeneration.current = snapshot;
       setPlatformChoice(recoveredPlatform); setToneChoice(recoveredTone);
       const succeeded = acceptResult(data, snapshot);
@@ -131,7 +176,7 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   useEffect(() => {
     if (!preferencesReady || selectionInitialized.current) return;
     selectionInitialized.current = true;
-    const initial = availableKey ? availableKey.split("|").slice(0, 4) : [];
+    const initial: string[] = [];
     selectedPlatformsRef.current = initial;
     setPlatformSelection(initial);
   }, [preferencesReady, availableKey]);
@@ -146,18 +191,19 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   const effectiveFormat = supportsArticle(platform) ? format : "short-post";
   const key = versionKey(platform, tone);
   const version = versions[key];
-  const sourceKey = JSON.stringify([mode, url, item?.id, manual]);
-  const [savedSourceKey, setSavedSourceKey] = useState("");
   const hasInput = hasSourceInput(source);
   const inputReady = mode === "manual"
     ? Boolean(manual.title.trim()) && manual.content.trim().length >= 20 && manual.content.length <= 20_000
     : Boolean(publicSourceUrl(url.trim()));
-  const dirty = (hasInput && sourceKey !== savedSourceKey) || Object.values(versions).some(isUnsaved);
+  const dirty = persistence.unsaved;
   const busy = generation.pending || saving || uploading || batching;
   const generationBusy = generation.pending || uploading || batching || generation.recoverable;
-  const canGenerate = Boolean(platform) && !generationBusy && !saveLocks.current.has(key) && inputReady;
+  const mainReady = Boolean(main?.title.trim() && main.content.trim().length >= 20 && main.content.length <= 5000);
+  const mainReviewed = mainReady && main?.revision === reviewedRevision;
+  const canGenerate = persistence.ready && Boolean(platform) && mainReviewed && !generationBusy && !saveLocks.current.has(key);
   const canUse = Boolean(platform && version && usablePost(version.content, Math.min(5000, getPlatformMeta(platform).charLimit), platform)) && !versionLockReason(platform, tone);
-  const hasCreation = mode === "manual" || hasInput || Object.keys(versions).length > 0 || busy || generation.recoverable;
+  const hasCreation = Boolean(main) || mode === "manual" || hasInput || Object.keys(versions).length > 0 || busy || generation.recoverable ||
+    Boolean(chat.input.trim() || chat.referenceUrls.length || chat.messages.length);
 
   function versionLockReason(platformValue: string, toneValue: CreateTone): string | undefined {
     if (sourceRef.current !== source || scopeRef.current !== renderScope || lifetime.current.signal.aborted) return "This creation has changed. Use the current creation’s controls.";
@@ -171,6 +217,63 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
     if (uploadLock.current) return "Wait for the source attachment upload to finish.";
     return undefined;
   }
+  function staleVersion(platformValue: string, toneValue: CreateTone) {
+    return Boolean(versionsRef.current[versionKey(platformValue, toneValue)] &&
+      versionsRef.current[versionKey(platformValue, toneValue)].mainRevision !== mainRef.current?.revision);
+  }
+  function setMain(next: MainDraft | undefined) { mainRef.current = next; setMainState(next); }
+  function updateChat(next: CreationChat) { chatRef.current = next; setChatState(next); }
+  function restoreCreation(state: CreationSession) {
+    const restoredMain = state.main && { ...state.main, review: state.main.reviewJson ? storedReview(state.main.reviewJson) : undefined };
+    if (state.chat?.proposal) storedReview(state.chat.proposal.reviewJson);
+    const restoredVersions: PostVersions = {};
+    for (const value of state.versions) {
+      restoredVersions[versionKey(value.platform, value.tone)] = { ...value, review: storedReview(value.reviewJson),
+        status: value.savedId ? "refresh-failed" : "unsaved",
+        error: value.savedId ? "Check the latest saved draft before changing it." : undefined };
+    }
+    const nextSource = { ...state.source, item: inbox.data?.find(value => value.id === state.source.inboxItemId) };
+    sourceRef.current = nextSource; setSource(nextSource);
+    setMain(restoredMain); updateVersions(() => restoredVersions);
+    updateChat(state.chat ?? emptyChat());
+    reviewedRef.current = state.reviewedRevision; setReviewedRevision(state.reviewedRevision);
+    setStep(restoredMain ? state.step : "source");
+    setToneChoice(state.tone); setFormatChoice(state.format);
+    selectionInitialized.current = true; selectedPlatformsRef.current = state.selectedPlatforms; setPlatformSelection(state.selectedPlatforms);
+    setBatchRecovery(undefined); setBatch({ targets: [], completed: [] });
+    refreshOnArrival.current = true;
+    setNotice("Saved creation restored. Nothing has been published.");
+  }
+  const editMain = (patch: Partial<Pick<MainDraft, "title" | "content" | "formatJson">>) => {
+    const current = mainRef.current;
+    if (!current || sourceLocked()) return;
+    const next = { ...current, ...patch,
+      ...(patch.content !== undefined && patch.content !== current.content && !("formatJson" in patch) ? { formatJson: undefined } : {}) };
+    if (current.title === next.title && current.content === next.content) {
+      if (current.formatJson !== next.formatJson) setMain(next);
+      return;
+    }
+    setMain({ ...next, revision: current.revision + 1 });
+    reviewedRef.current = undefined; setReviewedRevision(undefined);
+    setBatchRecovery(undefined); setBatch({ targets: [], completed: [] });
+    setGenerationStates({}); generationStatesRef.current = {}; attempts.current = {};
+  };
+  const editDocument = (patch: Partial<Pick<MainDraft, "title" | "content" | "formatJson">>) => {
+    if (sourceLocked() || !persistence.ready) return;
+    if (mainRef.current) { editMain(patch); return; }
+    setMain({ title: "Untitled draft", content: "", original: "", revision: 1, ...patch });
+    setStep("review");
+  };
+  const choosePlatforms = () => {
+    if (!mainReady || sourceLocked()) return;
+    reviewedRef.current = mainRef.current!.revision; setReviewedRevision(mainRef.current!.revision); setStep("platforms");
+  };
+  const goToStep = (next: CreationStep) => {
+    if (sourceLocked() || !persistence.ready) return;
+    if (next !== "source" && !mainRef.current) return;
+    if (next === "platforms" && mainRef.current?.revision !== reviewedRef.current) return;
+    setStep(next);
+  };
 
   function setBatch(next: Batch) { batchRef.current = next; setBatchState(next); }
   function setBatchRecovery(next: BatchRecovery | undefined) { batchRecoveryRef.current = next; setBatchRecoveryState(next); }
@@ -223,21 +326,25 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
     formatRef.current = next; setFormatChoice(next);
   };
   const setPlatform = (next: string) => { if (!sourceLocked()) setPlatformChoice(next); };
-  const inputSnapshot = (): GenerationInput => ({ source, tone, format });
-  const inputIsCurrent = (snapshot: GenerationInput) => snapshot.source === sourceRef.current && snapshot.tone === toneRef.current && snapshot.format === formatRef.current;
+  const inputSnapshot = (): GenerationInput => ({ source, tone, format, main });
+  const inputIsCurrent = (snapshot: GenerationInput) => sameInput(snapshot, {
+    source: sourceRef.current, tone: toneRef.current, format: formatRef.current, main: mainRef.current,
+  });
   const snapshotFor = (platformValue: string, input = inputSnapshot()): GenerationSnapshot => ({ ...input, platform: platformValue,
-    inboxItemId: input.source.mode === "article" && input.source.item?.articleUrl === input.source.url ? input.source.item?.id : undefined });
+    inboxItemId: input.source.mode === "article" ? input.source.item?.id ?? input.source.inboxItemId : undefined });
   const hasBatchRecovery = Boolean(batchRecovery && batch.completed.length < batch.targets.length);
   const batchInputMatches = Boolean(batchRecovery && sameInput(batchRecovery, inputSnapshot()));
   const continuationTargets = batchRecovery?.unattempted.filter(target => platforms.some(value => value.value === target)) ?? [];
-  const canContinueBatch = !generationBusy && inputReady && hasBatchRecovery && batchInputMatches && continuationTargets.length > 0 &&
+  const canContinueBatch = persistence.ready && mainReviewed && !generationBusy && hasBatchRecovery && batchInputMatches && continuationTargets.length > 0 &&
     continuationTargets.every(target => !saveLocks.current.has(versionKey(target, tone)));
-  const canGenerateBatch = !generationBusy && inputReady && selectedPlatforms.length > 0 &&
+  const canGenerateBatch = persistence.ready && mainReviewed && !generationBusy && selectedPlatforms.length > 0 &&
     selectedPlatforms.every(target => !saveLocks.current.has(versionKey(target, tone)));
   function disabledGenerationReason() {
     if (generation.recoverable) return "Check or cancel the original uncertain request before generating again.";
     if (generation.pending || batching) return "Generation is sequential. Source, tone, format and selection stay locked until it settles.";
     if (uploading) return "Wait for the source attachment upload to finish.";
+    if (!persistence.ready) return "Wait for the saved creation to load.";
+    if (!mainReviewed) return "Create and review your main draft before choosing platforms.";
     if (!preferencesReady) return "Wait for publishing preferences to load.";
     if (!platforms.length) return "Enable a platform in Settings before generating.";
     if (!inputReady) return mode === "manual" ? "Add a title and 20–20,000 characters of source text." : "Enter a valid public HTTP(S) article URL or choose a story.";
@@ -272,38 +379,42 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   const replaceSource = (next: ComposerSource, confirmInput = true, question = "Replace the source? Current cards and unsaved edits will be discarded. Saved drafts remain in Content.") => {
     if (sourceLocked()) { setNotice("Finish, retry or cancel the current operation before changing the source."); return false; }
     const current = sourceRef.current;
-    const hasWork = Object.keys(versionsRef.current).length > 0 || current.item || confirmInput && hasSourceInput(current);
+    const hasWork = Boolean(mainRef.current) || Object.keys(versionsRef.current).length > 0 || current.item ||
+      Boolean(chatRef.current.input.trim() || chatRef.current.referenceUrls.length || chatRef.current.messages.length) || confirmInput && hasSourceInput(current);
     if (hasWork && !window.confirm(question)) return false;
-    // One atomic transition for every story, URL and mode entry. No browser
-    // persistence, implicit generation, save, or cancellation is introduced.
+    // Replace the active creation atomically; publication drafts are untouched.
     commitSource(next);
+    setMain(undefined); reviewedRef.current = undefined; setReviewedRevision(undefined); setStep("source");
+    updateChat(emptyChat());
     updateVersions(() => ({}));
     lastGeneration.current = undefined;
     attempts.current = {}; generationStatesRef.current = {}; setBatchRecovery(undefined);
     setGenerationStates({}); setGenerationErrors({}); setBatch({ targets: [], completed: [] });
     batchStop.current = false; setBatchStopRequested(false);
     copyRevision.current += 1; setCopyStatus("");
-    setSavedSourceKey(""); setNotice(""); generation.reset();
+    setNotice(""); generation.reset();
     return true;
   };
   const startNewCreate = () => {
-    if (!replaceSource(emptySource("article"), true, "Start a new post? Current inputs, cards and unsaved edits will be discarded. Saved drafts remain in Content. Cancel to resume this creation.")) return false;
+    if (!replaceSource(emptySource("article"), true, "Start a new post? This replaces your saved main draft and working platform versions. Saved platform drafts remain in Content. Cancel to resume this creation.")) return false;
     setPlatformChoice(undefined);
     const defaultTone = CREATE_TONES.find(value => value.value === profile.data?.defaultTone)?.key ?? "thoughtLeader";
     toneRef.current = defaultTone; setToneChoice(undefined);
     formatRef.current = "short-post"; setFormatChoice("short-post");
-    const initial = platforms.slice(0, 4).map(value => value.value);
+    const initial: string[] = [];
     selectionInitialized.current = preferencesReady;
     selectedPlatformsRef.current = initial; setPlatformSelection(initial);
     return true;
   };
   const setMode = (next: ComposerSource["mode"]) => next === sourceRef.current.mode || replaceSource(emptySource(next));
   const setUrl = (next: string) => next === sourceRef.current.url || replaceSource({ ...emptySource("article"), url: next }, false);
-  const selectPasteUrl = () => !sourceRef.current.item || replaceSource(emptySource("article"));
+  const selectPasteUrl = () => !(sourceRef.current.item || sourceRef.current.inboxItemId) || replaceSource(emptySource("article"));
   const prefill = (next?: InboxItem) => {
     if (!next || next.id === sourceRef.current.item?.id && sourceRef.current.url === next.articleUrl) return true;
-    return replaceSource({ mode: next.articleUrl ? "article" : "manual", url: next.articleUrl, item: next,
+    const replaced = replaceSource({ mode: next.articleUrl ? "article" : "manual", url: next.articleUrl, item: next,
       manual: next.articleUrl ? emptyArticle() : { title: next.headline.slice(0, 200), content: next.summary ?? "", media: [] } });
+    if (replaced && next.articleUrl) updateChat({ ...emptyChat(), referenceUrls: [next.articleUrl] });
+    return replaced;
   };
   const prefillUrl = (next: string) => {
     // Navigation links only seed fresh sessions; arrival never replaces work or
@@ -317,9 +428,120 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
     // Normal Idea editing keeps its existing revision workflow. Upload completion
     // may attach media while its own upload lock is still held.
     if (sourceRef.current !== source || scopeRef.current !== renderScope || sourceRef.current.mode !== "manual" || saveLocks.current.size || generationLock.current || batchLock.current || generation.hasActiveRequest()) return;
+    if (mainRef.current && !window.confirm("Replace the source? The main draft and platform versions will be cleared. Saved platform drafts remain in Content.")) return;
+    if (mainRef.current) {
+      setMain(undefined); updateVersions(() => ({})); setStep("source");
+      reviewedRef.current = undefined; setReviewedRevision(undefined);
+    }
     commitSource({ ...sourceRef.current, manual: next });
   };
-  const acceptResult = (data: ReviewResponse, snapshot: { platform: string; tone: CreateTone; inboxItemId?: string }) => {
+  function acceptMain(data: ReviewResponse, title?: string) {
+    if (!isReviewResponse(data) || !data.mainDraft?.content.trim() || data.mainDraft.content.length > 5000) {
+      setNotice("No usable main draft was returned. Your previous work is unchanged."); return false;
+    }
+    setMain({ title: (title ?? data.article.title).slice(0, 200), content: data.mainDraft.content,
+      original: data.mainDraft.content, revision: (mainRef.current?.revision ?? 0) + 1, review: data });
+    reviewedRef.current = undefined; setReviewedRevision(undefined); setStep("review");
+    setBatchRecovery(undefined); setBatch({ targets: [], completed: [] });
+    attempts.current = {}; generationStatesRef.current = {}; setGenerationStates({}); setGenerationErrors({});
+    setNotice("Main draft ready. Read and edit it before choosing platforms.");
+    return true;
+  }
+  function documentSnapshot() {
+    return { id: crypto.randomUUID(), title: mainRef.current?.title ?? "", content: mainRef.current?.content ?? "",
+      revision: mainRef.current?.revision ?? 0, formatJson: mainRef.current?.formatJson };
+  }
+  function receiveSuggestion(data: ReviewResponse) {
+    if (!isReviewResponse(data) || !data.mainDraft?.content.trim()) {
+      setNotice("No usable suggestion was returned. Your document is unchanged.");
+      updateChat({ ...chatRef.current, pending: undefined });
+      return false;
+    }
+    const current = chatRef.current;
+    updateChat({ ...current, pending: undefined,
+      proposal: { ...(current.pending ?? documentSnapshot()), reviewJson: JSON.stringify(data) },
+      messages: [...current.messages, { id: crypto.randomUUID(), role: "assistant", content: "Your suggested changes are ready. Review the proposal, then apply or discard it." }],
+    });
+    setNotice(""); setStep("review");
+    return true;
+  }
+  const setChatInput = (input: string) => {
+    if (!persistence.ready) return;
+    updateChat({ ...chatRef.current, input: input.slice(0, 4000) });
+  };
+  const setChatReferences = (urls: string[]) => {
+    if (sourceLocked() || chatRef.current.pending || !persistence.ready) return;
+    const unique = [...new Set(urls)];
+    if (unique.length > MAX_CREATION_REFERENCES) { setNotice(`Choose up to ${MAX_CREATION_REFERENCES} articles for one suggestion.`); return; }
+    if (unique.some(url => !publicSourceUrl(url))) { setNotice("Choose articles with valid public URLs."); return; }
+    updateChat({ ...chatRef.current, referenceUrls: unique });
+  };
+  const suggest = async (retry = false) => {
+    if (!persistence.ready || scopeRef.current !== renderScope || lifetime.current.signal.aborted ||
+      generationLock.current || batchLock.current || saving || uploading || generation.pending) return;
+    if (!retry && (generation.hasActiveRequest() || chatRef.current.pending || chatRef.current.proposal)) return;
+    const instruction = chatRef.current.input.trim();
+    if (!retry && !instruction) return;
+    if (!retry && chatRef.current.messages.length > 96) { setNotice("This conversation is full. Start a new creation to continue."); return; }
+    const document = mainRef.current;
+    const sourceUrls = chatRef.current.referenceUrls;
+    const content = (document?.review?.article.content ?? document?.content ?? manual.content) || instruction;
+    if (!retry && !sourceUrls.length && !publicSourceUrl(url) && content.trim().length < 20) {
+      setNotice("Attach articles or provide an idea with at least 20 characters."); return;
+    }
+    if (!retry) updateChat({ ...chatRef.current, input: "", pending: documentSnapshot(),
+      messages: [...chatRef.current.messages, { id: crypto.randomUUID(), role: "user", content: instruction }] });
+    mainAttempt.current = true; generationLock.current = true; setNotice("");
+    try {
+      const common = { stage: "main", selectedPlatforms: [], tones: [tone], format, instruction,
+        currentDraft: document?.content };
+      const fromUrl = !sourceUrls.length && mode === "article" && publicSourceUrl(url);
+      const data = retry ? await generation.retry() : fromUrl
+        ? await generation.generate("/api/instant-review/selected", { ...common, url: fromUrl })
+        : await generation.generate("/api/instant-review/manual", { ...common, title: document?.title.trim() || manual.title.trim() || "Untitled draft",
+          content: content.slice(0, 24_000), media: document?.review?.article.media ?? manual.media,
+          ...(sourceUrls.length ? { sourceUrls } : {}),
+          sourceUrl: publicSourceUrl(document?.review?.article.url ?? ""), sourceLabel: document?.review?.article.source,
+        });
+      if (scopeRef.current !== renderScope || lifetime.current.signal.aborted) return;
+      if (data && !generation.reattached) receiveSuggestion(data);
+      else if (!data && !generation.hasActiveRequest()) updateChat({ ...chatRef.current, pending: undefined,
+        messages: [...chatRef.current.messages, { id: crypto.randomUUID(), role: "assistant", content: "No changes were applied. Check the generation status before trying another suggestion." }] });
+    } finally {
+      generationLock.current = false;
+      if (!generation.hasActiveRequest()) mainAttempt.current = false;
+    }
+  };
+  const proposalStale = Boolean(chat.proposal && (chat.proposal.revision !== (main?.revision ?? 0) ||
+    chat.proposal.title !== (main?.title ?? "") || chat.proposal.content !== (main?.content ?? "") || chat.proposal.formatJson !== main?.formatJson));
+  const applySuggestion = () => {
+    const proposal = chatRef.current.proposal;
+    if (!proposal || sourceLocked()) return;
+    if (proposal.revision !== (mainRef.current?.revision ?? 0) || proposal.title !== (mainRef.current?.title ?? "") || proposal.content !== (mainRef.current?.content ?? "") || proposal.formatJson !== mainRef.current?.formatJson) {
+      setNotice("Your document changed after this suggestion. Discard it and request a fresh revision; your edits were not overwritten."); return;
+    }
+    const review = storedReview(proposal.reviewJson);
+    if (acceptMain(review, proposal.revision > 0 ? proposal.title : review.article.title)) updateChat({ ...chatRef.current, proposal: undefined,
+      messages: [...chatRef.current.messages, { id: crypto.randomUUID(), role: "assistant", content: "Changes applied to your document. Existing platform versions may need regenerating." }] });
+  };
+  const discardSuggestion = () => {
+    if (sourceLocked()) return;
+    updateChat({ ...chatRef.current, proposal: undefined, pending: undefined,
+      messages: [...chatRef.current.messages, { id: crypto.randomUUID(), role: "assistant", content: "Suggestion discarded. Your document is unchanged." }] });
+    setNotice("");
+  };
+  const generateMain = async (retry = false) => {
+    if (!persistence.ready || sourceLocked() && !(retry && generation.recoverable && !generation.pending) || !retry && !inputReady) return;
+    if (!retry && mainRef.current && !window.confirm("Regenerate the main draft and replace its edits? Existing platform versions will be kept and marked out of date.")) return;
+    mainAttempt.current = true; generationLock.current = true;
+    setNotice("");
+    try {
+      const data = retry ? await generation.retry() : await generation.generate(mode === "manual" ? "/api/instant-review/manual" : "/api/instant-review/selected",
+        { ...(mode === "manual" ? manual : { url: url.trim() }), stage: "main", selectedPlatforms: [], tones: [tone], format });
+      if (scopeRef.current === renderScope && !lifetime.current.signal.aborted && data && !generation.reattached) acceptMain(data);
+    } finally { generationLock.current = false; if (!generation.hasActiveRequest()) mainAttempt.current = false; }
+  };
+  const acceptResult = (data: ReviewResponse, snapshot: { platform: string; tone: CreateTone; inboxItemId?: string; main?: MainDraft }) => {
     const content = data?.posts?.[snapshot.platform]?.[snapshot.tone];
     if (!reviewMetadataSchema.safeParse(data).success || typeof content !== "string" ||
       content.trim() && !usablePost(content, Math.min(5000, getPlatformMeta(snapshot.platform).charLimit), snapshot.platform)) {
@@ -327,7 +549,12 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
       setNotice("No usable text was returned. Your previous versions are unchanged."); return false;
     }
     // Accept only the requested platform and tone, even if the response contains others.
-    updateVersions(current => applyReview(current, { ...data, posts: { [snapshot.platform]: { [snapshot.tone]: content } } }, snapshot.inboxItemId));
+    updateVersions(current => {
+      const next = applyReview(current, { ...data, posts: { [snapshot.platform]: { [snapshot.tone]: content } } }, snapshot.inboxItemId);
+      const key = versionKey(snapshot.platform, snapshot.tone);
+      if (next[key] && content.trim()) next[key] = { ...next[key], mainRevision: snapshot.main?.revision };
+      return next;
+    });
     if (!content.trim()) {
       setGenerationErrors(current => ({ ...current, [versionKey(snapshot.platform, snapshot.tone)]: "This attempt returned no usable text; previous versions were kept." }));
       setNotice("No usable text was returned. Your previous versions are unchanged.");
@@ -349,7 +576,7 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   };
   const runGeneration = async (snapshot: GenerationSnapshot, retry = false, confirmOverwrite = true) => {
     if (sourceRef.current !== source || scopeRef.current !== renderScope || lifetime.current.signal.aborted || !inputIsCurrent(snapshot) || generationLock.current || saveLocks.current.has(versionKey(snapshot.platform, snapshot.tone)) || uploadLock.current || generation.pending ||
-      (!retry && (!inputReady || generation.hasActiveRequest()))) return false;
+      (!retry && (!mainReviewed || generation.hasActiveRequest()))) return false;
     if (!platforms.some(value => value.value === snapshot.platform)) return;
     const existing = versionsRef.current[versionKey(snapshot.platform, snapshot.tone)];
     if (!retry && confirmOverwrite && existing && isEdited(existing) &&
@@ -358,10 +585,12 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
     markAttempted(snapshot);
     let succeeded = false;
     try {
-      const original = snapshot.source;
-      const endpoint = original.mode === "manual" ? "/api/instant-review/manual" : "/api/instant-review/selected";
-      const data = retry ? await generation.retry() : await generation.generate(endpoint, {
-        ...(original.mode === "manual" ? original.manual : { url: original.url.trim() }), selectedPlatforms: [snapshot.platform], tones: [snapshot.tone], format: supportsArticle(snapshot.platform) ? snapshot.format : "short-post",
+      const reviewed = snapshot.main;
+      if (!retry && (!reviewed || reviewed.revision !== reviewedRef.current)) return false;
+      const data = retry ? await generation.retry() : await generation.generate("/api/instant-review/manual", {
+        title: reviewed!.title, content: reviewed!.content, media: reviewed!.review?.article.media ?? manual.media,
+        sourceUrl: publicSourceUrl(reviewed!.review?.article.url ?? ""), sourceLabel: reviewed!.review?.article.source,
+        stage: "platform", selectedPlatforms: [snapshot.platform], tones: [snapshot.tone], format: supportsArticle(snapshot.platform) ? snapshot.format : "short-post",
       });
       if (scopeRef.current !== renderScope || lifetime.current.signal.aborted || !inputIsCurrent(snapshot)) return false;
       succeeded = data !== undefined && acceptResult(data, snapshot);
@@ -375,6 +604,11 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
     }
   };
   const generate = async (retry = false) => {
+    if (retry && mainAttempt.current) {
+      if (chatRef.current.pending) await suggest(true);
+      else await generateMain(true);
+      return;
+    }
     if (scopeRef.current !== renderScope || sourceRef.current !== source || batchLock.current || generationLock.current || uploadLock.current || (!retry && !canGenerate)) return;
     if (retry && !generation.hasActiveRequest()) return;
     // Reattached jobs own their source/selection; a reload need not restore inputs.
@@ -387,7 +621,7 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
     const attempt = attempts.current[targetKey];
     const recovery = batchRecoveryRef.current;
     if (generationStates[targetKey] === "not-attempted" && recovery && !sameInput(recovery, inputSnapshot())) return false;
-    return !generationBusy && inputReady && !saveLocks.current.has(targetKey) && (generationStates[targetKey] !== "failed" || !attempt || sameInput(attempt, inputSnapshot()));
+    return persistence.ready && mainReviewed && !generationBusy && !saveLocks.current.has(targetKey) && (generationStates[targetKey] !== "failed" || !attempt || sameInput(attempt, inputSnapshot()));
   };
   const generatePlatform = async (platformValue: string) => {
     if (generationStartLocked() || !canGeneratePlatform(platformValue) || !platforms.some(value => value.value === platformValue)) return;
@@ -428,7 +662,7 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   };
   const continueBatch = async () => {
     const recovery = batchRecoveryRef.current;
-    if (!recovery || generationStartLocked() || !inputReady || !inputIsCurrent(recovery)) return;
+    if (!recovery || generationStartLocked() || !mainReviewed || !inputIsCurrent(recovery)) return;
     // The ledger, never the current platform selection, owns continuation.
     const targets = recovery.unattempted.filter(target => generationStatesRef.current[versionKey(target, recovery.tone)] === "not-attempted" && platforms.some(value => value.value === target));
     if (targets.some(target => saveLocks.current.has(versionKey(target, recovery.tone)))) return;
@@ -437,7 +671,7 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
     if (targets.length) await runBatch(recovery, targets);
   };
   const generateBatch = async (targets: string[]) => {
-    if (generationStartLocked() || !inputReady || !inputIsCurrent(inputSnapshot())) return;
+    if (!mainReviewed || !persistence.ready || generationStartLocked() || !inputIsCurrent(inputSnapshot())) return;
     if (batchRecoveryRef.current && batchRef.current.completed.length < batchRef.current.targets.length) { await continueBatch(); return; }
     const unique = [...new Set(targets)].filter(target => platforms.some(value => value.value === target)).slice(0, 4);
     if (!unique.length) return;
@@ -447,6 +681,7 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
       return existing && isEdited(existing);
     });
     if (edited && !window.confirm("Regenerate the selected posts and overwrite your edits? Saved drafts keep their IDs; existing text is retained if generation fails.")) return;
+    setStep("versions");
     const input = inputSnapshot();
     setBatch({ targets: unique, completed: [] });
     setBatchRecovery({ ...input, unattempted: unique });
@@ -513,11 +748,11 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   useEffect(() => {
     if (onCreateRoute && !wasOnCreate.current) refreshOnArrival.current = true;
     wasOnCreate.current = onCreateRoute;
-    if (onCreateRoute && refreshOnArrival.current && !saveLocks.current.size && !generationBusy) {
+    if (onCreateRoute && persistence.ready && refreshOnArrival.current && !saveLocks.current.size && !generationBusy) {
       refreshOnArrival.current = false;
       Object.values(versionsRef.current).forEach(value => { if (value.savedId) void refreshVersion(value.platform, value.tone); });
     }
-  }, [onCreateRoute, saving, scopeKey, generationBusy]);
+  }, [onCreateRoute, saving, scopeKey, generationBusy, persistence.ready]);
   useEffect(() => {
     if (!onCreateRoute) return;
     const refresh = () => {
@@ -532,7 +767,7 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
     const targetKey = versionKey(platformValue, toneValue);
     const current = versionsRef.current[targetKey];
     const usable = Boolean(current && usablePost(current.content, Math.min(5000, getPlatformMeta(platformValue).charLimit), platformValue));
-    if (sourceRef.current !== source || scopeRef.current !== renderScope || lifetime.current.signal.aborted || versionLockReason(platformValue, toneValue) || !usable || !current || current.status === "saved" || draftSaveBlocked(current)) return;
+    if (sourceRef.current !== source || scopeRef.current !== renderScope || lifetime.current.signal.aborted || staleVersion(platformValue, toneValue) || versionLockReason(platformValue, toneValue) || !usable || !current || current.status === "saved" || draftSaveBlocked(current)) return;
     saveLocks.current.add(targetKey); setSaving(true);
     revisionReads.current.get(targetKey)?.abort(); revisionReads.current.delete(targetKey);
     const signal = AbortSignal.any([lifetime.current.signal, accountCache.getSignal()]);
@@ -548,7 +783,6 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
         tone: CREATE_TONES.find(value => value.key === current.tone)!.value });
       if (!ownsSave()) return;
       updateVersions(all => ({ ...all, [targetKey]: acknowledgeDraftSave(all[targetKey], current.content, saved) }));
-      setSavedSourceKey(sourceKey);
       void client.invalidateQueries({ queryKey: ["/api/drafts"] });
     } catch (error) {
       if (!ownsSave()) return;
@@ -566,7 +800,7 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   const copyVersion = async (platformValue: string, toneValue: CreateTone) => {
     const target = versionsRef.current[versionKey(platformValue, toneValue)];
     const usable = Boolean(target && usablePost(target.content, Math.min(5000, getPlatformMeta(platformValue).charLimit), platformValue));
-    if (sourceRef.current !== source || scopeRef.current !== renderScope || !usable || !target || versionLockReason(platformValue, toneValue)) return;
+    if (sourceRef.current !== source || scopeRef.current !== renderScope || staleVersion(platformValue, toneValue) || !usable || !target || versionLockReason(platformValue, toneValue)) return;
     const revision = ++copyRevision.current;
     const ownsCopy = () => revision === copyRevision.current && scopeRef.current === renderScope && sourceRef.current === source &&
       !lifetime.current.signal.aborted && versionsRef.current[versionKey(platformValue, toneValue)]?.content === target.content;
@@ -578,7 +812,11 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   const identityName = me.data?.name?.trim() || [me.data?.firstName, me.data?.lastName].filter(Boolean).join(" ").trim()
     || [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim() || "Your profile";
   const identityEmail = me.data?.email || user?.email;
-  return { platforms, preferencesReady, preferencesError: profile.isError || integrations.isError,
+  return { step, goToStep, main, editMain, generateMain, mainReady, mainReviewed, choosePlatforms, staleVersion, persistence,
+    sourceIdentity: source,
+    chat, setChatInput, setChatReferences, suggest, editDocument, proposalReview, proposalStale, applySuggestion, discardSuggestion,
+    canGenerateMain: persistence.ready && inputReady && !busy && !generation.recoverable,
+    platforms, preferencesReady, preferencesError: profile.isError || integrations.isError,
     generationState: (platformValue: string, toneValue: CreateTone) => generationStates[versionKey(platformValue, toneValue)],
     generationError: (platformValue: string, toneValue: CreateTone) => generationErrors[versionKey(platformValue, toneValue)],
     retryPreferences: () => { void profile.refetch(); void integrations.refetch(); },
@@ -590,6 +828,6 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
     dirty, busy, saving, hasCreation, startNewCreate, versionLockReason, canGenerate, canGenerateBatch, generationDisabledReason,
     // A delayed handoff supplies its admitted revision, fencing even same-turn
     // edits/source replacements before the child receives updated props.
-    canUse, canUseVersion: (platformValue: string, toneValue: CreateTone, expectedVersion?: PostVersion) => { const target = versionsRef.current[versionKey(platformValue, toneValue)]; return (!expectedVersion || target === expectedVersion) && !versionLockReason(platformValue, toneValue) && Boolean(target && usablePost(target.content, Math.min(5000, getPlatformMeta(platformValue).charLimit), platformValue)); }, prefill, prefillUrl, selectPasteUrl };
+    canUse, canUseVersion: (platformValue: string, toneValue: CreateTone, expectedVersion?: PostVersion) => { const target = versionsRef.current[versionKey(platformValue, toneValue)]; return mainReviewed && !staleVersion(platformValue, toneValue) && (!expectedVersion || target === expectedVersion) && !versionLockReason(platformValue, toneValue) && Boolean(target && usablePost(target.content, Math.min(5000, getPlatformMeta(platformValue).charLimit), platformValue)); }, prefill, prefillUrl, selectPasteUrl };
 }
 export type CreatePostComposer = ReturnType<typeof useCreatePostComposer>;

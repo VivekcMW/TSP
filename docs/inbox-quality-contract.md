@@ -176,7 +176,9 @@ retained length, exact UTF-16 span and warnings. Feed/provider snippets are alwa
 segmentation is heuristic; extraction cannot establish truth or guarantee that later
 source context is unnecessary. Whitespace-word minimum is conservative for languages
 without spaces. UI says excerpt/not independently verified. Legacy excerpt provenance
-is explicitly unavailable. Instant-review Generate still fetches the full source;
+is explicitly unavailable when a saved excerpt exists. Missing or blank excerpts
+render no placeholder in Discover or the selected-story preview; Discover keeps
+the Open original link visible. Instant-review Generate still fetches the full source;
 the inbox passage remains only its preview.
 
 ## Migration, compatibility and verification

@@ -48,6 +48,21 @@ export function canChangeSchedule(schedule?: PublishingSchedule) {
     schedule.targets.every((target) => ["scheduled", "queued", "failed", "cancelled"].includes(target.status));
 }
 
+export function publishingStatus(item: PublishingSchedule) {
+  if (item.status === "cancelled") return { key: "cancelled", label: "Cancelled", className: "bg-muted text-muted-foreground", dot: "bg-muted-foreground" };
+  const outcome = publicationOutcome(item);
+  if (outcome === "published") return { key: "published", label: "Published", className: "bg-success-subtle text-success", dot: "bg-success" };
+  if (outcome === "simulated") return { key: "simulated", label: "Demo only", className: "bg-muted text-muted-foreground", dot: "bg-muted-foreground" };
+  if (item.targets?.some(target => ["failed", "unknown", "accepted_unverified", "legacy_unverified"].includes(target.status))) {
+    return { key: "attention", label: "Needs attention", className: "bg-warning-subtle text-warning", dot: "bg-warning" };
+  }
+  if (outcome === "pending") return {
+    key: "pending", label: item.targets?.some(target => target.status === "publishing") ? "Publishing" : "Scheduled",
+    className: "bg-info-subtle text-info", dot: "bg-info",
+  };
+  return { key: "attention", label: "Check delivery", className: "bg-warning-subtle text-warning", dot: "bg-warning" };
+}
+
 // Paginate list views so older partial/unknown schedules retain recovery controls.
 export async function fetchPublishingSchedules(signal?: AbortSignal): Promise<{ items: PublishingSchedule[] }> {
   const items: PublishingSchedule[] = [];

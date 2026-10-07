@@ -59,10 +59,12 @@ describe("inbox detail relevance explanations", () => {
     expect(await page.locator("body").innerText()).not.toContain("Today");
   });
 
-  it("shows unavailable excerpts and dates honestly", async () => {
-    await mount({ summary: null });
+  it.each([false, true].flatMap(inSheet => [null, "", "   "].map(summary => ({ inSheet, summary }))))("omits empty excerpts but retains original access (%j)", async ({ inSheet, summary }) => {
+    await mount({ summary }, inSheet);
     await browserExpect(page.getByText("Publication date unknown", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Excerpt unavailable. Open the original for context.")).toBeVisible();
+    await browserExpect(page.getByText(/Excerpt unavailable/)).toHaveCount(0);
+    await browserExpect(page.getByRole("region", { name: "Article excerpt" })).toHaveCount(0);
+    await browserExpect(page.getByRole("link", { name: /Open original/ })).toHaveAttribute("href", "https://news.test/story");
   });
 
   it("shows stored evidence types and exact labels instead of reconstructing the reason from tags", async () => {

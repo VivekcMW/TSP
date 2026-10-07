@@ -15,7 +15,7 @@ vi.mock("./openRouter", async importOriginal => ({
   },
 }));
 import { AIGenerationError } from "./openRouter";
-import { generateInstantReview, generatePlatformReviews, generatePostContent } from "./punditBrain";
+import { generateInstantReview, generateMainDraftDetailed, generatePlatformReviews, generatePlatformReviewsDetailed, generatePostContent } from "./punditBrain";
 
 const article = { headline: "Pilot result", summary: "The pilot reduced latency by 12% in a trial of 30 stores.", source: "Research Desk", articleUrl: "https://news.test/pilot" };
 const fetched = { title: article.headline, content: article.summary, source: article.source, url: article.articleUrl };
@@ -23,6 +23,52 @@ const post = "Research Desk reports 12% lower latency in a 30-store trial. https
 
 beforeEach(() => { generateText.mockReset().mockResolvedValue(post); });
 afterEach(() => vi.useRealTimers());
+
+describe("platform-neutral main draft", () => {
+  it("makes one writer call without creating platform posts", async () => {
+    const result = await generateMainDraftDetailed(fetched, { tones: ["industryInsider"] });
+    expect(result.mainDraft?.content).toBe(post);
+    expect(result.posts).toEqual({});
+    expect(result.details).toEqual({});
+    expect(result.mainDraft?.validation.requiresHumanReview).toBe(true);
+    expect(generateText).toHaveBeenCalledTimes(1);
+    expect(generateText.mock.calls[0][1].systemPrompt).toContain("BEFORE choosing any publishing platform");
+    expect(generateText.mock.calls[0][1].systemPrompt).not.toContain("LinkedIn reaction");
+    expect(JSON.parse(generateText.mock.calls[0][0]).article.summary).toBe(article.summary);
+  });
+  it("uses the application limit rather than a social platform limit", async () => {
+    const content = "Research Desk reports a pilot. ".repeat(110) + article.articleUrl;
+    generateText.mockResolvedValue(content);
+    expect((await generateMainDraftDetailed(fetched)).mainDraft?.content).toBe(content);
+  });
+  it("retains provenance, rejects invented URLs, and allows only one repair", async () => {
+    generateText.mockResolvedValue("Invented story https://invented.test/");
+    await expect(generateMainDraftDetailed(fetched)).rejects.toMatchObject({ code: "ai_invalid_output" });
+    expect(generateText).toHaveBeenCalledTimes(2);
+  });
+  it("does not generate after cancellation", async () => {
+    const controller = new AbortController(); controller.abort();
+    await expect(generateMainDraftDetailed(fetched, { signal: controller.signal })).rejects.toMatchObject({ code: "ai_cancelled" });
+    expect(generateText).not.toHaveBeenCalled();
+  });
+  it("preserves reviewed intent only in adaptation, leaving legacy reaction requests unchanged", async () => {
+    await generatePlatformReviewsDetailed(fetched, ["linkedin"], { tones: ["thoughtLeader"], adaptReviewedDraft: true });
+    expect(generateText.mock.calls[0][1].systemPrompt).toContain("retaining its intent, qualifications, and opinion");
+    expect(generateText.mock.calls[0][1].systemPrompt).not.toContain("React to a supported point");
+    await generatePlatformReviewsDetailed(fetched, ["linkedin"], { tones: ["thoughtLeader"] });
+    expect(generateText.mock.calls[1][1].systemPrompt).toContain("Write a linkedin post reacting to the supplied article.");
+  });
+  it("sends editing directions and the current document as data, without replacing source evidence", async () => {
+    const draftInstruction = "Shorten the argument while preserving its caveats.";
+    const currentDraft = "My edited document and its caveats.";
+    await generateMainDraftDetailed(fetched, { draftInstruction, currentDraft });
+    const [prompt, options] = generateText.mock.calls[0];
+    expect(JSON.parse(prompt)).toMatchObject({ draftInstruction, currentDraft, article: { summary: article.summary } });
+    expect(options.systemPrompt).not.toContain(draftInstruction);
+    expect(options.systemPrompt).toContain("complete proposed document");
+    expect(options.systemPrompt).not.toContain("React to a supported point");
+  });
+});
 
 describe("grounded post generation", () => {
   it.each(ALL_PLATFORM_KEYS)("includes the actual fetched content for %s", async platform => {

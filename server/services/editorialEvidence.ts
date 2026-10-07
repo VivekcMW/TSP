@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 export const MAX_SOURCE_CHARACTERS = 24_000;
 const MAX_PASSAGE_CHARACTERS = 1200;
-const MAX_PASSAGES = 128;
+export const MAX_SOURCE_PASSAGES = 128;
 
 export type SourceWarningCode = "source_truncated" | "metadata_only" | "limited_source_content" | "extraction_unknown" | "passage_limit";
 export interface SourceWarning { code: SourceWarningCode; message: string }
@@ -44,7 +44,7 @@ interface EvidenceInput {
 }
 
 function appendParagraph(retained: string, start: number, paragraphEnd: number, excerpts: SourceExcerpt[]) {
-  while (start < paragraphEnd && excerpts.length < MAX_PASSAGES) {
+  while (start < paragraphEnd && excerpts.length < MAX_SOURCE_PASSAGES) {
     while (start < paragraphEnd && /\s/.test(retained[start])) start++;
     if (start >= paragraphEnd) break;
     let end = Math.min(start + MAX_PASSAGE_CHARACTERS, paragraphEnd);
@@ -72,7 +72,7 @@ function sourceWarnings(input: EvidenceInput, retained: string, excerpts: Source
   if (!input.contentMetadata) {
     warnings.push({ code: "extraction_unknown", message: "Extraction provenance is unavailable; this may be a summary rather than the full article." });
   }
-  if (excerpts.length === MAX_PASSAGES && retained.slice(excerpts.at(-1)!.end).trim()) {
+  if (excerpts.length === MAX_SOURCE_PASSAGES && retained.slice(excerpts.at(-1)!.end).trim()) {
     warnings.push({ code: "passage_limit", message: "The passage limit was reached; later source passages were omitted." });
   }
   return warnings;
@@ -85,7 +85,7 @@ export function buildEvidenceBrief(input: EvidenceInput): EvidenceBrief {
   // Retain paragraph boundaries; split huge paragraphs at whitespace when possible.
   for (const paragraph of retained.matchAll(/[^\r\n]+/g)) {
     appendParagraph(retained, paragraph.index!, paragraph.index! + paragraph[0].length, excerpts);
-    if (excerpts.length >= MAX_PASSAGES) break;
+    if (excerpts.length >= MAX_SOURCE_PASSAGES) break;
   }
   return {
     sourceId: createHash("sha256").update(JSON.stringify([input.title, input.source, input.url ?? "", input.content])).digest("hex"),

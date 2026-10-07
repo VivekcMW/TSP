@@ -51,10 +51,10 @@ export function InboxDetail({ item, onGeneratePost, onSave, onDismiss, inSheet =
               <span className="font-medium text-foreground">Why this is relevant:</span> {relevanceReason}
             </p>
           )}
-          {item.summary ? <section aria-label="Article excerpt" className="mb-4">
+          {item.summary?.trim() && <section aria-label="Article excerpt" className="mb-4">
             <p className="mb-1 text-xs font-medium text-muted-foreground">{excerptLabel} · Not independently verified</p>
             <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">{item.summary}</p>
-          </section> : <p className="mb-4 text-sm text-muted-foreground">Excerpt unavailable. Open the original for context.</p>}
+          </section>}
           {matchedKeywords.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {matchedKeywords.map((keyword) => (

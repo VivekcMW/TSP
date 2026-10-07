@@ -65,8 +65,9 @@ async function active(target = scope) {
 }
 beforeAll(async () => {
   const target = requireLocalTestDatabase();
+  const ownerUser = new URL(process.env.OWNER_TEST_DATABASE_URL ?? "invalid:").username;
   for (const [name, user] of [["DATABASE_URL", "tsp_app"], ["TEST_DATABASE_URL", "tsp_app"],
-    ["OWNER_DATABASE_URL", "vivekanandchoudhari"], ["OWNER_TEST_DATABASE_URL", "vivekanandchoudhari"]]) {
+    ["OWNER_DATABASE_URL", ownerUser], ["OWNER_TEST_DATABASE_URL", ownerUser]]) {
     const url = new URL(process.env[name] ?? "invalid:");
     if (url.protocol !== "postgresql:" || Number(url.port) !== target.port
       || url.pathname !== `/${target.database}` || url.username !== user || url.search || url.hash) throw new Error("Explicit isolated test database required");

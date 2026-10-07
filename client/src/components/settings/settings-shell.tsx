@@ -52,7 +52,7 @@ export function SettingsShell() {
   const navigation = isMobile ? (
     <PageToolbar aria-label="Settings navigation">
       <TabsList aria-label="Settings sections" className="flex h-auto w-full flex-wrap justify-start gap-1">
-        {SETTINGS_SECTIONS.map((section) => <TabsTrigger key={section} value={section} className="capitalize" data-testid={section === "content" ? "tab-content-preferences" : `tab-${section}`}>{section === "invitations" ? "Invite friends" : section}</TabsTrigger>)}
+        {SETTINGS_SECTIONS.map((section) => <TabsTrigger key={section} value={section} className="min-h-11 capitalize" data-testid={section === "content" ? "tab-content-preferences" : `tab-${section}`}>{section === "invitations" ? "Invite friends" : section}</TabsTrigger>)}
       </TabsList>
     </PageToolbar>
   ) : (

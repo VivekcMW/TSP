@@ -10,7 +10,9 @@ import { installSupertestTransport } from "./supertest-transport";
  */
 // Validate BOTH connections before setting either one or importing any DB code.
 // The explicit OS owner prevents pg from falling back to an unrelated PGUSER.
-Object.assign(process.env, resolveTestDatabaseUrls(process.env, userInfo().username));
+const testDatabaseUrls = resolveTestDatabaseUrls(process.env, userInfo().username);
+Object.assign(process.env, testDatabaseUrls);
+process.env.OWNER_DATABASE_URL = testDatabaseUrls.OWNER_TEST_DATABASE_URL;
 
 // Never let a stray .env value turn authentication off inside the suite.
 process.env.DEV_AUTH_BYPASS = "";

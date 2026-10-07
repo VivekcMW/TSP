@@ -123,6 +123,17 @@ describe.skipIf(!disposableRedisAvailable)("recoverable limiter with isolated Re
     return { app, provider, handler };
   }
 
+  async function ensureConnected(client: Redis) {
+    if (client.status === "end") {
+      await client.connect();
+    } else if (client.status !== "ready") {
+      await new Promise<void>((resolve, reject) => {
+        client.once("ready", resolve);
+        client.once("error", reject);
+      });
+    }
+  }
+
   it.each([
     ["aiGenerationRateLimit", "ai-generation", 30, 900],
     ["instantReviewRateLimit", "instant-review", 30, 3600],
@@ -154,7 +165,7 @@ describe.skipIf(!disposableRedisAvailable)("recoverable limiter with isolated Re
       expect(denied.headers["retry-after"]).toBe("5");
       expect(handler).toHaveBeenCalledTimes(quota);
       expect(provider).toHaveBeenCalledTimes(quota);
-    } finally { await first.connect(); }
+    } finally { await ensureConnected(first); }
     // Recovery must not reset the exhausted budget or fall back to memory.
     expect((await request(app).post("/one")).status).toBe(429);
     expect(provider).toHaveBeenCalledTimes(quota);
@@ -175,7 +186,7 @@ describe.skipIf(!disposableRedisAvailable)("recoverable limiter with isolated Re
       expect(handler).not.toHaveBeenCalled();
       expect(provider).not.toHaveBeenCalled();
       await expect(limiter.getKey("flush-user")).rejects.toBeInstanceOf(RateLimitStoreUnavailableError);
-    } finally { await first.connect(); }
+    } finally { await ensureConnected(first); }
     expect((await request(app).post("/one")).status).toBe(200);
     const recovered = await limiter.getKey("flush-user");
     expect(recovered?.totalHits).toBe(2);
