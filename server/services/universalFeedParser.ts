@@ -7,6 +7,15 @@ import { publicationDate } from "./articleDates";
  * This application subclass is covered against actual rss-parser XML fixtures.
  */
 export class PublicationFeedParser extends Parser {
+  constructor(private readonly feedOptions: Parser.ParserOptions<Record<string, unknown>, Record<string, unknown>> = {}) {
+    super(feedOptions);
+  }
+
+  override parseString(xml: string, callback?: Parameters<Parser["parseString"]>[1]): ReturnType<Parser["parseString"]> {
+    // xml2js retains state after rootless input and can mix concurrent feeds.
+    return super.parseString.call(new PublicationFeedParser(this.feedOptions), xml, callback);
+  }
+
   parseItemAtom(entry: Record<string, unknown>) {
     const { published, updated: _updated, ...content } = entry;
     const base = Parser.prototype as unknown as { parseItemAtom(value: Record<string, unknown>): Record<string, unknown> };

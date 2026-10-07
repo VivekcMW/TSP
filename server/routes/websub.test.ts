@@ -70,4 +70,16 @@ describe("WebSub callback", () => {
     expect(await findPooledArticle(`${host}/forged`)).toBeNull();
     expect((await request(app).post(`/api/websub/${randomUUID()}`).set("Content-Type", "application/rss+xml").send(body)).status).toBe(404);
   });
+
+  it("settles rootless signed XML and still ingests the next delivery", async () => {
+    const send = (body: string) => request(app).post(`/api/websub/${id}`)
+      .set("Content-Type", "application/rss+xml")
+      .set("X-Hub-Signature", `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`)
+      .send(body).timeout({ response: 1000, deadline: 2000 });
+    const body = `<rss version="2.0"><channel><title>Daily</title><item><title>After invalid XML</title><link>${host}/after-invalid</link></item></channel></rss>`;
+    expect((await send(body)).status).toBe(202);
+    expect((await send("<!-- no feed root -->")).status).toBe(202);
+    expect((await send(body)).status).toBe(202);
+    expect(await findPooledArticle(`${host}/after-invalid`)).toMatchObject({ title: "After invalid XML", source: "Daily" });
+  });
 });

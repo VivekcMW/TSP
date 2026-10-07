@@ -97,6 +97,12 @@ requests and Bull lock-renewal timers remain responsive during large refreshes.
 Check for missed-cron and lost-queue-heartbeat warnings as well as HTTP readiness;
 a successful readiness response alone does not prove responsiveness.
 
+Feed parsing uses an independent XML parser per operation, including WebSub,
+shared-index crawling, and Google/Bing discovery. Reusing the underlying XML
+parser can leave rootless responses pending or mix concurrent feed results.
+After deployment, check signed WebSub delivery latency as well as readiness:
+healthy database probes do not detect a stalled feed parser.
+
 If validation created a configuration-only successor, update `CANDIDATE` to
 that exact checked revision before moving traffic. Restore the original
 `ALLOWED_ORIGINS` Secret Manager binding in the final revision; do not carry the
