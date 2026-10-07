@@ -14,10 +14,11 @@ let scope: TenantScope;
 beforeAll(async () => {
   // No dotenv, migrations, global cleanup or fallback to a developer database.
   const target = requireLocalTestDatabase();
+  const ownerUser = decodeURIComponent(new URL(process.env.OWNER_TEST_DATABASE_URL!).username);
   const runtime = await pool.query("select current_user, current_database(), rolbypassrls, rolsuper from pg_roles where rolname = current_user");
   expect(runtime.rows[0]).toEqual({ current_user: "tsp_app", current_database: target.database, rolbypassrls: false, rolsuper: false });
   const owner = await ownerPool.query("select current_user, current_database()");
-  expect(owner.rows[0]).toEqual({ current_user: "vivekanandchoudhari", current_database: target.database });
+  expect(owner.rows[0]).toEqual({ current_user: ownerUser, current_database: target.database });
 });
 
 async function makeScope(existing: Partial<TenantScope> = {}): Promise<TenantScope> {

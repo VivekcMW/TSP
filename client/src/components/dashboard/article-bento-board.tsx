@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ArrowUp, Check, FileText, MessageSquare, Paperclip, Plus, Save, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { ArrowUp, Check, FileText, MessageSquare, Paperclip, Plus, Save, SlidersHorizontal, Sparkles, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,7 +10,7 @@ import { EditorialDetails, EditorialProgress, SourceReview } from "./editorial-d
 import { WorkflowStatus } from "./workflow-status";
 import { RichArticleEditor } from "./rich-article-editor";
 import { DocumentEditor } from "./document-editor";
-import { PunditWriting, useProposalReveal } from "./pundit-writing";
+import { PunditWriting } from "./pundit-writing";
 import { publicSourceUrl, versionCounts, versionKey } from "./create-post-state";
 import type { CreatePostComposer } from "./use-create-post-composer";
 
@@ -38,7 +38,6 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
   const input = useRef<HTMLTextAreaElement>(null);
   const title = useRef<HTMLTextAreaElement>(null);
   const commandMenu = useRef<HTMLDivElement>(null);
-  const proposalHeading = useRef<HTMLHeadingElement>(null);
   const commandList = useId();
   const slashQuery = c.chat.input.match(/(?:^|\s)\/([a-z]*)$/i)?.[1];
   const matchingCommands = commands.filter(command => `${command.key} ${command.label}`.toLowerCase().includes((slashQuery ?? "").toLowerCase()));
@@ -55,7 +54,7 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
   const panelTitle = commands.find(command => command.key === panel)?.label ?? "Draft actions";
   const documentKey = useMemo(() => crypto.randomUUID(), [c.sourceIdentity]);
   const waitingForSuggestion = Boolean(c.chat.pending && c.generation.pending);
-  const reveal = useProposalReveal(c.chat.proposal?.id, c.proposalReview?.mainDraft?.content ?? "");
+  const sourceFailure = c.chat.failure ?? c.generation.sourceFailure;
 
   useEffect(() => {
     const paper = title.current?.parentElement;
@@ -77,7 +76,12 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
     return () => observer.disconnect();
   }, [c.main?.title, showingVersions]);
   useEffect(() => { setCommandIndex(0); setDismissedCommands(false); }, [c.chat.input]);
-  useEffect(() => { proposalHeading.current?.focus(); }, [c.chat.proposal?.id]);
+  useEffect(() => {
+    const node = input.current;
+    if (!node) return;
+    node.style.height = "auto";
+    node.style.height = `${Math.min(96, node.scrollHeight)}px`;
+  }, [c.chat.input]);
   useEffect(() => {
     commandMenu.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }, [commandsOpen, commandIndex]);
@@ -153,9 +157,20 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
           </div>;
         })}</div>
         {c.copyStatus && <WorkflowStatus>{c.copyStatus}</WorkflowStatus>}
-      </section> : <div className={`mx-auto grid min-w-0 max-w-7xl items-start gap-5 ${c.chat.proposal || waitingForSuggestion ? "lg:grid-cols-2" : ""}`}>
+      </section> : <div className="mx-auto min-w-0 max-w-7xl">
         <article aria-label="Editable document" className="min-w-0 rounded-sm border bg-card px-5 py-7 shadow-sm sm:px-10 sm:py-10">
-          <div className="mb-6 flex items-center gap-2 text-xs text-muted-foreground"><FileText className="h-3.5 w-3.5" />{c.main?.review ? "Your main draft" : "Your document"}<span className="ml-auto">Editable</span></div>
+          <div className="mb-4 flex min-h-11 flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <FileText className="h-3.5 w-3.5" />Your document
+            {c.canUndoSuggestion && <span role="status"> · AI update ready</span>}
+            <div className="ml-auto">{c.canUndoSuggestion
+              ? <Button size="sm" variant="ghost" disabled={locked} onClick={c.undoSuggestion}><Undo2 className="h-3.5 w-3.5" />Undo AI update</Button>
+              : <span>Editable</span>}</div>
+          </div>
+          {waitingForSuggestion && <PunditWriting elapsed={c.generation.elapsed} cancel={c.generation.cancel} />}
+          {c.chat.proposal && <WorkflowStatus tone="warning" actions={<>
+            <Button disabled={locked} onClick={c.applySuggestion}>Use generated draft</Button>
+            <Button variant="outline" disabled={locked} onClick={c.discardSuggestion}>Discard</Button>
+          </>}>{c.proposalStale ? "Your document changed while Pundit worked. Your edits have not been overwritten." : "A saved generated draft is ready. Your document has not been replaced."} Using it replaces the document text and formatting; Undo AI update restores your current version.</WorkflowStatus>}
           <Textarea ref={title} aria-label="Document title" rows={1} placeholder="Untitled draft" value={c.main?.title ?? ""} maxLength={200} disabled={locked}
             onChange={event => c.editDocument({ title: event.target.value })}
             className="mb-4 min-h-0 resize-none overflow-hidden rounded-none border-0 bg-transparent px-0 py-2 font-serif text-2xl font-semibold leading-snug shadow-none focus-visible:ring-1 md:text-3xl" />
@@ -163,19 +178,6 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
           <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground"><span>Document · {wordCount} words</span><span>{c.main?.content.length ?? 0} / 5,000</span></div>
           <p className="mt-2 text-xs text-muted-foreground">Formatting is saved in this document. Platform versions use plain text.</p>
         </article>
-        {waitingForSuggestion && <div className="order-first min-w-0 lg:order-last" data-testid="pundit-writing-preview"><PunditWriting preview /></div>}
-        {c.chat.proposal && c.proposalReview?.mainDraft && <section aria-label="Proposed changes" className="order-first min-w-0 rounded-sm border border-primary/30 bg-card p-5 shadow-sm lg:order-last">
-          <div className="mb-4 flex items-start gap-2"><Sparkles className="mt-1 h-4 w-4 shrink-0 text-primary" /><div><h2 ref={proposalHeading} tabIndex={-1} className="font-semibold outline-none">Proposed changes</h2><p className="text-xs text-muted-foreground">Your document has not changed. Review before applying.</p></div></div>
-          <p className="sr-only">{c.proposalReview.mainDraft.content}</p>
-          <div aria-hidden="true" className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words font-serif text-base leading-loose" data-testid="proposed-draft">{reveal.text}{reveal.typing && <span className="ml-0.5 inline-block h-5 border-r-2 border-primary align-middle motion-safe:animate-pulse" />}</div>
-          {reveal.typing && <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground"><span>Showing Pundit's suggestion...</span><Button size="sm" variant="ghost" onClick={reveal.showAll}>Show full suggestion</Button></div>}
-          {c.proposalStale && <p role="alert" className="mt-3 text-sm text-destructive">You edited the document after this suggestion. Discard it and request a fresh revision to keep your edits safe.</p>}
-          <div className="mt-5 flex flex-wrap gap-2 border-t pt-4">
-            <Button disabled={locked || c.proposalStale || reveal.typing} onClick={c.applySuggestion}><Check className="h-4 w-4" />Apply changes</Button>
-            <Button variant="outline" disabled={locked} onClick={c.discardSuggestion}>Discard</Button>
-          </div>
-          <p className="mt-3 text-xs text-muted-foreground">Applying replaces the document body and its formatting. AI output is not independently fact-checked; review source claims before publishing.</p>
-        </section>}
       </div>}
     </div>
 
@@ -191,17 +193,15 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
         {conversationOpen && <div role="log" aria-label="Draft conversation" className="mb-2 max-h-36 space-y-2 overflow-y-auto rounded-md border bg-card p-3 text-sm">
           {c.chat.messages.map(message => <div key={message.id} className={message.role === "user" ? "ml-5 rounded-md bg-muted p-2" : "mr-5 p-2"}><span className="mb-1 block text-xs font-medium text-muted-foreground">{message.role === "user" ? "You" : "Pundit"}</span><p className="whitespace-pre-wrap break-words">{message.content}</p></div>)}
         </div>}
-        {c.chat.proposal && <p role="status" className="mb-2 text-xs text-primary">Suggestion ready above. Apply or discard it before requesting another change.</p>}
-        {c.generation.pending && <PunditWriting />}
         {c.chat.pending && !c.generation.pending && !c.generation.recoverable && <WorkflowStatus tone="warning" actions={<Button variant="outline" onClick={c.discardSuggestion}>Dismiss interrupted suggestion</Button>}>A previous suggestion was interrupted. No new AI attempt has been started.</WorkflowStatus>}
         <div className="rounded-xl border bg-card p-2 shadow-sm focus-within:border-primary/50">
-          {!!selectedArticles.length && <div className="mb-1 flex max-h-24 flex-wrap gap-1 overflow-y-auto" aria-label="Attached articles">{selectedArticles.map(({ url, item }) => <div key={url} className="flex max-w-full items-center rounded-md border bg-muted/40 pl-2 text-xs">
+          {!!selectedArticles.length && <div className="mb-1 flex gap-1 overflow-x-auto" aria-label="Attached articles">{selectedArticles.map(({ url, item }) => <div key={url} className="flex max-w-full shrink-0 items-center rounded-md border bg-muted/40 pl-2 text-xs">
             <FileText className="mr-1 h-3.5 w-3.5 shrink-0" /><span className="max-w-40 truncate" title={item?.headline ?? url}>{item?.headline ?? url}</span>
             <Button size="icon" variant="ghost" className="h-11 w-11 shrink-0" aria-label={`Remove ${item?.headline ?? url}`} disabled={locked || Boolean(c.chat.pending)}
               onClick={() => c.setChatReferences(c.chat.referenceUrls.filter(value => value !== url))}><X className="h-3 w-3" /></Button>
           </div>)}</div>}
           <Textarea ref={input} aria-label="Message Pundit" placeholder="Suggest an edit or describe your idea... type / for actions"
-            rows={2} maxLength={4000} value={c.chat.input} disabled={!c.persistence.ready}
+            rows={1} maxLength={4000} value={c.chat.input} disabled={!c.persistence.ready}
             aria-controls={commandsOpen ? commandList : undefined}
             aria-activedescendant={commandsOpen && matchingCommands.length ? `${commandList}-${commandIndex}` : undefined}
             onChange={event => c.setChatInput(event.target.value)}
@@ -214,10 +214,10 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
                 if (commandsOpen && matchingCommands[commandIndex]) runAction(matchingCommands[commandIndex].key);
-                else if (!locked && !c.chat.proposal && !c.chat.pending) send();
+                else if (!locked && c.preferencesReady && !c.chat.proposal && !c.chat.pending) send();
               }
             }}
-            className="max-h-32 min-h-16 resize-y border-0 bg-transparent px-2 py-1 shadow-none focus-visible:ring-0" />
+            className="max-h-24 min-h-11 resize-none border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0" />
           <div className="flex flex-wrap items-center justify-between gap-1">
             <div className="flex items-center gap-1">
               <Button variant="ghost" size="sm" disabled={locked || Boolean(c.chat.pending)} onClick={() => runAction("sources")}><Paperclip className="h-4 w-4" />Articles{selectedArticles.length ? ` (${selectedArticles.length})` : ""}</Button>
@@ -225,10 +225,10 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
                 disabled={!c.persistence.ready} onClick={() => { c.setChatInput(`${c.chat.input.trimEnd()} /`.trimStart()); focusChat(); }}><SlidersHorizontal className="h-4 w-4" /></Button>
               <span className="hidden text-xs text-muted-foreground sm:inline">/ actions · Shift+Enter for a new line</span>
             </div>
-            <Button size="icon" aria-label="Send suggestion" disabled={locked || !c.chat.input.trim() || Boolean(c.chat.proposal || c.chat.pending)} onClick={send}><ArrowUp className="h-4 w-4" /></Button>
+            <Button size="icon" aria-label="Send suggestion" disabled={locked || !c.preferencesReady || !c.chat.input.trim() || Boolean(c.chat.proposal || c.chat.pending)} onClick={send}><ArrowUp className="h-4 w-4" /></Button>
           </div>
         </div>
-        {commandsOpen && <div ref={commandMenu} id={commandList} role="listbox" aria-label="Slash commands" className="absolute bottom-32 left-0 right-0 z-30 max-h-72 overflow-y-auto rounded-lg border bg-popover p-1 shadow-lg">
+        {commandsOpen && <div ref={commandMenu} id={commandList} role="listbox" aria-label="Slash commands" className="absolute bottom-full left-0 right-0 z-30 mb-2 max-h-72 overflow-y-auto rounded-lg border bg-popover p-1 shadow-lg">
           {!matchingCommands.length && <p className="p-3 text-sm text-muted-foreground">No matching command. Try /sources, /tone, or /platforms.</p>}
           {matchingCommands.map((command, index) => <button type="button" id={`${commandList}-${index}`} key={command.key} role="option" aria-selected={index === commandIndex}
             onMouseDown={event => event.preventDefault()} onMouseEnter={() => setCommandIndex(index)} onClick={() => runAction(command.key)}
@@ -236,11 +236,21 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
             <span className="w-24 shrink-0 font-mono text-xs">/{command.key}</span><span className="min-w-0"><span className="block text-sm font-medium">{command.label}</span><span className="block text-xs text-muted-foreground">{command.description}</span></span>
           </button>)}
         </div>}
-        <EditorialProgress {...c.generation} batch={c.batching ? c.batch : undefined} />
+        <EditorialProgress {...c.generation} error={sourceFailure ? "" : c.generation.error} pending={c.generation.pending && !waitingForSuggestion} batch={c.batching ? c.batch : undefined} />
+        {sourceFailure && <WorkflowStatus tone="error" title="Some sources could not be read" actions={<>
+          {sourceFailure.sources.some(source => c.chat.referenceUrls.includes(source.url)) &&
+            <Button variant="outline" disabled={locked} onClick={c.removeUnreadableSources}>Remove unavailable articles</Button>}
+          <Button variant="outline" disabled={locked} onClick={() => runAction("notes")}>Add source notes</Button>
+        </>}>
+          <p>{sourceFailure.message}</p>
+          <ul className="mt-1 max-h-24 overflow-y-auto text-xs">{sourceFailure.sources.map(source =>
+            <li key={source.url}><a className="underline" href={source.url} target="_blank" rel="noopener noreferrer">{new URL(source.url).hostname}</a>: {source.message}</li>)}</ul>
+          <p className="mt-1 text-xs">Your document, attachments and message have been kept. Sources are never silently skipped.</p>
+        </WorkflowStatus>}
         {c.generation.recoverable && !c.generation.pending && <WorkflowStatus tone="warning" actions={<>
           <Button variant="outline" onClick={() => void c.generate(true)}>Retry same request</Button><Button variant="outline" onClick={() => void c.generation.cancel()}>Cancel generation</Button>
         </>}>Check the original request before starting another AI attempt.</WorkflowStatus>}
-        <p className="mt-1 text-center text-xs text-muted-foreground">AI proposes. You decide. Each suggestion or platform adaptation may count toward usage.</p>
+        <p className="mt-1 text-center text-xs text-muted-foreground">Pundit writes in your document. Review before publishing. AI requests may count toward usage.</p>
       </div>
     </section>
 

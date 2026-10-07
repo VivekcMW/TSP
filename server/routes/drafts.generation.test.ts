@@ -135,7 +135,7 @@ describe("detailed review routes", () => {
   it("returns actionable crawl failures without successful posts", async () => {
     mocks.fetchArticle.mockRejectedValue(new CrawlError("content", "No readable article content was found."));
     const response = await request(app).post("/api/instant-review/selected").send({ url: article.url, selectedPlatforms: ["linkedin"] });
-    expect(response.status).toBe(422); expect(response.body.message).toContain("Write article");
+    expect(response.status).toBe(422); expect(response.body.message).toContain("supply the text yourself");
     expect(response.body).not.toHaveProperty("posts"); expect(mocks.selected).not.toHaveBeenCalled();
   });
 

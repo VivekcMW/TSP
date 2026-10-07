@@ -148,6 +148,14 @@ export function RichArticleEditor({ value, onChange, isPending, onUploadingChang
           aria-labelledby={editorLabelId}
           aria-describedby={`${editorHelpId} ${characterCountId}`}
           suppressContentEditableWarning
+          onFocus={event => {
+            const editor = event.currentTarget;
+            requestAnimationFrame(() => {
+              if (document.activeElement === editor && editor.matches(":focus-visible")) {
+                editor.scrollIntoView({ block: "nearest", inline: "nearest" });
+              }
+            });
+          }}
           onInput={event => { const content = event.currentTarget.innerText; lastExternalContent.current = content; onChange({ ...latest.current, content }); }}
           onPaste={event => { event.preventDefault(); const text = event.clipboardData.getData("text/plain"); document.execCommand("insertText", false, text); }}
           data-placeholder="Start writing your article here…"

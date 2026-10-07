@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import type { InboxItem, UserProfile } from "@shared/schema";
-import { supportsArticle, type EditorialFormat } from "@shared/editorial";
+import { supportsArticle, type EditorialFormat, type SourceFailure } from "@shared/editorial";
 import { accountCache, ApiError, apiRequest } from "@/lib/queryClient";
 import { acknowledgeDraftSave, adoptDraftRevision, draftSaveBlocked, editDraftText, observeDraftRevision, parseDraftEditingSnapshot } from "@shared/draft-revision";
 import { useAuth } from "@/lib/auth";
@@ -154,8 +154,9 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   const lastGeneration = useRef<GenerationSnapshot>();
   const generation = useEditorialGeneration<ReviewResponse>({
     scope: persistence.ready && user?.id && profile.data?.tenantId ? { userId: user.id, tenantId: profile.data.tenantId } : undefined,
+    onFailure: failure => finishSuggestionFailure(failure.message, failure.sourceFailure),
     onRecovered: data => {
-      if (data?.mainDraft) { receiveSuggestion(data); return; }
+      if (data?.mainDraft || chatRef.current.pending) { receiveSuggestion(data); return; }
       const recoveredPlatform = Object.keys(data?.posts ?? {})[0];
       const recoveredTone = CREATE_TONES.find(value => typeof data?.posts?.[recoveredPlatform]?.[value.key] === "string")?.key;
       if (!PLATFORMS.some(value => value.value === recoveredPlatform) || !recoveredTone) {
@@ -226,6 +227,7 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   function restoreCreation(state: CreationSession) {
     const restoredMain = state.main && { ...state.main, review: state.main.reviewJson ? storedReview(state.main.reviewJson) : undefined };
     if (state.chat?.proposal) storedReview(state.chat.proposal.reviewJson);
+    if (state.chat?.undo?.previous?.reviewJson) storedReview(state.chat.undo.previous.reviewJson);
     const restoredVersions: PostVersions = {};
     for (const value of state.versions) {
       restoredVersions[versionKey(value.platform, value.tone)] = { ...value, review: storedReview(value.reviewJson),
@@ -447,20 +449,48 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
     setNotice("Main draft ready. Read and edit it before choosing platforms.");
     return true;
   }
+  function finishSuggestionFailure(message: string, failure?: SourceFailure) {
+    const current = chatRef.current;
+    if (!current.pending) return;
+    updateChat({ ...current, pending: undefined, failure,
+      input: current.input || current.messages.findLast(message => message.role === "user")?.content || "",
+      messages: [...current.messages.slice(-99), { id: crypto.randomUUID(), role: "assistant",
+        content: `${message} Your document is unchanged and your message is ready to edit or send again.`.slice(0, 4000) }] });
+  }
   function documentSnapshot() {
     return { id: crypto.randomUUID(), title: mainRef.current?.title ?? "", content: mainRef.current?.content ?? "",
       revision: mainRef.current?.revision ?? 0, formatJson: mainRef.current?.formatJson };
   }
+  function matchesDocument(snapshot: NonNullable<CreationChat["pending"]>) {
+    const current = mainRef.current;
+    return snapshot.revision === (current?.revision ?? 0) && snapshot.title === (current?.title ?? "") &&
+      snapshot.content === (current?.content ?? "") && snapshot.formatJson === current?.formatJson;
+  }
+  function writeSuggestion(data: ReviewResponse) {
+    const previous = mainRef.current;
+    if (!acceptMain(data, previous?.title.trim() || data.article.title)) return false;
+    updateChat({ ...chatRef.current, pending: undefined, proposal: undefined, failure: undefined,
+      undo: { previous: previous && { title: previous.title, content: previous.content, original: previous.original,
+        revision: previous.revision, formatJson: previous.formatJson,
+        reviewJson: previous.review && JSON.stringify(previous.review) }, applied: documentSnapshot() },
+      messages: [...chatRef.current.messages.slice(-99), { id: crypto.randomUUID(), role: "assistant",
+        content: "Your draft is ready in the document. Edit it directly, or undo this AI update. Review the source claims before publishing." }],
+    });
+    setNotice("");
+    return true;
+  }
   function receiveSuggestion(data: ReviewResponse) {
-    if (!isReviewResponse(data) || !data.mainDraft?.content.trim()) {
+    if (!isReviewResponse(data) || !data.mainDraft?.content.trim() || data.mainDraft.content.length > 5000) {
       setNotice("No usable suggestion was returned. Your document is unchanged.");
-      updateChat({ ...chatRef.current, pending: undefined });
+      finishSuggestionFailure("No usable suggestion was returned.");
       return false;
     }
     const current = chatRef.current;
+    if (current.pending && matchesDocument(current.pending)) return writeSuggestion(data);
     updateChat({ ...current, pending: undefined,
       proposal: { ...(current.pending ?? documentSnapshot()), reviewJson: JSON.stringify(data) },
-      messages: [...current.messages, { id: crypto.randomUUID(), role: "assistant", content: "Your suggested changes are ready. Review the proposal, then apply or discard it." }],
+      messages: [...current.messages.slice(-99), { id: crypto.randomUUID(), role: "assistant",
+        content: "A generated draft is ready, but your current document was kept safe. Choose whether to use the generated draft." }],
     });
     setNotice(""); setStep("review");
     return true;
@@ -477,7 +507,7 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
     updateChat({ ...chatRef.current, referenceUrls: unique });
   };
   const suggest = async (retry = false) => {
-    if (!persistence.ready || scopeRef.current !== renderScope || lifetime.current.signal.aborted ||
+    if (!persistence.ready || !preferencesReady || scopeRef.current !== renderScope || lifetime.current.signal.aborted ||
       generationLock.current || batchLock.current || saving || uploading || generation.pending) return;
     if (!retry && (generation.hasActiveRequest() || chatRef.current.pending || chatRef.current.proposal)) return;
     const instruction = chatRef.current.input.trim();
@@ -489,7 +519,7 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
     if (!retry && !sourceUrls.length && !publicSourceUrl(url) && content.trim().length < 20) {
       setNotice("Attach articles or provide an idea with at least 20 characters."); return;
     }
-    if (!retry) updateChat({ ...chatRef.current, input: "", pending: documentSnapshot(),
+    if (!retry) updateChat({ ...chatRef.current, input: "", pending: documentSnapshot(), failure: undefined,
       messages: [...chatRef.current.messages, { id: crypto.randomUUID(), role: "user", content: instruction }] });
     mainAttempt.current = true; generationLock.current = true; setNotice("");
     try {
@@ -505,8 +535,6 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
         });
       if (scopeRef.current !== renderScope || lifetime.current.signal.aborted) return;
       if (data && !generation.reattached) receiveSuggestion(data);
-      else if (!data && !generation.hasActiveRequest()) updateChat({ ...chatRef.current, pending: undefined,
-        messages: [...chatRef.current.messages, { id: crypto.randomUUID(), role: "assistant", content: "No changes were applied. Check the generation status before trying another suggestion." }] });
     } finally {
       generationLock.current = false;
       if (!generation.hasActiveRequest()) mainAttempt.current = false;
@@ -517,18 +545,43 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   const applySuggestion = () => {
     const proposal = chatRef.current.proposal;
     if (!proposal || sourceLocked()) return;
-    if (proposal.revision !== (mainRef.current?.revision ?? 0) || proposal.title !== (mainRef.current?.title ?? "") || proposal.content !== (mainRef.current?.content ?? "") || proposal.formatJson !== mainRef.current?.formatJson) {
-      setNotice("Your document changed after this suggestion. Discard it and request a fresh revision; your edits were not overwritten."); return;
-    }
+    if (!matchesDocument(proposal) && !window.confirm("Use the generated draft instead of your current document? Your current text and formatting will be available with Undo AI update.")) return;
     const review = storedReview(proposal.reviewJson);
-    if (acceptMain(review, proposal.revision > 0 ? proposal.title : review.article.title)) updateChat({ ...chatRef.current, proposal: undefined,
-      messages: [...chatRef.current.messages, { id: crypto.randomUUID(), role: "assistant", content: "Changes applied to your document. Existing platform versions may need regenerating." }] });
+    writeSuggestion(review);
+  };
+  const canUndoSuggestion = Boolean(chat.undo && matchesDocument(chat.undo.applied));
+  const undoSuggestion = () => {
+    const undo = chatRef.current.undo;
+    if (!undo || sourceLocked()) return;
+    if (!matchesDocument(undo.applied)) {
+      setNotice("You have edited the document since the AI update. Your newer edits were not overwritten."); return;
+    }
+    const previous = undo.previous;
+    setMain(previous && { ...previous, revision: (mainRef.current?.revision ?? 0) + 1,
+      review: previous.reviewJson ? storedReview(previous.reviewJson) : undefined });
+    reviewedRef.current = undefined; setReviewedRevision(undefined);
+    setBatchRecovery(undefined); setBatch({ targets: [], completed: [] });
+    attempts.current = {}; generationStatesRef.current = {}; setGenerationStates({}); setGenerationErrors({});
+    updateChat({ ...chatRef.current, undo: undefined,
+      messages: [...chatRef.current.messages.slice(-99), { id: crypto.randomUUID(), role: "assistant",
+        content: "AI update undone. Your previous document and formatting are restored." }] });
+    setStep(previous ? "review" : "source"); setNotice("");
   };
   const discardSuggestion = () => {
     if (sourceLocked()) return;
     updateChat({ ...chatRef.current, proposal: undefined, pending: undefined,
+      input: chatRef.current.input || (chatRef.current.pending ? chatRef.current.messages.findLast(message => message.role === "user")?.content ?? "" : ""),
       messages: [...chatRef.current.messages, { id: crypto.randomUUID(), role: "assistant", content: "Suggestion discarded. Your document is unchanged." }] });
     setNotice("");
+  };
+  const removeUnreadableSources = () => {
+    const failure = chatRef.current.failure;
+    if (!failure || sourceLocked() || !persistence.ready || !generation.reset()) return;
+    const blocked = new Set(failure.sources.map(source => source.url));
+    const references = chatRef.current.referenceUrls.filter(url => !blocked.has(url));
+    const removed = chatRef.current.referenceUrls.length - references.length;
+    updateChat({ ...chatRef.current, referenceUrls: references, failure: undefined });
+    setNotice(`Removed ${removed} unavailable article(s). ${references.length} remain attached. Review your message and press Send when ready; no new AI request has started.`);
   };
   const generateMain = async (retry = false) => {
     if (!persistence.ready || sourceLocked() && !(retry && generation.recoverable && !generation.pending) || !retry && !inputReady) return;
@@ -814,7 +867,7 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   const identityEmail = me.data?.email || user?.email;
   return { step, goToStep, main, editMain, generateMain, mainReady, mainReviewed, choosePlatforms, staleVersion, persistence,
     sourceIdentity: source,
-    chat, setChatInput, setChatReferences, suggest, editDocument, proposalReview, proposalStale, applySuggestion, discardSuggestion,
+    chat, setChatInput, setChatReferences, suggest, editDocument, proposalReview, proposalStale, applySuggestion, discardSuggestion, canUndoSuggestion, undoSuggestion, removeUnreadableSources,
     canGenerateMain: persistence.ready && inputReady && !busy && !generation.recoverable,
     platforms, preferencesReady, preferencesError: profile.isError || integrations.isError,
     generationState: (platformValue: string, toneValue: CreateTone) => generationStates[versionKey(platformValue, toneValue)],

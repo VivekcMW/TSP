@@ -16,7 +16,7 @@ import { reconciliationSchema } from "@shared/publishing-reconciliation";
 import { enqueuePublishDraft, QueueUnavailableError } from "../jobs/queue";
 import { handlePublishDraft, type PublishDraftJobData } from "../jobs/handlers/publish-draft";
 import { z } from "zod";
-import { CrawlError } from "../services/crawlerFetch";
+import { CrawlError, sourceFailureBody } from "../services/crawlerFetch";
 import { editorialCancellation, editorialContext, editorialPreferences, reviewUrl, validateEditorialFormat } from "./editorial-context";
 import { generationAccessFailure } from "../services/generation-quota";
 import { runHttpGeneration } from "./generation-operation";
@@ -83,7 +83,7 @@ function generationError(res: Response, error: unknown) {
     return res.status(access.status).json(access.body);
   }
   if (error instanceof Error && "status" in error && error.status === 403) return res.status(403).json({ message: "An attached media item is not available to this account" });
-  if (error instanceof CrawlError) return res.status(422).json({ code: "source_unreadable", message: `${error.message} Try another public URL or use Write article to supply the text.` });
+  if (error instanceof CrawlError) return res.status(422).json(sourceFailureBody(error));
   const failure = getAIErrorResponse(error);
   if (failure.retryAfterSeconds !== undefined) res.setHeader("Retry-After", String(failure.retryAfterSeconds));
   return res.status(failure.status).json(failure.body);

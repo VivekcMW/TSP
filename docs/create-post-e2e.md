@@ -20,12 +20,13 @@ the bottom chat stays visible independently of document scrolling.
    evidence budget and passage slots divided between sources, so a dense first
    source cannot crowd later sources out of the writer's evidence. Selection is scoped to the signed-in
    workspace and checked again when a queued request executes.
-3. Review **Proposed changes**, then explicitly **Apply changes** or **Discard**.
-   Suggestions never silently replace the document. Applying preserves a title
-   already entered by the user. Editing after a proposal makes that proposal
-   stale and prevents applying it over newer text or formatting. Applying an AI
-   suggestion replaces the body and clears its previous formatting, as disclosed
-   beside Apply. The title remains unchanged.
+3. Pundit writes the completed draft **directly into the editable document**,
+   preserving your chosen title. There is no second proposal editor.
+   **Undo AI update** restores the previous document, formatting, and source
+   review, including after reload. Undo cannot overwrite newer manual edits.
+   If the document changed while a job was running, the result is held behind
+   **Use generated draft** / **Discard** instead. Replacing newer edits requires
+   confirmation and retains them for Undo. Older saved proposals remain recoverable.
 4. Use **Adapt for platforms** or `/platforms`, choose up to four platforms, and
    generate their versions. No platforms are selected automatically.
 
@@ -35,13 +36,17 @@ in dialogs rather than permanent dropdowns. Enter sends; Shift+Enter inserts a
 newline; Escape closes the command list. `/notes` retains source/media upload.
 The conversation can be expanded without leaving the editor.
 
-While a suggestion is pending, Pundit displays animated writing dots and a
-skeleton preview without modifying the document. A completed, validated
-suggestion is then revealed progressively (up to 2.2 seconds). This is a
-presentation animation, **not provider token streaming**. **Show full suggestion**
-skips the reveal; Apply becomes available when the complete suggestion is shown.
-Reduced-motion preferences disable the reveal and loading animations.
+While a suggestion is pending, one compact writing status appears **inside the
+document**, with elapsed time and cancellation. Existing text remains unchanged
+until a complete, validated response arrives. This is not provider token streaming.
+Reduced-motion preferences disable loading animations.
 Cancellation or failure removes the writing state and preserves the document.
+Failed source reads identify all unavailable articles together. No selected
+article is silently skipped and no AI generation starts with partial evidence.
+**Remove unavailable articles** is an explicit selection change, not an automatic
+retry. The original message is restored, the remaining references are kept, and
+the user presses Send to start a new attempt. **Add source notes** supports
+supplying text instead. Publisher access restrictions are not bypassed.
 
 Platform adaptation uses the exact reviewed main-draft title and text, with the
 original source URL retained for provenance. It does not fetch the original
@@ -53,14 +58,17 @@ is retained without its rich list markers.
 
 One active creation per user and tenant is autosaved on the server, including
 source inputs, document text and formatting, platform selection, edited versions, attached article
-links, conversation, unsent chat text, and pending proposals. **Save progress**
+links, conversation, unsent chat text, pending requests, source failures, and the
+last undoable AI update. **Save progress**
 confirms the current state explicitly. Wait for **All changes saved**
 before closing or reloading. A failed or conflicting save retains the local
 text, stops automatic retries, and offers explicit retry/reload actions. Reload
 requires confirmation before discarding unsaved changes. Draft text is not
 written to browser storage; existing opaque job-recovery pointers remain.
-Recovered neutral jobs also require Apply/Discard. An interrupted suggestion
-without a recoverable job is shown explicitly and never retried automatically.
+Recovered jobs update the document only when their saved document snapshot still
+matches; otherwise they require explicit replacement. Recovered terminal failures
+unlock the composer and restore the message. An interrupted suggestion without a
+recoverable job is shown explicitly and never retried automatically.
 
 Editing the main-draft wording or title retains platform text but marks older versions as out of
 date. Those versions cannot be copied, saved, or handed off until regenerated.
@@ -87,13 +95,15 @@ the owner-scoped, revision-protected store with forced row-level security.
 Focused coverage:
 
 - `draft-first.browser.test.ts`: real React/Chromium document/chat workflow,
-  Apply/Discard, stale proposals, slash keyboard controls, multi-reference input,
+  direct document updates, persistent Undo, confirmed conflict replacement,
+  slash keyboard controls, multi-reference input,
   exact edited adaptation input, server-state restoration, save races, stale
   versions, selection cap, failures, and desktop/mobile sticky-chat geometry
   with mocked AI/HTTP boundaries. Rich-editor coverage includes every toolbar
   action, formatting save/reload/navigation, exact plain-text adaptation,
   formatting-only revisions, safe undo boundaries, paste/typing limits,
-  pending/cancelled generation, progressive reveal, skip, and reduced motion.
+  pending/cancelled generation, one inline writing status, reduced motion,
+  blocked-source details, explicit reference removal, and terminal prompt recovery.
 - `document-format.test.ts`: supported formatting, plain-text round trips,
   paragraph/soft-break boundaries, legacy compatibility, invalid structures,
   complexity/size limits, and text/format consistency.

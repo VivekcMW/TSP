@@ -10,7 +10,7 @@ import { tenantHeaders } from "./active-tenant";
 export class ApiError extends Error {
   readonly status: number;
 
-  constructor(status: number, message: string, readonly retryAfterMs?: number, readonly code?: string) {
+  constructor(status: number, message: string, readonly retryAfterMs?: number, readonly code?: string, readonly details?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -21,8 +21,10 @@ async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     let errorMessage = res.statusText;
     let code: string | undefined;
+    let details: unknown;
     try {
       const errorData = await res.json();
+      details = errorData;
       errorMessage = errorData.message || JSON.stringify(errorData);
       code = typeof errorData.code === "string" ? errorData.code : undefined;
     } catch {
@@ -37,7 +39,7 @@ async function throwIfResNotOk(res: Response) {
     let delay = Number.NaN;
     if (retryAfter !== null) delay = /^\d+(\.\d+)?$/.test(retryAfter)
       ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now();
-    throw new ApiError(res.status, errorMessage, Number.isFinite(delay) ? Math.max(0, delay) : undefined, code);
+    throw new ApiError(res.status, errorMessage, Number.isFinite(delay) ? Math.max(0, delay) : undefined, code, details);
   }
 }
 

@@ -1,3 +1,13 @@
+import { z } from "zod";
+
+export const MAX_CREATION_REFERENCES = 6;
+export const sourceFailureSchema = z.object({
+  code: z.literal("source_unreadable"),
+  message: z.string().max(4000),
+  sources: z.array(z.object({ url: z.string().url().regex(/^https?:\/\//i).max(2048), message: z.string().max(2000) })).max(MAX_CREATION_REFERENCES).default([]),
+});
+export type SourceFailure = z.infer<typeof sourceFailureSchema>;
+
 /** Compact article structure; existing generation and publishing limits still apply. */
 export const ARTICLE_PLATFORMS = ["linkedin", "medium", "reddit", "devto", "hashnode", "quora", "wechat", "naver"] as const;
 export type EditorialFormat = "short-post" | "article";

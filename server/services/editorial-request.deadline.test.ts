@@ -12,6 +12,7 @@ vi.mock("./articlePool", () => ({ findPooledArticle: find }));
 vi.mock("./keywordSearch", () => ({ isGoogleNewsArticleUrl: () => false, resolveGoogleNewsArticleUrl: vi.fn() }));
 import { executeEditorialRequest, prepareEditorialRequest, type EditorialExecutionContext, type PreparedEditorialRequest } from "./editorial-request";
 import { buildEvidenceBrief, MAX_SOURCE_PASSAGES } from "./editorialEvidence";
+import { CrawlError } from "./crawlerFetch";
 
 const start = Date.parse("2026-10-01T00:00:00Z");
 const jobId = "00000000-0000-4000-8000-000000000001";
@@ -76,6 +77,37 @@ describe("trusted execution deadlines across source fetch (no I/O)", () => {
       sourceUrls: urls } } as Request, "manual", signal);
     fetcher.mockImplementation(async url => { if (url === urls[1]) throw new Error("Source could not be read"); return article; });
     await expect(executeEditorialRequest(prepared, signal)).rejects.toThrow("Source could not be read");
+    expect(generateMain).not.toHaveBeenCalled();
+  });
+  it("reports every blocked source together without silently omitting any or calling AI", async () => {
+    const urls = [article.url, "https://blocked.test/a", "https://challenge.test/b"];
+    const prepared = await prepareEditorialRequest({ body: { stage: "main", selectedPlatforms: [], title: "Draft", content: "",
+      sourceUrls: urls } } as Request, "manual", signal);
+    fetcher.mockImplementation(async url => {
+      if (url === urls[1]) throw new CrawlError("http", "The source returned HTTP 403.");
+      if (url === urls[2]) throw new CrawlError("challenge", "This publisher blocks automated readers.");
+      return article;
+    });
+    await expect(executeEditorialRequest(prepared, signal)).rejects.toMatchObject({
+      sources: [{ url: urls[1], message: expect.stringContaining("403") },
+        { url: urls[2], message: expect.stringContaining("blocks automated readers") }],
+    });
+    expect(fetcher).toHaveBeenCalledTimes(3); expect(generateMain).not.toHaveBeenCalled(); expect(generate).not.toHaveBeenCalled();
+  });
+  it("identifies a failed single URL without starting generation", async () => {
+    fetcher.mockRejectedValue(new CrawlError("http", "The source returned HTTP 403."));
+    await expect(executeEditorialRequest(prepared, signal)).rejects.toMatchObject({
+      sources: [{ url: article.url, message: "The source returned HTTP 403." }],
+    });
+    expect(generate).not.toHaveBeenCalled();
+  });
+  it("preserves aborts instead of turning cancellation into an unreadable-source response", async () => {
+    const controller = new AbortController();
+    const prepared = await prepareEditorialRequest({ body: { stage: "main", selectedPlatforms: [], title: "Draft", content: "",
+      sourceUrls: [article.url] } } as Request, "manual", controller.signal);
+    const cancelled = new DOMException("Cancelled by user", "AbortError");
+    fetcher.mockImplementation(async () => { controller.abort(cancelled); throw new CrawlError("timeout", "Cancelled"); });
+    await expect(executeEditorialRequest(prepared, controller.signal)).rejects.toBe(cancelled);
     expect(generateMain).not.toHaveBeenCalled();
   });
   it.each([

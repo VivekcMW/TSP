@@ -10,7 +10,7 @@ import { getAIErrorResponse } from "../services/openRouter";
 import { platformIntegrations } from "@shared/schema";
 import { z } from "zod";
 import { fetchArticleFromUrl } from "../services/urlFetcher";
-import { CrawlError } from "../services/crawlerFetch";
+import { CrawlError, sourceFailureBody } from "../services/crawlerFetch";
 import { editorialCancellation, editorialContext, editorialPreferences, validateEditorialFormat } from "./editorial-context";
 import { generationAccessFailure } from "../services/generation-quota";
 import { runHttpGeneration } from "./generation-operation";
@@ -81,7 +81,7 @@ export function registerAiRoutes(app: Express) {
 
       res.json({ ...result, article, format });
     } catch (error) {
-      if (error instanceof CrawlError) return res.status(422).json({ code: "source_unreadable", message: `${error.message} Try another public article or use Write article in Instant Review.` });
+      if (error instanceof CrawlError) return res.status(422).json(sourceFailureBody(error));
       const failure = generationAccessFailure(error) ?? getAIErrorResponse(error);
       console.error("Error generating post:", failure.body.code);
       if (failure.retryAfterSeconds) res.setHeader("Retry-After", failure.retryAfterSeconds);

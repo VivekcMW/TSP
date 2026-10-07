@@ -5,6 +5,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { PLATFORMS } from "../../client/src/lib/platforms";
 import { DIRECT_PUBLISH_PLATFORMS } from "../../shared/publishing-capabilities";
+import { saveCreationSessionSchema, type CreationSession } from "../../shared/creation-session";
 
 // Test data only. No server imports, dotenv, credentials, provider or DB access.
 export const LONG_TITLE = "Research across regions: a deliberately long editorial headline about responsible product decisions, accessible interfaces and careful human review";
@@ -23,7 +24,7 @@ type ScheduleRow = { id: string; draftId: string; status: string; scheduledPubli
   targets: { id: string; platform: string; status: string; revision: number; updatedAt: string; providerPostId: null; receiptKind: null }[] };
 export function fixtureReview(platform: string, content = `A ${platform} post from the isolated article. Review the source and limitations before sharing.`) {
   return { article: { title: LONG_TITLE, content: LONG_TEXT, source: "Fixture newsroom", domain: "news.invalid", url: "https://news.invalid/story", media: [] },
-    format: "short-post", posts: { [platform]: { thoughtLeader: content } } };
+    format: "short-post", posts: { [platform]: { thoughtLeader: content } }, details: {} };
 }
 export function deferredResponse() {
   let release!: () => void;
@@ -39,6 +40,7 @@ type Job = { platform: string; failed?: boolean; gate?: ReturnType<typeof deferr
  * write must be armed in exact order immediately before its intentional action.
  * Unexpected requests fail teardown even if React handles their HTTP error. */
 export async function installActualAppApi(page: Page, origin: string, errors: string[], sharedCalls: { method: string; pathname: string }[]) {
+  const creations = new Map<string, { revision: number; state: CreationSession | null }>();
   const scheduledDraft = { ...fixtureDraft("loaded-scheduled"), publishStatus: "scheduled", scheduledAt: "2026-10-03T09:00:00.000Z" };
   const state = {
     userId: "a", tenantId: "tenant-a", enabledPlatforms: PLATFORMS.map(platform => platform.value),
@@ -56,16 +58,19 @@ export async function installActualAppApi(page: Page, origin: string, errors: st
     const id = `00000000-0000-4000-8000-${String(state.jobs.size + 1).padStart(12, "0")}`;
     const scope = state.tenantId;
     state.jobs.set(id, { platform, ...options, scope });
-    state.writes.push({ method: "POST", pathname: "/api/instant-review/selected", check: call => {
+    state.writes.push({ method: "POST", pathname: "/api/instant-review/manual", check: call => {
       const { requestIntent, ...body } = call.body;
       expect(requestIntent).toMatch(/^[0-9a-f-]{36}$/);
       expect(state.calls.filter(item => item.method === "POST" && item.body.requestIntent === requestIntent)).toHaveLength(1);
       expect(call.tenant).toBe(scope);
-      expect(body).toEqual({ url: "https://news.invalid/story", selectedPlatforms: [platform], tones: ["thoughtLeader"], format: "short-post" });
+      expect(body).toEqual({ stage: "platform", title: LONG_TITLE, content: LONG_TEXT, media: [],
+        sourceUrl: "https://news.invalid/story", sourceLabel: "Fixture newsroom",
+        selectedPlatforms: [platform], tones: ["thoughtLeader"], format: "short-post" });
     }, respond: () => ({ status: 202, body: { jobId: id, status: "queued" } }) });
     return id;
   };
   const reads = new Map<string, () => unknown>([
+    ["/api/creation-session", () => creations.get(`${state.tenantId}:${state.userId}`) ?? { revision: 0, state: null }],
     ["/api/me", () => ({ id: state.userId, name: "A reader with a long display name for layout coverage", firstName: "Reader",
       email: `${state.userId}@example.invalid`, registrationCompleted: revision, platformRole: null, industry: "Product research" })],
     ["/api/profile", () => ({ id: `profile-${state.tenantId}`, userId: state.userId, tenantId: state.tenantId,
@@ -128,6 +133,16 @@ export async function installActualAppApi(page: Page, origin: string, errors: st
         const result = await readApi(call, url);
         return await reply(result.body, result.status);
       }
+      if (call.method === "PUT" && call.pathname === "/api/creation-session") {
+        expect(call.tenant ?? `tenant-${state.userId}`).toBe(state.tenantId);
+        const change = saveCreationSessionSchema.parse(call.body);
+        const key = `${state.tenantId}:${state.userId}`;
+        const previous = creations.get(key) ?? { revision: 0, state: null };
+        if (change.revision !== previous.revision) return await reply({ message: "Creation changed in another tab." }, 409);
+        const saved = { revision: previous.revision + 1, state: change.state };
+        creations.set(key, saved);
+        return await reply(saved);
+      }
       const next = state.writes.shift();
       expect(next, `Unplanned ${call.method} ${call.pathname}`).toBeDefined();
       expect([call.method, call.pathname]).toEqual([next!.method, next!.pathname]);
@@ -151,9 +166,18 @@ export async function installActualAppApi(page: Page, origin: string, errors: st
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (text: string) => { (window as any).__actualAppHandoffs.push(`copy:${text}`); return Promise.resolve(); } } });
   });
   return { state, plan, generation,
+    seedDocument: () => creations.set(`${state.tenantId}:${state.userId}`, { revision: 1, state: {
+      version: 1, step: "review", source: { mode: "article", url: "https://news.invalid/story", inboxItemId: "loaded-story",
+        manual: { title: "", content: "", media: [] } },
+      tone: "thoughtLeader", format: "short-post", selectedPlatforms: [],
+      main: { title: LONG_TITLE, content: LONG_TEXT, original: LONG_TEXT, revision: 1, reviewJson: JSON.stringify(fixtureReview("linkedin")) },
+      chat: { input: "", referenceUrls: [], messages: [] }, versions: [],
+    } }),
     count: (method: string, pathname: string) => state.calls.filter(call => call.method === method && call.pathname === pathname).length,
     assertWrites: (expected: [string, string][]) => {
-      expect(state.calls.filter(call => call.method !== "GET").map(call => [call.method, call.pathname])).toEqual(expected);
+      // Autosaves are separately validated for schema, tenant and revision above.
+      expect(state.calls.filter(call => call.method !== "GET" && !(call.method === "PUT" && call.pathname === "/api/creation-session"))
+        .map(call => [call.method, call.pathname])).toEqual(expected);
       expect(state.writes, "Every planned action must actually have occurred").toEqual([]);
     },
     assertNoDelivery: async () => {
@@ -167,11 +191,13 @@ export type ActualAppApi = Awaited<ReturnType<typeof installActualAppApi>>;
 export async function expectActualAppGeometry(page: Page) {
   if (await page.evaluate(() => Boolean(window.__actualAppTextZoom))) await expectDoubledText(page);
   const geometry = await page.getByRole("main").evaluate(main => {
-    const header = main.querySelector<HTMLElement>("[data-page-header] > [data-page-container]")!;
-    const body = main.querySelector<HTMLElement>("[data-page-body] > [data-page-container]")!;
+    // The document canvas aligns its paper with the sticky chat, not the full-width editor controls.
+    const header = main.querySelector<HTMLElement>("[data-page-header] > [data-page-container], [data-testid='sticky-chat'] > div")!;
+    const body = main.querySelector<HTMLElement>("[data-page-body] > [data-page-container]")
+      ?? main.querySelector<HTMLElement>("article[aria-label='Editable document']")!.parentElement!;
     const visible = (element: Element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility === "visible";
     const label = (element: Element) => `${element.tagName}#${element.id}[${element.getAttribute("aria-label") ?? (element as HTMLElement).dataset.testid ?? ""}] ${element.getAttributeNames().filter(name => name.startsWith("data-page-")).join(" ")} .${element.getAttribute("class") ?? ""}`;
-    const localScroll = (element: Element) => element.closest('fieldset[aria-label="Article formatting toolbar"], fieldset[aria-label="Platforms to generate"]');
+    const localScroll = (element: Element) => element.closest('fieldset[aria-label="Article formatting toolbar"], fieldset[aria-label="Platforms to generate"], [role="toolbar"][aria-label="Document formatting"], [aria-label="Attached articles"]');
     const containers = [...main.querySelectorAll<HTMLElement>('section, article, fieldset, [data-page-body], [data-page-container], [data-page-filters], [data-discover-panes], [role="tabpanel"]')].filter(visible);
     const overflow = containers.filter(element => element.scrollWidth > element.clientWidth + 1 && !localScroll(element))
       .map(element => ({ element: label(element), client: element.clientWidth, scroll: element.scrollWidth, overflow: getComputedStyle(element).overflowX }));
@@ -282,57 +308,49 @@ export async function doubleTextSize(page: Page) {
   const expectedHeading = await page.evaluate(() => {
     if (window.__actualAppTextZoom) return window.__actualAppTextZoom.refresh();
     type StyledElement = HTMLElement | SVGElement;
-    type Property = { value: string; priority: string; applied: string };
-    const properties = ["font-size", "line-height"] as const;
-    const originals = new WeakMap<StyledElement, Record<(typeof properties)[number], Property>>();
+    // Stylesheets do not mutate contenteditable DOM or trigger ProseMirror's edit observer.
+    const typography = new CSSStyleSheet();
+    const transitions = new CSSStyleSheet();
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, typography, transitions];
+    let importantOverrides: { element: StyledElement; property: string; original: string; applied: string }[] = [];
     let sizes = new Map<StyledElement, { size: number; line: string }>();
     const elements = () => [...document.querySelectorAll("body, body *")]
       .filter((element): element is StyledElement => (element instanceof HTMLElement || element instanceof SVGElement) && !element.matches("script, style, link, meta"));
     const observer = new MutationObserver(() => refresh());
-    function restoreTypography(element: StyledElement) {
-      const prior = originals.get(element);
-      const source = {} as Record<(typeof properties)[number], Property>;
-      for (const property of properties) {
-        const value = element.style.getPropertyValue(property), priority = element.style.getPropertyPriority(property);
-        const old = prior?.[property];
-        source[property] = old?.applied === value && priority === "important" ? old : { value, priority, applied: "" };
-        const original = source[property];
-        if (original.value) element.style.setProperty(property, original.value, original.priority);
-        else element.style.removeProperty(property);
-      }
-      originals.set(element, source);
-    }
     function refresh() {
-      // Ignore our own style writes, not application mutations/remounts.
       observer.disconnect();
       const nodes = elements();
-      // Atomic text inflation, not an animated resize. Finishing transitions is
-      // insufficient: inherited/new nodes can start another transition while
-      // ancestors settle. Restore the exact transition styles before returning;
-      // no layout, overflow or final motion behavior is changed by the fixture.
-      const transitions = nodes.map(element => ({ element,
-        value: element.style.getPropertyValue("transition-property"),
-        priority: element.style.getPropertyPriority("transition-property") }));
-      nodes.forEach(element => element.style.setProperty("transition-property", "none", "important"));
-      nodes.forEach(restoreTypography);
+      transitions.replaceSync("body, body * { transition-property: none !important; }");
+      typography.replaceSync("");
+      for (const { element, property, original, applied } of importantOverrides) {
+        if (element.style.getPropertyValue(property) === applied && element.style.getPropertyPriority(property) === "important") {
+          element.style.setProperty(property, original, "important");
+        }
+      }
+      importantOverrides = [];
       // Snapshot values, not live CSSStyleDeclaration objects, before any write.
       sizes = new Map(nodes.map(element => {
         const css = getComputedStyle(element);
         return [element, { size: Number.parseFloat(css.fontSize), line: css.lineHeight }] as const;
       }));
+      const selectors = new Map<Element, string>();
+      const rules: string[] = [];
       for (const [element, { size, line }] of sizes) {
-        const source = originals.get(element)!;
+        const selector = element === document.body ? "body"
+          : `${selectors.get(element.parentElement!)} > :nth-child(${Array.from(element.parentElement!.children).indexOf(element) + 1})`;
+        selectors.set(element, selector);
         const values = { "font-size": `${size * 2}px`, "line-height": line === "normal" ? "normal" : `${Number.parseFloat(line) * 2}px` };
-        for (const property of properties) {
-          element.style.setProperty(property, values[property], "important");
-          source[property].applied = element.style.getPropertyValue(property);
+        rules.push(`${selector} { font-size: ${values["font-size"]} !important; line-height: ${values["line-height"]} !important; }`);
+        // Inline !important outranks any author stylesheet.
+        for (const [property, applied] of Object.entries(values)) {
+          if (element.style.getPropertyPriority(property) !== "important") continue;
+          importantOverrides.push({ element, property, original: element.style.getPropertyValue(property), applied });
+          element.style.setProperty(property, applied, "important");
         }
       }
+      typography.replaceSync(rules.join("\n"));
       nodes.forEach(element => getComputedStyle(element).fontSize);
-      transitions.forEach(({ element, value, priority }) => {
-        if (value) element.style.setProperty("transition-property", value, priority);
-        else element.style.removeProperty("transition-property");
-      });
+      transitions.replaceSync("");
       observer.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true });
       const heading = document.querySelector("h1");
       return heading ? (sizes.get(heading)?.size ?? Number.NaN) * 2 : Number.NaN;

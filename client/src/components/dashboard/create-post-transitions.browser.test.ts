@@ -329,8 +329,6 @@ async function preparePlatforms(versions = true, targets = ["LinkedIn", "Twitter
   await closePanel();
   if ((await work()).mode === "article" && !(await work()).url) await useLink(urlA);
   await chat().fill("Create a careful draft from the supplied source."); await chat().press("Enter");
-  await browserExpect(page.getByTestId("proposed-draft")).toHaveText(source);
-  await page.getByRole("button", { name: "Apply changes", exact: true }).click();
   await browserExpect(page.getByTestId("textarea-main-draft")).toHaveText(source);
   expect(await page.evaluate(() => (window as unknown as FixtureWindow).__calls.findLast(call => call.body?.stage === "main")?.body?.selectedPlatforms)).toEqual([]);
   await platformTrigger().click();

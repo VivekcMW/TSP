@@ -80,9 +80,9 @@ export function CalendarGrid({ days, selectedDay, todayKey, timeZone, week, item
                 }} onDragEnd={onDragEnd} className={`min-w-0 rounded-md ${status.className} ${item.draftId === linkedDraftId ? "ring-2 ring-primary" : ""}`}>
                   <button type="button" tabIndex={-1} onClick={() => onSelect(day, true)} title={item.draft?.content}
                     aria-label={`${formatCalendarTime(item.scheduledPublishAt, timeZone)}, ${platform.label}, ${status.label}: ${item.draft?.content ?? "Scheduled draft"}`}
-                    className={`w-full min-w-0 rounded-md px-1.5 py-1 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring ${week ? "block" : "flex items-center gap-1"}`}>
-                    <span className="flex shrink-0 items-center gap-1"><Icon className="h-3 w-3 shrink-0" /><span className="font-medium">{formatCalendarTime(item.scheduledPublishAt, timeZone)}</span>{week && (item.targets?.length ?? 0) > 1 && <span>+{item.targets!.length - 1}</span>}</span>
-                    <span className={`block truncate ${week ? "mt-0.5" : ""}`}>{item.draft?.content || "Scheduled draft"}</span>
+                    className="block w-full min-w-0 rounded-md px-1.5 py-1 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <span className="flex min-w-0 flex-wrap items-center gap-1"><Icon className="h-3 w-3 shrink-0" /><span className="min-w-0 font-medium [overflow-wrap:anywhere]">{formatCalendarTime(item.scheduledPublishAt, timeZone)}</span>{week && (item.targets?.length ?? 0) > 1 && <span>+{item.targets!.length - 1}</span>}</span>
+                    <span className="mt-0.5 block truncate">{item.draft?.content || "Scheduled draft"}</span>
                   </button>
                 </article>;
               })}

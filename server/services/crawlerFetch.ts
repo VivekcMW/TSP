@@ -1,14 +1,19 @@
 import fetch, { type Headers } from "node-fetch";
 import type { Agent as HttpAgent } from "node:http";
 import { Readable } from "node:stream";
+import type { SourceFailure } from "@shared/editorial";
 import { pinnedPublicAgent, SafeOutboundError } from "./safeOutbound.js";
 export { withAbort } from "./safeOutbound.js";
 
 export class CrawlError extends Error {
-  constructor(public readonly code: string, message: string) {
+  constructor(public readonly code: string, message: string, public readonly sources: SourceFailure["sources"] = []) {
     super(message);
     this.name = "CrawlError";
   }
+}
+
+export function sourceFailureBody(error: CrawlError): SourceFailure {
+  return { code: "source_unreadable", message: `${error.message} Try another public URL or supply the text yourself.`, sources: error.sources };
 }
 
 export function crawlErrorMessage(error: unknown): string {

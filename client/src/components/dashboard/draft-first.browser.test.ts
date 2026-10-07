@@ -9,6 +9,7 @@ import tailwindcss from "tailwindcss";
 import { z } from "zod";
 import { saveCreationSessionSchema, type CreationSession } from "@shared/creation-session";
 import { EDITORIAL_RECOVERY_KEY } from "@/lib/editorial-recovery";
+import type { SourceFailure } from "@shared/editorial";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
 const source = "Desk reports 12% lower latency in a pilot of 30 stores.";
@@ -20,13 +21,14 @@ const evidence = { sourceId: "source-a", title: article.title, source: "Desk", u
 const detail = (content: string) => ({ content, evidence, attributions: [{ text: content, excerptIds: ["p1"] }],
   generation: { provider: "fixture", model: "fixture", usage: { inputTokens: 1, outputTokens: 1 }, fallbackUsed: false, attempts: [] },
   validation: { structural: "passed", attributionMapping: "passed", factualVerification: "not-performed", requiresHumanReview: true } });
-const mainResult = () => ({ article, mainDraft: detail(mainText), posts: {}, details: {}, evidence, format: "short-post" });
+const mainResult = () => ({ article, mainDraft: invalidMain ? undefined : detail(mainText), posts: {}, details: {}, evidence, format: "short-post" });
 const jobId = "00000000-0000-4000-8000-000000000011";
 let browser: Browser, page: Page, bundle: string, css: string;
 let saved: { revision: number; state: CreationSession | null };
 let generationCalls: Record<string, unknown>[], writes: string[], errors: string[], unexpected: string[];
-let failSave: boolean, failLoad: boolean, deferSave: boolean, deferMain: boolean, recoveredMain: boolean, failMain: boolean;
+let failSave: boolean, failLoad: boolean, deferSave: boolean, deferMain: boolean, recoveredMain: boolean, failMain: boolean, invalidMain: boolean;
 let failPlatform: string | undefined;
+let sourceFailure: SourceFailure | undefined;
 let saveDeferred: (() => void) | undefined, mainDeferred: (() => void) | undefined;
 
 beforeAll(async () => {
@@ -67,6 +69,7 @@ beforeEach(async () => {
   saved = { revision: 0, state: null }; generationCalls = []; writes = []; errors = []; unexpected = [];
   failSave = false; failLoad = false; deferSave = false; deferMain = false; recoveredMain = false; failMain = false;
   saveDeferred = undefined; mainDeferred = undefined; failPlatform = undefined;
+  sourceFailure = undefined; invalidMain = false;
   page = await browser.newPage({ viewport: { width: 1440, height: 1100 }, reducedMotion: "reduce" });
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/*", async route => {
@@ -91,11 +94,15 @@ beforeEach(async () => {
       if (change.revision !== saved.revision) return reply({ message: "Creation changed in another tab." }, 409);
       saved = { revision: saved.revision + 1, state: change.state }; return reply(saved);
     }
-    if (recoveredMain && url.pathname === `/api/editorial/jobs/${jobId}`) return reply({ status: "completed", progress: { platformsCompleted: 0, platformsTotal: 0 } });
+    if (recoveredMain && url.pathname === `/api/editorial/jobs/${jobId}`) return reply({
+      status: sourceFailure ? "failed" : "completed", progress: { platformsCompleted: 0, platformsTotal: 0 },
+      ...(sourceFailure ? { error: { status: 422, body: sourceFailure } } : {}),
+    });
     if (recoveredMain && url.pathname === `/api/editorial/jobs/${jobId}/result`) return reply(mainResult());
     if (url.pathname.startsWith("/api/instant-review/")) {
       const body = z.record(z.unknown()).parse(request.postDataJSON()); generationCalls.push(body);
       if (body.stage === "main") {
+        if (sourceFailure) return reply(sourceFailure, 422);
         if (failMain) return reply({ code: "ai_invalid_output", message: "Suggestion could not be completed." }, 422);
         if (deferMain) await new Promise<void>(resolve => { mainDeferred = resolve; });
         return reply(mainResult());
@@ -136,9 +143,9 @@ async function command(value: string) { await chat().fill(`/${value}`); await ch
 async function propose() {
   await chat().fill("Draft an argument from this pilot: 30 stores reduced latency by 12%.");
   await page.getByRole("button", { name: "Send suggestion", exact: true }).click();
-  await check(page.getByTestId("proposed-draft")).toHaveText(mainText);
+  await check(editor()).toHaveText(mainText);
 }
-async function main() { await propose(); await page.getByRole("button", { name: "Apply changes", exact: true }).click(); await check(editor()).toHaveText(mainText); }
+async function main() { await propose(); }
 async function choose(...platforms: string[]) {
   await command("platforms");
   for (const name of platforms) await page.getByRole("checkbox", { name, exact: true }).check();
@@ -233,18 +240,14 @@ describe("document editor and integrated agent chat", { timeout: 15_000 }, () =>
     await check(card("threads")).toContainText(mainText);
     expect(generationCalls.slice(1).map(call => call.selectedPlatforms)).toEqual([["linkedin"], ["twitter"], ["threads"]]);
   });
-  it("protects formatting edits made after a proposal and discloses formatting replacement on Apply", async () => {
+  it("writes into the document and can restore its previous formatting", async () => {
     await open(); await editor().fill("Preserve this original styled document.");
-    await propose(); await selectDocument(); await format("Bold").click();
-    await check(page.getByRole("button", { name: "Apply changes", exact: true })).toBeDisabled();
-    await check(page.getByRole("alert")).toContainText("You edited the document");
-    await page.getByRole("button", { name: "Discard", exact: true }).click();
-    await propose();
-    await check(page.getByText("Applying replaces the document body and its formatting.", { exact: false })).toBeVisible();
-    expect(generationCalls[1]).toMatchObject({ currentDraft: "Preserve this original styled document." });
-    await page.getByRole("button", { name: "Apply changes", exact: true }).click();
+    await selectDocument(); await format("Bold").click(); await propose();
+    expect(generationCalls[0]).toMatchObject({ currentDraft: "Preserve this original styled document." });
     await check(editor()).toHaveText(mainText); await check(editor().locator("strong")).toHaveCount(0);
     await saveProgress(); expect(saved.state?.main?.formatJson).toBeUndefined();
+    await page.getByRole("button", { name: "Undo AI update", exact: true }).click();
+    await check(editor().locator("strong")).toHaveText("Preserve this original styled document.");
   });
   it("accepts 5,000 characters but rejects oversized typing and paste without truncating the document", async () => {
     await open(); await editor().fill("x".repeat(5000)); await saveProgress();
@@ -262,40 +265,29 @@ describe("document editor and integrated agent chat", { timeout: 15_000 }, () =>
     await check(editor()).toHaveText("A short document that should not disappear.");
     await saveProgress(); expect(saved.state?.main?.content).toBe("A short document that should not disappear.");
   });
-  it("shows a writing skeleton without changing text, respects reduced motion, and removes it on cancellation", async () => {
+  it("shows one writing status in the document, respects reduced motion, and removes it on cancellation", async () => {
     await open(); await editor().fill(mainText); deferMain = true;
     await chat().fill("Shorten this document"); await chat().press("Enter");
-    await check(page.getByTestId("pundit-writing-preview")).toBeVisible();
-    await check(page.getByRole("status", { name: "Pundit writing status" })).toHaveCount(2);
+    const writing = page.getByRole("article", { name: "Editable document" }).getByRole("status", { name: "Pundit writing status" });
+    await check(writing).toBeVisible();
+    await check(page.getByRole("status", { name: "Pundit writing status" })).toHaveCount(1);
     await check(editor()).toHaveText(mainText);
-    await check(page.getByTestId("pundit-writing-preview").locator('span[aria-hidden="true"] > span').first()).toHaveCSS("animation-name", "none");
+    await check(writing.locator('span[aria-hidden="true"] > span').first()).toHaveCSS("animation-name", "none");
     await page.getByRole("button", { name: "Cancel generation", exact: true }).click();
     await check(page.getByTestId("pundit-writing-preview")).toHaveCount(0);
     await check(page.getByRole("status", { name: "Pundit writing status" })).toHaveCount(0);
     mainDeferred!(); await check(editor()).toHaveText(mainText);
     await check(page.getByTestId("proposed-draft")).toHaveCount(0);
   });
-  it.each(["skip", "complete", "discard"])("reveals a completed suggestion progressively and supports %s", async action => {
-    await page.emulateMedia({ reducedMotion: "no-preference" }); await open(); deferMain = true;
+  it.each(["reduce", "no-preference"] as const)("puts completed text directly in the editable document with %s motion", async reducedMotion => {
+    await page.emulateMedia({ reducedMotion }); await open(); deferMain = true;
     await chat().fill("Draft an argument from the pilot."); await chat().press("Enter");
-    await check(page.getByTestId("pundit-writing-preview")).toBeVisible();
-    await page.clock.install(); await page.clock.pauseAt(new Date(Date.now() + 1000)); mainDeferred!();
-    await check(page.getByRole("button", { name: "Show full suggestion", exact: true })).toBeVisible();
-    await check(page.getByRole("button", { name: "Apply changes", exact: true })).toBeDisabled();
-    await page.clock.runFor(150);
-    const partial = await page.getByTestId("proposed-draft").textContent();
-    expect(partial!.length).toBeGreaterThan(0); expect(partial!.length).toBeLessThan(mainText.length);
-    expect(mainText.startsWith(partial!)).toBe(true);
-    if (action === "discard") {
-      await page.getByRole("button", { name: "Discard", exact: true }).click();
-      await page.clock.fastForward(3000); await check(page.getByTestId("proposed-draft")).toHaveCount(0);
-    } else {
-      if (action === "skip") await page.getByRole("button", { name: "Show full suggestion", exact: true }).click();
-      else await page.clock.fastForward(3000);
-      await check(page.getByTestId("proposed-draft")).toHaveText(mainText);
-      await check(page.getByRole("button", { name: "Apply changes", exact: true })).toBeEnabled();
-    }
-    await page.clock.resume();
+    await check(page.getByRole("status", { name: "Pundit writing status" })).toBeVisible();
+    mainDeferred!();
+    await check(editor()).toHaveText(mainText); await check(editor()).toBeEnabled();
+    await check(page.getByTestId("proposed-draft")).toHaveCount(0);
+    await check(page.getByRole("button", { name: "Undo AI update", exact: true })).toBeEnabled();
+    await check(page.getByRole("status", { name: "Pundit writing status" })).toHaveCount(0);
   });
   it("opens a writable document with a bottom chat and no dropdowns, steps, or automatic generation", async () => {
     await open();
@@ -307,31 +299,28 @@ describe("document editor and integrated agent chat", { timeout: 15_000 }, () =>
     await check(editor()).toHaveText("My own document, written without an AI call.");
     expect(generationCalls).toEqual([]);
   });
-  it("proposes a draft without replacing the document until Apply", async () => {
+  it("writes a draft directly, preserves the chosen title, and does not publish", async () => {
     await open(); await editor().fill("My original text and its important caveat.");
     await page.getByRole("textbox", { name: "Document title", exact: true }).fill("Keep my chosen title");
     await propose();
-    await check(editor()).toHaveText("My original text and its important caveat.");
     expect(generationCalls[0]).toMatchObject({ stage: "main", selectedPlatforms: [], currentDraft: "My original text and its important caveat." });
-    await page.getByRole("button", { name: "Apply changes", exact: true }).click();
     await check(editor()).toHaveText(mainText);
     await check(page.getByRole("textbox", { name: "Document title", exact: true })).toHaveValue("Keep my chosen title");
     expect(writes.some(value => /drafts|publish|schedule/.test(value))).toBe(false);
   });
-  it("discards a proposal without changing the original and restores a pending proposal after reload", async () => {
+  it("persists an undoable AI update and restores the previous document after reload", async () => {
     await open(); await editor().fill("Keep this original document intact.");
     await propose(); await saveProgress(); await page.reload();
-    await check(page.getByTestId("proposed-draft")).toHaveText(mainText);
-    await page.getByRole("button", { name: "Discard", exact: true }).click();
+    await check(editor()).toHaveText(mainText);
+    await page.getByRole("button", { name: "Undo AI update", exact: true }).click();
     await check(editor()).toHaveText("Keep this original document intact.");
     await check(page.getByTestId("proposed-draft")).toHaveCount(0);
     expect(generationCalls).toHaveLength(1);
   });
-  it("will not apply an older proposal over newer manual edits", async () => {
+  it("will not undo an AI update over newer manual edits", async () => {
     await open(); await propose();
     await editor().fill("I wrote a newer version while reviewing the proposal.");
-    await check(page.getByRole("button", { name: "Apply changes", exact: true })).toBeDisabled();
-    await check(page.getByRole("alert")).toContainText("You edited the document");
+    await check(page.getByRole("button", { name: "Undo AI update", exact: true })).toHaveCount(0);
     await check(editor()).toHaveText("I wrote a newer version while reviewing the proposal.");
   });
   it("supports slash keyboard selection and makes option changes without AI calls", async () => {
@@ -354,7 +343,7 @@ describe("document editor and integrated agent chat", { timeout: 15_000 }, () =>
     await check(page.getByRole("region", { name: "Pundit chat" })).toContainText("Pilot report");
     await check(page.getByRole("region", { name: "Pundit chat" })).toContainText("Another story");
     await chat().fill("Compare these reports"); await chat().press("Enter");
-    await check(page.getByTestId("proposed-draft")).toBeVisible();
+    await check(editor()).toHaveText(mainText);
     expect(generationCalls[0]).toMatchObject({ sourceUrls: ["https://news.test/pilot", "https://news.test/other"], instruction: "Compare these reports", selectedPlatforms: [] });
   });
   it("saves attached references and unsent chat across reloads", async () => {
@@ -414,18 +403,85 @@ describe("document editor and integrated agent chat", { timeout: 15_000 }, () =>
     await open(); deferMain = true; await chat().fill("Write a proposal about the pilot evidence and its caveats.");
     await page.getByRole("button", { name: "Send suggestion", exact: true }).evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
     await check.poll(() => generationCalls.length).toBe(1); await check(editor()).toBeDisabled();
-    mainDeferred!(); await check(page.getByTestId("proposed-draft")).toBeVisible(); await check(editor()).toHaveText("");
+    mainDeferred!(); await check(editor()).toHaveText(mainText);
   });
-  it("keeps the document on failed suggestions and starts a fresh attempt only on explicit send", async () => {
-    await open(); await editor().fill("Keep my original wording despite a failed suggestion."); failMain = true;
+  it.each([false, true])("keeps the document and prompt on failure, with explicit retry only (unusable success: %s)", async invalid => {
+    await open(); await editor().fill("Keep my original wording despite a failed suggestion.");
+    failMain = !invalid; invalidMain = invalid;
     await chat().fill("Shorten this document"); await chat().press("Enter");
-    await check(page.getByText("Suggestion could not be completed.", { exact: true })).toBeVisible();
+    await check(page.getByText(invalid ? "No usable suggestion was returned. Your document is unchanged." : "Suggestion could not be completed.", { exact: true })).toBeVisible();
     await check(page.getByRole("status", { name: "Pundit writing status" })).toHaveCount(0);
     await check(page.getByTestId("pundit-writing-preview")).toHaveCount(0);
     await check(editor()).toHaveText("Keep my original wording despite a failed suggestion.");
     await check(page.getByTestId("proposed-draft")).toHaveCount(0);
     expect(generationCalls).toHaveLength(1);
-    failMain = false; await propose(); expect(generationCalls).toHaveLength(2);
+    await check(chat()).toHaveValue("Shorten this document");
+    failMain = false; invalidMain = false; await propose(); expect(generationCalls).toHaveLength(2);
+  });
+  it("keeps the prompt and all references after a blocked source, and only removes it explicitly", async () => {
+    await open(); await editor().fill("Keep my original document and caveat.");
+    await command("sources");
+    await page.getByRole("checkbox", { name: /Pilot report/ }).check();
+    await page.getByRole("checkbox", { name: /Another story/ }).check();
+    await page.getByRole("button", { name: "Use selected articles", exact: true }).click();
+    sourceFailure = { code: "source_unreadable", message: "Could not read news.test. No draft was generated.",
+      sources: [{ url: "https://news.test/pilot", message: "HTTP 403: publisher blocks automated readers." }] };
+    await chat().fill("Compare both reports without omitting their caveats."); await chat().press("Enter");
+    await check(page.getByText("Some sources could not be read", { exact: true })).toBeVisible();
+    await check(chat()).toHaveValue("Compare both reports without omitting their caveats.");
+    await check(editor()).toHaveText("Keep my original document and caveat.");
+    await saveProgress(); await page.reload();
+    expect(saved.state?.chat?.referenceUrls).toHaveLength(2);
+    await check(page.getByText("Some sources could not be read", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Remove unavailable articles", exact: true }).click();
+    await saveProgress();
+    expect(saved.state?.chat?.referenceUrls).toEqual(["https://news.test/other"]);
+    expect(generationCalls).toHaveLength(1);
+    sourceFailure = undefined; await chat().press("Enter");
+    await check(editor()).toHaveText(mainText);
+    expect(generationCalls[1]).toMatchObject({ sourceUrls: ["https://news.test/other"], instruction: "Compare both reports without omitting their caveats." });
+  });
+  it.each([true, false])("requires confirmation before replacing newer edits with a legacy saved proposal (%s)", async accepted => {
+    await open(); await editor().fill("The original document before generation."); await saveProgress();
+    const original = saved.state!.main!;
+    saved.state!.chat!.proposal = { id: jobId, title: original.title, content: original.content,
+      revision: original.revision, formatJson: original.formatJson, reviewJson: JSON.stringify(mainResult()) };
+    await page.reload();
+    await check(page.getByRole("button", { name: "Use generated draft", exact: true })).toBeVisible();
+    await editor().fill("Newer document edits must not be silently lost.");
+    page.once("dialog", dialog => accepted ? dialog.accept() : dialog.dismiss());
+    await page.getByRole("button", { name: "Use generated draft", exact: true }).click();
+    await check(editor()).toHaveText(accepted ? mainText : "Newer document edits must not be silently lost.");
+    if (accepted) {
+      await page.getByRole("button", { name: "Undo AI update", exact: true }).click();
+      await check(editor()).toHaveText("Newer document edits must not be silently lost.");
+    }
+    expect(generationCalls).toEqual([]);
+  });
+  it.each(["success", "source failure", "unusable response"])("recovers a matching saved request without a new AI spend (%s)", async outcome => {
+    await open(); await editor().fill("Original document before the saved request."); await saveProgress();
+    const original = saved.state!.main!;
+    saved.state!.chat = { input: "", referenceUrls: [article.url],
+      messages: [{ id: jobId, role: "user", content: "Please revise this document carefully." }],
+      pending: { id: jobId, title: original.title, content: original.content, revision: original.revision, formatJson: original.formatJson } };
+    recoveredMain = true;
+    invalidMain = outcome === "unusable response";
+    if (outcome === "source failure") sourceFailure = { code: "source_unreadable", message: "The publisher blocked access.",
+      sources: [{ url: article.url, message: "HTTP 403" }] };
+    await page.addInitScript(({ key, jobId }) => sessionStorage.setItem(key, JSON.stringify({
+      userId: "fixture", tenantId: "tenant-a", jobId, requestIntent: "00000000-0000-4000-8000-000000000012",
+    })), { key: EDITORIAL_RECOVERY_KEY, jobId });
+    await page.reload();
+    if (outcome !== "success") {
+      await check(chat()).toHaveValue("Please revise this document carefully.");
+      await check(editor()).toHaveText(original.content);
+      if (sourceFailure) await check(page.getByRole("button", { name: "Remove unavailable articles", exact: true })).toBeEnabled();
+      else await check(page.getByText("No usable suggestion was returned. Your document is unchanged.", { exact: true })).toBeVisible();
+    } else await check(editor()).toHaveText(mainText);
+    await check(editor()).toBeEnabled();
+    await check(page.getByText(/A previous suggestion was interrupted/)).toHaveCount(0);
+    await saveProgress(); expect(saved.state?.chat?.pending).toBeUndefined();
+    expect(generationCalls).toEqual([]);
   });
   it("does not generate for multiline input, composing Enter, or an unknown slash command", async () => {
     await open(); await chat().fill("Please revise this text"); await chat().press("Shift+Enter");
@@ -467,15 +523,15 @@ describe("document editor and integrated agent chat", { timeout: 15_000 }, () =>
     await check(page.getByText(/Fixture load unavailable/)).toBeVisible(); await check(editor()).toBeDisabled(); expect(writes).toEqual([]);
     failLoad = false; await page.getByRole("button", { name: "Reload saved creation", exact: true }).click(); await check(editor()).toBeEnabled();
   });
-  it("recovers a neutral job with GET only and still requires Apply", async () => {
+  it("recovers a job without a matching document snapshot using GET only and requires explicit replacement", async () => {
     recoveredMain = true;
     await page.addInitScript(({ key, jobId }) => sessionStorage.setItem(key, JSON.stringify({
       userId: "fixture", tenantId: "tenant-a", jobId, requestIntent: "00000000-0000-4000-8000-000000000012",
     })), { key: EDITORIAL_RECOVERY_KEY, jobId });
     await page.goto("https://creation.test/dashboard/create");
-    await check(page.getByTestId("proposed-draft")).toHaveText(mainText); await check(editor()).toHaveText("");
+    await check(page.getByRole("button", { name: "Use generated draft", exact: true })).toBeVisible(); await check(editor()).toHaveText("");
     expect(generationCalls).toEqual([]);
-    await page.getByRole("button", { name: "Apply changes", exact: true }).click(); await check(editor()).toHaveText(mainText);
+    await page.getByRole("button", { name: "Use generated draft", exact: true }).click(); await check(editor()).toHaveText(mainText);
   });
   it("preserves existing work on an automatic article link", async () => {
     await open(); await main(); await saveProgress();

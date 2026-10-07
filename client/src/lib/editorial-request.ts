@@ -4,7 +4,7 @@ export interface EditorialProgress { platformsCompleted: number; platformsTotal:
 interface JobStatus {
   status: "queued" | "active" | "completed" | "failed" | "cancelled";
   progress: EditorialProgress;
-  error?: { status: number; body: { message: string } };
+  error?: { status: number; body: { message: string; code?: string } };
 }
 const queuedPaths = new Set(["/api/instant-review/selected", "/api/instant-review/manual"]);
 
@@ -124,7 +124,8 @@ export async function editorialRequest<T>(endpoint: string, body: unknown, optio
       if (status.status === "failed" || status.status === "cancelled") {
         state.terminal = true;
         if (status.status === "cancelled") throw new DOMException("Generation cancelled", "AbortError");
-        throw new ApiError(status.error?.status ?? 500, status.error?.body.message ?? "Generation failed. No posts were returned.");
+        throw new ApiError(status.error?.status ?? 500, status.error?.body.message ?? "Generation failed. No posts were returned.",
+          undefined, status.error?.body.code, status.error?.body);
       }
       if (!["active", "queued"].includes(status.status)) throw new ApiError(502, "Invalid editorial job status");
       await waitForPoll(controller.signal);

@@ -6,7 +6,7 @@ import { queueOptions } from "./queue";
 import type { TenantScope } from "../storage";
 import { executeEditorialRequest, type PreparedEditorialRequest } from "../services/editorial-request";
 import { AIGenerationError, getAIErrorResponse, getEditorialModelIdentity } from "../services/openRouter";
-import { CrawlError } from "../services/crawlerFetch";
+import { CrawlError, sourceFailureBody } from "../services/crawlerFetch";
 import { resolveTenantContext } from "../services/tenancy";
 import { can } from "../services/permissions";
 import { assertGenerationAdmission, generationAccessFailure, generationOperationId, runGeneration } from "../services/generation-quota";
@@ -172,7 +172,7 @@ export class EditorialJobs {
 
   private async fail(id: string, error: unknown) {
     const failure = error instanceof CrawlError
-      ? { status: 422, body: { code: "source_unreadable", message: `${error.message} Try another public URL or use Write article.` } }
+      ? { status: 422, body: sourceFailureBody(error) }
       : generationAccessFailure(error) ?? getAIErrorResponse(error);
     await this.store.eval(editorialScripts.finish, 2, recordKey(id), cancelKey(id), id, "failed", "error", JSON.stringify(failure), EDITORIAL_RESULT_TTL);
   }

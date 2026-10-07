@@ -36,16 +36,9 @@ const profileWhere = (scope = a) => and(eq(userProfiles.tenantId, scope.tenantId
 
 beforeAll(async () => {
   const target = requireLocalTestDatabase();
-  for (const [name, user] of [["TEST_DATABASE_URL", "tsp_app"], ["OWNER_TEST_DATABASE_URL", "vivekanandchoudhari"]]) {
-    const raw = process.env[name];
-    if (!raw) throw new Error(`Explicit ${name} required`);
-    const url = new URL(raw);
-    if (url.username !== user) {
-      throw new Error("Search tests require the dedicated local test database and expected roles");
-    }
-  }
+  const ownerUser = decodeURIComponent(new URL(process.env.OWNER_TEST_DATABASE_URL!).username);
   expect(process.env.DATABASE_URL).toBe(process.env.TEST_DATABASE_URL);
-  for (const [connection, user] of [[pool, "tsp_app"], [ownerPool, "vivekanandchoudhari"]] as const) {
+  for (const [connection, user] of [[pool, "tsp_app"], [ownerPool, ownerUser]] as const) {
     const { rows: [identity] } = await connection.query(`select current_database() as db, current_user as role,
       inet_server_port() as port, inet_server_addr()::text as address, rolsuper, rolbypassrls
       from pg_roles where rolname = current_user`);

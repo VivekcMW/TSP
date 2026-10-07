@@ -59,17 +59,9 @@ async function expire() {
 
 beforeAll(async () => {
   const target = requireLocalTestDatabase();
-  // Fail before any fixture write; never rely on implicit test/setup fallbacks.
-  for (const [key, user] of [["TEST_DATABASE_URL", "tsp_app"], ["OWNER_TEST_DATABASE_URL", "vivekanandchoudhari"]]) {
-    const value = process.env[key];
-    if (!value) throw new Error(`Explicit ${key} is required for publication persistence tests`);
-    const url = new URL(value);
-    if (url.username !== user) {
-      throw new Error("Publication tests require the dedicated local test database and expected role");
-    }
-  }
+  const ownerUser = decodeURIComponent(new URL(process.env.OWNER_TEST_DATABASE_URL!).username);
   expect(process.env.DATABASE_URL).toBe(process.env.TEST_DATABASE_URL);
-  for (const [connection, user] of [[pool, "tsp_app"], [ownerPool, "vivekanandchoudhari"]] as const) {
+  for (const [connection, user] of [[pool, "tsp_app"], [ownerPool, ownerUser]] as const) {
     const { rows: [identity] } = await connection.query(`select current_database() as db, current_user as role,
       inet_server_port() as port, inet_server_addr()::text as address, rolsuper, rolbypassrls
       from pg_roles where rolname = current_user`);

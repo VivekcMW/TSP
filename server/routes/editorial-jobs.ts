@@ -9,7 +9,7 @@ import { instantReviewRateLimit } from "../middlewares/rateLimit";
 import { getEditorialJobs, EditorialQueueUnavailableError } from "../jobs/editorial";
 import { prepareEditorialRequest, executeEditorialRequest } from "../services/editorial-request";
 import { getAIErrorResponse } from "../services/openRouter";
-import { CrawlError } from "../services/crawlerFetch";
+import { CrawlError, sourceFailureBody } from "../services/crawlerFetch";
 import { editorialCancellation } from "./editorial-context";
 import { generationAccessFailure, readGenerationOperation } from "../services/generation-quota";
 import { runHttpGeneration } from "./generation-operation";
@@ -25,7 +25,7 @@ const cancelLimit = operationLimit("cancel", 60);
 function admissionError(res: Response, error: unknown) {
   if (error instanceof EditorialQueueUnavailableError) return res.status(503).json({ code: "editorial_queue_unavailable", message: error.message });
   if (error instanceof Error && "status" in error && error.status === 403) return res.status(403).json({ message: "An attached media item is not available to this account" });
-  if (error instanceof CrawlError) return res.status(422).json({ code: "source_unreadable", message: `${error.message} Try another public URL or use Write article.` });
+  if (error instanceof CrawlError) return res.status(422).json(sourceFailureBody(error));
   const failure = generationAccessFailure(error) ?? getAIErrorResponse(error);
   if (failure.retryAfterSeconds) res.setHeader("Retry-After", String(failure.retryAfterSeconds));
   return res.status(failure.status).json(failure.body);

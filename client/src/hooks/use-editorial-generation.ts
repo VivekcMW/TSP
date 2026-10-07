@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { cancelEditorialRequest, createEditorialRequestState, editorialDetachReason, editorialRequest, type EditorialProgress, type EditorialRequestState } from "@/lib/editorial-request";
 import { clearEditorialRecovery, readEditorialRecovery, saveEditorialRecovery, type EditorialRecoveryScope } from "@/lib/editorial-recovery";
+import { ApiError } from "@/lib/queryClient";
+import { sourceFailureSchema, type SourceFailure } from "@shared/editorial";
 
 function generationError(error: unknown) {
   if (error instanceof Error && error.name === "AbortError") return "Generation cancelled. An attempt that already started may still count toward usage.";
@@ -9,7 +11,8 @@ function generationError(error: unknown) {
 }
 
 /** One active request per surface; late completions cannot resurrect a cancelled result. */
-export function useEditorialGeneration<T>(options: { scope?: EditorialRecoveryScope; onRecovered?: (data: T) => void } = {}) {
+export function useEditorialGeneration<T>(options: { scope?: EditorialRecoveryScope; onRecovered?: (data: T) => void;
+  onFailure?: (failure: { message: string; sourceFailure?: SourceFailure }) => void } = {}) {
   const controller = useRef<AbortController | null>(null);
   const cancelling = useRef(false);
   const intent = useRef<{ endpoint: string; body: unknown; key: string; state: EditorialRequestState; reloaded?: boolean } | null>(null);
@@ -20,6 +23,7 @@ export function useEditorialGeneration<T>(options: { scope?: EditorialRecoverySc
   const started = useRef(0);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [sourceFailure, setSourceFailure] = useState<SourceFailure>();
   const [elapsed, setElapsed] = useState(0);
   const [progress, setProgress] = useState<EditorialProgress | null>(null);
   const { mutateAsync } = useMutation({
@@ -62,6 +66,7 @@ export function useEditorialGeneration<T>(options: { scope?: EditorialRecoverySc
       if (current.state.jobId) clearEditorialRecovery(current.state.jobId);
       setRecoverable(false);
       setError("Generation cancelled. An attempt that already started may still count toward usage.");
+      callbacks.current.onFailure?.({ message: "Generation cancelled. An attempt that already started may still count toward usage." });
     } catch (error_) {
       if (intent.current === current) { setRecoverable(!current.state.terminal); setError(generationError(error_)); }
     } finally {
@@ -73,7 +78,7 @@ export function useEditorialGeneration<T>(options: { scope?: EditorialRecoverySc
     // caller with stale rendered state cannot discard unresolved ownership.
     if (controller.current || cancelling.current || intent.current && !intent.current.state.terminal) return false;
     intent.current = null;
-    setReattached(false); setPending(false); setRecoverable(false); setError("");
+    setReattached(false); setPending(false); setRecoverable(false); setError(""); setSourceFailure(undefined);
     setProgress(null); setElapsed(0);
     return true;
   }, []);
@@ -97,7 +102,7 @@ export function useEditorialGeneration<T>(options: { scope?: EditorialRecoverySc
     const request = new AbortController();
     controller.current = request;
     started.current = Date.now();
-    setPending(true); setRecoverable(false); setError(""); setElapsed(0); setProgress(null);
+    setPending(true); setRecoverable(false); setError(""); setSourceFailure(undefined); setElapsed(0); setProgress(null);
     try {
       // A new monitoring window, never a new provider operation. Server status
       // owns expiry; an old client deadline must not prevent reading the outcome.
@@ -113,6 +118,10 @@ export function useEditorialGeneration<T>(options: { scope?: EditorialRecoverySc
       if (controller.current === request) {
         setRecoverable(!current.state.terminal);
         setError(generationError(error_));
+        const parsed = sourceFailureSchema.safeParse(error_ instanceof ApiError ? error_.details : undefined);
+        const sourceFailure = parsed.success ? parsed.data : undefined;
+        setSourceFailure(sourceFailure);
+        if (current.state.terminal) callbacks.current.onFailure?.({ message: generationError(error_), sourceFailure });
       }
     } finally {
       if (controller.current === request) {
@@ -128,7 +137,7 @@ export function useEditorialGeneration<T>(options: { scope?: EditorialRecoverySc
     intent.current && !intent.current.state.terminal), []);
   const tenantId = options.scope?.tenantId, userId = options.scope?.userId;
   useEffect(() => {
-    setReattached(false); setPending(false); setRecoverable(false); setError("");
+    setReattached(false); setPending(false); setRecoverable(false); setError(""); setSourceFailure(undefined);
     if (!tenantId || !userId) return;
     const stored = readEditorialRecovery({ tenantId, userId });
     if (stored) {
@@ -144,5 +153,5 @@ export function useEditorialGeneration<T>(options: { scope?: EditorialRecoverySc
       intent.current = null;
     };
   }, [tenantId, userId, generate]);
-  return { generate, retry, recoverable, reattached, pending, error, elapsed, progress, cancel, reset, hasActiveRequest };
+  return { generate, retry, recoverable, reattached, pending, error, sourceFailure, elapsed, progress, cancel, reset, hasActiveRequest };
 }

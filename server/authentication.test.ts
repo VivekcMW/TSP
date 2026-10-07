@@ -16,6 +16,8 @@ vi.mock("./lib/redis", () => ({ redis: fakeRedis }));
 vi.mock("./services/email", () => ({ sendPasswordResetEmail: vi.fn(), sendVerificationEmail: vi.fn(), sendExistingAccountEmail: vi.fn(), sendPasswordChangedEmail: vi.fn() }));
 
 beforeEach(() => {
+  vi.stubEnv("APP_URL", "http://localhost:4300");
+  vi.stubEnv("BETTER_AUTH_URL", "http://localhost:4300");
   evalRedis.mockReset().mockResolvedValue([1, 0]);
   setRedis.mockReset().mockResolvedValue("OK");
   vi.mocked(sendExistingAccountEmail).mockReset();

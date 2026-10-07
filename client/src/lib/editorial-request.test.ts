@@ -10,6 +10,21 @@ beforeEach(() => { vi.resetAllMocks(); vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("editorial request transport", () => {
+  it("preserves source failure details from direct HTTP and queued job errors", async () => {
+    const body = { code: "source_unreadable", message: "Could not read the selected articles.",
+      sources: [{ url: "https://publisher.test/story", message: "HTTP 403" }] };
+    const { apiRequest } = await vi.importActual<typeof import("./queryClient")>("./queryClient");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(body, 422)));
+    await expect(apiRequest("GET", "/api/editorial/jobs/example/result")).rejects.toMatchObject({
+      status: 422, code: "source_unreadable", details: body,
+    });
+    const state = { ...createEditorialRequestState(), jobId: id };
+    request.mockResolvedValue(response({ status: "failed", error: { status: 422, body } }));
+    await expect(editorialRequest("/api/instant-review/selected", undefined, { state, reconnectOnly: true })).rejects.toMatchObject({
+      status: 422, code: "source_unreadable", details: body,
+    });
+    expect(state.terminal).toBe(true); expect(request.mock.calls.map(call => call[0])).toEqual(["GET"]);
+  });
   it("reconnects using only GETs and cannot admit without a retained job ID", async () => {
     const state = { ...createEditorialRequestState(), jobId: id };
     request.mockResolvedValueOnce(response({ status: "completed", progress: {} })).mockResolvedValueOnce(response({ posts: "retained" }));

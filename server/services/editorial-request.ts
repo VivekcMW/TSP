@@ -28,19 +28,26 @@ async function publisherUrl(url: string, signal: AbortSignal): Promise<string> {
 
 /** Most Discover stories are already in the shared index with their page read; otherwise read the publisher live. */
 async function readArticle(url: string, signal: AbortSignal): Promise<FetchedArticle> {
-  const target = await publisherUrl(url, signal);
-  const indexed = await findPooledArticle(target).catch(() => null);
-  if (indexed?.readable && indexed.inputKind === "page_body" && indexed.content) {
-    console.log("[shared-index] story read from the index");
-    const publishedAt = indexed.publishedAt?.toISOString() ?? null;
-    return {
-      title: indexed.title, content: indexed.content, source: indexed.source, url: indexed.canonicalUrl,
-      domain: new URL(indexed.canonicalUrl).hostname.replace(/^www\./, ""),
-      contentMetadata: { extractionMethod: "index", originalLength: indexed.content.length, retainedLength: indexed.content.length, truncated: false },
-      publishedAt, publicationDate: publicationDate(publishedAt, "rss-pubDate"),
-    };
+  try {
+    const target = await publisherUrl(url, signal);
+    const indexed = await findPooledArticle(target).catch(() => null);
+    if (indexed?.readable && indexed.inputKind === "page_body" && indexed.content) {
+      console.log("[shared-index] story read from the index");
+      const publishedAt = indexed.publishedAt?.toISOString() ?? null;
+      return {
+        title: indexed.title, content: indexed.content, source: indexed.source, url: indexed.canonicalUrl,
+        domain: new URL(indexed.canonicalUrl).hostname.replace(/^www\./, ""),
+        contentMetadata: { extractionMethod: "index", originalLength: indexed.content.length, retainedLength: indexed.content.length, truncated: false },
+        publishedAt, publicationDate: publicationDate(publishedAt, "rss-pubDate"),
+      };
+    }
+    return await fetchArticleFromUrl(target, signal);
+  } catch (error) {
+    signal.throwIfAborted();
+    if (error instanceof CrawlError) throw new CrawlError(error.code,
+      `${new URL(url).hostname}: ${error.message}`, [{ url, message: error.message }]);
+    throw error;
   }
-  return fetchArticleFromUrl(target, signal);
 }
 
 const selection = z.array(z.enum(ALL_PLATFORM_KEYS)).max(4);
@@ -117,13 +124,24 @@ export async function prepareEditorialRequest(req: Request, kind: EditorialKind,
 async function readSelectedArticles(urls: string[], prepared: PreparedEditorialRequest, signal: AbortSignal) {
   const scope = prepared.options.voiceScope;
   if (!scope) throw new AIGenerationError("ai_invalid_input");
-  const articles = await Promise.all([...new Set(urls)].map(async url => {
+  const unique = [...new Set(urls)];
+  const results = await Promise.allSettled(unique.map(async url => {
     if (!await storage.getInboxItemByUrl(scope, url)) {
       throw new AIGenerationError("ai_invalid_input");
     }
     signal.throwIfAborted();
     return readArticle(url, signal);
   }));
+  signal.throwIfAborted();
+  const articles: FetchedArticle[] = [];
+  const failures: CrawlError["sources"] = [];
+  for (const [index, result] of results.entries()) {
+    if (result.status === "fulfilled") articles.push(result.value);
+    else if (result.reason instanceof CrawlError) failures.push({ url: unique[index], message: result.reason.message });
+    else throw result.reason;
+  }
+  if (failures.length) throw new CrawlError("sources",
+    `Could not read ${failures.map(source => new URL(source.url).hostname).join(", ")}. No draft was generated and no selected sources were skipped.`, failures);
   const headers = articles.map(article => `Source: ${article.source}\nTitle: ${article.title}\nURL: ${article.url}\n`);
   const available = MAX_SOURCE_CHARACTERS - headers.reduce((total, text) => total + text.length + 2, 0);
   if (available < articles.length * 20) throw new AIGenerationError("ai_invalid_input");

@@ -7,6 +7,7 @@ import path from "node:path";
 import postcss from "postcss";
 import tailwindcss from "tailwindcss";
 import tailwindConfig from "../../tailwind.config";
+import { saveCreationSessionSchema, type CreationSession } from "../../shared/creation-session";
 import { installActualAppApi, expectActualAppGeometry, expectReachableAction, expectReadableControls,
   doubleTextSize, expectDoubledText, captureActualApp, deferredResponse, fixtureDraft, LONG_TITLE, LONG_TEXT, LONG_FOCUS,
   type ActualAppApi } from "./actual-app.fixture";
@@ -19,6 +20,7 @@ let account: string;
 let failures: Map<string, number>;
 let errors: string[];
 let apiCalls: { method: string; pathname: string }[];
+let creations: Map<string, { revision: number; state: CreationSession | null }>;
 
 const workspacePages = new Set(["overview", "dashboard", "drafts", "calendar", "settings", "create-post"].map(name => `@/pages/${name}`));
 
@@ -86,6 +88,7 @@ afterAll(async () => { await browser?.close(); await new Promise<void>(resolve =
 
 beforeEach(async () => {
   account = "a"; failures = new Map(); errors = []; apiCalls = [];
+  creations = new Map();
   page = await browser.newPage({ reducedMotion: "reduce", hasTouch: true, serviceWorkers: "block" });
   page.setDefaultTimeout(5000);
   page.on("pageerror", error => errors.push(error.message));
@@ -99,12 +102,27 @@ beforeEach(async () => {
     }
     const method = route.request().method();
     apiCalls.push({ method, pathname: url.pathname });
+    if (method === "PUT" && url.pathname === "/api/creation-session") {
+      try {
+        const change = saveCreationSessionSchema.parse(route.request().postDataJSON());
+        expect(route.request().headers()["x-tenant-id"] ?? `tenant-${account}`).toBe(`tenant-${account}`);
+        const previous = creations.get(account) ?? { revision: 0, state: null };
+        if (change.revision !== previous.revision) return await route.fulfill({ status: 409, json: { message: "Creation changed" } });
+        const saved = { revision: previous.revision + 1, state: change.state };
+        creations.set(account, saved);
+        return await route.fulfill({ json: saved });
+      } catch (error) {
+        errors.push(String(error));
+        return route.fulfill({ status: 400, json: { message: "Invalid fixture creation write" } });
+      }
+    }
     if (method !== "GET") { errors.push(`Unexpected API write: ${method} ${url.pathname}`); return route.abort(); }
     const reply = (data: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) });
     const failure = failures.get(url.pathname);
     if (failure === 0) return route.abort("internetdisconnected");
     if (failure) return reply({ message: "Fixture unavailable" }, failure);
     if (url.pathname === "/api/me") return reply({ id: account, name: `Person ${account}`, registrationCompleted: "2026-01-01", platformRole: null });
+    if (url.pathname === "/api/creation-session") return reply(creations.get(account) ?? { revision: 0, state: null });
     if (url.pathname === "/api/profile") return reply({ id: `profile-${account}`, userId: account, tenantId: `tenant-${account}`, onboardingStatus: "completed", focusDescription: `Voice ${account}`, enabledPlatforms: ["linkedin"], defaultPlatform: "linkedin", defaultTone: "professional", timezone: "UTC", preferredPublishTime: "09:00", publications: [], companies: [], keywords: [], influencers: [] });
     if (["/api/integrations", "/api/inbox", "/api/drafts", "/api/drafts/published", "/api/sources", "/api/sources/suggestions", "/api/sources/publications", "/api/profile/social-links", "/api/publishing-rules"].includes(url.pathname)) return reply([]);
     if (url.pathname === "/api/drafts/scheduled") return reply({ items: [], total: 0, hasMore: false });
@@ -147,21 +165,22 @@ describe("full App integration security (real router, Settings and Create provid
     await open("/dashboard");
     await page.getByRole("button", { name: "Open Create", exact: true }).click();
     // Source input belongs to the real shared composer, not a fixture substitute.
-    const input = page.locator('input[type="url"]').first();
-    await input.fill("https://example.invalid/story");
+    const input = page.getByRole("textbox", { name: "Document text", exact: true });
+    await input.fill("A document retained across routes and an offline account refresh.");
+    await page.getByRole("textbox", { name: "Message Pundit", exact: true }).fill("Improve the clarity without changing the claims.");
     await page.getByRole("link", { name: "Calendar link" }).click();
     await browserExpect(page.getByTestId("route-page")).toContainText("calendar");
     await browserExpect(input).toHaveCount(0);
     await page.getByRole("button", { name: "Open Create", exact: true }).click();
-    await browserExpect(input).toHaveValue("https://example.invalid/story");
+    await browserExpect(input).toHaveText("A document retained across routes and an offline account refresh.");
     failures.set("/api/profile", 0);
     await refetch("/api/profile");
     await browserExpect(page.getByTestId("shell")).toBeVisible();
-    await browserExpect(input).toHaveValue("https://example.invalid/story");
-    await browserExpect(page.getByRole("button", { name: /^Generate/i }).last()).toBeDisabled();
+    await browserExpect(input).toHaveText("A document retained across routes and an offline account refresh.");
+    await browserExpect(page.getByRole("button", { name: "Send suggestion", exact: true })).toBeDisabled();
     failures.clear();
     await refetch("/api/profile");
-    await browserExpect(input).toHaveValue("https://example.invalid/story");
+    await browserExpect(input).toHaveText("A document retained across routes and an offline account refresh.");
   });
 
   it.each([401, 403])("does not render cached authenticated data after a background %s", async status => {
@@ -262,7 +281,7 @@ const workspaceRoutes = [
   { route: "/dashboard", heading: "Home" },
   { route: "/dashboard/discover", heading: "Discover" },
   { route: "/dashboard/content", heading: "Content" },
-  { route: "/dashboard/calendar", heading: "Publishing Calendar" },
+  { route: "/dashboard/calendar", heading: "Calendar" },
   { route: "/dashboard/settings", heading: "Settings" },
   { route: "/dashboard/create", heading: "Create post" },
 ];
@@ -277,7 +296,7 @@ const actualAppRoutes = [
   { key: "home", route: "/dashboard", heading: "Home" },
   { key: "discover", route: "/dashboard/discover", heading: "Discover" },
   { key: "content", route: "/dashboard/content", heading: "Content" },
-  { key: "calendar", route: "/dashboard/calendar", heading: "Publishing Calendar" },
+  { key: "calendar", route: "/dashboard/calendar", heading: "Calendar" },
   { key: "settings", route: "/dashboard/settings?tab=content", heading: "Settings" },
   { key: "article", route: "/dashboard/create", heading: "Create post" },
   { key: "idea", route: "/dashboard/create", heading: "Create post" },
@@ -291,21 +310,19 @@ async function openLoadedActualApp(api: ActualAppApi, surface: ActualRoute, widt
   const main = await expectWorkspaceLandmarks(surface.heading);
   if (surface.key === "home") await browserExpect(main.getByTestId("card-upcoming-publishing")).toContainText(LONG_TEXT.slice(0, 40));
   if (surface.key === "discover") await browserExpect(main.getByTestId("row-inbox-loaded-story")).toBeVisible();
-  if (surface.key === "content") await browserExpect(main.getByTestId("button-menu-loaded-ready")).toBeVisible();
-  if (surface.key === "calendar") await browserExpect(main.getByRole("article")).toHaveCount(1);
+  if (surface.key === "content") await browserExpect(main.getByTestId("button-preview-loaded-ready")).toBeVisible();
+  if (surface.key === "calendar") await browserExpect(main.locator('[data-calendar-day="2026-10-03"]')).toContainText(LONG_TEXT.slice(0, 40));
   if (surface.key === "settings") await browserExpect(main.getByRole("textbox", { name: "Voice & focus", exact: true })).toHaveValue(LONG_FOCUS);
   if (surface.key === "article") {
-    await expectCreateMode("Article");
-    await main.getByRole("combobox", { name: "Story", exact: true }).selectOption(api.state.stories[0].id);
-    await browserExpect(main.getByRole("textbox", { name: "Article URL", exact: true })).toHaveValue("https://news.invalid/story");
-    await browserExpect(main.getByTestId("button-generate-selected")).toBeEnabled();
-    await browserExpect(main.getByTestId("social-preview-linkedin")).toBeVisible();
+    await openCreateCommand("sources");
+    await page.getByRole("checkbox", { name: new RegExp(LONG_TITLE.slice(0, 30)) }).check();
+    await page.getByRole("button", { name: "Use selected articles", exact: true }).click();
+    await page.getByRole("textbox", { name: "Message Pundit", exact: true }).fill("Draft a careful article using this source.");
   }
   if (surface.key === "idea") {
-    await main.getByRole("group", { name: "Create from", exact: true }).getByRole("button", { name: "Idea", exact: true }).click();
-    await page.getByLabel("Article title", { exact: true }).fill(LONG_TITLE);
-    await page.getByRole("textbox", { name: "Article text", exact: true }).fill(LONG_TEXT);
-    await browserExpect(main.getByTestId("button-regenerate")).toBeEnabled();
+    await page.getByRole("textbox", { name: "Document title", exact: true }).fill(LONG_TITLE);
+    await page.getByRole("textbox", { name: "Document text", exact: true }).fill(LONG_TEXT);
+    await page.getByRole("textbox", { name: "Message Pundit", exact: true }).fill("Improve this draft without changing its claims.");
   }
   await browserExpect(main.getByText(/^(Loading stories…|Loading schedules…|Loading publishing preferences…)$/)).toHaveCount(0);
   return main;
@@ -320,19 +337,43 @@ async function actualRouteActions(surface: ActualRoute) {
   await expectReachableAction(headerAction);
   if (surface.key === "home") await expectReachableAction(main.getByRole("link", { name: "Open calendar", exact: true }));
   if (surface.key === "discover") await expectReachableAction(main.getByTestId("row-inbox-loaded-story"));
-  if (surface.key === "content") await expectReachableAction(main.getByTestId("button-menu-loaded-ready"));
-  if (surface.key === "calendar") await expectReachableAction(main.getByRole("button", { name: /^Schedule draft on / }).last());
+  if (surface.key === "content") await expectReachableAction(main.getByTestId("button-preview-loaded-ready"));
+  if (surface.key === "calendar") await expectReachableAction(main.getByRole("button", { name: "Today", exact: true }));
   if (surface.key === "settings") {
     await main.getByRole("textbox", { name: "Voice & focus", exact: true }).fill(`${LONG_FOCUS} Local edit.`);
     await expectReachableAction(main.getByTestId("button-save-content-preferences"));
   }
   if (surface.key === "article") {
-    await expectReachableAction(main.getByTestId("button-generate-selected"));
-    await expectReachableAction(main.getByTestId("social-preview-threads").getByRole("button", { name: "Generate Threads", exact: true }));
+    await expectReachableAction(main.getByRole("button", { name: "Send suggestion", exact: true }));
+    await expectReachableAction(main.getByRole("button", { name: "Articles (1)", exact: true }));
   }
   if (surface.key === "idea") {
-    await expectReachableAction(main.getByRole("button", { name: "Add media", exact: true }));
-    await expectReachableAction(main.getByTestId("button-regenerate"));
+    await expectReachableAction(main.getByRole("textbox", { name: "Message Pundit", exact: true }));
+    await expectReachableAction(main.getByRole("button", { name: "Adapt for platforms", exact: true }));
+  }
+}
+
+async function openCreateCommand(command: string) {
+  const input = page.getByRole("textbox", { name: "Message Pundit", exact: true });
+  await input.fill(`/${command}`); await input.press("Enter");
+}
+
+async function openNotes() {
+  await openCreateCommand("notes");
+  const useNotes = page.getByRole("button", { name: "Use notes as source", exact: true });
+  if (await useNotes.isVisible()) await useNotes.click();
+  await browserExpect(page.getByTestId("editor-manual-article")).toBeVisible();
+}
+
+async function prepareActualPlatforms(api: ActualAppApi, width: number) {
+  api.seedDocument();
+  await openWorkspace("/dashboard/create", width);
+  await browserExpect(page.getByRole("textbox", { name: "Document text", exact: true })).toHaveText(LONG_TEXT);
+  await page.getByRole("button", { name: "Adapt for platforms", exact: true }).click();
+  const labels: Record<string, string> = { linkedin: "LinkedIn", twitter: "Twitter/X", threads: "Threads" };
+  for (const platform of api.state.enabledPlatforms) {
+    const label = labels[platform];
+    if (label) await page.getByRole("checkbox", { name: label, exact: true }).check();
   }
 }
 
@@ -756,8 +797,7 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
     api.state.enabledPlatforms = ["linkedin", "twitter"];
     api.state.drafts = [fixtureDraft("unrelated", "A different draft that must never be silently selected.")]; api.state.schedules = [];
     await page.clock.setFixedTime(new Date("2026-10-01T10:00:00.000Z"));
-    await openWorkspace("/dashboard/create", width);
-    await page.getByRole("combobox", { name: "Story", exact: true }).selectOption("loaded-story");
+    await prepareActualPlatforms(api, width);
     const generated = "An isolated LinkedIn post with a precise reviewable source. Nothing is delivered by generation.";
     const otherActive = deferredResponse();
     const firstJob = api.generation("linkedin", { content: generated });
@@ -781,8 +821,8 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
     await browserExpect(card.getByRole("link", { name: "Go to Content", exact: true })).toHaveAttribute("href", "/dashboard/content?draft=saved-exact");
     otherActive.release();
     await browserExpect(twitter.getByTestId("text-post-content-twitter")).toBeVisible();
-    await browserExpect(page.getByRole("main")).toContainText("2 platform posts are ready");
-    api.assertWrites([["POST", "/api/instant-review/selected"], ["POST", "/api/instant-review/selected"], ["POST", "/api/drafts"]]);
+    await browserExpect(page.getByRole("heading", { name: "Platform versions", exact: true })).toBeVisible();
+    api.assertWrites([["POST", "/api/instant-review/manual"], ["POST", "/api/instant-review/manual"], ["POST", "/api/drafts"]]);
     await captureActualApp(page, `journey-batch-success-${width}`);
 
     await card.getByRole("link", { name: "Go to Content", exact: true }).click();
@@ -834,7 +874,7 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
     await browserExpect(card.getByRole("link", { name: "Go to Calendar", exact: true })).toHaveAttribute("href", "/dashboard/calendar?draft=saved-exact");
     await card.getByRole("link", { name: "Go to Calendar", exact: true }).click();
     await browserExpect(page).toHaveURL(`${origin}/dashboard/calendar?draft=saved-exact`);
-    const dialog = page.getByRole("dialog", { name: "Schedule across platforms", exact: true });
+    const dialog = page.getByRole("dialog", { name: "Plan your post", exact: true });
     await browserExpect(dialog.getByRole("combobox", { name: "Draft", exact: true })).toHaveValue(saved.id);
     await browserExpect(dialog.getByTestId("schedule-exact-text")).toHaveText(localText);
     await browserExpect(dialog.getByLabel("Time (Asia/Kolkata)", { exact: true })).toHaveValue("18:45");
@@ -873,11 +913,12 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
     });
     await submit.click();
     await browserExpect(dialog).toHaveCount(0);
+    await page.getByRole("button", { name: "Agenda", exact: true }).click();
     await browserExpect(page.locator('[data-linked-draft="true"]')).toContainText(localText);
     expect(api.state.drafts.find(draft => draft.id === "unrelated")?.publishStatus).toBe("draft");
     expect(saved.publishedAt).toBeNull();
     expect(api.state.schedules[0].targets[0]).toMatchObject({ status: "scheduled", providerPostId: null, receiptKind: null });
-    api.assertWrites([["POST", "/api/instant-review/selected"], ["POST", "/api/instant-review/selected"], ["POST", "/api/drafts"],
+    api.assertWrites([["POST", "/api/instant-review/manual"], ["POST", "/api/instant-review/manual"], ["POST", "/api/drafts"],
       ["PATCH", "/api/drafts/saved-exact"], ["PATCH", "/api/drafts/saved-exact"], ["POST", "/api/drafts/saved-exact/approve-publishing"], ["POST", "/api/drafts/saved-exact/schedule"]]);
     expect(api.count("GET", `/api/editorial/jobs/${secondJob}/result`)).toBe(1);
     expect(confirmations).toEqual([]);
@@ -886,8 +927,7 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
 
   it("keeps terminal failure and not-attempted cards distinct; explicit continuation never regenerates completed/failed cards", async () => {
     api.state.enabledPlatforms = ["linkedin", "twitter", "threads"];
-    await openWorkspace("/dashboard/create", 375);
-    await page.getByRole("combobox", { name: "Story", exact: true }).selectOption("loaded-story");
+    await prepareActualPlatforms(api, 375);
     api.generation("linkedin");
     const failedJob = api.generation("twitter", { failed: true });
     await page.getByTestId("button-generate-selected").click();
@@ -897,15 +937,15 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
     await browserExpect(page.getByTestId("social-preview-threads")).toContainText("Not attempted");
     await browserExpect(page.getByTestId("social-preview-threads")).toContainText("No request was sent for this card");
     expect(api.count("GET", `/api/editorial/jobs/${failedJob}/result`)).toBe(0);
-    api.assertWrites([["POST", "/api/instant-review/selected"], ["POST", "/api/instant-review/selected"]]);
-    await expectReachableAction(page.getByTestId("button-generate-selected"));
+    api.assertWrites([["POST", "/api/instant-review/manual"], ["POST", "/api/instant-review/manual"]]);
+    await expectReachableAction(page.getByRole("button", { name: "Continue remaining versions", exact: true }));
     await captureActualApp(page, "exception-batch-terminal-not-attempted-375");
     api.generation("threads");
-    await page.getByRole("button", { name: "Continue 1 not attempted", exact: true }).click();
+    await page.getByRole("button", { name: "Continue remaining versions", exact: true }).click();
     await browserExpect(page.getByTestId("text-post-content-threads")).toBeVisible();
     await browserExpect(page.getByTestId("social-preview-twitter")).toContainText("Needs retry");
     expect(api.state.calls.filter(call => call.method === "POST").map(call => call.body.selectedPlatforms)).toEqual([["linkedin"], ["twitter"], ["threads"]]);
-    api.assertWrites(Array.from({ length: 3 }, () => ["POST", "/api/instant-review/selected"] as [string, string]));
+    api.assertWrites(Array.from({ length: 3 }, () => ["POST", "/api/instant-review/manual"] as [string, string]));
     expect(api.count("POST", "/api/drafts")).toBe(0);
   });
 
@@ -917,9 +957,9 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
       await expectWorkspaceLandmarks("Home");
       await browserExpect(page.getByTestId("button-global-create")).toHaveText("Resume creation");
       await page.getByRole("main").getByRole("button", { name: "Resume creation", exact: true }).click();
-      await expectCreateMode("Idea");
-      await browserExpect(page.getByLabel("Article title", { exact: true })).toHaveValue(LONG_TITLE);
-      await browserExpect(page.getByRole("textbox", { name: "Article text", exact: true })).toHaveText(LONG_TEXT);
+      await expectDocumentSurface();
+      await browserExpect(page.getByRole("textbox", { name: "Document title", exact: true })).toHaveValue(LONG_TITLE);
+      await browserExpect(page.getByRole("textbox", { name: "Document text", exact: true })).toHaveText(LONG_TEXT);
       if (entry === "home") await page.getByTestId("link-navbar-logo").click();
       const newPost = entry === "home" ? page.getByTestId("button-overview-instant-review") : page.getByTestId("button-global-create");
       await browserExpect(newPost).toHaveText("New post");
@@ -928,8 +968,8 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
       expect(confirmations[0]).toContain("Start a new post?");
       expect(new URL(page.url()).pathname).toBe(entry === "home" ? "/dashboard" : "/dashboard/create");
       if (entry === "home") await page.getByTestId("button-global-create").click();
-      await expectCreateMode("Idea");
-      await browserExpect(page.getByRole("textbox", { name: "Article text", exact: true })).toHaveText(LONG_TEXT);
+      await expectDocumentSurface();
+      await browserExpect(page.getByRole("textbox", { name: "Document text", exact: true })).toHaveText(LONG_TEXT);
       if (entry === "home") await page.getByTestId("link-navbar-logo").click();
       decisions.push(true); await newPost.click();
       await expectFreshArticle();
@@ -941,8 +981,7 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
 
   it("a same-user tenant boundary drops an old deferred actual generation result without saving, cancelling or replaying", async () => {
     api.state.enabledPlatforms = ["linkedin"];
-    await openWorkspace("/dashboard/create", 1440);
-    await page.getByRole("combobox", { name: "Story", exact: true }).selectOption("loaded-story");
+    await prepareActualPlatforms(api, 1440);
     const resultGate = deferredResponse();
     const privateText = "Private tenant A generated text must never enter tenant B's composer or cache.";
     const job = api.generation("linkedin", { resultGate, content: privateText });
@@ -953,6 +992,7 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
     await page.getByTestId("button-generate-selected").click();
     await browserExpect.poll(() => api.count("GET", `/api/editorial/jobs/${job}/result`)).toBe(1);
     api.state.tenantId = "tenant-b"; api.state.stories = []; api.state.drafts = []; api.state.schedules = [];
+    await page.evaluate(() => localStorage.setItem("tsp:active-tenant-id", "tenant-b"));
     await refetch("/api/profile");
     await expectFreshArticle();
     resultGate.release();
@@ -961,13 +1001,15 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await browserExpect(page.getByRole("main")).not.toContainText(privateText);
     await browserExpect(page.getByTestId("text-post-content-linkedin")).toHaveCount(0);
-    await browserExpect(page.getByTestId("button-generate-selected")).toBeDisabled();
+    await browserExpect(page.getByRole("button", { name: "Send suggestion", exact: true })).toBeDisabled();
     expect(JSON.stringify(await page.evaluate(() => (window as any).security.cache()))).not.toContain(privateText);
     expect(await page.evaluate(() => JSON.stringify(sessionStorage))).not.toContain("tenant-a");
-    api.assertWrites([["POST", "/api/instant-review/selected"]]);
+    api.assertWrites([["POST", "/api/instant-review/manual"]]);
     expect(api.count("GET", `/api/editorial/jobs/${job}/result`)).toBe(1);
     // Do not clear/refetch the cache in the fixture to hide a tenant leak.
-    await browserExpect(page.getByRole("main")).toContainText("No saved stories available");
+    await openCreateCommand("sources");
+    await browserExpect(page.getByRole("dialog")).toContainText("No matching articles");
+    await page.getByRole("button", { name: "Close", exact: true }).click();
     expect(JSON.stringify(await page.evaluate(() => (window as any).security.cache()))).not.toContain("tenant-a");
     await captureActualApp(page, "exception-tenant-boundary-deferred-result-1440");
   });
@@ -996,7 +1038,7 @@ async function expectOnScreen(control: Locator, minSize = 0) {
 
 async function openIdea(width: number) {
   await openWorkspace("/dashboard/create", width);
-  await page.getByRole("main").getByRole("group", { name: "Create from", exact: true }).getByRole("button", { name: "Idea", exact: true }).click();
+  await openNotes();
   const toolbar = page.getByRole("group", { name: "Article formatting toolbar" });
   await browserExpect(toolbar).toBeVisible();
   await browserExpect(toolbar).toHaveAccessibleDescription(/Swipe or scroll sideways/);
@@ -1083,7 +1125,7 @@ describe("UX-01 real App navigation (mocked APIs, Chromium touch emulation)", ()
       await browserExpect(trigger).toBeFocused();
       await browserExpect(trigger).toHaveAttribute("aria-expanded", "false");
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      expect(apiCalls.every(call => call.method === "GET")).toBe(true);
+      expectNoCreationRequests();
     },
   );
 
@@ -1112,7 +1154,7 @@ describe("UX-01 real App navigation (mocked APIs, Chromium touch emulation)", ()
     await browserExpect(page.getByRole("heading", { name: "Create post", exact: true, level: 1 })).toBeVisible();
     await browserExpect(page.getByRole("dialog", { name: "Sidebar", exact: true })).toHaveCount(0);
     await browserExpect(sidebar.getByRole("link", { name: /Performance|Analytics/ })).toHaveCount(0);
-    expect(apiCalls.every(call => call.method === "GET")).toBe(true);
+    expectNoCreationRequests();
   });
 });
 
@@ -1198,14 +1240,18 @@ describe("UX-02 real App Idea toolbar (local clipping, not just document width)"
     });
     const pasted = "Pasted plain text is still the source, not formatted HTML.";
     await browserExpect(editor).toHaveText(pasted);
+    await page.getByRole("button", { name: "Close", exact: true }).click();
     await page.getByTestId("nav-content").click();
     await browserExpect(page.getByRole("heading", { name: "Content", exact: true, level: 1 })).toBeVisible();
     await page.getByTestId("button-global-create").click();
+    await openNotes();
     await browserExpect(page.getByLabel("Article title", { exact: true })).toHaveValue("Retained idea");
     await browserExpect(editor).toHaveText(pasted);
     await browserExpect(editor.locator("b, strong, font")).toHaveCount(0);
-    await browserExpect(page.getByTestId("button-regenerate")).toBeEnabled();
-    expect(apiCalls.every(call => call.method === "GET")).toBe(true);
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("textbox", { name: "Message Pundit", exact: true }).fill("Write a draft from these source notes.");
+    await browserExpect(page.getByRole("button", { name: "Send suggestion", exact: true })).toBeEnabled();
+    expectNoCreationRequests();
     expect(apiCalls.some(call => /generation|instant-review|media\/upload/.test(call.pathname))).toBe(false);
   });
 });
@@ -1254,32 +1300,25 @@ function recordDialogs() {
 }
 
 function expectNoCreationRequests() {
-  expect(apiCalls.filter(call => call.method !== "GET")).toEqual([]);
+  expect(apiCalls.filter(call => call.method !== "GET" && !(call.method === "PUT" && call.pathname === "/api/creation-session"))).toEqual([]);
   expect(apiCalls.filter(call => /generation|instant-review|editorial\/jobs|media\/upload/.test(call.pathname))).toEqual([]);
 }
 
-async function expectCreateMode(mode: "Article" | "Idea") {
-  // The route owns the single outer main; do not depend on the old nested main.
-  const group = page.getByRole("main").getByRole("group", { name: "Create from", exact: true });
-  await browserExpect(group).toHaveCount(1);
-  await browserExpect(group).toBeVisible();
-  expect(await group.evaluate(element => element.tagName)).toBe("FIELDSET");
-  await browserExpect(group.getByRole("button")).toHaveCount(2);
-  for (const name of ["Article", "Idea"]) {
-    await browserExpect(group.getByRole("button", { name, exact: true })).toHaveAttribute("aria-pressed", String(name === mode));
-  }
-  await browserExpect(group.getByRole("button", { pressed: true })).toHaveCount(1);
-  return group;
+async function expectDocumentSurface() {
+  const document = page.getByRole("article", { name: "Editable document" });
+  await browserExpect(document).toHaveCount(1);
+  await browserExpect(document).toBeVisible();
+  await browserExpect(page.getByRole("group", { name: "Create from", exact: true })).toHaveCount(0);
+  return document;
 }
 
 async function expectFreshArticle() {
   await browserExpect(page).toHaveURL(url => url.origin === origin && url.pathname === "/dashboard/create");
   const main = await expectWorkspaceLandmarks("Create post");
-  await expectCreateMode("Article");
-  // Distinguish the Article board from the old URL-only default and Idea editor.
-  await browserExpect(main.getByRole("combobox", { name: "Story", exact: true })).toHaveValue("");
-  await browserExpect(main.getByRole("textbox", { name: "Article URL", exact: true })).toHaveValue("");
-  await browserExpect(main.getByTestId("button-generate-selected")).toBeDisabled();
+  await expectDocumentSurface();
+  await browserExpect(main.getByRole("textbox", { name: "Document title", exact: true })).toHaveValue("");
+  await browserExpect(main.getByRole("textbox", { name: "Document text", exact: true })).toBeEmpty();
+  await browserExpect(main.getByRole("button", { name: "Send suggestion", exact: true })).toBeDisabled();
   await browserExpect(main.getByTestId("button-regenerate")).toHaveCount(0);
   await browserExpect(main.getByTestId("editor-manual-article")).toHaveCount(0);
 }
@@ -1379,30 +1418,18 @@ describe("UX-03 real App semantics and Create entry (actual CSS, mocked boundari
     expectNoCreationRequests();
   });
 
-  it.each(ux03Widths)("announces both source modes and gives the multiline Idea textbox a visible keyboard focus ring at %s px", async width => {
+  it.each(ux03Widths)("opens source notes by keyboard and gives their multiline textbox a visible focus ring at %s px", async width => {
     const dialogs = recordDialogs();
     await openWorkspace("/dashboard/create", width);
     await expectFreshArticle();
-    let group = await expectCreateMode("Article");
-    for (const name of ["Article", "Idea"]) await expectOnScreen(group.getByRole("button", { name, exact: true }), 32);
-    await group.getByRole("button", { name: "Idea", exact: true }).focus();
+    await openCreateCommand("notes");
+    await page.getByRole("button", { name: "Use notes as source", exact: true }).focus();
     await page.keyboard.press("Enter");
-    group = await expectCreateMode("Idea");
-    for (const name of ["Article", "Idea"]) await expectOnScreen(group.getByRole("button", { name, exact: true }), 32);
     await browserExpect(page.getByRole("textbox", { name: "Article title", exact: true })).toHaveValue("");
     await browserExpect(page.getByRole("textbox", { name: "Article text", exact: true })).toBeEmpty();
-    // Switching an untouched source is not a destructive action.
-    await group.getByRole("button", { name: "Article", exact: true }).focus();
-    await page.keyboard.press("Space");
-    await expectFreshArticle();
-    group = await expectCreateMode("Article");
-    await group.getByRole("button", { name: "Idea", exact: true }).focus();
-    await page.keyboard.press("Enter");
-    await expectCreateMode("Idea");
-    await expectWorkspaceLandmarks("Create post");
     expect(dialogs).toEqual([]);
 
-    const editor = page.getByRole("main").getByRole("textbox", { name: "Article text", exact: true });
+    const editor = page.getByRole("dialog").getByRole("textbox", { name: "Article text", exact: true });
     await browserExpect(editor).toHaveAttribute("contenteditable", "true");
     await browserExpect(editor).toHaveAttribute("aria-multiline", "true");
     await browserExpect(editor).toHaveAttribute("aria-readonly", "false");
@@ -1510,9 +1537,11 @@ describe("UX-03 real App semantics and Create entry (actual CSS, mocked boundari
     await detail.getByRole("button", { name: "Create draft", exact: true }).click();
     await browserExpect(page).toHaveURL(origin + "/dashboard/create");
     const main = await expectWorkspaceLandmarks("Create post");
-    await expectCreateMode("Article");
-    await browserExpect(main.getByRole("combobox", { name: "Story", exact: true })).toHaveValue(story.id);
-    await browserExpect(main.getByRole("textbox", { name: "Article URL", exact: true })).toHaveValue(story.articleUrl);
+    await expectDocumentSurface();
+    await browserExpect(main.getByLabel("Attached articles")).toContainText(story.headline);
+    await openCreateCommand("link");
+    await browserExpect(page.getByRole("textbox", { name: "Article URL", exact: true })).toHaveValue(story.articleUrl);
+    await page.getByRole("button", { name: "Close", exact: true }).click();
     await browserExpect(page.getByRole("dialog")).toHaveCount(0);
     expect(dialogs).toEqual([]);
     expectNoCreationRequests();
@@ -1520,12 +1549,12 @@ describe("UX-03 real App semantics and Create entry (actual CSS, mocked boundari
 
   it.each([375, 1440])("resumes the selected Idea and its inputs through global Create at %s px", async width => {
     const dialogs = recordDialogs();
-    await openIdea(width);
-    await expectCreateMode("Idea");
+    await openWorkspace("/dashboard/create", width);
+    await expectDocumentSurface();
     const title = "Retained UX03 idea";
     const text = "This idea stays in the composer while I visit Home, without generating or saving.";
-    await page.getByRole("textbox", { name: "Article title", exact: true }).fill(title);
-    await page.getByRole("textbox", { name: "Article text", exact: true }).fill(text);
+    await page.getByRole("textbox", { name: "Document title", exact: true }).fill(title);
+    await page.getByRole("textbox", { name: "Document text", exact: true }).fill(text);
     await page.getByTestId("link-navbar-logo").click();
     await browserExpect(page).toHaveURL(origin + "/dashboard");
     await expectWorkspaceLandmarks("Home");
@@ -1533,24 +1562,24 @@ describe("UX-03 real App semantics and Create entry (actual CSS, mocked boundari
     await page.getByTestId("button-global-create").click();
     await browserExpect(page).toHaveURL(origin + "/dashboard/create");
     await expectWorkspaceLandmarks("Create post");
-    await expectCreateMode("Idea");
-    await browserExpect(page.getByRole("textbox", { name: "Article title", exact: true })).toHaveValue(title);
-    await browserExpect(page.getByRole("textbox", { name: "Article text", exact: true })).toHaveText(text);
+    await expectDocumentSurface();
+    await browserExpect(page.getByRole("textbox", { name: "Document title", exact: true })).toHaveValue(title);
+    await browserExpect(page.getByRole("textbox", { name: "Document text", exact: true })).toHaveText(text);
     await browserExpect(page.getByTestId("button-generate-selected")).toHaveCount(0);
     expect(dialogs).toEqual([]);
     expectNoCreationRequests();
   });
 
-  it.each([375, 1440])("makes Calendar Manage drafts one keyboard-operable anchor at %s px", async width => {
+  it.each([375, 1440])("makes Calendar Manage all drafts one keyboard-operable anchor at %s px", async width => {
     await openWorkspace("/dashboard/calendar", width);
-    const main = await expectWorkspaceLandmarks("Publishing Calendar");
-    const link = main.getByRole("link", { name: "Manage drafts", exact: true });
+    const main = await expectWorkspaceLandmarks("Calendar");
+    const link = main.getByRole("link", { name: "Manage all drafts", exact: true });
     await expectSingleNavigationLink(link, "/dashboard/content");
-    await browserExpect(main.getByRole("button", { name: "Manage drafts", exact: true })).toHaveCount(0);
-    await main.getByRole("button", { name: "Next period", exact: true }).focus();
+    await browserExpect(main.getByRole("button", { name: "Manage all drafts", exact: true })).toHaveCount(0);
+    await main.getByRole("combobox", { name: "Status", exact: true }).focus();
     await page.keyboard.press("Tab");
     await browserExpect(main.getByRole("combobox", { name: "Display & scheduling timezone", exact: true })).toBeFocused();
-    await page.keyboard.press("Tab");
+    await link.focus();
     await browserExpect(link).toBeFocused();
     await expectOnScreen(link);
     await page.keyboard.press("Enter");
