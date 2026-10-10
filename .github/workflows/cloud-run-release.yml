@@ -1,0 +1,455 @@
+name: Cloud Run release
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Release operation
+        required: true
+        type: choice
+        options:
+          - candidate
+          - promote
+          - rollback
+      release_sha:
+        description: Full 40-character commit SHA to deploy
+        required: false
+        type: string
+      live_acceptance_run_id:
+        description: Successful Live acceptance Actions run ID (promote only)
+        required: false
+        type: string
+      candidate_revision:
+        description: Exact validated candidate revision (promote only)
+        required: false
+        type: string
+      rollback_revision:
+        description: Existing Cloud Run revision (rollback only)
+        required: false
+        type: string
+      confirmation:
+        description: Enter PROMOTE or ROLLBACK for production operations
+        required: false
+        type: string
+      backup_confirmation:
+        description: Enter BACKUP VERIFIED before promotion
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  id-token: write
+
+concurrency:
+  group: cloud-run-release
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+  SERVICE: ${{ vars.GCP_CLOUD_RUN_SERVICE }}
+  REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
+
+jobs:
+  candidate:
+    if: ${{ inputs.operation == 'candidate' }}
+    runs-on: ubuntu-latest
+    environment: release-candidate
+    outputs:
+      candidate_url: ${{ steps.deploy.outputs.candidate_url }}
+      candidate_revision: ${{ steps.deploy.outputs.candidate_revision }}
+      image: ${{ steps.release.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha }}
+
+      - name: Validate immutable release input
+        id: release
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "release_sha must be a full lowercase 40-character SHA" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          test -n "$PROJECT_ID"
+          test -n "$REGION"
+          test -n "$SERVICE"
+          test -n "$REPOSITORY"
+          short_sha="$RELEASE_SHA"
+          short_sha="${short_sha:0:12}"
+          image="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$RELEASE_SHA"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate Docker to Artifact Registry
+        run: gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+
+      - name: Build and push immutable image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.release.outputs.image }}
+          build-args: |
+            VITE_SENTRY_DSN=${{ vars.VITE_SENTRY_DSN }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy no-traffic candidate
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="rc-${{ steps.release.outputs.short_sha }}"
+          suffix="$tag-$GITHUB_RUN_ID"
+          gcloud run deploy "$SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --image "${{ steps.release.outputs.image }}" \
+            --no-traffic \
+            --tag "$tag" \
+            --revision-suffix "$suffix" \
+            --update-env-vars BACKGROUND_JOBS_ENABLED=false,CRON_SCHEDULER=false \
+            --quiet
+
+          service_json="$(gcloud run services describe "$SERVICE" \
+            --project "$PROJECT_ID" --region "$REGION" --format=json)"
+          candidate_url="$(jq -r --arg tag "$tag" \
+            '.status.traffic[] | select(.tag == $tag) | .url' <<< "$service_json")"
+          candidate_revision="$SERVICE-$suffix"
+          test -n "$candidate_url"
+          test "$candidate_url" != "null"
+          echo "candidate_url=$candidate_url" >> "$GITHUB_OUTPUT"
+          echo "candidate_revision=$candidate_revision" >> "$GITHUB_OUTPUT"
+
+      - name: Verify candidate readiness
+        env:
+          CANDIDATE_URL: ${{ steps.deploy.outputs.candidate_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error \
+            --retry 8 --retry-all-errors --retry-delay 5 \
+            "$CANDIDATE_URL/readyz")"
+          jq -e '.status == "ok" and .database == "ok"' <<< "$response"
+
+      - name: Verify candidate browser origin
+        id: origin
+        env:
+          CANDIDATE_URL: ${{ steps.deploy.outputs.candidate_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          headers="$(mktemp)"
+          trap 'rm -f "$headers"' EXIT
+          curl --silent --show-error \
+            --retry 3 --retry-all-errors --retry-delay 3 \
+            -H "Origin: $CANDIDATE_URL" \
+            -D "$headers" -o /dev/null \
+            "$CANDIDATE_URL/api/auth/get-session"
+          tr -d '\r' < "$headers" \
+            | grep -Fxi "access-control-allow-origin: $CANDIDATE_URL"
+
+      - name: Record candidate
+        if: ${{ success() }}
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          {
+            echo "## Cloud Run candidate ready"
+            echo
+            echo "- Commit: \`$RELEASE_SHA\`"
+            echo "- Image: \`${{ steps.release.outputs.image }}\`"
+            echo "- Revision: \`${{ steps.deploy.outputs.candidate_revision }}\`"
+            echo "- Candidate URL: ${{ steps.deploy.outputs.candidate_url }}"
+            echo
+            echo "Run the **Live acceptance** workflow against this exact URL before promotion."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record candidate origin blocker
+        if: ${{ failure() && steps.deploy.outcome == 'success' && steps.origin.outcome == 'failure' }}
+        run: |
+          {
+            echo "## Candidate deployed; browser origin is not allowed"
+            echo
+            echo "- Revision: \`${{ steps.deploy.outputs.candidate_revision }}\`"
+            echo "- Candidate URL: ${{ steps.deploy.outputs.candidate_url }}"
+            echo
+            echo "Add this exact candidate URL to a candidate-only \`ALLOWED_ORIGINS\` binding while preserving production traffic and the disabled worker/scheduler flags, then rerun the candidate operation. Do not replace the shared production secret."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  promote:
+    if: ${{ inputs.operation == 'promote' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha }}
+
+      - name: Validate production confirmation and release
+        id: release
+        env:
+          ACCEPTANCE_RUN_ID: ${{ inputs.live_acceptance_run_id }}
+          BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
+          CANDIDATE_REVISION: ${{ inputs.candidate_revision }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CONFIRMATION" = "PROMOTE"
+          test "$BACKUP_CONFIRMATION" = "BACKUP VERIFIED"
+          [[ "$ACCEPTANCE_RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo "live_acceptance_run_id must be a GitHub Actions run ID" >&2
+            exit 1
+          }
+          test -n "$CANDIDATE_REVISION"
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "release_sha must be a full lowercase 40-character SHA" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          test -n "$PROJECT_ID"
+          test -n "$REGION"
+          test -n "$SERVICE"
+          test -n "$REPOSITORY"
+          test -n "${{ vars.PRODUCTION_URL }}"
+          short_sha="$RELEASE_SHA"
+          short_sha="${short_sha:0:12}"
+          case "$CANDIDATE_REVISION" in
+            "$SERVICE-rc-$short_sha-"*) ;;
+            *)
+              echo "candidate_revision does not belong to this service and release SHA" >&2
+              exit 1
+              ;;
+          esac
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+          echo "image=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "candidate_revision=$CANDIDATE_REVISION" >> "$GITHUB_OUTPUT"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Verify CI and live acceptance gates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          ACCEPTANCE_RUN_ID: ${{ inputs.live_acceptance_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          checks="$(curl --fail --silent --show-error \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$RELEASE_SHA/check-runs?per_page=100")"
+          jq -e 'any(.check_runs[]; .name == "verify" and .conclusion == "success")' <<< "$checks"
+
+          acceptance="$(curl --fail --silent --show-error \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$ACCEPTANCE_RUN_ID")"
+          jq -e --arg sha "$RELEASE_SHA" \
+            '.name == "Live acceptance" and .head_sha == $sha and .conclusion == "success"' \
+            <<< "$acceptance"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Verify candidate revision and immutable image
+        shell: bash
+        run: |
+          set -euo pipefail
+          deployed_image="$(gcloud run revisions describe "${{ steps.release.outputs.candidate_revision }}" \
+            --project "$PROJECT_ID" --region "$REGION" \
+            --format='value(spec.containers[0].image)')"
+          test "$deployed_image" = "${{ steps.release.outputs.image }}"
+
+      - name: Verify production configuration
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          WEBHOOK_ENCRYPTION_SECRET: ${{ secrets.WEBHOOK_ENCRYPTION_SECRET }}
+          BETTER_AUTH_URL: ${{ vars.PRODUCTION_URL }}
+          APP_URL: ${{ vars.PRODUCTION_URL }}
+          ALLOWED_ORIGINS: ${{ vars.PRODUCTION_ALLOWED_ORIGINS }}
+          DIAGNOSTICS_TOKEN: ${{ secrets.DIAGNOSTICS_TOKEN }}
+          OAUTH_STATE_SECRET: ${{ secrets.OAUTH_STATE_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ vars.RESEND_FROM_EMAIL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
+          RAZORPAY_KEY_SECRET: ${{ secrets.RAZORPAY_KEY_SECRET }}
+          RAZORPAY_WEBHOOK_SECRET: ${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          AI_INTEGRATIONS_GEMINI_API_KEY: ${{ secrets.AI_INTEGRATIONS_GEMINI_API_KEY }}
+          PUBLISHING_MODE: live
+          BACKGROUND_JOBS_ENABLED: "true"
+          CRON_SCHEDULER: "true"
+          PROCESS_ROLE: scheduler
+        run: pnpm run check:production
+
+      - name: Verify and apply reviewed migrations
+        env:
+          OWNER_DATABASE_URL: ${{ secrets.OWNER_DATABASE_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm run db:migrate:dry
+          pnpm run db:migrate
+          pnpm run db:migrate:dry
+
+      - name: Promote release with automatic traffic rollback
+        env:
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous_revision="$(gcloud run services describe "$SERVICE" \
+            --project "$PROJECT_ID" --region "$REGION" --format=json \
+            | jq -er '.status.traffic[] | select(.percent == 100 and .revisionName != null) | .revisionName')"
+          candidate_revision="${{ steps.release.outputs.candidate_revision }}"
+          final_suffix="r-${{ steps.release.outputs.short_sha }}"
+          final_revision="$SERVICE-$final_suffix"
+
+          rollback() {
+            echo "Promotion failed; restoring traffic to $previous_revision" >&2
+            gcloud run services update-traffic "$SERVICE" \
+              --project "$PROJECT_ID" --region "$REGION" \
+              --to-revisions "$previous_revision=100" --quiet
+          }
+          trap rollback ERR
+
+          gcloud run services update-traffic "$SERVICE" \
+            --project "$PROJECT_ID" --region "$REGION" \
+            --to-revisions "$candidate_revision=100" --quiet
+
+          gcloud run deploy "$SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --image "${{ steps.release.outputs.image }}" \
+            --no-traffic \
+            --revision-suffix "$final_suffix" \
+            --update-env-vars BACKGROUND_JOBS_ENABLED=true,CRON_SCHEDULER=true \
+            --quiet
+
+          gcloud run services update-traffic "$SERVICE" \
+            --project "$PROJECT_ID" --region "$REGION" \
+            --to-revisions "$final_revision=100" --quiet
+
+          health="$(curl --fail --silent --show-error \
+            --retry 8 --retry-all-errors --retry-delay 5 "$PRODUCTION_URL/healthz")"
+          readiness="$(curl --fail --silent --show-error \
+            --retry 8 --retry-all-errors --retry-delay 5 "$PRODUCTION_URL/readyz")"
+          jq -e '.status == "ok"' <<< "$health"
+          jq -e '.status == "ok" and .database == "ok"' <<< "$readiness"
+
+          gcloud run services update-traffic "$SERVICE" \
+            --project "$PROJECT_ID" --region "$REGION" \
+            --remove-tags "rc-${{ steps.release.outputs.short_sha }}" --quiet
+          trap - ERR
+
+          {
+            echo "## Production promotion complete"
+            echo
+            echo "- Commit: \`$RELEASE_SHA\`"
+            echo "- Revision: \`$final_revision\`"
+            echo "- Previous revision: \`$previous_revision\`"
+            echo "- Production URL: $PRODUCTION_URL"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  rollback:
+    if: ${{ inputs.operation == 'rollback' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Validate rollback confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          ROLLBACK_REVISION: ${{ inputs.rollback_revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CONFIRMATION" = "ROLLBACK"
+          test -n "$ROLLBACK_REVISION"
+          test -n "$PROJECT_ID"
+          test -n "$REGION"
+          test -n "$SERVICE"
+          test -n "${{ vars.PRODUCTION_URL }}"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Verify revision and restore traffic
+        env:
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+          ROLLBACK_REVISION: ${{ inputs.rollback_revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision="$ROLLBACK_REVISION"
+          revision_json="$(gcloud run revisions describe "$revision" \
+            --project "$PROJECT_ID" --region "$REGION" --format=json)"
+          deployed_service="$(jq -r '.metadata.labels["serving.knative.dev/service"]' <<< "$revision_json")"
+          test "$deployed_service" = "$SERVICE"
+
+          gcloud run services update-traffic "$SERVICE" \
+            --project "$PROJECT_ID" --region "$REGION" \
+            --to-revisions "$revision=100" --quiet
+
+          health="$(curl --fail --silent --show-error \
+            --retry 8 --retry-all-errors --retry-delay 5 "$PRODUCTION_URL/healthz")"
+          readiness="$(curl --fail --silent --show-error \
+            --retry 8 --retry-all-errors --retry-delay 5 "$PRODUCTION_URL/readyz")"
+          jq -e '.status == "ok"' <<< "$health"
+          jq -e '.status == "ok" and .database == "ok"' <<< "$readiness"
+
+          {
+            echo "## Production rollback complete"
+            echo
+            echo "- Restored revision: \`$revision\`"
+            echo "- Production URL: $PRODUCTION_URL"
+          } >> "$GITHUB_STEP_SUMMARY"

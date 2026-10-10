@@ -41,6 +41,51 @@ do not publish.
 
 Cloud Build is not enabled; images are built locally for `linux/amd64`.
 
+### Protected GitHub release workflow
+
+The preferred release path is the manually dispatched
+[`Cloud Run release`](../.github/workflows/cloud-run-release.yml) workflow. It
+never deploys on push and separates the release into three explicit operations:
+
+- `candidate` builds an immutable full-SHA image and deploys a tagged,
+  no-traffic revision with background workers and the scheduler disabled.
+- `promote` requires the protected `production` environment, verifies the exact
+  candidate image, validates production configuration, runs migration dry-run /
+  apply / dry-run, and promotes the same image. If readiness verification fails,
+  traffic is automatically restored to the previously active revision.
+- `rollback` requires the protected `production` environment, the exact existing
+  revision name, and the `ROLLBACK` confirmation.
+
+Configure these GitHub environments before the first run:
+
+| Environment | Variables | Secrets |
+| --- | --- | --- |
+| `release-candidate` | `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_CLOUD_RUN_SERVICE`, `GCP_ARTIFACT_REPOSITORY`, `VITE_SENTRY_DSN` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
+| `production` | All candidate variables plus `PRODUCTION_URL`, `PRODUCTION_ALLOWED_ORIGINS`, `RESEND_FROM_EMAIL` | Candidate secrets plus `DATABASE_URL`, `OWNER_DATABASE_URL`, `BETTER_AUTH_SECRET`, `WEBHOOK_ENCRYPTION_SECRET`, `DIAGNOSTICS_TOKEN`, `OAUTH_STATE_SECRET`, `RESEND_API_KEY`, `REDIS_URL`, Razorpay secrets, and the configured AI provider key |
+
+Set required reviewers on the `production` environment. The deploy service
+account needs only Artifact Registry push, Cloud Run deploy/traffic, and revision
+read permissions. Workload Identity Federation is required; do not add a
+long-lived Google service-account JSON key.
+
+Run `candidate` with the exact 40-character release SHA, then run the separate
+`Live acceptance` workflow against the candidate URL recorded in the job
+summary. The candidate job also sends a request with the candidate browser
+`Origin` and fails unless that exact origin is allowed by CORS and Better Auth.
+If it fails at that gate, follow the candidate-only `ALLOWED_ORIGINS` procedure
+below and rerun; the tag URL remains stable while each attempt gets a distinct
+revision.
+
+Only after CI and live acceptance pass should an approver run `promote` with
+the same SHA, the exact candidate revision from the successful candidate job,
+the successful Live acceptance run ID, the confirmation `PROMOTE`, and
+`BACKUP VERIFIED`. Promotion verifies that both CI and the specified
+live-acceptance run passed for that exact commit; an acceptance run from another
+commit cannot authorize the release.
+
+The commands below remain the owner-operated fallback when GitHub environments
+or Workload Identity Federation are unavailable.
+
 ```bash
 SHA=$(git rev-parse --short HEAD)
 IMAGE=asia-south1-docker.pkg.dev/tsp-social-pundit/tsp-repo/tsp-app:$SHA
