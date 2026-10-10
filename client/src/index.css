@@ -108,6 +108,7 @@
     line-height: 1.05;
     font-weight: 600;
     font-size: clamp(2.5rem, 4vw + 1.25rem, 4.75rem);
+    overflow-wrap: anywhere;
   }
 
   .heading-section {
