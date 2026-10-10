@@ -74,6 +74,9 @@ jobs:
         env:
           OWNER_DATABASE_URL: ${{ env.DATABASE_URL }}
 
+      - name: Install browser for browser-backed tests
+        run: npx playwright install --with-deps chromium
+
       # Includes the cross-tenant isolation contract tests. A failure here is a
       # data-leak risk, not a flaky test — do not skip or retry this step.
       - name: Tests
