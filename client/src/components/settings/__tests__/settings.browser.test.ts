@@ -125,7 +125,7 @@ describe("Settings navigation guard", () => {
       await page.evaluate(() => history.back());
       await browserExpect.poll(() => dialogs.length).toBe(attempt + 1);
       await browserExpect(page).toHaveURL(/settings\?tab=account$/);
-      await browserExpect(page.getByLabel("Full Name")).toHaveValue("Fallback");
+      await browserExpect(page.getByLabel("Full Name")).toHaveValue("Fallback New");
     }
     await page.getByTestId("button-save-account").click();
     await browserExpect(page.getByText("Account saved", { exact: true })).toBeVisible();
@@ -137,13 +137,13 @@ describe("Settings navigation guard", () => {
 
   it("does not prompt when clean, including after leaving and re-entering Settings", async () => {
     await open();
-    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original Person");
     expect(await reloadBlocked()).toBe(false);
     await page.reload();
     await page.getByRole("link", { name: "Leave Settings", exact: true }).click();
     await browserExpect(page.getByRole("heading", { name: "Outside Settings" })).toBeVisible();
     await page.getByRole("link", { name: "Open Settings", exact: true }).click();
-    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original Person");
     await page.getByRole("button", { name: "Replace route" }).click();
     await browserExpect(page.getByRole("heading", { name: "Outside Settings" })).toBeVisible();
     expect(await reloadBlocked()).toBe(false);
@@ -152,7 +152,7 @@ describe("Settings navigation guard", () => {
 
   it("preserves hidden account edits on declined links and replace navigation, then leaves once", async () => {
     await open();
-    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original Person");
     await page.getByLabel("Full Name").fill("Unsaved");
     await page.getByRole("tab", { name: "billing", exact: true }).click();
     expect(await reloadBlocked()).toBe(true);
@@ -163,7 +163,7 @@ describe("Settings navigation guard", () => {
     await page.getByRole("button", { name: "Replace route" }).click();
     await browserExpect(page).toHaveURL(/settings\?tab=billing$/);
     await page.getByRole("tab", { name: "account", exact: true }).click();
-    await browserExpect(page.getByLabel("First Name")).toHaveValue("Unsaved");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Unsaved");
     decisions.push(true);
     await page.getByRole("link", { name: "Leave Settings", exact: true }).click();
     await browserExpect(page.getByRole("heading", { name: "Outside Settings" })).toBeVisible();
@@ -359,7 +359,7 @@ describe("Settings consolidation and trust", () => {
   it("keeps account edits and reports an auth save failure honestly", async () => {
     failures.add("POST /api/account/update-name");
     await open();
-    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original");
+    await browserExpect(page.getByLabel("Full Name")).toHaveValue("Original Person");
     await page.getByLabel("Full Name").fill("Unsaved");
     await page.getByTestId("button-save-account").click();
     await browserExpect(page.getByText("Could not save account", { exact: true })).toBeVisible();

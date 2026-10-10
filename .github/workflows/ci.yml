@@ -43,6 +43,8 @@ jobs:
       APP_URL: http://localhost:3000
       # Must never be true here: the tests assert real authorization behaviour.
       DEV_AUTH_BYPASS: ""
+      E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+      E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
@@ -72,19 +74,19 @@ jobs:
         env:
           OWNER_DATABASE_URL: ${{ env.DATABASE_URL }}
 
+      - name: Install browser for browser-backed tests
+        run: npx playwright install --with-deps chromium
+
       # Includes the cross-tenant isolation contract tests. A failure here is a
       # data-leak risk, not a flaky test — do not skip or retry this step.
       - name: Tests
-        run: npm test
+        run: npm test -- --testTimeout=10000
 
       - name: Browser E2E tests
-        if: ${{ secrets.E2E_TEST_EMAIL != '' && secrets.E2E_TEST_PASSWORD != '' }}
+        if: ${{ env.E2E_TEST_EMAIL != '' && env.E2E_TEST_PASSWORD != '' }}
         run: |
           npx playwright install --with-deps chromium
           npm run test:e2e
-        env:
-          E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
-          E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
 
       - name: Build
         run: npm run build

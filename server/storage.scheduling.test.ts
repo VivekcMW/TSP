@@ -10,7 +10,8 @@ import { aggregateScheduleStatus } from "./jobs/schedule-state";
 // Defense in depth: this file never writes to anything but local port-5433 test DBs.
 for (const value of [process.env.DATABASE_URL, process.env.OWNER_TEST_DATABASE_URL]) {
   const url = new URL(value!);
-  if (!["localhost", "127.0.0.1"].includes(url.hostname) || url.port !== "5433" || url.pathname !== "/thesocialpundit_test") throw new Error("Scheduling tests require isolated local thesocialpundit_test:5433");
+  const isolatedPort = url.port === "5433" || (process.env.CI === "true" && url.port === "5432");
+  if (!["localhost", "127.0.0.1"].includes(url.hostname) || !isolatedPort || url.pathname !== "/thesocialpundit_test") throw new Error("Scheduling tests require an isolated local thesocialpundit_test database");
 }
 const prefix = `schedule-test-${randomUUID()}`;
 const a: TenantScope = { tenantId: `${prefix}-tenant`, userId: `${prefix}-a` };
