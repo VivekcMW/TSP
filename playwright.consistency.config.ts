@@ -54,7 +54,7 @@ export default defineConfig({
       timeout: 45_000,
     },
     {
-      command: `DEV_AUTH_BYPASS=true VITE_DEV_AUTH_BYPASS=true PORT=4304 APP_URL=${workspaceBaseURL} BETTER_AUTH_URL=${workspaceBaseURL} BETTER_AUTH_SECRET=consistency-workspace-secret-at-least-32-characters pnpm dev`,
+      command: `DEV_AUTH_BYPASS=true DEV_AUTH_SEED_ONBOARDING_COMPLETED=true VITE_DEV_AUTH_BYPASS=true PORT=4304 APP_URL=${workspaceBaseURL} BETTER_AUTH_URL=${workspaceBaseURL} BETTER_AUTH_SECRET=consistency-workspace-secret-at-least-32-characters pnpm dev`,
       url: `${workspaceBaseURL}/healthz`,
       reuseExistingServer: false,
       timeout: 45_000,

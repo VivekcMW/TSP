@@ -101,10 +101,10 @@ async function expectConsistentSurface(page: Page, path: string, workspace: bool
       element.classList.contains("bg-primary") &&
       !element.matches(":disabled, [aria-disabled='true']"),
     );
-    const primaryColors = [...new Set(primary.map(element => {
+    const primaryStyles = primary.map(element => {
       const style = getComputedStyle(element);
-      return `${style.backgroundColor}|${style.color}`;
-    }))];
+      return { ...label(element), colors: `${style.backgroundColor}|${style.color}` };
+    });
     const pageHeader = document.querySelector<HTMLElement>("[data-page-header] [data-page-container]");
     const pageBody = document.querySelector<HTMLElement>("[data-page-body] [data-page-container]");
     const alignment = workspace && pageHeader && pageBody
@@ -121,7 +121,7 @@ async function expectConsistentSurface(page: Page, path: string, workspace: bool
       bodyFont,
       headingFont,
       undersizedControls,
-      primaryColors,
+      primaryStyles,
       alignment,
     };
   }, { workspace });
@@ -133,7 +133,10 @@ async function expectConsistentSurface(page: Page, path: string, workspace: bool
   expect(result.bodyFont, `${path} body typography`).toContain("inter");
   expect(result.headingFont, `${path} heading typography`).toContain("poppins");
   expect(result.undersizedControls, `${path} has controls below the 44px touch target`).toEqual([]);
-  expect(result.primaryColors.length, `${path} primary actions must share one color pair: ${JSON.stringify(result.primaryColors)}`).toBeLessThanOrEqual(1);
+  expect(
+    new Set(result.primaryStyles.map(action => action.colors)).size,
+    `${path} primary actions must share one color pair: ${JSON.stringify(result.primaryStyles)}`,
+  ).toBeLessThanOrEqual(1);
   if (workspace && result.alignment) {
     expect(result.alignment!.left, `${path} left gutter mismatch`).toBeLessThanOrEqual(1);
     expect(result.alignment!.right, `${path} right gutter mismatch`).toBeLessThanOrEqual(1);

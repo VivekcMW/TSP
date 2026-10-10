@@ -91,9 +91,9 @@ export async function resolveDevUser(): Promise<User> {
   console.log("[devAuth] Existing profile:", existingProfile?.onboardingStatus);
 
   if (!existingProfile) {
-    console.log("[devAuth] Creating new profile with not-started status");
+    console.log("[devAuth] Creating new development profile");
     await storage.createUserProfile(scope, {
-      onboardingStatus: "not-started",
+      onboardingStatus: process.env.DEV_AUTH_SEED_ONBOARDING_COMPLETED === "true" ? "completed" : "not-started",
       focusDescription: "Seeded local development profile.",
       publications: [],
       keywords: [
