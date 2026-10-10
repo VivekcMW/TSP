@@ -594,8 +594,8 @@ export default function DraftsPage() {
         actions={<><Button asChild variant="outline"><Link href="/dashboard/calendar"><CalendarDays className="h-4 w-4" />Calendar</Link></Button><Button asChild><Link href="/dashboard/create"><Plus className="h-4 w-4" />Create post</Link></Button></>}
       />
 
-      <PageBody as="div" width="workbench">
-        <PageToolbar aria-label="Content filters" className="mb-5">
+      <PageBody as="div" width="workbench" contentClassName="flex min-h-0 flex-col">
+        <PageToolbar aria-label="Content filters" className="mb-5 rounded-xl border bg-card/80 p-3 shadow-sm">
           <div className="w-full min-w-0 space-y-4">
             <div role="group" aria-label="Content status" className="flex flex-wrap items-center gap-1">{((["all", "ready", "scheduled", "attention", "published"] as const).map((view) => (
               <Button
@@ -651,7 +651,7 @@ export default function DraftsPage() {
           />
         ) : (
           <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-            <section aria-label="Post library" className={`min-w-0 overflow-hidden rounded-xl border bg-card ${mobilePreview ? "hidden xl:block" : ""}`}>
+            <section aria-label="Post library" className={`min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm ${mobilePreview ? "hidden xl:block" : ""}`}>
               <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4">
                 <div><h2 className="font-semibold">{statusLabels[draftView]} <span className="text-sm font-normal text-muted-foreground">({visibleDrafts.length})</span></h2><p className="mt-1 text-xs text-muted-foreground">Select a post to review and plan.</p></div>
                 {visibleSchedulableIds.length > 0 && <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs text-muted-foreground"><Checkbox checked={allVisibleSelected || (someVisibleSelected ? "indeterminate" : false)} onCheckedChange={toggleSelectAllVisible} aria-label="Select all visible drafts" />Select all</label>}
@@ -666,7 +666,7 @@ export default function DraftsPage() {
                 </div>}
               </div>
             </section>
-            <section ref={previewPanel} id="content-preview" tabIndex={-1} aria-label="Post preview" className={`min-w-0 rounded-xl border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring ${mobilePreview ? "" : "hidden xl:block"}`}>
+            <section ref={previewPanel} id="content-preview" tabIndex={-1} aria-label="Post preview" className={`min-w-0 rounded-xl border bg-card shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring ${mobilePreview ? "" : "hidden xl:block"}`}>
               <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/20 p-4">
                 <h2 className="font-semibold">Post preview</h2>
                 <Button variant="ghost" size="sm" className="xl:hidden" onClick={backToPosts}><ChevronLeft className="h-3.5 w-3.5" />Back to posts</Button>
