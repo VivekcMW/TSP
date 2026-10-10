@@ -293,14 +293,22 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate Docker to Artifact Registry
+        run: gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+
       - name: Verify candidate revision and immutable image
         shell: bash
         run: |
           set -euo pipefail
+          release_image="${{ steps.release.outputs.image }}"
           deployed_image="$(gcloud run revisions describe "${{ steps.release.outputs.candidate_revision }}" \
             --project "$PROJECT_ID" --region "$REGION" \
             --format='value(spec.containers[0].image)')"
-          test "$deployed_image" = "${{ steps.release.outputs.image }}"
+          platform_digest="$(docker buildx imagetools inspect "$release_image" --raw \
+            | jq -er 'first(.. | objects | select(.platform?.os == "linux" and .platform?.architecture == "amd64")) | .digest')"
+          test "$deployed_image" = "${release_image%:*}@$platform_digest"
 
       - name: Verify production configuration
         env:
