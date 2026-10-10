@@ -14,6 +14,9 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    // React, Radix and Lucide intentionally share one initialization-safe
+    // vendor chunk (see manualChunks below). Its gzip size stays below 250 kB.
+    chunkSizeWarningLimit: 750,
     rollupOptions: {
       output: {
         manualChunks(id) {

@@ -39,6 +39,12 @@ export default defineConfig({
       grep: /workspace consistency/,
       use: { ...device, baseURL: workspaceBaseURL },
     },
+    {
+      name: `admin-${browser}`,
+      testMatch: "consistency.spec.ts",
+      grep: /admin consistency/,
+      use: { ...device, baseURL: workspaceBaseURL },
+    },
   ]),
   webServer: [
     {

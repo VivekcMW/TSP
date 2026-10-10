@@ -74,8 +74,8 @@ jobs:
         env:
           OWNER_DATABASE_URL: ${{ env.DATABASE_URL }}
 
-      - name: Install Chromium for browser regression tests
-        run: pnpm exec playwright install --with-deps chromium
+      - name: Install browsers for regression tests
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
 
       - name: Install Redis for isolated lease acceptance tests
         run: sudo apt-get update && sudo apt-get install -y redis-server
@@ -88,6 +88,21 @@ jobs:
       - name: Browser E2E tests
         if: ${{ env.E2E_TEST_EMAIL != '' && env.E2E_TEST_PASSWORD != '' }}
         run: pnpm run test:e2e
+
+      - name: Cross-browser UI consistency
+        run: pnpm run test:consistency
+
+      - name: Upload UI consistency report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-consistency-report
+          path: |
+            playwright-report/consistency
+            test-results/consistency-results.json
+            test-results/consistency-artifacts
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Build
         run: pnpm run build

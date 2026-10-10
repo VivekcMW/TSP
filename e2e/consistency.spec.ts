@@ -18,6 +18,17 @@ const workspaceRoutes = [
   "/dashboard/create",
 ];
 
+const adminRoutes = [
+  "/admin",
+  "/admin/tenants",
+  "/admin/users",
+  "/admin/integrations",
+  "/admin/audit-log",
+  "/admin/engine-runs",
+  "/admin/feature-flags",
+  "/admin/monitoring",
+];
+
 const publicViewports = [
   { width: 320, height: 760 },
   { width: 375, height: 812 },
@@ -129,6 +140,37 @@ async function expectConsistentSurface(page: Page, path: string, workspace: bool
   }
 }
 
+async function mockAdminApi(page: Page) {
+  await page.route("**/api/me", async route => {
+    const response = await route.fetch();
+    const user = await response.json();
+    await route.fulfill({ response, json: { ...user, platformRole: "platform_admin" } });
+  });
+  await page.route("**/api/admin/**", async route => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname === "/api/admin/usage") {
+      return route.fulfill({ json: { tenants: 3, users: 5, inboxItems: 24, drafts: 8, engineRuns: 4 } });
+    }
+    if (pathname === "/api/admin/monitoring") {
+      const counts = { waiting: 0, active: 0, completed: 4, failed: 0, delayed: 0, paused: 0 };
+      return route.fulfill({ json: {
+        generatedAt: new Date(0).toISOString(),
+        tenantCount: 3,
+        queue: { configured: true, reachable: true, queuesReady: true },
+        scheduler: { enabled: true, designated: true },
+        jobs: { inbox: counts, publishing: counts },
+        scheduled: 0,
+        publishing: 0,
+        failed: 0,
+        overdue: 0,
+        recentFailures: [],
+        engineFailures: [],
+      } });
+    }
+    return route.fulfill({ json: [] });
+  });
+}
+
 test.describe("public consistency", () => {
   for (const path of publicRoutes) {
     test(`${path} is responsive and visually consistent`, async ({ page }) => {
@@ -143,6 +185,18 @@ test.describe("public consistency", () => {
 test.describe("workspace consistency", () => {
   for (const path of workspaceRoutes) {
     test(`${path} is responsive and visually consistent`, async ({ page }) => {
+      for (const viewport of workspaceViewports) {
+        await page.setViewportSize(viewport);
+        await expectConsistentSurface(page, path, true);
+      }
+    });
+  }
+});
+
+test.describe("admin consistency", () => {
+  for (const path of adminRoutes) {
+    test(`${path} is responsive and visually consistent`, async ({ page }) => {
+      await mockAdminApi(page);
       for (const viewport of workspaceViewports) {
         await page.setViewportSize(viewport);
         await expectConsistentSurface(page, path, true);
