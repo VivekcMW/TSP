@@ -43,6 +43,8 @@ jobs:
       APP_URL: http://localhost:3000
       # Must never be true here: the tests assert real authorization behaviour.
       DEV_AUTH_BYPASS: ""
+      E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+      E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
@@ -78,13 +80,10 @@ jobs:
         run: npm test
 
       - name: Browser E2E tests
-        if: ${{ secrets.E2E_TEST_EMAIL != '' && secrets.E2E_TEST_PASSWORD != '' }}
+        if: ${{ env.E2E_TEST_EMAIL != '' && env.E2E_TEST_PASSWORD != '' }}
         run: |
           npx playwright install --with-deps chromium
           npm run test:e2e
-        env:
-          E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
-          E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
 
       - name: Build
         run: npm run build
