@@ -28,9 +28,9 @@ export function InboxDetail({ item, onGeneratePost, onSave, onDismiss, inSheet =
 
   return (
     <div className="dashboard-touch-targets flex h-full min-h-0 min-w-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto bg-card p-4 sm:p-7">
         <div className="mx-auto max-w-2xl">
-          <div className={`mb-3 flex flex-wrap items-center gap-2 ${inSheet ? "pr-10" : ""}`}>
+          <div className={`mb-5 flex flex-wrap items-center gap-2 ${inSheet ? "pr-10" : ""}`}>
             <Badge variant="secondary" className="max-w-full break-words text-xs">{item.source}</Badge>
             <span className="text-xs tabular-nums text-muted-foreground">{articleDateLabel(item)}</span>
             <a
@@ -47,7 +47,7 @@ export function InboxDetail({ item, onGeneratePost, onSave, onDismiss, inSheet =
           </div>
           {inSheet ? <SheetTitle asChild>{headline}</SheetTitle> : headline}
           {relevanceReason && (
-            <p className="mb-4 text-sm text-muted-foreground">
+            <p className="mb-5 rounded-lg border border-primary/15 bg-primary/5 px-3 py-2.5 text-sm text-muted-foreground">
               <span className="font-medium text-foreground">Why this is relevant:</span> {relevanceReason}
             </p>
           )}
@@ -64,7 +64,7 @@ export function InboxDetail({ item, onGeneratePost, onSave, onDismiss, inSheet =
           )}
         </div>
       </div>
-      <div className="shrink-0 border-t p-4 sm:px-6">
+      <div className="shrink-0 border-t bg-card p-4 sm:px-6">
       <div className="flex w-full flex-wrap items-center justify-end gap-2">
         <Button onClick={() => onGeneratePost(item)} data-testid={`button-generate-${item.id}`}>
           <Sparkles className="mr-2 h-4 w-4" />Create draft

@@ -33,15 +33,15 @@ export function InboxListRow({ item, isActive, onSelect }: Readonly<InboxListRow
       onClick={onSelect}
       data-testid={`row-inbox-${item.id}`}
       aria-current={isActive}
-      className={`flex w-full items-start gap-3 border-l-2 px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
-        isActive ? "border-primary bg-accent text-foreground" : "border-transparent hover-elevate"
+      className={`flex w-full items-start gap-3 border-b border-l-2 px-4 py-3.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+        isActive ? "border-primary bg-accent text-foreground shadow-sm" : "border-transparent hover:bg-card/80"
       }`}
     >
       <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${avatarClassFor(item.source)}`}>
         {item.source.slice(0, 1).toUpperCase()}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="line-clamp-2 text-sm font-medium leading-snug">{item.headline}</p>
+        <p className="line-clamp-2 text-sm font-semibold leading-snug">{item.headline}</p>
         <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
           <span className="max-w-[110px] truncate">{item.source}</span>
           <span>·</span>
