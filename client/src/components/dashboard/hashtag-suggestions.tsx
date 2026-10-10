@@ -14,7 +14,7 @@ export function HashtagSuggestions({ content, platform, onAppend, disabled }: Re
   return <div className="flex flex-wrap items-center gap-1.5">
     <span className="text-xs text-muted-foreground">Suggested tags, from this post's own text:</span>
     {suggestions.map(tag => <button key={tag} type="button" disabled={disabled} onClick={() => onAppend(tag)}
-      className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+      className="min-h-11 rounded-full border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
       data-testid={`button-suggest-hashtag-${tag.slice(1).toLowerCase()}`}>{tag}</button>)}
   </div>;
 }

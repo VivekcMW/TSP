@@ -103,12 +103,12 @@ export default function AboutPage() {
               <p className="text-muted-foreground mb-6">
                 Start on the free plan today, with no card needed, and help us shape what comes next.
               </p>
-              <Link href="/sign-up" data-testid="link-about-signup">
-                <Button size="lg">
+              <Button asChild size="lg">
+                <Link href="/sign-up" data-testid="link-about-signup">
                   <Sparkles className="w-4 h-4 mr-2" />
                   Start Free Today
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </section>
         </Reveal>

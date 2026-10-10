@@ -96,17 +96,11 @@ export function SiteHeader() {
           <div className="flex items-center gap-3">
             <div className="hidden lg:block">
               {isSignedIn ? (
-                <Link href="/dashboard" data-testid="link-header-dashboard">
-                  <Button data-testid="button-header-dashboard">Dashboard</Button>
-                </Link>
+                <Button asChild><Link href="/dashboard" data-testid="link-header-dashboard">Dashboard</Link></Button>
               ) : (
                 <div className="flex items-center gap-2">
-                  <Link href="/sign-in" data-testid="link-header-login">
-                    <Button variant="ghost" data-testid="button-header-login">Sign In</Button>
-                  </Link>
-                  <Link href="/sign-up" data-testid="link-header-register">
-                    <Button data-testid="button-header-register">Start free</Button>
-                  </Link>
+                  <Button asChild variant="ghost"><Link href="/sign-in" data-testid="link-header-login">Sign In</Link></Button>
+                  <Button asChild><Link href="/sign-up" data-testid="link-header-register">Start free</Link></Button>
                 </div>
               )}
             </div>
@@ -155,9 +149,9 @@ export function SiteHeader() {
                 </nav>
                 <div className="border-t pt-4">
                   {isSignedIn ? (
-                    <Link href="/dashboard" onClick={close} data-testid="link-mobile-dashboard">
-                      <Button className="w-full" data-testid="button-mobile-dashboard">Dashboard</Button>
-                    </Link>
+                    <Button asChild className="w-full">
+                      <Link href="/dashboard" onClick={close} data-testid="link-mobile-dashboard">Dashboard</Link>
+                    </Button>
                   ) : (
                     <div className="flex flex-col gap-2">
                       <Button asChild variant="outline" className="w-full" data-testid="button-mobile-login">

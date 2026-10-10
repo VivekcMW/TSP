@@ -93,7 +93,7 @@ export function SiteFooter() {
                 <Link href="/cookies" className="hover:text-primary transition-colors">Cookie Policy</Link>
               </li>
               <li>
-                <button type="button" onClick={openCookieSettings} className="text-left hover:text-primary hover:underline transition-colors" data-testid="button-footer-cookie-settings">Cookie settings</button>
+                <button type="button" onClick={openCookieSettings} className="inline-flex min-h-11 items-center text-left hover:text-primary hover:underline transition-colors" data-testid="button-footer-cookie-settings">Cookie settings</button>
               </li>
               <li>
                 <Link href="/data-retention" className="hover:text-primary transition-colors">Data Retention</Link>

@@ -19,9 +19,7 @@ export default function NotFound() {
               The link may be outdated, or the page may have moved. Let’s get you back to something useful.
             </p>
             <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <Link href="/">
-                <Button variant="outline"><House className="mr-2 h-4 w-4" />Go home</Button>
-              </Link>
+              <Button asChild variant="outline"><Link href="/"><House className="mr-2 h-4 w-4" />Go home</Link></Button>
               <Button onClick={() => window.history.back()}><ArrowLeft className="mr-2 h-4 w-4" />Go back</Button>
             </div>
           </CardContent>

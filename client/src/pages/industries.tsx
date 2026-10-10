@@ -274,12 +274,12 @@ export default function IndustriesPage() {
                       ))}
                     </ul>
 
-                    <Link href="/sign-up">
-                      <Button className="w-full" data-testid={`button-get-started-${index}`}>
+                    <Button asChild className="w-full">
+                      <Link href="/sign-up" data-testid={`button-get-started-${index}`}>
                         Get Started
                         <ArrowRight className="w-4 h-4 ml-2" />
-                      </Button>
-                    </Link>
+                      </Link>
+                    </Button>
                   </CardContent>
                 </Card>
                 </StaggerItem>
@@ -297,12 +297,12 @@ export default function IndustriesPage() {
             <p className="text-muted-foreground mb-6">
               Join thousands of professionals using AI to stay visible on LinkedIn, Twitter/X, and beyond. Start posting thought leadership content in under 5 minutes.
             </p>
-            <Link href="/sign-up">
-              <Button size="lg" data-testid="button-start-free">
+            <Button asChild size="lg">
+              <Link href="/sign-up" data-testid="button-start-free">
                 <Sparkles className="w-4 h-4 mr-2" />
                 Start Free Today
-              </Button>
-            </Link>
+              </Link>
+            </Button>
             </Reveal>
           </div>
         </section>

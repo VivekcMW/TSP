@@ -151,15 +151,15 @@ export default function ResourcesPage() {
                 platforms, tailored to your industry.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-                <Link href="/how-it-works" data-testid="link-resources-how-it-works">
-                  <Button variant="outline" size="lg">How It Works</Button>
-                </Link>
-                <Link href="/sign-up" data-testid="link-resources-signup">
-                  <Button size="lg">
+                <Button asChild variant="outline" size="lg">
+                  <Link href="/how-it-works" data-testid="link-resources-how-it-works">How It Works</Link>
+                </Button>
+                <Button asChild size="lg">
+                  <Link href="/sign-up" data-testid="link-resources-signup">
                     <Sparkles className="w-4 h-4 mr-2" />
                     Start Free Today
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             </div>
           </section>

@@ -52,7 +52,7 @@ export function SignInPage() {
       setResetPending(false);
     }
   }
-  return <AuthCard title="Welcome back" description="Sign in to TheSocialPundit"><SocialLogin /><Divider /><form className="space-y-4" onSubmit={submit}><Field id="signin-email" label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" /><Field id="signin-password" label="Password" value={password} onChange={setPassword} type="password" autoComplete="current-password" /><div className="-mt-2 flex justify-end"><button type="button" className="text-xs text-primary underline-offset-4 hover:underline" onClick={requestReset} disabled={resetPending}>{resetPending ? "Sending reset link…" : "Forgot password?"}</button></div><Message text={error} />{resetSent && <p className="text-sm text-success">If an account exists for that email, a reset link is on its way.</p>}<Button className="w-full" disabled={pending}>{pending ? "Signing in…" : "Sign in"}</Button><p className="text-sm text-center text-muted-foreground">New here? <Link className="text-primary underline" href="/sign-up">Create an account</Link></p></form></AuthCard>;
+  return <AuthCard title="Welcome back" description="Sign in to TheSocialPundit"><SocialLogin /><Divider /><form className="space-y-4" onSubmit={submit}><Field id="signin-email" label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" /><Field id="signin-password" label="Password" value={password} onChange={setPassword} type="password" autoComplete="current-password" /><div className="-mt-2 flex justify-end"><button type="button" className="inline-flex min-h-11 items-center text-xs text-primary underline-offset-4 hover:underline" onClick={requestReset} disabled={resetPending}>{resetPending ? "Sending reset link…" : "Forgot password?"}</button></div><Message text={error} />{resetSent && <p className="text-sm text-success">If an account exists for that email, a reset link is on its way.</p>}<Button className="w-full" disabled={pending}>{pending ? "Signing in…" : "Sign in"}</Button><p className="text-sm text-center text-muted-foreground">New here? <Link className="text-primary underline" href="/sign-up">Create an account</Link></p></form></AuthCard>;
 }
 
 export function SignUpPage() {
@@ -202,7 +202,7 @@ function Field({ id, label, value, onChange, type = "text", hint, autoComplete }
   return <SharedField id={id} label={label} help={hint} render={(controlProps) => (
     <div className="relative">
       <Input {...controlProps} required type={inputType} value={value} autoComplete={autoComplete} onChange={(e) => onChange(e.target.value)} className={isPassword ? "pr-10" : undefined} />
-      {isPassword && <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground" onClick={() => setVisible((current) => !current)} aria-label={visible ? "Hide password" : "Show password"}>{visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>}
+      {isPassword && <button type="button" className="absolute right-0 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground" onClick={() => setVisible((current) => !current)} aria-label={visible ? "Hide password" : "Show password"}>{visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>}
     </div>
   )} />;
 }

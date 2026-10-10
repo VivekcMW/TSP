@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:consistency": "playwright test --config=playwright.consistency.config.ts",
     "design:tokens": "tsx script/generate-design-css.ts",
     "design:check": "tsx script/generate-design-css.ts --check",
     "db:migrate": "tsx script/migrate.ts",
