@@ -195,6 +195,17 @@ describe("talking to Pundit", () => {
 });
 
 describe("Pundit builds your setup", () => {
+  it("moves from Focus to Curate and opens the setup automatically on mobile", async () => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await start();
+    const progress = page.getByRole("navigation", { name: "Onboarding progress" });
+    await browserExpect(progress.locator('[aria-current="step"]')).toContainText("Focus");
+    await buildSetup();
+    await browserExpect(progress.locator('[aria-current="step"]')).toContainText("Curate");
+    await browserExpect(page.getByRole("tab", { name: /Your setup/ })).toHaveAttribute("aria-selected", "true");
+    await browserExpect(section("Topics")).toBeVisible();
+  });
+
   it("fills every section live with reasons and evidence, shows its progress and notes, and has no static lists", async () => {
     await start(); await buildSetup();
     const progress = pundit().getByRole("list", { name: "Pundit's progress" });
@@ -235,7 +246,7 @@ describe("Pundit builds your setup", () => {
     await browserExpect(page.getByRole("button", { name: /source SRE Digest$/ })).toHaveCount(0);
     expect(sent("agent")[1]).toMatchObject({ steps: ["publications"], instruction: "More India-focused", exclude: ["SRE Digest"] });
     await section("Topics").getByRole("button", { name: "Select topic Chaos engineering", exact: true }).click();
-    await browserExpect(page.getByRole("combobox", { name: "Refine" })).toHaveValue("topics");
+    await browserExpect(page.getByRole("radio", { name: /^Topics/ })).toHaveAttribute("aria-checked", "true");
     await say("fewer event topics");
     await browserExpect(pundit().getByRole("list", { name: "Conversation" })).toContainText("fewer event topics");
     await browserExpect.poll(() => sent("agent").length).toBe(3);

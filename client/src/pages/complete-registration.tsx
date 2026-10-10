@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ArrowRight, Check, ChevronDown, Search, Sparkles, UserRound } from "lucide-react";
 import { Reveal } from "@/components/motion/reveal";
+import { OnboardingProgress } from "@/components/onboarding/onboarding-progress";
 
 
 const industries = [
@@ -95,20 +96,49 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
   const isValid = industriesSelected.length > 0 && countriesSelected.length > 0;
 
   return (
-    <div className="min-h-[100dvh] bg-background px-4 py-8 sm:px-6">
-      <Reveal className="mx-auto flex min-h-[calc(100dvh-4rem)] max-w-xl items-center justify-center">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-info-subtle">
-            <Sparkles className="h-7 w-7 text-info" />
+    <div className="relative min-h-[100dvh] overflow-hidden bg-background px-4 py-6 sm:px-6 lg:py-10">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-80 bg-gradient-to-b from-primary/10 via-primary/5 to-transparent" />
+      <Reveal className="relative mx-auto grid min-h-[calc(100dvh-3rem)] w-full max-w-5xl grid-cols-1 items-center gap-8 lg:min-h-[calc(100dvh-5rem)] lg:grid-cols-[minmax(0,0.9fr)_minmax(420px,1fr)] lg:gap-14">
+        <section className="hidden space-y-6 lg:block" aria-labelledby="onboarding-welcome-title">
+          <div className="inline-flex items-center gap-2 rounded-full border bg-card/80 px-3 py-1.5 text-xs font-semibold text-primary shadow-sm backdrop-blur">
+            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            About two minutes to a tailored workspace
           </div>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-info">Workspace basics</p>
-          <CardTitle className="heading-dashboard text-2xl" data-testid="text-registration-title">Personalize your workspace</CardTitle>
-          <CardDescription>
-            Choose one industry and country to start. Next, describe your focus; other preferences can wait.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+          <div className="space-y-3">
+            <h1 id="onboarding-welcome-title" className="max-w-xl font-heading text-4xl font-semibold tracking-tight text-foreground xl:text-5xl">
+              Your signal, without the noise.
+            </h1>
+            <p className="max-w-lg text-lg leading-relaxed text-muted-foreground">
+              Tell us where you work, then Pundit will turn your focus into a live, editable intelligence feed.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-3">
+            {["Choose your market", "Describe what matters", "Review your curated feed"].map((item, index) => (
+              <div key={item} className="flex items-center gap-3 text-sm">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full border bg-card font-semibold text-primary shadow-sm">{index + 1}</span>
+                <span className="font-medium">{item}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+        <Card className="w-full border-border/70 bg-card/95 shadow-xl shadow-primary/5 backdrop-blur">
+          <CardHeader className="space-y-5 pb-4">
+            <OnboardingProgress currentStep={1} />
+            <div className="space-y-2 text-center sm:text-left">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-info-subtle sm:mx-0">
+                <Sparkles className="h-6 w-6 text-info" />
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-info">Workspace basics</p>
+                <p className="mb-1 text-xs font-medium text-muted-foreground">Step 1 of 3</p>
+                <CardTitle className="heading-dashboard text-2xl sm:text-3xl" data-testid="text-registration-title">Where should we focus?</CardTitle>
+              </div>
+              <CardDescription className="text-sm leading-relaxed">
+                Choose your primary industry and market. You can add more now or update them later.
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="flex items-center gap-3 rounded-[4px] border bg-muted/30 p-3" data-testid="text-saved-name">
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10"><UserRound className="h-4 w-4 text-primary" /></div>
@@ -116,15 +146,15 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
               <Check className="h-4 w-4 text-success" aria-label="Name saved from signup" />
             </div>
             
-            <Field id="registration-industries" label="Industries (at least one required)"
-              help="Your first selection is used for initial recommendations."
+            <Field id="registration-industries" label="Industry"
+              help="Choose the field closest to your work."
               controlProps={{ "aria-describedby": "registration-industries-limit" }} render={(controlProps) => <>
                 <MultiSelect controlProps={controlProps} label="Select industries" options={industries} selected={industriesSelected} onChange={setIndustriesSelected} testId="industries" />
                 <p id="registration-industries-limit" className="text-xs text-muted-foreground">Select up to 10 industries.</p>
               </>} />
             
-            <Field id="registration-countries" label="Countries (at least one required)"
-              help="Your selected countries tailor regional recommendations."
+            <Field id="registration-countries" label="Market"
+              help="Choose the region you want recommendations from."
               controlProps={{ "aria-describedby": "registration-countries-limit" }} render={(controlProps) => <>
                 <MultiSelect controlProps={controlProps} label="Select countries" options={COUNTRIES.map((country) => ({ value: country, label: country }))} selected={countriesSelected} onChange={setCountriesSelected} testId="countries" />
                 <p id="registration-countries-limit" className="text-xs text-muted-foreground">Select up to 10 countries.</p>
@@ -144,14 +174,14 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
                 </>
               ) : (
                 <>
-                  Continue
+                  Continue to your focus
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </>
               )}
             </Button>
           </form>
         </CardContent>
-      </Card>
+        </Card>
       </Reveal>
     </div>
   );

@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Send, Zap } from "lucide-react";
+import { Send, Sparkles, Zap } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, fieldControlClassName } from "@/components/ui/field";
-import { NativeSelect } from "@/components/ui/select";
+import { fieldControlClassName } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 import type { OnboardingData } from "@/lib/onboarding-choices";
 import { browserSearchEdition, type SuggestionKind, type SuggestionStep, type PreviewHeadline } from "@/lib/onboarding-suggestions";
@@ -17,6 +16,8 @@ import { PunditPanel, type PanelMessage, type ProgressItem } from "@/components/
 import { SetupCanvas } from "@/components/onboarding/setup-canvas";
 import { SetupSection, type SectionKind } from "@/components/onboarding/setup-section";
 import { UnderstandingCard } from "@/components/onboarding/understanding-card";
+import { OnboardingProgress } from "@/components/onboarding/onboarding-progress";
+import { RefineScope } from "@/components/onboarding/refine-scope";
 
 interface OnboardingWorkspaceProps {
   onComplete: (data: OnboardingData) => void;
@@ -92,6 +93,7 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
   }, {
     onResult: (step, result, runMode) => {
       selections.applyResult(step, result, runMode);
+      setTab("setup");
       add({ from: "pundit", text: result.note || DEFAULT_NOTES[step], step });
     },
     onError: (step, message) => add({ from: "pundit", text: `${TITLES[step]}: ${message} You can add your own there, or press Try again.` }),
@@ -136,6 +138,7 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
   const setUpManually = () => {
     agent.cancel();
     setMode("manual");
+    setTab("setup");
     add({ from: "pundit", text: "No problem. Add what you follow on the right. Whenever you like, I can find the rest from live news.", actions: "manual" });
   };
 
@@ -262,16 +265,36 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
     completed.keywords.length ? count(completed.keywords.length, "topic", "topics") : "",
     completed.influencers.length + completed.companies.length ? count(completed.influencers.length + completed.companies.length, "person or company", "people and companies") : "",
   ].filter(Boolean).join(" · ") || "Your focus is saved." : "";
-  const placeholder = completed ? "Your setup is saved" : mode !== "none" ? "Tell Pundit what to change…"
+  const placeholder = completed ? "Your setup is saved" : mode !== "none" ? `Ask Pundit to change ${TITLES[about].toLowerCase()}…`
     : !focus ? "Tell Pundit what you do and who you want to reach…" : summary?.question ? "Answer Pundit, or add more about your work…" : "Add more about your work…";
+  const currentStep: 2 | 3 = mode === "none" && !completed ? 2 : 3;
+  const stepCount = (step: SuggestionStep) =>
+    step === "publications" ? sources.length : step === "topics" ? topics.length : leaders.length + companies.length;
 
   return (
-    <div className="flex h-[100dvh] flex-col bg-background">
-      <header className="flex h-14 shrink-0 items-center border-b bg-card px-4 sm:px-6">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-muted/30">
+      <header className="shrink-0 border-b bg-card/95 px-4 py-3 backdrop-blur sm:px-6">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4">
         <Link href="/"><span className="flex cursor-pointer items-center gap-2" data-testid="link-logo-onboarding">
           <Zap className="h-6 w-6 fill-primary text-primary" /><span className="font-heading text-lg font-bold text-primary">TheSocialPundit</span>
         </span></Link>
+          <div className="hidden items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground sm:flex">
+            <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+            Personalizing your workspace
+          </div>
+        </div>
       </header>
+      <div className="shrink-0 border-b bg-card px-4 py-3 sm:px-6">
+        <div className="mx-auto grid max-w-[1600px] grid-cols-1 items-center gap-3 lg:grid-cols-[minmax(280px,440px)_minmax(0,1fr)] lg:gap-8">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Step {currentStep} of 3</p>
+            <p className="mt-0.5 text-sm font-medium">
+              {completed ? "Your personalized workspace is ready" : currentStep === 2 ? "Describe your work in your own words" : "Review and tune your recommendations"}
+            </p>
+          </div>
+          <OnboardingProgress currentStep={currentStep} completed={Boolean(completed)} className="max-w-2xl lg:justify-self-end lg:w-full" />
+        </div>
+      </div>
       <div role="tablist" aria-label="Onboarding" className="flex shrink-0 gap-1 border-b bg-muted p-1 lg:hidden">
         {(["pundit", "setup"] as const).map(value => (
           <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}
@@ -317,11 +340,8 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
         </SetupCanvas>
         <form onSubmit={send} className="col-start-1 row-start-2 flex flex-col gap-2 border-t bg-card p-3 lg:border-r">
           {mode !== "none" && !completed && (
-            <Field label="Refine" className="grid-cols-[auto_minmax(0,1fr)] items-center" render={(controlProps) => (
-              <NativeSelect {...controlProps} aria-label="Refine" value={about} onChange={event => setAbout(event.target.value as SuggestionStep)} disabled={locked}>
-                {STEPS.map(step => <option key={step} value={step}>{TITLES[step]}</option>)}
-              </NativeSelect>
-            )} />
+            <RefineScope value={about} onChange={setAbout} disabled={locked}
+              options={STEPS.map(step => ({ value: step, label: TITLES[step], count: stepCount(step) }))} />
           )}
           <div data-disabled={locked} className={cn(fieldControlClassName, "relative flex items-center pr-14 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:bg-muted data-[disabled=true]:text-muted-foreground")}>
             <input aria-label="Message Pundit" value={draft} onChange={event => setDraft(event.target.value)} maxLength={300} disabled={locked}

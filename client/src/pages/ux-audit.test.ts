@@ -215,6 +215,9 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     await mount("wizard", [{ rawBody: agentRun("A".repeat(100)) }]);
     await say("Product strategy for small teams");
     await page.getByRole("button", { name: "Build my setup" }).click();
+    await browserExpect(page.getByRole("tab", { name: /^Your setup/ })).toHaveAttribute("aria-selected", "true");
+    await browserExpect(page.getByRole("region", { name: "Your setup" })).toBeVisible();
+    await page.getByRole("tab", { name: "Pundit" }).click();
     await browserExpect(page.getByRole("region", { name: "Pundit" })).toContainText("Picked for you.");
     await browserExpect(page.getByRole("region", { name: "Your setup" })).toBeHidden();
     await page.getByRole("tab", { name: /^Your setup/ }).click();
