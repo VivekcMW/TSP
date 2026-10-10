@@ -69,6 +69,7 @@ jobs:
       - name: Validate immutable release input
         id: release
         env:
+          BROWSER_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
           RELEASE_SHA: ${{ inputs.release_sha }}
         shell: bash
         run: |
@@ -82,6 +83,7 @@ jobs:
           test -n "$REGION"
           test -n "$SERVICE"
           test -n "$REPOSITORY"
+          test -n "$BROWSER_SENTRY_DSN"
           short_sha="$RELEASE_SHA"
           short_sha="${short_sha:0:12}"
           image="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$RELEASE_SHA"
