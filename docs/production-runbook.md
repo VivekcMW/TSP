@@ -1,5 +1,7 @@
 # Production Runbook
 
+> **Retired hosting (2026-09-23):** production now runs on Cloud Run. Vercel and Render references below describe the retired setup. See [production-cloud-run.md](production-cloud-run.md).
+
 ## Required services
 
 - Managed PostgreSQL with SSL, automated backups, point-in-time recovery, and a separate migration owner role.
@@ -16,6 +18,14 @@ Set these in the deployment secret manager, never in the repository:
 `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `APP_URL`, `ALLOWED_ORIGINS`, `OAUTH_STATE_SECRET`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `OPENROUTER_API_KEY` or `GEMINI_API_KEY`, `REDIS_URL`, `BACKGROUND_JOBS_ENABLED=true`, `CRON_SCHEDULER=true` on one instance, `PUBLISHING_MODE=live`, and the required provider credentials.
 
 For payments also set `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` after the merchant account and webhook endpoint are configured.
+
+### Email sender and replies
+
+- Set `RESEND_FROM_EMAIL=hello@thesocialpundit.com` in the existing local configuration and on every email-sending API/worker service (currently Render). An explicit environment value overrides the code default; updating `.env.example` does not update an existing environment.
+- Restart local processes or redeploy the approved backend release after changing the setting. The sender is read at startup. Missing or blank values default to `hello@thesocialpundit.com`.
+- Verify `thesocialpundit.com` in the Resend account used by `RESEND_API_KEY`, including its required DNS records. Changing the sender within that domain does not create an inbox.
+- Create or confirm the `hello` mailbox/alias with the domain's email host so contact links and replies reach the team. Retain forwarding from the previous address if needed. Do not replace existing inbound-mail MX records just to configure outbound sending.
+- After provider setup and deployment, use an explicitly authorized test recipient to verify delivery, the visible From address, and replies. Mocked unit tests do not establish provider or mailbox readiness.
 
 ## Deploy sequence
 

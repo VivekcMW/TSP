@@ -2,7 +2,9 @@ import type { Express } from "express";
 import { db } from "../db";
 import { toSafeUser } from "../lib/sanitize";
 import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
-import { sendAppEmail } from "../services/email";
+import { emailTemplates, sendAppEmail } from "../services/email";
+import { adoptBrowserTimezone } from "../services/email/preferences";
+import { industryDisplayName } from "../services/metaEngine";
 import { users } from "@shared/models/auth";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -12,6 +14,8 @@ const completeRegistrationSchema = z.object({
   lastName: z.string().min(1).max(50),
   countries: z.array(z.string().min(1).max(100)).min(1).max(10),
   industries: z.array(z.string().min(1).max(100)).min(1).max(10),
+  // The browser's IANA zone, e.g. "Asia/Kolkata". Optional, and never a reason to refuse sign-up.
+  timeZone: z.string().max(100).optional().catch(undefined),
 });
 
 export function registerAuthRoutes(app: Express) {
@@ -37,7 +41,7 @@ export function registerAuthRoutes(app: Express) {
         return res.status(400).json({ message: "Invalid request data", errors: validation.error.errors });
       }
       
-      const { firstName, lastName, countries, industries } = validation.data;
+      const { firstName, lastName, countries, industries, timeZone } = validation.data;
       // Existing curation engines use one primary context. Preserve it while
       // retaining every selection for future multi-industry ranking.
       const [country] = countries;
@@ -65,11 +69,14 @@ export function registerAuthRoutes(app: Express) {
         })
         .where(eq(users.id, userId))
         .returning();
+
+      // Digest and reminders at 9:00 local time instead of 9:00 UTC.
+      await adoptBrowserTimezone(userId, timeZone)
+        .catch((err) => console.error("Failed to store the browser time zone:", err instanceof Error ? err.message : err));
       
       // Send industry-customized welcome email
       if (updatedUser?.email) {
-        const welcomeSubject = industry ? `Welcome to TheSocialPundit · ${industry.replaceAll("_", " ")}` : "Welcome to TheSocialPundit";
-        sendAppEmail({ type: "welcome", recipient: updatedUser.email, recipientName: firstName, userId: updatedUser.id, subject: welcomeSubject, html: `<p>Your personalized workspace is ready.</p><p>Start with your curated inbox and create your first draft.</p>`, required: false, dedupeKey: `welcome:${updatedUser.id}` }).catch((err) => console.error("Failed to send welcome email:", err));
+        sendAppEmail({ type: "welcome", recipient: updatedUser.email, recipientName: firstName, userId: updatedUser.id, ...emailTemplates.welcome(industryDisplayName(industry)), dedupeKey: `welcome:${updatedUser.id}` }).catch((err) => console.error("Failed to send welcome email:", err));
       }
       
       res.json(toSafeUser(updatedUser));

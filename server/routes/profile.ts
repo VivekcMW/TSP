@@ -3,106 +3,57 @@ import { db } from "../db";
 import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
 import { engineRegistry } from "../services/engines/index.js";
-import { normalizeKeywords } from "../services/punditBrain.js";
 import { storage } from "../storage";
 import { users } from "@shared/models/auth";
-import { ALL_PLATFORM_KEYS, IndustrySlug, platformIntegrations } from "@shared/schema";
+import { INDUSTRY_SLUGS, platformIntegrations } from "@shared/schema";
+import {
+  focusDescriptionSchema, profileFocusDescriptionSchema, profileKeywordsSchema,
+  profileListSchema, timezoneSchema,
+} from "@shared/profile-preferences";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { filterEnabledPlatforms } from "../lib/platformAvailability";
+import { publicationCandidatesSchema, reconcilePublicationCandidates, type PublicationCandidate } from "@shared/publication-preferences";
+import { searchEditionSchema } from "@shared/search-editions";
+import { getEmailPreferences, updateEmailPreferences } from "../services/email/preferences";
+import { legacyNotificationView } from "@shared/email-preferences";
+import { PUBLISHING_PLATFORM_KEYS } from "@shared/publishing-capabilities";
+
+function candidatesAreSelected(names: string[], candidates: PublicationCandidate[] = []) {
+  return reconcilePublicationCandidates(names, candidates).length === candidates.length;
+}
+
+const profileLists = {
+  publications: profileListSchema.optional(),
+  publicationCandidates: publicationCandidatesSchema.optional(),
+  keywords: profileKeywordsSchema.optional(),
+  influencers: profileListSchema.optional(),
+  companies: profileListSchema.optional(),
+};
 
 const completeOnboardingSchema = z.object({
-  focusDescription: z.string().min(10).max(500).optional(),
-  publications: z.array(z.string()).max(20).optional(),
-  keywords: z.array(z.string()).max(20).optional(),
-  influencers: z.array(z.string()).max(20).optional(),
-  companies: z.array(z.string()).max(20).optional(),
-  recommendedIndustry: z.string().optional(),
+  ...profileLists,
+  focusDescription: focusDescriptionSchema,
+  recommendedIndustry: z.enum(INDUSTRY_SLUGS).optional(),
+}).refine(data => candidatesAreSelected(data.publications ?? [], data.publicationCandidates), {
+  path: ["publicationCandidates"], message: "Publication candidates must match selected publication names",
 });
 
-const profileListSchema = z.array(z.string().trim().min(1).max(100)).max(20);
-const weightedKeywordSchema = z.array(
-  z.object({
-    keyword: z.string().trim().min(1).max(100),
-    weight: z.number().min(0).max(1).optional(),
-  })
-).max(20);
-
-function validateProfileList(value: unknown, field: string): { values?: string[]; error?: string } {
-  // Special handling for keywords: accept both old string format and new weighted format
-  if (field === "keywords") {
-    // Try weighted format first
-    const weightedValidation = weightedKeywordSchema.safeParse(value);
-    if (weightedValidation.success) {
-      const keywords = weightedValidation.data.map((item) => item.keyword);
-      const unique = Array.from(new Map(keywords.map((item) => [item.toLocaleLowerCase(), item])).values());
-      return { values: unique };
-    }
-    // Fall back to string format for backward compatibility
-    const stringValidation = profileListSchema.safeParse(value);
-    if (stringValidation.success) {
-      const values = Array.from(new Map(stringValidation.data.map((item) => [item.toLocaleLowerCase(), item])).values());
-      return { values };
-    }
-    return { error: `Invalid ${field}. Select up to 20 non-empty values.` };
-  }
-
-  // For other fields, use the original string format validation
-  const validation = profileListSchema.safeParse(value);
-  if (!validation.success) return { error: `Invalid ${field}. Select up to 20 non-empty values.` };
-
-  const values = Array.from(new Map(validation.data.map((item) => [item.toLocaleLowerCase(), item])).values());
-  return { values };
-}
-
-function validateProfilePatch(body: any) {
-  const { enabledPlatforms, defaultPlatform, defaultTone, preferredPublishTime } = body;
-  if (enabledPlatforms !== undefined && !z.array(z.enum(ALL_PLATFORM_KEYS)).safeParse(enabledPlatforms).success) {
-    return { error: "Invalid enabledPlatforms" };
-  }
-  if (defaultPlatform !== undefined && !ALL_PLATFORM_KEYS.includes(defaultPlatform)) return { error: "Invalid defaultPlatform" };
-  if (defaultTone !== undefined && !["professional", "authoritative", "contrarian", "ai-recommended"].includes(defaultTone)) return { error: "Invalid defaultTone" };
-  if (preferredPublishTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(preferredPublishTime)) return { error: "Invalid preferredPublishTime" };
-
-  const normalizedLists: Record<string, string[]> = {};
-  for (const field of ["publications", "keywords", "influencers", "companies"]) {
-    if (body[field] === undefined) continue;
-    const result = validateProfileList(body[field], field);
-    if (result.error) return { error: result.error };
-    normalizedLists[field] = result.values ?? [];
-  }
-  return { normalizedLists };
-}
-
-function buildProfileUpdateData(body: any, normalizedLists: Record<string, string[]>, disabledPlatforms: Set<string>) {
-  const updateData: Record<string, unknown> = Object.fromEntries(
-    Object.entries(body).filter(([field, value]) =>
-      ["focusDescription", "timezone", "defaultPlatform", "defaultTone", "preferredPublishTime"].includes(field) && value !== undefined,
-    ),
-  );
-  for (const field of ["publications", "keywords", "influencers", "companies"]) {
-    if (normalizedLists[field]) updateData[field] = normalizedLists[field];
-  }
-  if (body.enabledPlatforms !== undefined) updateData.enabledPlatforms = filterEnabledPlatforms(body.enabledPlatforms, disabledPlatforms);
-  if (typeof body.requirePublishReview === "boolean") updateData.requirePublishReview = body.requirePublishReview;
-  if (typeof body.autoPublish === "boolean") updateData.autoPublish = body.autoPublish;
-  if (typeof body.dailyDigest === "boolean") updateData.dailyDigest = body.dailyDigest;
-  if (typeof body.contentAlerts === "boolean") updateData.contentAlerts = body.contentAlerts;
-  if (typeof body.productUpdates === "boolean") updateData.productUpdates = body.productUpdates;
-  return updateData;
-}
-
-// Helper to sanitize onboarding data - truncates strings and arrays to prevent validation errors
-function sanitizeOnboardingData(data: any) {
-  return {
-    ...data,
-    focusDescription: data.focusDescription?.slice(0, 500),
-    publications: data.publications?.slice(0, 20),
-    keywords: data.keywords?.slice(0, 20),
-    influencers: data.influencers?.slice(0, 20),
-    companies: data.companies?.slice(0, 20),
-  };
-}
+const profilePatchSchema = z.object({
+  ...profileLists,
+  searchEdition: searchEditionSchema.optional(),
+  focusDescription: profileFocusDescriptionSchema.optional(),
+  timezone: timezoneSchema.optional(),
+  enabledPlatforms: z.array(z.enum(PUBLISHING_PLATFORM_KEYS)).optional(),
+  defaultPlatform: z.enum(PUBLISHING_PLATFORM_KEYS).optional(),
+  defaultTone: z.enum(["professional", "authoritative", "contrarian", "ai-recommended"]).optional(),
+  preferredPublishTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  requirePublishReview: z.boolean().optional(),
+  autoPublish: z.boolean().optional(),
+  dailyDigest: z.boolean().optional(),
+  contentAlerts: z.boolean().optional(),
+  productUpdates: z.boolean().optional(),
+});
 
 export function registerProfileRoutes(app: Express) {
   app.get("/api/profile", requireDbUser, requirePermission("profile:read:own"), async (req, res) => {
@@ -135,7 +86,8 @@ export function registerProfileRoutes(app: Express) {
         profile = await storage.updateUserProfile(scope, { enabledPlatforms: safeEnabledPlatforms });
       }
 
-      res.json({ ...profile, enabledPlatforms: safeEnabledPlatforms });
+      res.json({ ...profile, enabledPlatforms: safeEnabledPlatforms,
+        ...legacyNotificationView(await getEmailPreferences(userId)) });
     } catch (error) {
       console.error("Error fetching profile:", error);
       res.status(500).json({ message: "Failed to fetch profile" });
@@ -145,12 +97,18 @@ export function registerProfileRoutes(app: Express) {
   app.patch("/api/profile", requireDbUser, requirePermission("profile:write:own"), async (req, res) => {
     try {
       const { tenant: scope } = authedOf(req);
-      const validation = validateProfilePatch(req.body);
-      if (validation.error) return res.status(400).json({ message: validation.error });
+      const validation = profilePatchSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ message: "Invalid request data", errors: validation.error.errors });
+      }
 
       const existingProfile = await storage.getUserProfile(scope);
       if (!existingProfile) {
         return res.status(404).json({ message: "Profile not found" });
+      }
+
+      if (!candidatesAreSelected(validation.data.publications ?? existingProfile.publications ?? [], validation.data.publicationCandidates)) {
+        return res.status(400).json({ message: "Publication candidates must match selected publication names" });
       }
 
       const disabledPlatforms = new Set(
@@ -158,12 +116,24 @@ export function registerProfileRoutes(app: Express) {
           .map((row) => row.key),
       );
 
-      const updateData = buildProfileUpdateData(req.body, validation.normalizedLists ?? {}, disabledPlatforms);
+      const { dailyDigest, contentAlerts, productUpdates, ...profileData } = validation.data;
+      const updateData = {
+        ...profileData,
+        ...(validation.data.enabledPlatforms !== undefined ? {
+          enabledPlatforms: filterEnabledPlatforms(validation.data.enabledPlatforms, disabledPlatforms),
+        } : {}),
+      };
 
       const profile = await storage.updateUserProfile(scope, updateData);
 
-      res.json(profile);
+      const notificationPatch = { dailyDigest, contentAlerts, productUpdates };
+      const prefs = Object.values(notificationPatch).some(value => value !== undefined)
+        ? await updateEmailPreferences(scope.userId, notificationPatch)
+        : await getEmailPreferences(scope.userId);
+      res.json({ ...profile, ...legacyNotificationView(prefs) });
     } catch (error) {
+      // A concurrent selection change can invalidate a metadata-only PATCH.
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid publication candidates", errors: error.errors });
       console.error("Error updating profile:", error);
       res.status(500).json({ message: "Failed to update profile" });
     }
@@ -173,18 +143,12 @@ export function registerProfileRoutes(app: Express) {
     try {
       const { dbUser, tenant: scope } = authedOf(req);
       const userId = dbUser.id;
-      // Sanitize data before validation to prevent truncation errors
-      const sanitizedBody = sanitizeOnboardingData(req.body);
-      
-      const validation = completeOnboardingSchema.safeParse(sanitizedBody);
+      const validation = completeOnboardingSchema.safeParse(req.body);
       if (!validation.success) {
         return res.status(400).json({ message: "Invalid request data", errors: validation.error.errors });
       }
       
-      const { focusDescription, publications, keywords, influencers, companies, recommendedIndustry } = validation.data;
-
-      // Normalize keywords to weighted format
-      const normalizedKeywords = normalizeKeywords(keywords || []);
+      const { focusDescription, publications, publicationCandidates, keywords, influencers, companies, recommendedIndustry } = validation.data;
 
       if (recommendedIndustry) {
         await db.update(users).set({ industry: recommendedIndustry }).where(eq(users.id, userId));
@@ -197,7 +161,8 @@ export function registerProfileRoutes(app: Express) {
         focusDescription,
         onboardingStatus: "completed" as const,
         publications: publications || [],
-        keywords: normalizedKeywords,
+        ...(publicationCandidates !== undefined ? { publicationCandidates } : {}),
+        keywords: keywords || [],
         influencers: influencers || [],
         companies: companies || [],
         recommendedIndustry: recommendedIndustry || undefined,
@@ -209,7 +174,7 @@ export function registerProfileRoutes(app: Express) {
         profile = await storage.updateUserProfile(scope, profileData);
       }
 
-      const industryToUse = (recommendedIndustry || "other") as IndustrySlug;
+      const industryToUse = recommendedIndustry || "other";
       const engine = engineRegistry.getEngine(industryToUse);
       
       res.json({

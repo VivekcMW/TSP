@@ -1,3 +1,16 @@
+import type { WeightedKeyword } from "@shared/profile-preferences";
+import type { PublicationCandidate } from "@shared/publication-preferences";
+
+export interface OnboardingData {
+  focusDescription: string;
+  publications: string[];
+  publicationCandidates?: PublicationCandidate[];
+  keywords: WeightedKeyword[];
+  influencers: string[];
+  companies: string[];
+  recommendedIndustry?: string;
+}
+
 /** Match the server's 20-item limit without selecting hidden defaults. */
 export function normalizeOnboardingChoices(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -8,13 +21,4 @@ export function normalizeOnboardingChoices(value: unknown): string[] {
     if (!choices.has(trimmed.toLocaleLowerCase())) choices.set(trimmed.toLocaleLowerCase(), trimmed);
   }
   return [...choices.values()].slice(0, 20);
-}
-
-/** Selected AI/custom choices must be rendered even outside the static catalog. */
-export function visibleOnboardingChoices(catalog: string[], selected: string[]): string[] {
-  const choices = new Map<string, string>();
-  for (const item of [...selected, ...catalog]) {
-    if (!choices.has(item.toLocaleLowerCase())) choices.set(item.toLocaleLowerCase(), item);
-  }
-  return [...choices.values()];
 }

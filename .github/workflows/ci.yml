@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
   pull_request:
 
 # A newer push supersedes an in-flight run on the same ref.
@@ -22,7 +22,7 @@ jobs:
           POSTGRES_DB: thesocialpundit_test
         ports: ["5432:5432"]
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -49,47 +49,63 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: pnpm
 
-      # `npm ci` rather than `npm install`, so a dependency that is imported
-      # but not declared fails here rather than in production. That is exactly
-      # how the undeclared `nanoid` import was found.
-      - run: npm ci
+      # Keep CI aligned with the checked-in pnpm lockfile.
+      - run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: pnpm check
 
       - name: Design tokens are in sync
-        run: npm run design:check
+        run: pnpm run design:check
 
       # Migrations, not `drizzle-kit push`. push diffs against the live
       # database and was observed dropping the RLS policies, which would make
       # the isolation tests pass against an unprotected schema — the worst
       # possible failure mode for this suite.
       - name: Migrate the test database
-        run: npm run db:migrate
+        run: pnpm run db:migrate
         env:
           OWNER_DATABASE_URL: ${{ env.DATABASE_URL }}
 
-      - name: Install browser for browser-backed tests
-        run: npx playwright install --with-deps chromium
+      - name: Install browsers for regression tests
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
+
+      - name: Install Redis for isolated lease acceptance tests
+        run: sudo apt-get update && sudo apt-get install -y redis-server
 
       # Includes the cross-tenant isolation contract tests. A failure here is a
       # data-leak risk, not a flaky test — do not skip or retry this step.
       - name: Tests
-        run: npm test -- --testTimeout=10000
+        run: pnpm test
 
       - name: Browser E2E tests
         if: ${{ env.E2E_TEST_EMAIL != '' && env.E2E_TEST_PASSWORD != '' }}
-        run: |
-          npx playwright install --with-deps chromium
-          npm run test:e2e
+        run: pnpm run test:e2e
+
+      - name: Cross-browser UI consistency
+        run: pnpm run test:consistency
+
+      - name: Upload UI consistency report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-consistency-report
+          path: |
+            playwright-report/consistency
+            test-results/consistency-results.json
+            test-results/consistency-artifacts
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Build
-        run: npm run build
+        run: pnpm run build
 
       - name: Verify production artifact
         run: test -f dist/index.cjs && test -f dist/public/index.html

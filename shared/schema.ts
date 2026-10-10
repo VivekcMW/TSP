@@ -1,7 +1,14 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, jsonb, index, integer, unique, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, jsonb, index, integer, unique, numeric, primaryKey, foreignKey, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { publicationCandidatesSchema, type PublicationCandidate } from "./publication-preferences";
+import type { SearchQueryState } from "./search-query-plan";
+import type { InboxRefreshResult } from "./inbox-refresh";
+import type { ArticleQuality } from "./article-quality";
+import type { AnalyticsAvailability, AnalyticsMetrics } from "./analytics-availability";
+import { users } from "./models/auth";
+import { tenants } from "./models/tenancy";
 
 export * from "./models/auth";
 export * from "./models/tenancy";
@@ -25,10 +32,14 @@ export const userProfiles = pgTable("user_profiles", {
   /** AI-recommended industry slug, based on focusDescription analysis */
   recommendedIndustry: varchar("recommended_industry"),
   publications: jsonb("publications").$type<string[]>().default([]),
+  publicationCandidates: jsonb("publication_candidates").$type<PublicationCandidate[]>().notNull().default([]),
   /** Keywords with weights: {keyword, weight: 0-1, category} */
   keywords: jsonb("keywords").$type<Array<{ keyword: string; weight: number; category?: string }>>().default([]),
   influencers: jsonb("influencers").$type<string[]>().default([]),
   companies: jsonb("companies").$type<string[]>().default([]),
+  searchEdition: text("search_edition").notNull().default("en-US"),
+  /** Server-owned reservation cursors; never writable through profile APIs. */
+  searchQueryState: jsonb("search_query_state").$type<SearchQueryState | Record<string, never>>().notNull().default({}),
   /** Which draft-generation platforms this user has enabled, for the Plugins page. */
   enabledPlatforms: jsonb("enabled_platforms").$type<string[]>().notNull().default(ALL_PLATFORM_KEYS as unknown as string[]),
   defaultPlatform: varchar("default_platform"),
@@ -45,6 +56,45 @@ export const userProfiles = pgTable("user_profiles", {
 }, (table) => [
   unique("uniq_user_profiles_tenant_user").on(table.tenantId, table.userId),
   index("idx_user_profiles_tenant").on(table.tenantId),
+  check("user_profiles_search_edition_check", sql`${table.searchEdition} in ('en-US', 'en-GB', 'en-IN', 'hi-IN', 'fr-FR', 'de-DE', 'es-ES', 'pt-BR', 'ja-JP', 'en-AU', 'en-CA')`),
+  check("user_profiles_search_query_state_object_check", sql`jsonb_typeof(${table.searchQueryState}) = 'object'`),
+]);
+
+/** Durable discovery leases and resolved tombstones; never client-writable profile data. */
+export const publicationResolutions = pgTable("publication_resolutions", {
+  tenantId: varchar("tenant_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  url: text("url").notNull(),
+  lastAttemptAt: timestamp("last_attempt_at").notNull(),
+  status: varchar("status").$type<"checking" | "failed" | "resolved">().notNull(),
+  error: varchar("error", { length: 300 }),
+  // Intentionally not a source FK: deletion must leave a resolved tombstone.
+  sourceId: varchar("source_id"),
+  // Durable canonical identity, including after the source row has been deleted.
+  resolvedFeedUrl: text("resolved_feed_url"),
+  claimToken: varchar("claim_token"),
+  leaseUntil: timestamp("lease_until"),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.userId, table.url] }),
+  index("idx_publication_resolutions_retry").on(table.tenantId, table.userId, table.lastAttemptAt),
+  foreignKey({ name: "publication_resolutions_profile_fk", columns: [table.tenantId, table.userId], foreignColumns: [userProfiles.tenantId, userProfiles.userId] }).onDelete("cascade"),
+  check("publication_resolutions_status_check", sql`${table.status} in ('checking', 'failed', 'resolved')`),
+  check("publication_resolutions_url_check", sql`length(${table.url}) between 1 and 2048`),
+  check("publication_resolutions_lease_check", sql`(${table.status} = 'checking' and ${table.claimToken} is not null and ${table.leaseUntil} is not null) or (${table.status} != 'checking' and ${table.claimToken} is null and ${table.leaseUntil} is null)`),
+]);
+
+export type PublicationResolution = typeof publicationResolutions.$inferSelect;
+
+/** Canonical deletion intent exists even before any publication discovery/profile. */
+export const userSourceDeletions = pgTable("user_source_deletions", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  feedUrl: text("feed_url").notNull(),
+  // Deliberately not a source FK: this identifies the removed source in alias tombstones.
+  sourceId: varchar("source_id").notNull(),
+  deletedAt: timestamp("deleted_at").notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.userId, table.feedUrl] }),
 ]);
 
 export const inboxItems = pgTable("inbox_items", {
@@ -55,18 +105,38 @@ export const inboxItems = pgTable("inbox_items", {
   headline: text("headline").notNull(),
   source: varchar("source").notNull(),
   articleUrl: text("article_url").notNull(),
+  canonicalUrl: text("canonical_url"),
+  version: integer("version").notNull().default(0),
   matchedKeywords: jsonb("matched_keywords").$type<string[]>().default([]),
   /** Relevance score 0-1: how relevant this article is to user's interests */
   relevanceScore: numeric("relevance_score").default('0.5'),
   /** Reason why this article matched (for debugging/UX) */
   relevanceReason: text("relevance_reason"),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  discoveredAt: timestamp("discovered_at", { withTimezone: true }),
+  rankingScore: numeric("ranking_score"),
+  qualityMetadata: jsonb("quality_metadata").$type<ArticleQuality>(),
   summary: text("summary"),
   status: varchar("status").default("active").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_inbox_user").on(table.userId),
+  // Bounded accelerator only: callers must also compare the exact canonical URL.
+  index("idx_inbox_canonical").on(table.tenantId, table.userId, sql`md5(${table.canonicalUrl})`),
   index("idx_inbox_tenant_status").on(table.tenantId, table.status, table.createdAt),
+  index("idx_inbox_discovery_window").on(table.tenantId, table.userId, table.discoveredAt, table.id).where(sql`${table.discoveredAt} is not null`),
+  check("inbox_quality_metadata_bounded", sql`${table.qualityMetadata} is null or (jsonb_typeof(${table.qualityMetadata}) = 'object' and octet_length(${table.qualityMetadata}::text) <= 262144)`),
+  check("inbox_ranking_score_range", sql`${table.rankingScore} is null or (${table.rankingScore} >= 0 and ${table.rankingScore} <= 1)`),
 ]);
+
+export const inboxRefreshReceipts = pgTable("inbox_refresh_receipts", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  operationId: varchar("operation_id", { length: 200 }).notNull(),
+  autoRefresh: boolean("auto_refresh").notNull(),
+  result: jsonb("result").$type<InboxRefreshResult>().notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, table => [primaryKey({ columns: [table.tenantId, table.userId, table.operationId] })]);
 
 export const drafts = pgTable("drafts", {
   /** Owning tenant. Every query must be scoped by this. */
@@ -81,6 +151,9 @@ export const drafts = pgTable("drafts", {
   publishStatus: varchar("publish_status").default("draft").notNull(),
   media: jsonb("media").$type<Array<{ id: string; type: "image" | "video" | "audio"; name: string; url: string }>>().default([]),
   platformPublishRules: jsonb("platform_publish_rules").$type<Record<string, boolean>>().default({}),
+  publishApprovalHash: varchar("publish_approval_hash"),
+  publishApprovedAt: timestamp("publish_approved_at"),
+  publishApprovedBy: varchar("publish_approved_by"),
   scheduledAt: timestamp("scheduled_at"),
   publishedAt: timestamp("published_at"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -307,13 +380,28 @@ export const featureFlags = pgTable("feature_flags", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const creationSessions = pgTable("creation_sessions", {
+  tenantId: varchar("tenant_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  revision: integer("revision").notNull().default(0),
+  state: jsonb("state").$type<import("./creation-session").CreationSession>(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [primaryKey({ columns: [table.tenantId, table.userId] })]);
+
 export const emailPreferences = pgTable("email_preferences", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().unique(),
   marketing: boolean("marketing").notNull().default(true),
   productUpdates: boolean("product_updates").notNull().default(true),
   dailyDigest: boolean("daily_digest").notNull().default(true),
-  contentAlerts: boolean("content_alerts").notNull().default(true),
+  contentAlerts: boolean("content_alerts").notNull().default(false),
+  publishing: boolean("publishing").notNull().default(true),
+  accountAlerts: boolean("account_alerts").notNull().default(true),
+  weeklySummary: boolean("weekly_summary").notNull().default(false),
+  reminders: boolean("reminders").notNull().default(true),
+  remindersPausedUntil: timestamp("reminders_paused_until"),
+  digestTimezone: varchar("digest_timezone").notNull().default("UTC"),
+  digestTime: varchar("digest_time").notNull().default("09:00"),
   unsubscribedAt: timestamp("unsubscribed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -328,6 +416,10 @@ export const emailDeliveries = pgTable("email_deliveries", {
   status: varchar("status").notNull().default("pending"),
   providerMessageId: varchar("provider_message_id"),
   errorMessage: text("error_message"),
+  claimToken: varchar("claim_token"),
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  retryAt: timestamp("retry_at", { withTimezone: true }),
+  attempts: integer("attempts").notNull().default(0),
   sentAt: timestamp("sent_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -352,9 +444,95 @@ export const billingPlans = pgTable("billing_plans", {
   razorpayPlanId: varchar("razorpay_plan_id"),
   features: jsonb("features").$type<string[]>().default([]),
   isActive: boolean("is_active").notNull().default(true),
+  /** Shown on the public pricing page; a listed plan may be inactive (not yet purchasable). */
+  listed: boolean("listed").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+/** Public newsletter sign-ups; see migrations/0044_newsletter_subscribers.sql. */
+export const newsletterSubscribers = pgTable("newsletter_subscribers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: varchar("email", { length: 254 }).notNull().unique(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  tokenNonce: varchar("token_nonce", { length: 64 }).notNull(),
+  source: varchar("source", { length: 40 }).notNull(),
+  consentText: text("consent_text").notNull(),
+  requestedAt: timestamp("requested_at").notNull().defaultNow(),
+  confirmationSentAt: timestamp("confirmation_sent_at"),
+  confirmedAt: timestamp("confirmed_at"),
+  unsubscribedAt: timestamp("unsubscribed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** Shared article index catalogue; see migrations/0045_shared_index.sql. Not tenant-scoped. */
+export const publications = pgTable("publications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  siteUrl: text("site_url").notNull().default(""),
+  feedUrl: text("feed_url").notNull().unique(),
+  sourceType: varchar("source_type", { length: 20 }).notNull().default("feed"),
+  addedVia: varchar("added_via", { length: 40 }).notNull().default("user-source"),
+  isActive: boolean("is_active").notNull().default(true),
+  lastCrawledAt: timestamp("last_crawled_at"),
+  lastCrawlStatus: varchar("last_crawl_status", { length: 20 }),
+  lastCrawlError: text("last_crawl_error"),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  etag: text("etag"),
+  lastModified: text("last_modified"),
+  /** WebSub: the hub that pushes this feed's updates, our shared secret and the lease we hold. */
+  hubUrl: text("hub_url"),
+  websubSecret: text("websub_secret"),
+  websubSubscribedAt: timestamp("websub_subscribed_at"),
+  websubLeaseExpiresAt: timestamp("websub_lease_expires_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type Publication = typeof publications.$inferSelect;
+
+/** Publisher domains seen behind search results, outbound links or GDELT, waiting to be probed for a feed. Not tenant-scoped. */
+export const discoveredSites = pgTable("discovered_sites", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  origin: text("origin").notNull().unique(),
+  seenVia: varchar("seen_via", { length: 20 }).notNull().default("search"),
+  seenCount: integer("seen_count").notNull().default(1),
+  firstSeenAt: timestamp("first_seen_at").notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  probedAt: timestamp("probed_at"),
+  publicationId: varchar("publication_id").references(() => publications.id, { onDelete: "set null" }),
+  note: text("note"),
+});
+export type DiscoveredSite = typeof discoveredSites.$inferSelect;
+
+/** Topics, companies and people across all accounts, with no account attached; used to pick stories out of global feeds. */
+export const watchTerms = pgTable("watch_terms", {
+  term: text("term").primaryKey(),
+  kind: varchar("kind", { length: 20 }).notNull(),
+  seenCount: integer("seen_count").notNull().default(1),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+});
+
+/** Shared article pool: every story the crawler has seen, keyed by canonical URL. Not tenant-scoped. */
+export const pooledArticles = pgTable("pooled_articles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  publicationId: varchar("publication_id").references(() => publications.id, { onDelete: "set null" }),
+  canonicalUrl: text("canonical_url").notNull().unique(),
+  title: text("title").notNull(),
+  source: varchar("source").notNull(),
+  sourceOrigin: text("source_origin"),
+  content: text("content").notNull().default(""),
+  inputKind: varchar("input_kind", { length: 20 }).notNull().default("feed_excerpt"),
+  /** NULL until the body has been fetched; then whether the page held readable article prose. */
+  readable: boolean("readable"),
+  publishedAt: timestamp("published_at"),
+  fetchedAt: timestamp("fetched_at").notNull().defaultNow(),
+  bodyFetchedAt: timestamp("body_fetched_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  // `search` (tsvector) and `body_hash` (md5 of content) are generated columns, written only by the database.
+});
+export type PooledArticle = typeof pooledArticles.$inferSelect;
 
 export const billingCustomers = pgTable("billing_customers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -372,6 +550,13 @@ export const subscriptions = pgTable("subscriptions", {
   billingCustomerId: varchar("billing_customer_id").notNull(),
   planId: varchar("plan_id").notNull(),
   razorpaySubscriptionId: varchar("razorpay_subscription_id").unique(),
+  // Immutable checkout binding; provider notes are routing hints, never authority.
+  razorpayOrderId: varchar("razorpay_order_id").unique(),
+  checkoutAmount: integer("checkout_amount"),
+  checkoutCurrency: varchar("checkout_currency"),
+  checkoutInterval: varchar("checkout_interval"),
+  checkoutProviderPlanId: varchar("checkout_provider_plan_id"),
+  checkoutProviderCustomerId: varchar("checkout_provider_customer_id"),
   status: varchar("status").notNull().default("created"),
   currentPeriodStart: timestamp("current_period_start"),
   currentPeriodEnd: timestamp("current_period_end"),
@@ -426,6 +611,27 @@ export type BillingCustomer = typeof billingCustomers.$inferSelect;
 export type Subscription = typeof subscriptions.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type PaymentMethod = typeof paymentMethods.$inferSelect;
+
+/** Consumed generation attempts, not generated-post or payment counts. No content retained. */
+export const billingGenerationOperations = pgTable("billing_generation_operations", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  operationId: varchar("operation_id", { length: 36 }).notNull(),
+  userId: varchar("user_id").notNull(),
+  kind: varchar("kind", { length: 32 }).notNull(),
+  inputHash: varchar("input_hash", { length: 64 }).notNull(),
+  planKey: varchar("plan_key").notNull(),
+  periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+  periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+  status: varchar("status").$type<"started" | "succeeded" | "failed" | "failed_uncharged" | "cancelled">().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, table => [
+  primaryKey({ columns: [table.tenantId, table.operationId] }),
+  index("idx_billing_generation_usage").on(table.tenantId, table.createdAt),
+  check("billing_generation_period_check", sql`${table.periodEnd} > ${table.periodStart}`),
+  check("billing_generation_status_check", sql`${table.status} in ('started', 'succeeded', 'failed', 'cancelled')`),
+  check("billing_generation_completion_check", sql`(${table.status} = 'started') = (${table.completedAt} is null)`),
+]);
 
 /**
  * Platform-wide integration availability (a global kill switch per posting
@@ -482,7 +688,9 @@ export const insertEngineRunLogSchema = createInsertSchema(engineRunLogs).omit({
   startedAt: true,
 });
 
-export const insertUserProfileSchema = createInsertSchema(userProfiles).omit({
+export const insertUserProfileSchema = createInsertSchema(userProfiles, {
+  publicationCandidates: publicationCandidatesSchema.optional(),
+}).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -491,6 +699,9 @@ export const insertUserProfileSchema = createInsertSchema(userProfiles).omit({
 export const insertInboxItemSchema = createInsertSchema(inboxItems).omit({
   id: true,
   createdAt: true,
+  canonicalUrl: true,
+  version: true,
+  discoveredAt: true,
 });
 
 export const insertDraftSchema = createInsertSchema(drafts).omit({
@@ -537,6 +748,9 @@ export const mediaAssets = pgTable("media_assets", {
   contentType: varchar("content_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
   storageKey: text("storage_key").notNull(),
+  storageBackend: varchar("storage_backend").$type<"local" | "s3" | "r2">().notNull().default("local"),
+  storageLocation: jsonb("storage_location").$type<{ bucket: string; region: string; endpoint?: string }>(),
+  deletionRequestedAt: timestamp("deletion_requested_at", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   index("idx_media_assets_tenant_user").on(table.tenantId, table.userId),
@@ -645,6 +859,15 @@ export const publishMetrics = pgTable("publish_metrics", {
 ]);
 
 // Social media accounts for analytics integration
+export const socialOAuthStates = pgTable("social_oauth_states", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  stateDigest: varchar("state_digest", { length: 64 }).primaryKey(),
+  provider: varchar("provider").notNull(),
+  sessionBinding: varchar("session_binding", { length: 64 }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, table => [index("idx_social_oauth_expiry").on(table.tenantId, table.userId, table.expiresAt)]);
+
 export const socialAccounts = pgTable("social_accounts", {
   /** Owning tenant. Every query must be scoped by this. */
   tenantId: varchar("tenant_id").notNull(),
@@ -657,6 +880,7 @@ export const socialAccounts = pgTable("social_accounts", {
   profileImageUrl: varchar("profile_image_url"),
   accessToken: text("access_token"),
   refreshToken: text("refresh_token"),
+  credentialVersion: integer("credential_version").notNull().default(0),
   tokenExpiresAt: timestamp("token_expires_at"),
   scopes: jsonb("scopes").$type<string[]>().default([]),
   isActive: boolean("is_active").default(true).notNull(),
@@ -670,19 +894,7 @@ export const socialAccounts = pgTable("social_accounts", {
 ]);
 
 // Analytics metrics interface
-export interface SocialMetrics {
-  followers: number;
-  following: number;
-  posts: number;
-  impressions: number;
-  engagements: number;
-  engagementRate: number;
-  likes: number;
-  comments: number;
-  shares: number;
-  clicks: number;
-  profileViews?: number;
-}
+export type SocialMetrics = Omit<AnalyticsMetrics, "profileViews"> & { profileViews?: number | null };
 
 // Social analytics snapshots
 export const socialAnalytics = pgTable("social_analytics", {
@@ -694,6 +906,8 @@ export const socialAnalytics = pgTable("social_analytics", {
   provider: varchar("provider").notNull(), // 'linkedin' | 'twitter'
   snapshotDate: timestamp("snapshot_date").notNull(),
   metrics: jsonb("metrics").$type<SocialMetrics>().notNull(),
+  /** NULL means legacy/unverified, never an observed zero. Server-owned field evidence. */
+  metricAvailability: jsonb("metric_availability").$type<AnalyticsAvailability>(),
   topPosts: jsonb("top_posts").$type<Array<{
     postId: string;
     content: string;
@@ -710,10 +924,12 @@ export const socialAnalytics = pgTable("social_analytics", {
   index("idx_social_analytics_tenant_provider").on(table.tenantId, table.provider, table.snapshotDate),
   index("idx_social_analytics_account").on(table.socialAccountId),
   index("idx_social_analytics_date").on(table.snapshotDate),
+  check("social_analytics_availability_object", sql`${table.metricAvailability} is null or (jsonb_typeof(${table.metricAvailability}) = 'object' and octet_length(${table.metricAvailability}::text) <= 32768)`),
 ]);
 
 export const insertSocialAccountSchema = createInsertSchema(socialAccounts).omit({
   id: true,
+  credentialVersion: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -756,6 +972,12 @@ export const draftScheduleTargets = pgTable("draft_schedule_targets", {
   draftScheduleId: varchar("draft_schedule_id").notNull(),
   platform: varchar("platform").notNull(),
   status: varchar("status").default("scheduled").notNull(),
+  executionMode: varchar("execution_mode"), // NULL = legacy, must be explicitly readmitted
+  intent: varchar("intent").notNull().default("schedule"),
+  claimToken: varchar("claim_token"),
+  revision: integer("revision").notNull().default(0),
+  receiptKind: varchar("receipt_kind"),
+  providerPostId: varchar("provider_post_id"),
   publishedAt: timestamp("published_at"),
   retryCount: integer("retry_count").default(0),
   maxRetries: integer("max_retries").default(3),
@@ -775,6 +997,12 @@ export const publishJobLogs = pgTable("publish_job_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   draftId: varchar("draft_id").notNull(),
   draftScheduleId: varchar("draft_schedule_id"),
+  targetId: varchar("target_id"), // Deliberately not an FK: attempt history survives replacement.
+  claimToken: varchar("claim_token"),
+  executionMode: varchar("execution_mode"),
+  receiptKind: varchar("receipt_kind"),
+  actorUserId: varchar("actor_user_id"),
+  evidence: jsonb("evidence").$type<{ decision: string; note: string; receipt?: string; workerStopped: boolean; previousStatus: string; previousRevision: number }>(),
   platform: varchar("platform").notNull(),
   status: varchar("status").notNull(), // 'pending', 'success', 'failed', 'retrying'
   publishedPostId: varchar("published_post_id"),

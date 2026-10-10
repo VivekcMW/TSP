@@ -1,9 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
+import { WorkflowStatus } from "@/components/dashboard/workflow-status";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useSettingsDraft } from "./use-settings-draft";
@@ -38,16 +39,18 @@ export function AccountSettings() {
     onError: (error: Error) => toast({ title: "Could not save account", description: error.message, variant: "destructive" }),
   });
   return <Card>
-    <CardHeader><CardTitle>Account information</CardTitle><CardDescription>Update your name. Email and profile photo are managed by your sign-in provider.</CardDescription></CardHeader>
+    <CardHeader><CardTitle as="h2" help="Update your name. Email and profile photo are managed by your sign-in provider.">Account information</CardTitle></CardHeader>
     <CardContent>
       <form className="space-y-6" onSubmit={(event) => { event.preventDefault(); if (user && dirty && !mutation.isPending) mutation.mutate(draft); }}>
         <Avatar className="h-16 w-16"><AvatarImage src={user?.imageUrl ?? undefined} alt="Account photo" /><AvatarFallback>{user?.firstName?.[0] ?? "U"}</AvatarFallback></Avatar>
-        <fieldset disabled={!user || mutation.isPending} className="space-y-4">
-          <div className="space-y-2"><Label htmlFor="fullName">Full Name</Label><Input className="min-h-11" id="fullName" required maxLength={200} autoComplete="name" value={draft.fullName} onChange={(event) => setDraft({ ...draft, fullName: event.target.value })} data-testid="input-full-name" /></div>
+        <fieldset disabled={!user || mutation.isPending} className="min-w-0 space-y-4">
+          <Field id="fullName" label="Full Name" render={props => <Input {...props} required maxLength={200} autoComplete="name" value={draft.fullName} onChange={(event) => setDraft({ ...draft, fullName: event.target.value })} data-testid="input-full-name" />} />
         </fieldset>
-        <div className="space-y-2"><Label htmlFor="email">Email</Label><Input className="min-h-11" id="email" type="email" readOnly value={user?.email ?? ""} aria-describedby="email-help" data-testid="input-email" /><p id="email-help" className="text-sm text-muted-foreground">Email cannot be changed here.</p></div>
-        {mutation.isError && <p role="alert" className="text-sm text-destructive">{mutation.error.message}</p>}
-        <Button className="min-h-11" type="submit" disabled={!user || !dirty || !draft.fullName.trim() || mutation.isPending} data-testid="button-save-account">{mutation.isPending ? "Saving…" : "Save Account"}</Button>
+        <Field id="email" label="Email" help="Email cannot be changed here." render={props => <Input {...props} type="email" readOnly value={user?.email ?? ""} data-testid="input-email" />} />
+        {mutation.isError && <WorkflowStatus tone="error" title="Account changes were not saved.">{mutation.error.message} Your changes are retained; try Save Account again.</WorkflowStatus>}
+        {mutation.isPending && <WorkflowStatus tone="info">Saving account changes…</WorkflowStatus>}
+        {mutation.isSuccess && !dirty && <WorkflowStatus tone="success">Account changes saved.</WorkflowStatus>}
+        <Button type="submit" disabled={!user || !dirty || !draft.fullName.trim() || mutation.isPending} data-testid="button-save-account">{mutation.isPending ? "Saving…" : "Save Account"}</Button>
       </form>
     </CardContent>
   </Card>;

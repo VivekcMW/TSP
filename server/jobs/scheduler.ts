@@ -121,17 +121,35 @@ export function schedulePublishRefresh(intervalMinutes = 1): string {
   return schedule("publish", intervalMinutes, async (_slot, assertConnected) => publishDueDrafts(assertConnected));
 }
 
+export function scheduleEmailDigest(): string {
+  return schedule("email-digest", 1, async (_slot, assertConnected) => {
+    const { runEmailDigestCycle } = await import("./email-digest");
+    await runEmailDigestCycle(assertConnected);
+  });
+}
+
+/** The shared article index: poll due publications, fetch bodies, prune (see jobs/pool-crawl.ts). */
+export function schedulePoolCrawl(intervalMinutes = 15): string {
+  return schedule("pool-crawl", intervalMinutes, async (_slot, assertConnected) => {
+    const { runPoolCrawlCycle } = await import("./pool-crawl");
+    await runPoolCrawlCycle(assertConnected);
+  });
+}
+
 export async function initializeScheduler(): Promise<boolean> {
   if (process.env.BACKGROUND_JOBS_ENABLED !== "true" || process.env.NODE_ENV !== "production" || process.env.CRON_SCHEDULER !== "true") return false;
   const active = Number(process.env.CRON_REFRESH_INTERVAL || "360");
   const top = Number(process.env.CRON_REFRESH_TOPUSERS_INTERVAL || "30");
   const publish = Number(process.env.CRON_PUBLISH_INTERVAL || "1");
+  const crawl = Number(process.env.POOL_CRAWL_INTERVAL || "15");
   // Validate everything before registering any task (no half-started scheduler).
-  [active, top, publish].forEach(intervalCron);
+  [active, top, publish, crawl].forEach(intervalCron);
   if (!redis) throw new Error("Scheduler requires Redis");
   scheduleActiveUserRefresh(active);
   scheduleTopUserRefresh(top);
   schedulePublishRefresh(publish);
+  if (process.env.EMAIL_DIGEST_ENABLED === "true") scheduleEmailDigest();
+  if (process.env.POOL_CRAWL_ENABLED !== "false") schedulePoolCrawl(crawl);
   return true;
 }
 

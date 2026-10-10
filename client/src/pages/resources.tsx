@@ -116,7 +116,12 @@ export default function ResourcesPage() {
                     <CardContent className="p-6 flex flex-col h-full">
                       <h3 className="text-lg font-semibold mb-2">{template.title}</h3>
                       <p className="text-sm text-muted-foreground mb-4 flex-1">{template.description}</p>
-                      <pre className="text-xs bg-muted/50 rounded-md p-3 mb-4 whitespace-pre-wrap font-sans leading-relaxed max-h-40 overflow-y-auto">
+                      <pre
+                        tabIndex={0}
+                        role="region"
+                        aria-label={`${template.title} template`}
+                        className="text-xs bg-muted/50 rounded-md p-3 mb-4 whitespace-pre-wrap font-sans leading-relaxed max-h-40 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
                         {template.content}
                       </pre>
                       <Button
@@ -146,15 +151,15 @@ export default function ResourcesPage() {
                 platforms, tailored to your industry.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-                <Link href="/how-it-works" data-testid="link-resources-how-it-works">
-                  <Button variant="outline" size="lg">How It Works</Button>
-                </Link>
-                <Link href="/sign-up" data-testid="link-resources-signup">
-                  <Button size="lg">
+                <Button asChild variant="outline" size="lg">
+                  <Link href="/how-it-works" data-testid="link-resources-how-it-works">How It Works</Link>
+                </Button>
+                <Button asChild size="lg">
+                  <Link href="/sign-up" data-testid="link-resources-signup">
                     <Sparkles className="w-4 h-4 mr-2" />
                     Start Free Today
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             </div>
           </section>

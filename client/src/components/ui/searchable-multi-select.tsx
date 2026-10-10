@@ -3,6 +3,7 @@ import { Check, ChevronDown, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { fieldTriggerClassName } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 
 export interface SearchableMultiSelectOption {
@@ -75,12 +76,12 @@ export function SearchableMultiSelect({
           role="combobox"
           aria-expanded={open}
           aria-label={ariaLabel}
-          className="h-10 w-full justify-between font-normal"
+          className={fieldTriggerClassName}
         >
           <span className={cn("truncate", selected.length === 0 && "text-muted-foreground")}>
             {selected.length > 0 ? `${selected.length} selected` : placeholder}
           </span>
-          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[--radix-popover-trigger-width] p-0">
@@ -103,9 +104,11 @@ export function SearchableMultiSelect({
                     value={option.value}
                     onSelect={() => toggleValue(option.value)}
                     disabled={!isSelected && selected.length >= maxItems}
+                    className={cn(isSelected && "bg-accent text-accent-foreground border-l-2 border-primary data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground")}
                   >
-                    <Check className={cn("mr-2 h-4 w-4", isSelected ? "opacity-100 text-secondary" : "opacity-0")} />
+                    <Check aria-hidden="true" className={cn("mr-2 h-4 w-4", isSelected ? "opacity-100 text-primary" : "opacity-0")} />
                     <span className="truncate">{label}</span>
+                    {isSelected && <span className="sr-only">Selected</span>}
                   </CommandItem>
                 );
               })}
@@ -113,7 +116,7 @@ export function SearchableMultiSelect({
             {allowCustom && canAdd && (
               <CommandGroup heading="Custom">
                 <CommandItem value={`add-${customValue}`} onSelect={addCustomValue}>
-                  <Plus className="mr-2 h-4 w-4 text-secondary" />
+                  <Plus className="mr-2 h-4 w-4 text-primary" />
                   Add “{customValue}”
                 </CommandItem>
               </CommandGroup>

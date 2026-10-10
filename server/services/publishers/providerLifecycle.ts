@@ -1,4 +1,5 @@
 import { resolveProviderDefinition } from "./providerSandbox";
+import { publishingCapability } from "@shared/publishing-capabilities";
 
 export type ProviderConnectionStatus = "connected" | "expired" | "missing" | "disabled" | "invalid";
 
@@ -29,7 +30,7 @@ export function assessProviderConnection(
 ): ProviderConnectionAssessment {
   const provider = resolveProviderDefinition(providerKey);
 
-  if (!provider) {
+  if (!provider || !publishingCapability(providerKey)?.live) {
     return {
       status: "invalid",
       canPublish: false,
@@ -64,7 +65,7 @@ export function assessProviderConnection(
   const missingScopes = requiredScopes.filter((scope) => !currentScopes.includes(scope));
 
   const expiry = connection.tokenExpiresAt ? new Date(connection.tokenExpiresAt) : null;
-  const isExpired = expiry ? expiry.getTime() <= Date.now() : false;
+  const isExpired = expiry ? !Number.isFinite(expiry.getTime()) || expiry.getTime() <= Date.now() : false;
 
   if (isExpired) {
     return {

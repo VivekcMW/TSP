@@ -191,6 +191,14 @@ Analyze this input and determine the best industry vertical match. Return valid 
   };
 }
 
+/** A readable industry name for customer-facing text: the catalogue name, or the code in Title Case. */
+export function industryDisplayName(slug: string | null | undefined): string | null {
+  const value = slug?.trim();
+  if (!value) return null;
+  return SUPPORTED_VERTICALS.find(vertical => vertical.slug === value)?.name
+    ?? value.split(/[_\s-]+/).filter(Boolean).map(word => word[0].toUpperCase() + word.slice(1)).join(" ");
+}
+
 export function getAvailableVerticals() {
   return SUPPORTED_VERTICALS.map(v => ({
     slug: v.slug,

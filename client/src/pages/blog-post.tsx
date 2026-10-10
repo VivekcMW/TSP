@@ -85,12 +85,12 @@ export default function BlogPostPage() {
                       Generate on-brand posts for 23 platforms in minutes, not hours.
                     </p>
                   </div>
-                  <Link href="/sign-up" data-testid="link-blog-post-signup">
-                    <Button data-testid="button-blog-post-signup">
+                  <Button asChild>
+                    <Link href="/sign-up" data-testid="link-blog-post-signup">
                       <Sparkles className="w-4 h-4 mr-2" />
                       Start Free
-                    </Button>
-                  </Link>
+                    </Link>
+                  </Button>
                 </CardContent>
               </Card>
             </Reveal>

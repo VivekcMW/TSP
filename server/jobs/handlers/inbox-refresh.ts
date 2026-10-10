@@ -3,6 +3,8 @@ import { engineRegistry } from "../../services/engines";
 import { normalizeIndustryToSlug } from "../../services/metaEngine";
 import { storage, type TenantScope } from "../../storage";
 import type { InboxRefreshJobData, InboxRefreshJobProgress } from "../queue";
+import { createHash } from "node:crypto";
+import { inboxRefreshMessage } from "@shared/inbox-refresh";
 
 /**
  * Job handler for inbox refresh.
@@ -12,11 +14,12 @@ import type { InboxRefreshJobData, InboxRefreshJobProgress } from "../queue";
 export async function handleInboxRefresh(job: Bull.Job<InboxRefreshJobData>): Promise<InboxRefreshJobProgress> {
   const { tenantId, userId, autoRefresh = false } = job.data;
 
-  if (!userId) {
+  if (!tenantId || !userId) {
     throw new Error("Job requires userId");
   }
 
   const scope: TenantScope = { tenantId, userId };
+  const operationId = job.data.operationId ?? `job:${createHash("sha256").update(String(job.id)).digest("hex")}`;
 
   const jobId = job.id;
   console.log(`[job:inbox_refresh] ${jobId} started for tenant ${tenantId}, user ${userId}`);
@@ -28,6 +31,12 @@ export async function handleInboxRefresh(job: Bull.Job<InboxRefreshJobData>): Pr
   };
 
   try {
+    const receipt = await storage.getInboxRefreshReceipt(scope, operationId, autoRefresh);
+    if (receipt) {
+      Object.assign(progress, receipt);
+      await job.progress(receipt);
+      return receipt;
+    }
     // Get user profile and validate
     const profile = await storage.getUserProfile(scope);
     if (!profile) {
@@ -42,37 +51,12 @@ export async function handleInboxRefresh(job: Bull.Job<InboxRefreshJobData>): Pr
 
     console.log(`[job:inbox_refresh] ${jobId} using ${engine.config.displayName} engine`);
 
-    // Check existing active items
-    const existingItems = await storage.getInboxItems(scope);
-    const activeItems = existingItems.filter((item: any) => item.status === "active");
-    const activeCount = activeItems.length;
-
-    // Dismiss active items if at limit and autoRefresh is enabled
-    if (activeCount >= 10) {
-      if (!autoRefresh) {
-        console.log(
-          `[job:inbox_refresh] ${jobId} user has ${activeCount} active items, skipping refresh (not auto-refresh)`
-        );
-        return progress;
-      }
-
-      console.log(
-        `[job:inbox_refresh] ${jobId} dismissing ${activeCount} stale articles to make room for fresh ones`
-      );
-      for (const item of activeItems) {
-        await storage.updateInboxItem(scope, item.id, { status: "dismissed" });
-      }
-    }
-
     // Process articles via engine
     const startTime = Date.now();
-    const result = await engine.processForUser(scope, profile);
+    const result = await engine.processForUser(scope, profile, { operationId, autoRefresh });
     const durationMs = Date.now() - startTime;
 
-    progress.articlesProcessed = result.articlesProcessed;
-    progress.articlesMatched = result.articlesMatched;
-    progress.articlesCreated = result.newInboxItems;
-    progress.needsSetup = result.needsSetup;
+    Object.assign(progress, result);
 
     // Log engine run
     await storage.createEngineRunLog(scope, {
@@ -83,10 +67,10 @@ export async function handleInboxRefresh(job: Bull.Job<InboxRefreshJobData>): Pr
       errorMessage: result.errors?.join("; ") || null,
       durationMs,
       completedAt: new Date(),
-    });
+    }).catch(() => { console.warn("Inbox refresh log unavailable"); });
 
     if (!result.success) {
-      console.warn(`[job:inbox_refresh] ${jobId} engine processing failed:`, result.errors);
+      throw new Error(inboxRefreshMessage("failure"));
     } else if (result.needsSetup) {
       console.log(`[job:inbox_refresh] ${jobId} user has no keywords/sources configured yet - nothing to fetch`);
     } else {
@@ -101,8 +85,10 @@ export async function handleInboxRefresh(job: Bull.Job<InboxRefreshJobData>): Pr
     );
 
     return progress;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+  } catch {
+    const errorMessage = progress.success
+      ? "Refresh committed, but its status could not be reported. Please check again."
+      : inboxRefreshMessage("failure");
     console.error(`[job:inbox_refresh] ${jobId} failed:`, errorMessage);
 
     // Log the failure
@@ -114,9 +100,9 @@ export async function handleInboxRefresh(job: Bull.Job<InboxRefreshJobData>): Pr
       errorMessage,
       durationMs: Date.now() - job.data.startedAt,
       completedAt: new Date(),
-    });
+    }).catch(() => { console.warn("Inbox refresh failure log unavailable"); });
 
-    throw error;
+    throw new Error(errorMessage);
   }
 }
 

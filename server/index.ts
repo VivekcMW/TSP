@@ -1,13 +1,15 @@
 import "dotenv/config";
-import "./lib/env-aliases";
+import { initSentry, Sentry } from "./lib/sentry";
+initSentry();
 import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { toNodeHandler } from "better-auth/node";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
+import { apiNotFound } from "./middlewares/apiNotFound";
 import { createServer, STATUS_CODES } from "node:http";
 import type { Socket } from "node:net";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { pool } from "./db";
 import { initializeQueues, getQueueHealth } from "./jobs/queue";
 import { registerJobHandlers, closeJobHandlers } from "./jobs";
@@ -17,6 +19,8 @@ import { auth } from "./authentication";
 import { closeEmailQueue, initializeEmailQueue, registerEmailWorker } from "./services/email";
 import { configureProxy } from "./lib/proxy";
 import { redis } from "./lib/redis";
+import { requireDbUser } from "./middlewares/requireDbUser";
+import { requirePermission } from "./middlewares/requirePermission";
 
 export const app = express();
 const httpServer = createServer(app);
@@ -28,6 +32,7 @@ httpServer.on("connection", (socket) => {
 configureProxy(app);
 let shuttingDown = false;
 let closeEditorialJobs: (() => Promise<void>) | undefined;
+let invitationMaintenance: ReturnType<typeof setInterval> | undefined;
 
 // Request ID tracking for debugging and monitoring (correlate logs across services)
 app.use((req, res, next) => {
@@ -94,12 +99,12 @@ app.use((_req, res, next) => {
   // Enumerates fonts (Google Fonts), OAuth/API providers (LinkedIn, Twitter/X, Telegram, etc), and AI services
   const cspDirectives = [
     "default-src 'self'",                                                           // Only same-origin by default
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",                              // Needed for React, Vite HMR in dev
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.googletagmanager.com", // React, Vite HMR in dev, Razorpay Checkout, and Google Tag Manager
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",               // Inline styles + Google Fonts CSS
     "font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com",      // Google Fonts
     "img-src 'self' data: https:",                                                  // Self, data URIs, and HTTPS images
-    "connect-src 'self' https://api.linkedin.com https://www.linkedin.com https://api.twitter.com https://api.x.com https://telegram.org https://api.telegram.org https://news.google.com https://api.openrouter.ai https://api.anthropic.com https://generativelanguage.googleapis.com https://accounts.google.com",
-    "frame-src 'none'",                                                             // No embedded frames
+    "connect-src 'self' https://api.linkedin.com https://www.linkedin.com https://api.twitter.com https://api.x.com https://telegram.org https://api.telegram.org https://news.google.com https://api.openrouter.ai https://api.anthropic.com https://generativelanguage.googleapis.com https://accounts.google.com https://api.razorpay.com https://checkout.razorpay.com https://lumberjack.razorpay.com https://www.googletagmanager.com https://www.google-analytics.com https://analytics.google.com https://region1.google-analytics.com https://*.ingest.us.sentry.io https://*.ingest.sentry.io",
+    "frame-src https://api.razorpay.com https://checkout.razorpay.com https://www.googletagmanager.com", // Razorpay's payment modal and GTM frames
     "object-src 'none'",                                                            // No plugins
     "base-uri 'self'",                                                              // Restrict base URL changes
   ].join("; ");
@@ -108,6 +113,7 @@ app.use((_req, res, next) => {
   next();
 });
 
+app.use("/api/creation-session", express.json({ limit: "2mb" }));
 app.use(
   express.json({
     verify: (req, _res, buf) => {
@@ -151,8 +157,35 @@ app.get("/readyz", async (_req, res) => {
   }
 });
 
-// Production diagnostics endpoint (auth required in future, currently debug-only)
-app.get("/api/diagnostics", async (_req, res) => {
+function diagnosticsTokenValid(req: Request): boolean {
+  const expected = process.env.DIAGNOSTICS_TOKEN?.trim();
+  if (!expected) return false;
+  if (process.env.NODE_ENV === "production" && expected.length < 32) return false;
+
+  const authorization = req.get("authorization") || "";
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  const received = match?.[1]?.trim();
+  if (!received) return false;
+
+  const expectedBuffer = Buffer.from(expected);
+  const receivedBuffer = Buffer.from(received);
+  return expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer);
+}
+
+const diagnosticsSessionAccess = [
+  requireDbUser,
+  requirePermission("usage:read:all"),
+] as const;
+
+// Production diagnostics are protected: either a long bearer token for machine
+// checks, or a platform-support/admin session with the usual audited access.
+app.get("/api/diagnostics", (req, res, next) => {
+  if (diagnosticsTokenValid(req)) return next();
+  void Promise.resolve(diagnosticsSessionAccess[0](req, res, (error?: unknown) => {
+    if (error) return next(error);
+    void Promise.resolve(diagnosticsSessionAccess[1](req, res, next)).catch(next);
+  })).catch(next);
+}, async (_req, res) => {
   try {
     const queue = await getQueueHealth();
     const uptime = process.uptime();
@@ -217,6 +250,7 @@ export function errorHandler(err: unknown, _req: Request, res: Response, next: N
   const status = typeof code === "number" && Number.isInteger(code) && code >= 400 && code <= 599 ? code : 500;
   // Never log raw errors/headers/bodies or return internal exception messages.
   console.error(`[express] Request failed (${status})`);
+  Sentry.captureException(err);
   if (res.headersSent) {
     // Terminate a partial response via Express without leaking the original error.
     next(new Error("Request failed"));
@@ -300,6 +334,7 @@ const closeResources = createGracefulShutdown({
   }),
   stopScheduler,
   closeJobs: async () => {
+    clearInterval(invitationMaintenance);
     try { await closeEditorialJobs?.(); }
     finally { await closeJobHandlers(); }
   },
@@ -319,6 +354,18 @@ function shutdown(code = 0): Promise<void> {
 }
 
 export async function startServer(): Promise<void> {
+  const { pruneInvitationsIfInstalled } = await import("./services/invitations-store");
+  let pruning = false;
+  const prune = async () => {
+    if (pruning) return;
+    pruning = true;
+    try { await pruneInvitationsIfInstalled(); }
+    catch { console.error("[invitations] Retention cleanup unavailable"); }
+    finally { pruning = false; }
+  };
+  void prune();
+  invitationMaintenance = setInterval(() => void prune(), 60 * 60 * 1000);
+  invitationMaintenance.unref();
   console.log("[startup] Initializing queues...");
   // Initialize background job queue (if Redis is configured)
   initializeQueues();
@@ -342,6 +389,8 @@ export async function startServer(): Promise<void> {
   console.log("[startup] Registering routes...");
   await registerRoutes(httpServer, app);
   if (shuttingDown) return;
+  // Before the web app's catch-all, so an unknown API path is a JSON 404, not the page.
+  app.use("/api", apiNotFound);
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route

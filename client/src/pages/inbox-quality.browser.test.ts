@@ -31,24 +31,53 @@ beforeAll(async () => {
       import Home from "@/pages/overview";
       import Discover from "@/pages/dashboard";
       import { CreatePostProvider } from "@/components/dashboard/create-post-provider";
+      import CreatePostPage from "@/pages/create-post";
+      import { Route } from "wouter";
       window.__calls = [];
-      window.fetch = async (...args) => { window.__calls.push(args); throw new Error("Unexpected request"); };
-      const data = { "/api/inbox": window.__records, "/api/drafts": [],
+      window.__creation = { revision: 0, state: null };
+      window.fetch = async (url, options = {}) => {
+        window.__calls.push({ url, method: options.method || "GET" });
+        let body;
+        if (url === "/api/creation-session") {
+          if (options.method === "PUT") window.__creation = { revision: window.__creation.revision + 1, state: JSON.parse(options.body).state };
+          body = window.__creation;
+        }
+        else if (url === "/api/inbox?status=active") body = window.__records.filter(item => item.status === "active").slice(0, 500);
+        else if (url === "/api/inbox") body = window.__records.slice(0, 500);
+        else if (window.__refreshJob && String(url) === "/api/inbox/refresh/" + window.__refreshJob.jobId) body = window.__refreshJob;
+        else if (url === "/api/trends") {
+          if (window.__trendError) return new Response("Unavailable", { status: 503 });
+          body = window.__trends || [];
+        }
+        else if (options.method === "PATCH" && String(url).startsWith("/api/inbox/")) {
+          const id = String(url).split("/").pop();
+          window.__records = window.__records.map(item => item.id === id ? { ...item, ...JSON.parse(options.body) } : item);
+          body = window.__records.find(item => item.id === id);
+        } else throw new Error("Unexpected request");
+        return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
+      };
+      const data = { "/api/inbox": window.__records.slice(0, 500), "/api/drafts": [], "/api/drafts/published": [],
         "/api/drafts/scheduled": { items: [] }, "/api/me": { firstName: "Reader" },
-        "/api/profile": { enabledPlatforms: ["linkedin"], defaultPlatform: "linkedin" }, "/api/integrations": [] };
+        "/api/profile": { enabledPlatforms: ["linkedin"], defaultPlatform: "linkedin" }, "/api/integrations": [],
+        "/api/analytics/summary": { connected: { linkedin: false, twitter: false }, combined: {}, availability: {}, linkedin: null, twitter: null, lastSync: null },
+        "/api/team/context": { tenantId: "t", tenantName: "Personal", tenantKind: "personal", role: "owner", memberships: [] } };
       for (const [key, value] of Object.entries(data)) queryClient.setQueryData([key], value);
+      if (window.__refreshJob) queryClient.setQueryData(["inbox-refresh-job"], window.__refreshJob);
       window.__cachedInbox = () => queryClient.getQueryData(["/api/inbox"]);
       createRoot(document.getElementById("root")).render(
         <QueryClientProvider client={queryClient}><CreatePostProvider>
           {window.__surface === "home" ? <Home /> : <Discover />}
+          <Route path="/dashboard/create" component={CreatePostPage} />
         </CreatePostProvider></QueryClientProvider>);
     ` },
     bundle: true, write: false, format: "iife", platform: "browser", jsx: "automatic",
     define: { "process.env.NODE_ENV": '"test"' },
     plugins: [{ name: "mock-auth-and-toasts", setup(builder) {
       builder.onResolve({ filter: /^@\/lib\/(auth|dev-auth)$|^@\/hooks\/use-toast$/ }, args => ({ path: args.path, namespace: "mock" }));
-      builder.onLoad({ filter: /.*/, namespace: "mock" }, args => ({ contents: args.path.includes("auth")
-        ? 'export const useIsSignedIn = () => true; export const useAuth = () => ({user: {firstName: "Reader"}});'
+      builder.onLoad({ filter: /.*/, namespace: "mock" }, args => ({ contents: args.path.endsWith("dev-auth")
+        ? 'export const useIsSignedIn = () => window.__devBypass === true || window.__signedIn !== false;'
+        : args.path.endsWith("/auth")
+        ? 'export const useIsSignedIn = () => window.__signedIn !== false; export const useAuth = () => ({user: {firstName: "Reader"}});'
         : "export const useToast = () => ({toast: () => {}});", loader: "js" }));
     } }],
   });
@@ -60,21 +89,62 @@ beforeAll(async () => {
 afterEach(async () => { await page?.close(); });
 afterAll(async () => { await browser?.close(); });
 
-async function mount(surface = "discover", items = records) {
+async function mount(surface = "discover", items = records, state: Record<string, unknown> = {}) {
   page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   page.setDefaultTimeout(3000);
   await page.route("**/*", route => route.abort());
-  await page.setContent('<div id="root" style="height:100vh"></div>');
-  await page.evaluate(({ surface, items }) => Object.assign(window, { __surface: surface, __records: items }), { surface, items });
+  // A real origin lets the router navigate to /dashboard/create (about:blank cannot pushState).
+  await page.route("https://discover.test/", route => route.fulfill({ contentType: "text/html", body: '<div id="root" style="height:100vh"></div>' }));
+  await page.goto("https://discover.test/");
+  await page.evaluate(({ surface, items, state }) => Object.assign(window, { __surface: surface, __records: items }, state), { surface, items, state });
   await page.addStyleTag({ content: css });
   await page.addScriptTag({ content: bundle });
 }
+const storyRows = () => page.locator('[data-testid^="row-inbox-"]');
 async function expectUnchanged(items = records) {
-  expect(await page.evaluate(() => (window as any).__cachedInbox())).toEqual(items);
-  expect(await page.evaluate(() => (window as any).__calls)).toEqual([]);
+  expect(await page.evaluate(() => (window as any).__cachedInbox())).toEqual(items.slice(0, 500));
+  expect(await page.evaluate(() => (window as any).__calls.filter((call: { url: string }) => call.url !== "/api/creation-session"))).toEqual(
+    await page.evaluate(() => (window as any).__surface) === "home" ? [] : [{ url: "/api/inbox?status=active", method: "GET" }]);
 }
 
 describe("legacy inbox quality UI", () => {
+  it("loads local articles and trends with development bypass but no auth session", async () => {
+    await mount("discover", records, { __signedIn: false, __devBypass: true });
+    await browserExpect(storyRows()).toHaveCount(3);
+    await expectUnchanged();
+    await page.getByRole("button", { name: "Topics in your recent articles" }).click();
+    await browserExpect(page.getByText("No topics with at least two newly discovered articles yet.")).toBeVisible();
+    expect(await page.evaluate(() => (window as any).__calls)).toContainEqual({ url: "/api/trends", method: "GET" });
+  });
+
+  it("loads trends only when opened and describes admitted-content limitations", async () => {
+    await mount("discover", records, { __trends: [{ topic: "ai", count: 3, velocityPercent: null, sourceCount: 1, unknownSourceCount: 2,
+      articles: [], coverage: { partial: true, rowLimit: 5000 } }] });
+    await browserExpect(storyRows()).toHaveCount(3);
+    await expectUnchanged();
+    await page.getByRole("button", { name: "Topics in your recent articles" }).click();
+    await browserExpect(page.getByText(/New in this window/)).toBeVisible();
+    await browserExpect(page.getByText(/Partial coverage: first 5000/)).toBeVisible();
+    await browserExpect(page.getByText(/not market trends/)).toBeVisible();
+    await browserExpect(page.getByText(/2 unknown origins/)).toBeVisible();
+  });
+
+  it("shows empty and signed-out trend states without automatic fetch", async () => {
+    await mount();
+    await page.getByRole("button", { name: "Topics in your recent articles" }).click();
+    await browserExpect(page.getByText("No topics with at least two newly discovered articles yet.")).toBeVisible();
+    await page.close();
+    await mount("discover", records, { __signedIn: false });
+    await browserExpect(page.getByRole("button", { name: "Topics in your recent articles" })).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).__calls)).toEqual([]);
+  });
+
+  it("shows a recoverable trend failure instead of treating it as no trends", async () => {
+    await mount("discover", records, { __trendError: true });
+    await page.getByRole("button", { name: "Topics in your recent articles" }).click();
+    await browserExpect(page.getByRole("button", { name: "Retry topics" })).toBeVisible();
+  });
+
   it("Home skips bad active entries and recommends the first usable story", async () => {
     await mount("home");
     await browserExpect(page.getByTestId("card-personalized-briefing")).toContainText("Authentication and DNS research");
@@ -89,12 +159,11 @@ describe("legacy inbox quality UI", () => {
     await expectUnchanged(items);
   });
 
-  it("Discover counts only usable candidates while saved and dismissed records remain accessible", async () => {
+  it("Discover shows all active legacy rows while saved and dismissed records remain accessible", async () => {
     await mount();
-    await browserExpect(page.getByRole("status")).toContainText("2 unavailable or low-quality stories hidden");
-    await browserExpect(page.getByRole("status")).toContainText("Saved stories are still accessible in Saved");
-    await browserExpect(page.getByText("1 active", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText(loginTitle, { exact: true })).toHaveCount(0);
+    await browserExpect(page.getByRole("status")).toHaveCount(0);
+    await browserExpect(storyRows()).toHaveCount(3);
+    await browserExpect(page.getByText(loginTitle, { exact: true }).first()).toBeVisible();
     await page.getByTestId("button-filter-saved").click();
     await browserExpect(page.getByText(loginTitle, { exact: true }).first()).toBeVisible();
     await browserExpect(page.getByRole("status")).toHaveCount(0);
@@ -103,28 +172,50 @@ describe("legacy inbox quality UI", () => {
     await expectUnchanged();
   });
 
-  it("explains an all-hidden active view, including the singular count", async () => {
+  it("says it is finding stories, not 'click Refresh', while the first refresh runs", async () => {
+    await mount("discover", [], { __refreshJob: { status: "active", jobId: "first-refresh", startedAt: Date.now(), progress: { articlesProcessed: 12, articlesMatched: 3, articlesCreated: 0 } } });
+    await browserExpect(page.getByRole("heading", { name: "Finding your stories" })).toBeVisible();
+    await browserExpect(page.getByRole("heading", { name: "No articles yet" })).toHaveCount(0);
+    await browserExpect(page.getByText("Click 'Refresh Articles'", { exact: false })).toHaveCount(0);
+  });
+
+  it("keeps a legacy-only active inbox visible with save and dismiss actions", async () => {
     const items = [records[0], records[3]];
     await mount("discover", items);
-    await browserExpect(page.getByRole("status")).toContainText("1 unavailable or low-quality story hidden");
-    await browserExpect(page.getByText("0 active", { exact: true })).toBeVisible();
-    await browserExpect(page.getByRole("heading", { name: "No articles yet" })).toBeVisible();
+    await browserExpect(storyRows()).toHaveCount(1);
+    await browserExpect(page.getByRole("heading", { name: "No articles yet" })).toHaveCount(0);
+    await browserExpect(page.getByRole("button", { name: "Save story", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: "Dismiss", exact: true })).toBeVisible();
     await expectUnchanged(items);
+  });
+
+  it("fetches active rows beyond 620 historical rows and lets the user dismiss legacy capacity occupants", async () => {
+    const items = [...Array.from({ length: 620 }, (_, index) => story(`history-${index}`, `Historical ${index}`, "dismissed")), records[0], records[2]];
+    await mount("discover", items);
+    await browserExpect(storyRows()).toHaveCount(2);
+    await browserExpect(page.getByText(loginTitle, { exact: true }).first()).toBeVisible();
+    await expectUnchanged(items);
+    await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await browserExpect(storyRows()).toHaveCount(1);
+    await browserExpect(page.getByText(loginTitle, { exact: true })).toHaveCount(0);
+    await browserExpect(page.getByText("Authentication and DNS research", { exact: true }).first()).toBeVisible();
+    expect(await page.evaluate(() => (window as any).__calls.filter((call: any) => call.method === "PATCH")))
+      .toEqual([{ url: "/api/inbox/login", method: "PATCH" }]);
   });
 
   it("composer excludes low-quality candidates without blocking an explicitly opened saved record", async () => {
     await mount();
-    await page.getByTestId("button-instant-review").click();
-    await page.getByLabel("Source type").selectOption("article");
-    expect(await page.getByLabel("Story", { exact: true }).locator("option").allTextContents()).toEqual([
-      "Choose a story (no generation yet)", "Authentication and DNS research",
-    ]);
-    await page.keyboard.press("Escape");
-    await browserExpect(page.getByRole("dialog")).toHaveCount(0);
     await page.getByTestId("button-filter-saved").click();
     await page.getByTestId("button-generate-saved").click();
-    await browserExpect(page.getByLabel("Story", { exact: true })).toHaveValue("saved");
-    await browserExpect(page.getByTestId("input-instant-review-url")).toHaveValue("https://news.test/saved");
+    const attached = page.getByRole("region", { name: "Pundit chat" });
+    await browserExpect(attached).toContainText(loginTitle);
+    await browserExpect(attached).not.toContainText("Excerpt unavailable");
+    await attached.getByRole("button", { name: "Articles (1)", exact: true }).click();
+    const choices = page.getByRole("group", { name: "Crawled articles" });
+    await browserExpect(choices.getByRole("checkbox", { name: `${loginTitle} Fixture publication`, exact: true })).toBeChecked();
+    await browserExpect(choices.getByRole("checkbox")).toHaveCount(2);
+    await browserExpect(choices).toContainText("Authentication and DNS research");
+    await browserExpect(choices).not.toContainText("littleblackbook.com");
     await expectUnchanged();
   });
 });

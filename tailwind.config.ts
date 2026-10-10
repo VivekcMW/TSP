@@ -2,14 +2,38 @@ import type { Config } from "tailwindcss";
 import { platformBrand } from "./client/src/design/tokens";
 
 export default {
-  darkMode: ["class"],
+  // Keep legacy dark: class names compilable, but never match owned UI.
+  darkMode: ["class", ":not(*)"],
   content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}"],
   theme: {
     extend: {
       borderRadius: {
-        lg: ".5625rem", /* 9px */
-        md: ".375rem", /* 6px */
-        sm: ".1875rem", /* 3px */
+        lg: "var(--radius-card)",
+        md: "var(--radius-control)",
+        sm: "var(--radius-small)",
+        card: "var(--radius-card)",
+        pill: "var(--radius-pill)",
+      },
+      spacing: {
+        "space-1": "var(--space-1)",
+        "space-2": "var(--space-2)",
+        "space-3": "var(--space-3)",
+        "space-4": "var(--space-4)",
+        "space-6": "var(--space-6)",
+        "space-8": "var(--space-8)",
+        "surface-compact": "var(--surface-padding-compact)",
+        "surface-standard": "var(--surface-padding-standard)",
+        "surface-relaxed": "var(--surface-padding-relaxed)",
+      },
+      maxWidth: {
+        reading: "var(--page-width-reading)",
+        standard: "var(--page-width-standard)",
+        workbench: "var(--page-width-workbench)",
+      },
+      transitionDuration: {
+        DEFAULT: "var(--motion-fast)",
+        fast: "var(--motion-fast)",
+        normal: "var(--motion-normal)",
       },
       colors: {
         // Flat / base colors (regular buttons)
@@ -30,10 +54,13 @@ export default {
         primary: {
           DEFAULT: "hsl(var(--primary) / <alpha-value>)",
           foreground: "hsl(var(--primary-foreground) / <alpha-value>)",
+          hover: "hsl(var(--primary-hover) / <alpha-value>)",
+          active: "hsl(var(--primary-active) / <alpha-value>)",
           border: "var(--primary-border)",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary) / <alpha-value>)",
+          hover: "hsl(var(--secondary-hover) / <alpha-value>)",
           text: "hsl(var(--secondary-text) / <alpha-value>)",
           "on-dark": "hsl(var(--secondary-on-dark) / <alpha-value>)",
           foreground: "hsl(var(--secondary-foreground) / <alpha-value>)",
@@ -51,12 +78,22 @@ export default {
         },
         destructive: {
           DEFAULT: "hsl(var(--destructive) / <alpha-value>)",
+          subtle: "hsl(var(--destructive-subtle) / <alpha-value>)",
           foreground: "hsl(var(--destructive-foreground) / <alpha-value>)",
           border: "var(--destructive-border)",
         },
         success: {
           DEFAULT: "hsl(var(--success) / <alpha-value>)",
           foreground: "hsl(var(--success-foreground) / <alpha-value>)",
+          subtle: "hsl(var(--success-subtle) / <alpha-value>)",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning) / <alpha-value>)",
+          subtle: "hsl(var(--warning-subtle) / <alpha-value>)",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info) / <alpha-value>)",
+          subtle: "hsl(var(--info-subtle) / <alpha-value>)",
         },
         ring: "hsl(var(--ring) / <alpha-value>)",
         "surface-ink": {
@@ -89,19 +126,24 @@ export default {
           border: "var(--sidebar-accent-border)"
         },
         status: {
-          online: "rgb(34 197 94)",
-          away: "rgb(245 158 11)",
-          busy: "rgb(239 68 68)",
-          offline: "rgb(156 163 175)",
+          // Presence semantics, never selection. No current runtime callers.
+          online: "hsl(var(--success) / <alpha-value>)",
+          away: "hsl(var(--warning) / <alpha-value>)",
+          busy: "hsl(var(--destructive) / <alpha-value>)",
+          offline: "hsl(var(--muted-foreground) / <alpha-value>)",
         },
       },
-      // Separate ink from fill without rewriting existing text-secondary callers.
+      // Legacy text-secondary is neutral helper ink, not a selected/brand role.
       textColor: {
         secondary: {
           DEFAULT: "hsl(var(--secondary-text) / <alpha-value>)",
           text: "hsl(var(--secondary-text) / <alpha-value>)",
           "on-dark": "hsl(var(--secondary-on-dark) / <alpha-value>)",
           foreground: "hsl(var(--secondary-foreground) / <alpha-value>)",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive-text) / <alpha-value>)",
+          foreground: "hsl(var(--destructive-foreground) / <alpha-value>)",
         },
       },
       fontFamily: {
@@ -121,8 +163,8 @@ export default {
         },
       },
       animation: {
-        "accordion-down": "accordion-down 0.2s ease-out",
-        "accordion-up": "accordion-up 0.2s ease-out",
+        "accordion-down": "accordion-down var(--motion-normal) ease-out",
+        "accordion-up": "accordion-up var(--motion-normal) ease-out",
       },
     },
   },

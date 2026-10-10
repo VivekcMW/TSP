@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   limit: vi.fn((_req: unknown, _res: unknown, next: () => void) => next()),
 }));
 vi.mock("../lib/redis", () => ({ get redis() { return mocks.configured ? {} : undefined; } }));
+vi.mock("../db", () => ({ db: {} }));
+vi.mock("../services/generation-quota", async original => ({ ...await original<typeof import("../services/generation-quota")>(), readGenerationOperation: vi.fn(), runGeneration: vi.fn(async (_scope, _id, _kind, _input, _signal, work) => work()) }));
 vi.mock("../jobs/editorial", () => ({
   getEditorialJobs: () => mocks.enabled ? { enqueue: mocks.enqueue, status: mocks.status, result: mocks.result, cancel: mocks.cancel } : undefined,
   EditorialQueueUnavailableError: class extends Error { constructor() { super("Editorial queue unavailable"); } },
@@ -33,6 +35,7 @@ vi.mock("../services/punditBrain", () => ({ generatePlatformReviewsDetailed: moc
 vi.mock("../services/urlFetcher", () => ({ fetchArticleFromUrl: mocks.fetch }));
 import { registerEditorialJobsRoutes } from "./editorial-jobs";
 import { CrawlError } from "../services/crawlerFetch";
+import { GenerationQuotaError, readGenerationOperation, runGeneration } from "../services/generation-quota";
 
 const id = "00000000-0000-4000-8000-000000000001";
 const body = { requestIntent: id, url: "https://news.test/a", selectedPlatforms: ["medium"], format: "article" };
@@ -53,6 +56,22 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("editorial queue HTTP boundary", () => {
+  it("returns truthful quota errors from queue admission and local fallback", async () => {
+    const denied = new GenerationQuotaError(429, "generation_quota_exceeded", "Limit reached", 120);
+    mocks.enqueue.mockRejectedValueOnce(denied);
+    const queued = await post().send(body);
+    expect(queued.status).toBe(429); expect(queued.headers["retry-after"]).toBe("120");
+    mocks.enabled = false; vi.mocked(runGeneration).mockRejectedValueOnce(denied);
+    expect((await post().send(body)).status).toBe(429); expect(mocks.generate).not.toHaveBeenCalled();
+  });
+  it("scopes operation status and never calls an uncertain started operation successful", async () => {
+    vi.mocked(readGenerationOperation).mockResolvedValueOnce({ operationId: id, kind: "manual", status: "started", periodStart: new Date(), periodEnd: new Date(), createdAt: new Date(), completedAt: null });
+    const response = await request(app).get(`/api/generation/operations/${id}`).set("x-user", "user-a");
+    expect(response.status).toBe(200); expect(response.body).toMatchObject({ consumed: true, outcome: "in_progress_or_unknown", resultRetained: false });
+    expect(readGenerationOperation).toHaveBeenCalledWith(scoped, id);
+    vi.mocked(readGenerationOperation).mockResolvedValueOnce(null);
+    expect((await request(app).get(`/api/generation/operations/${id}`).set("x-user", "other")).status).toBe(404);
+  });
   it("requires authentication and generation permission before admission or status", async () => {
     expect((await request(app).post("/api/editorial/jobs/selected").send(body)).status).toBe(401);
     expect((await post().set("x-denied", "1").send(body)).status).toBe(403);
@@ -64,11 +83,13 @@ describe("editorial queue HTTP boundary", () => {
   });
 
   it("validates and captures only trusted scope/profile before queuing, without fetching or generating", async () => {
-    const response = await post().send({ ...body, tenantId: "evil", userId: "evil", voice: "evil", options: { secret: "evil" } });
+    const response = await post().send({ ...body, tenantId: "evil", userId: "evil", voice: "evil", voiceScope: { tenantId: "evil", userId: "evil" }, approvedVoiceSamples: ["evil"], options: { secret: "evil" } });
     expect(response.status).toBe(202); expect(response.body.jobId).toBe(id);
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(mocks.enqueue.mock.calls[0][1].input.requestIntent).toBe(id);
     expect(mocks.enqueue).toHaveBeenCalledWith(scoped, expect.objectContaining({ options: expect.objectContaining({ scope: { tenantId: scoped.tenantId }, voice: JSON.stringify({ defaultTone: "professional", professionalFocus: "Saved focus" }) }) }));
+    expect(mocks.enqueue.mock.calls[0][1].options.voiceScope).toEqual(scoped);
+    expect(mocks.enqueue.mock.calls[0][1].options).not.toHaveProperty("approvedVoiceSamples");
     expect(JSON.stringify(mocks.enqueue.mock.calls)).not.toContain("evil");
     expect(mocks.limit).toHaveBeenCalledTimes(1);
     expect(mocks.fetch).not.toHaveBeenCalled(); expect(mocks.generate).not.toHaveBeenCalled();

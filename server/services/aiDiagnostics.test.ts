@@ -1,10 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { logAIInvalidOutputDiagnostic, type AIDiagnosticInput } from "./aiDiagnostics";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import { logAIInvalidOutputDiagnostic, logAIProviderFailure, type AIDiagnosticInput } from "./aiDiagnostics";
 
 vi.mock("../lib/redis", () => ({ redis: undefined }));
+const admission = vi.hoisted(() => ({ acquire: vi.fn<typeof import("./aiProviderLimiter").acquireAILease>() }));
+vi.mock("./aiProviderLimiter", async importOriginal => ({
+  ...await importOriginal<typeof import("./aiProviderLimiter")>(), acquireAILease: admission.acquire,
+}));
 const http = vi.fn();
 let ai: typeof import("./openRouter");
-let warn: ReturnType<typeof vi.spyOn>;
+let warn: MockInstance<typeof console.warn>;
 const secret = "PRIVATE prompt/output/key/tenant https://secret.invalid/?key=hidden";
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const anthropic = (overrides = {}) => json({
@@ -24,6 +28,7 @@ const record = () => {
 beforeEach(async () => {
   vi.resetModules();
   http.mockReset();
+  admission.acquire.mockReset().mockReturnValue(() => undefined);
   vi.stubGlobal("fetch", http);
   for (const key of ["AI_PROVIDER", "AI_FALLBACK_PROVIDER", "ANTHROPIC_MODEL", "OPENROUTER_MODEL", "GEMINI_MODEL", "AI_TENANT_REQUEST_BUDGET"]) vi.stubEnv(key, "");
   for (const key of ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY"]) vi.stubEnv(key, "unit-test-key");
@@ -32,7 +37,7 @@ beforeEach(async () => {
   warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
   ai = await import("./openRouter");
 });
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
 describe("allowlisted diagnostic contract", () => {
   it.each(["thoughtLeader", "industryInsider", "provocateur", "dataDriven", "professional", "custom"])("retains only constrained writer tone %s and numeric attempts", tone => {
@@ -142,13 +147,127 @@ describe("provider invalid-output diagnostics", () => {
       .mockResolvedValueOnce(anthropic({ stop_reason: "model_context_window_exceeded" })).mockResolvedValueOnce(json({ error: secret }, 429));
     await expect(ai.generateText(secret)).resolves.toBe(secret);
     for (const code of ["ai_refusal", "ai_invalid_input", "ai_rate_limit"]) await expect(ai.generateText(secret)).rejects.toMatchObject({ code });
-    expect(warn).not.toHaveBeenCalled();
+    const lines = warn.mock.calls as unknown as Array<[string, string]>;
+    expect(lines.filter(([tag]) => tag === "[ai-diagnostic]")).toEqual([]);
+    // Failed provider calls get their own metadata-only line; never the prompt or provider body.
+    expect(lines.map(([tag, body]) => [tag, JSON.parse(body).code])).toEqual([
+      ["[ai-provider-failure]", "ai_refusal"], ["[ai-provider-failure]", "ai_invalid_input"], ["[ai-provider-failure]", "ai_rate_limit"],
+    ]);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
   });
 
   it("does not log an invalid response arriving after cancellation", async () => {
+    vi.useFakeTimers();
     const controller = new AbortController();
     http.mockImplementation(async () => { controller.abort(); return anthropic({ stop_reason: "max_tokens" }); });
-    await expect(ai.generateText(secret, { signal: controller.signal })).rejects.toMatchObject({ code: "ai_cancelled" });
-    expect(warn).not.toHaveBeenCalled();
+    await expect(ai.generateText(secret, { signal: controller.signal, scope: { tenantId: "private-tenant" } })).rejects.toMatchObject({ code: "ai_cancelled" });
+    const cancellation = providerRecord();
+    expect(cancellation).toEqual({ provider: "anthropic", model: "claude-sonnet-5", code: "ai_cancelled", status: null,
+      retryAfterSeconds: null, operationId: expect.stringMatching(UUID), jobId: null, stage: "provider", elapsedMs: 0,
+      budgetMs: 20_000, timeoutOrigin: "caller_cancel", attempt: 1 });
+    await vi.advanceTimersByTimeAsync(0); // Let the late invalid adapter response finish.
+    expect(providerRecord()).toEqual(cancellation);
+    expect(http).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls.filter(([tag]) => tag === "[ai-diagnostic]")).toEqual([]);
+  });
+});
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const operationId = "06576046-724f-47d4-9ef8-2d3166306fb7";
+const jobId = "719ca12b-420a-4c50-a38c-8e6733ba04a0";
+const tenantId = "a1bbfbeb-44e0-423d-9281-d01336fa2171";
+
+function providerRecord() {
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(warn.mock.calls[0]).toHaveLength(2);
+  expect(warn.mock.calls[0][0]).toBe("[ai-provider-failure]");
+  const serialized = String(warn.mock.calls[0][1]);
+  for (const forbidden of [secret, "PRIVATE", "secret.invalid", "hidden", "unit-test-key", "private-tenant", tenantId]) {
+    expect(serialized.includes(forbidden), "provider diagnostics must contain metadata only").toBe(false);
+  }
+  return JSON.parse(serialized);
+}
+
+describe("provider-failure metadata allowlist", () => {
+  const safe = { provider: "gemini", model: "gemini-3.1-pro-preview", code: "ai_timeout", status: 504, retryAfterSeconds: 0,
+    operationId, jobId, stage: "writer", elapsedMs: 35_001, budgetMs: 90_000, timeoutOrigin: "upstream_timeout", attempt: 1 };
+
+  it("retains correlation and budget metadata but discards prompts, credentials, SDK errors, scope and extra serializers", () => {
+    const toJSON = vi.fn(() => secret);
+    const input = { ...safe, prompt: secret, systemPrompt: secret, output: secret, apiKey: secret, credentials: secret,
+      headers: { Authorization: secret }, request: { body: secret }, response: { body: secret }, rawSDKError: new Error(secret),
+      error: { message: secret, stack: secret, toJSON }, tenantId, scope: { tenantId }, url: secret, toJSON };
+    logAIProviderFailure(input);
+    expect(providerRecord()).toEqual(safe);
+    expect(toJSON).not.toHaveBeenCalled();
+  });
+
+  it("does not even read malicious getters on fields outside the allowlist", () => {
+    const readExtra = vi.fn(() => { throw new Error(secret); });
+    const input = { ...safe };
+    for (const field of ["prompt", "credentials", "headers", "error", "tenantId", "scope", "toJSON"]) Object.defineProperty(input, field, { enumerable: true, get: readExtra });
+    logAIProviderFailure(input);
+    expect(providerRecord()).toEqual(safe);
+    expect(readExtra).not.toHaveBeenCalled();
+  });
+
+  it("redacts arbitrary strings in every metadata field without copying extra data", () => {
+    logAIProviderFailure({ provider: secret, model: secret, code: secret, status: secret, retryAfterSeconds: secret,
+      operationId: secret, jobId: secret, stage: secret, elapsedMs: secret, budgetMs: secret, timeoutOrigin: secret, attempt: secret });
+    expect(providerRecord()).toEqual({ provider: null, model: null, code: "other", status: null, retryAfterSeconds: null,
+      operationId: null, jobId: null, stage: null, elapsedMs: null, budgetMs: null, timeoutOrigin: null, attempt: null });
+  });
+
+  it.each(["admission", "provider", "writer", "repair"])("retains allowlisted stage %s", stage => {
+    logAIProviderFailure({ ...safe, stage });
+    expect(providerRecord()).toEqual({ ...safe, stage });
+  });
+
+  it.each(["operation_deadline", "caller_deadline", "caller_cancel", "lease_lost", "upstream_timeout"])("retains distinct abort origin %s", timeoutOrigin => {
+    logAIProviderFailure({ ...safe, timeoutOrigin });
+    expect(providerRecord()).toEqual({ ...safe, timeoutOrigin });
+  });
+
+  it.each([1, 2, 3])("retains bounded provider attempt %s", attempt => {
+    logAIProviderFailure({ ...safe, attempt });
+    expect(providerRecord()).toEqual({ ...safe, attempt });
+  });
+
+  it.each([0, -1, 4, 1.5, "1", NaN, Infinity, { toJSON: () => secret }])("rejects unsafe attempt metadata %#", attempt => {
+    logAIProviderFailure({ ...safe, attempt });
+    expect(providerRecord()).toEqual({ ...safe, attempt: null });
+  });
+
+  it.each(["", "private-tenant", `https://secret.invalid/${jobId}`, `${jobId}\n`, `${jobId}suffix`, 1234, { toJSON: () => secret }])("rejects malformed operation/job correlation identifiers %#", value => {
+    logAIProviderFailure({ ...safe, operationId: value, jobId: value });
+    expect(providerRecord()).toEqual({ ...safe, operationId: null, jobId: null });
+  });
+
+  it.each(["sk-private-key", "AIza-private-key", "Bearer-private-key", "https://secret.invalid", "model\n", "model\u2028", "a".repeat(121), { toJSON: () => secret }])("rejects unsafe provider model metadata %#", model => {
+    logAIProviderFailure({ ...safe, model });
+    expect(providerRecord()).toEqual({ ...safe, model: null });
+  });
+
+  it.each([-1, 1.5, "90000", NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, { toJSON: () => secret }])("rejects non-integer or unsafe elapsed/budget/retry counts %#", value => {
+    logAIProviderFailure({ ...safe, elapsedMs: value, budgetMs: value, retryAfterSeconds: value });
+    expect(providerRecord()).toEqual({ ...safe, elapsedMs: null, budgetMs: null, retryAfterSeconds: null });
+  });
+
+  it.each([99, 600, 504.5, "504", NaN, Infinity, { toJSON: () => secret }])("rejects invalid upstream status metadata %#", status => {
+    logAIProviderFailure({ ...safe, status });
+    expect(providerRecord()).toEqual({ ...safe, status: null });
+  });
+
+  it("never serializes object-valued allowlisted fields or lets diagnostic failures replace the original error", () => {
+    const toJSON = vi.fn(() => { throw new Error(secret); });
+    const payload = { toJSON, message: secret };
+    logAIProviderFailure({ provider: payload, model: payload, code: payload, status: payload, retryAfterSeconds: payload,
+      operationId: payload, jobId: payload, stage: payload, elapsedMs: payload, budgetMs: payload, timeoutOrigin: payload, attempt: payload });
+    expect(providerRecord()).toEqual({ provider: null, model: null, code: "other", status: null, retryAfterSeconds: null,
+      operationId: null, jobId: null, stage: null, elapsedMs: null, budgetMs: null, timeoutOrigin: null, attempt: null });
+    expect(toJSON).not.toHaveBeenCalled();
+    warn.mockImplementation(() => { throw new Error(secret); });
+    expect(() => logAIProviderFailure(safe)).not.toThrow();
+    expect(() => logAIProviderFailure({ get provider() { throw new Error(secret); } })).not.toThrow();
   });
 });

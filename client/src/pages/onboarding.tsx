@@ -1,17 +1,11 @@
+import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
+import { OnboardingWorkspace } from "@/components/onboarding/onboarding-workspace";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-
-interface OnboardingData {
-  focusDescription: string;
-  publications: string[];
-  keywords: string[];
-  influencers: string[];
-  companies: string[];
-  recommendedIndustry?: string;
-}
+import { useInboxRefreshJob } from "@/hooks/use-inbox-refresh-job";
+import type { OnboardingData } from "@/lib/onboarding-choices";
 
 interface User {
   id: string;
@@ -25,6 +19,8 @@ interface User {
 export default function OnboardingPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const [saved, setSaved] = useState<OnboardingData | null>(null);
+  const { startRefresh } = useInboxRefreshJob();
 
   const { data: user } = useQuery<User>({
     queryKey: ["/api/me"],
@@ -34,13 +30,12 @@ export default function OnboardingPage() {
     mutationFn: async (data: OnboardingData) => {
       return await apiRequest("POST", "/api/profile/complete-onboarding", data);
     },
-    onSuccess: () => {
+    onSuccess: (_response, data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
-      toast({
-        title: "Preferences saved",
-        description: "Create a post now, or add sources and refresh Discover when you're ready.",
-      });
-      setLocation("/dashboard");
+      setSaved(data);
+      // Fill Discover while the finished view is read, so it isn't empty on arrival.
+      // The refresh runs server-side; Discover shows its progress. Nothing to search: skip.
+      if (data.keywords.length || data.publications.length || data.influencers.length || data.companies.length) void startRefresh();
     },
     onError: () => {
       toast({
@@ -56,11 +51,12 @@ export default function OnboardingPage() {
   };
 
   return (
-    <OnboardingWizard 
-      onComplete={handleComplete} 
+    <OnboardingWorkspace
+      onComplete={handleComplete}
       isPending={completeOnboardingMutation.isPending}
       userIndustry={user?.industry}
       userCountry={user?.country}
+      completed={saved}
     />
   );
 }

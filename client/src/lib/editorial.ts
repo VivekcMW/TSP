@@ -1,11 +1,12 @@
 import type { DetailedPostResult, DetailedReviewResult, EditorialArticle } from "../../../server/services/punditBrain";
 import type { FetchedArticle } from "../../../server/services/urlFetcher";
 import type { ArticleMedia } from "@/components/dashboard/rich-article-editor";
+import { MAX_DRAFT_CHARACTERS, platformTextValidation } from "@shared/editorial";
 import type { EditorialFormat } from "@shared/editorial";
 
 export type { DetailedPostResult };
 export type ReviewResponse = DetailedReviewResult & {
-  article: FetchedArticle & { media?: ArticleMedia[] };
+  article: FetchedArticle & { media?: ArticleMedia[]; references?: { title: string; source: string; url: string }[] };
   format: EditorialFormat;
 };
 export type PostResponse = DetailedPostResult & { article: EditorialArticle; format: EditorialFormat };
@@ -18,6 +19,7 @@ export function mergeReviewSnapshots(previous: ReviewSnapshots, next: ReviewResp
   return snapshots;
 }
 
-export function usablePost(content: string, limit = 5000): boolean {
-  return Boolean(content.trim()) && content.length <= limit;
+/** Platform count (X links = 23) and the separate raw persistence cap. */
+export function usablePost(content: string, limit = MAX_DRAFT_CHARACTERS, platform = ""): boolean {
+  return platformTextValidation(content, platform, limit).error === null;
 }

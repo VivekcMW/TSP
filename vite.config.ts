@@ -14,14 +14,21 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    // React, Radix and Lucide intentionally share one initialization-safe
+    // vendor chunk (see manualChunks below). Its gzip size stays below 250 kB.
+    chunkSizeWarningLimit: 750,
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;
           if (id.includes("recharts") || id.includes("victory")) return "charts-vendor";
           if (id.includes("framer-motion")) return "motion-vendor";
-          if (id.includes("react/") || id.includes("react-dom") || id.includes("scheduler")) return "react-vendor";
-          if (id.includes("@radix-ui") || id.includes("lucide-react")) return "ui-vendor";
+          // @radix-ui/lucide-react call React.forwardRef at module-eval time, so they
+          // must share a chunk with react/react-dom rather than a separate "ui-vendor"
+          // chunk — a separate chunk risks executing before react-vendor initializes,
+          // throwing "Cannot read properties of undefined (reading 'forwardRef')".
+          if (id.includes("react/") || id.includes("react-dom") || id.includes("scheduler") ||
+              id.includes("@radix-ui") || id.includes("lucide-react")) return "react-vendor";
           return undefined;
         },
       },

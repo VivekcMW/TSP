@@ -3,7 +3,7 @@ import Redis, { type RedisOptions } from "ioredis";
 /** Blocking/subscriber Bull connections must wait indefinitely; commands must not. */
 export function redisOptions(blocking = false): RedisOptions {
   return {
-    // More aggressive keepAlive for free-tier Redis providers (e.g. Render)
+    // More aggressive keepAlive for free-tier Redis providers
     // that drop idle connections. TCP keepalive probes every 5s prevent 
     // connection timeout from the provider side.
     keepAlive: 5_000,
@@ -31,6 +31,17 @@ export function redisOptions(blocking = false): RedisOptions {
     socketTimeout: blocking ? undefined : 10_000,
     blockingTimeout: undefined,
   };
+}
+
+/**
+ * Bull key prefix. A worker must only claim jobs enqueued against its own
+ * database: a dev server sharing production's Redis otherwise takes production
+ * jobs (and production takes its jobs), then fails them because the tenant does
+ * not exist on that side. Production keeps Bull's default so queued jobs stay
+ * reachable; every other environment gets its own namespace.
+ */
+export function queuePrefix(): string {
+  return process.env.NODE_ENV === "production" ? "bull" : `bull-${process.env.NODE_ENV || "development"}`;
 }
 
 /** Pure factory: importing options must never connect to the configured Redis. */

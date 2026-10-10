@@ -17,7 +17,7 @@ export default function PrivacyPolicyPage() {
             <h1 className="heading-display mb-4" data-testid="text-privacy-title">
               Privacy Policy
             </h1>
-            <p className="text-sm text-muted-foreground mb-12">Last updated: September 3, 2026</p>
+            <p className="text-sm text-muted-foreground mb-12">Last updated: September 28, 2026</p>
 
             <div className="prose prose-neutral dark:prose-invert max-w-none space-y-8">
               <section>
@@ -68,8 +68,25 @@ export default function PrivacyPolicyPage() {
                   <li>To curate industry news relevant to your selected industry.</li>
                   <li>To retrieve and display analytics for social accounts you've explicitly connected.</li>
                   <li>To communicate with you about your account, updates, or support requests.</li>
+                  <li>To send our newsletter, only if you've asked for it and confirmed your subscription.</li>
                   <li>To detect, prevent, and address security issues or abuse of the Service.</li>
                 </ul>
+              </section>
+
+              <section>
+                <h2 className="heading-section !text-2xl">Newsletter</h2>
+                <p className="text-muted-foreground">
+                  You don't need an account to sign up for our newsletter. When you do, we store your email
+                  address, the page you signed up on, the wording you agreed to, and when you signed up,
+                  confirmed and unsubscribed. We first send one email asking you to confirm; you're subscribed
+                  only after you click the link in it. After that we send about one email a month with posting
+                  ideas, new features and guides, through our email provider, Resend.
+                </p>
+                <p className="text-muted-foreground">
+                  Every newsletter includes a link to unsubscribe. If you unsubscribe, we keep your address
+                  marked as unsubscribed so we don't email you again. To have it deleted completely, contact
+                  us at the address below.
+                </p>
               </section>
 
               <section>
@@ -88,7 +105,7 @@ export default function PrivacyPolicyPage() {
                 <p className="text-muted-foreground">
                   We do not sell your personal information. We share data only with the service providers
                   necessary to operate TheSocialPundit — including our authentication provider (Better Auth),
-                  configured AI provider (OpenRouter or Google Gemini), payment processor (Razorpay), and our
+                  configured AI provider (OpenRouter or Google Gemini), payment processor (Razorpay), email provider (Resend), and our
                   hosting and database infrastructure — and only to the
                   extent needed for them to perform their function. We may also disclose information if
                   required by law.

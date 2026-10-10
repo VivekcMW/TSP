@@ -74,6 +74,43 @@ describe("public crawler transport", () => {
     expect(network).toHaveBeenCalledTimes(1);
   });
 
+  it("sends conditional headers and returns a bodiless 304 when nothing changed", async () => {
+    network.mockResolvedValueOnce(new Response(null, { status: 304, headers: { etag: '"v2"' } }));
+    const page = await fetchPublicText("https://news.test/feed", { headers: { "If-None-Match": '"v2"', "If-Modified-Since": "Mon, 28 Sep 2026 00:00:00 GMT" } });
+    expect(page).toMatchObject({ status: 304, text: "" });
+    const sent = (network.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(sent["If-None-Match"]).toBe('"v2"');
+    expect(sent["If-Modified-Since"]).toBe("Mon, 28 Sep 2026 00:00:00 GMT");
+    expect(sent["User-Agent"]).toMatch(/TheSocialPundit/);
+  });
+
+  it("downloads a public binary file up to its own, larger limit", async () => {
+    const zip = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0, 255, 254]);
+    network.mockResolvedValueOnce(new Response(zip));
+    const { fetchPublicBytes } = await import("./crawlerFetch");
+    expect(await fetchPublicBytes("https://data.test/file.zip", { maxBytes: 32 * 1024 * 1024 })).toEqual(zip);
+    expect((network.mock.calls[0][1] as RequestInit & { size: number }).size).toBe(32 * 1024 * 1024);
+  });
+
+  it("posts a form with the right content type and never follows a redirect for it", async () => {
+    network.mockResolvedValueOnce(new Response(null, { status: 202 }));
+    const { postPublicForm } = await import("./crawlerFetch");
+    const page = await postPublicForm("https://hub.test/subscribe", { "hub.mode": "subscribe", "hub.topic": "https://news.test/feed" });
+    expect(page.status).toBe(202);
+    const init = network.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe("hub.mode=subscribe&hub.topic=https%3A%2F%2Fnews.test%2Ffeed");
+    expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/x-www-form-urlencoded");
+    network.mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: "/elsewhere" } }));
+    await expect(postPublicForm("https://hub.test/subscribe", {})).rejects.toMatchObject({ code: "redirect" });
+    expect(network).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats a 304 as an error when the request was not conditional", async () => {
+    network.mockResolvedValueOnce(new Response(null, { status: 304 }));
+    await expect(fetchPublicText("https://news.test/feed")).rejects.toMatchObject({ code: "http" });
+  });
+
   it("resolves relative redirects and returns the canonical final URL", async () => {
     network.mockResolvedValueOnce(new Response(null, { status: 303, headers: { location: "../article#section" } }))
       .mockResolvedValueOnce(new Response("article"));

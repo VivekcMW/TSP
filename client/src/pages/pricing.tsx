@@ -1,148 +1,136 @@
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
+import { Check, Globe2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Check, ArrowRight } from "lucide-react";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { SEO } from "@/components/seo";
-import { Link } from "wouter";
-import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
-import { fadeUp } from "@/lib/motion";
+import { useIsSignedIn } from "@/lib/dev-auth";
+import { formatPrice, intervalUnit, plansForCurrency, yearlySaving, type PublicBillingPlan } from "@/lib/billing";
+import { COUNTRIES, currencyForCountry, type PricingCurrency } from "@/lib/pricing-country";
+import { usePricingCountry } from "@/lib/use-pricing-country";
 
-const earlyAdopterFeatures = [
-  { text: "10 Curated articles per day", included: true },
-  { text: "Unlimited AI post generations", included: true },
-  { text: "All 4 tonality styles", included: true },
-  { text: "23 platforms — LinkedIn to Reddit, Weibo, Mastodon & developer blogs", included: true },
-  { text: "Hot Trends analysis", included: true },
-  { text: "Instant Review (any URL)", included: true },
-];
+const CURRENCY_NAMES: Record<PricingCurrency, string> = { INR: "Indian rupees", USD: "US dollars" };
+const CURRENCY_SYMBOLS: Record<PricingCurrency, string> = { INR: "₹", USD: "$" };
 
-const comingSoonFeatures = [
-  { text: "One-click scheduling", included: true },
-  { text: "Analytics dashboard", included: true },
-  { text: "Team collaboration", included: true },
-  { text: "Custom RSS feeds", included: true },
-];
+interface PlanCardProps {
+  plan: PublicBillingPlan;
+  price: string;
+  unit: string;
+  detail?: string;
+  badge?: string;
+  highlight?: boolean;
+  unavailableNote?: string;
+  action: { label: string; href: string };
+}
+
+function PlanCard({ plan, price, unit, detail, badge, highlight, unavailableNote, action }: PlanCardProps) {
+  return (
+    <article className={`flex flex-col rounded-2xl border bg-card p-7 ${highlight ? "border-2 border-primary shadow-lg" : ""}`} data-testid={`plan-${plan.key}`}>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xl font-semibold text-foreground">{plan.name}</h2>
+        {badge && <span className="rounded-full bg-secondary px-3 py-1 text-xs font-bold text-secondary-foreground">{badge}</span>}
+      </div>
+      {plan.description && <p className="mt-2 text-sm text-muted-foreground">{plan.description}</p>}
+      <p className="mt-6 font-heading text-4xl font-semibold text-foreground">
+        {price}<span className="ml-1 text-base font-normal text-muted-foreground">/ {unit}</span>
+      </p>
+      <p className="mt-1 min-h-5 text-sm text-muted-foreground">{detail}</p>
+      <ul className="my-6 flex-1 space-y-3">
+        {plan.features.map(feature => (
+          <li key={feature} className="flex gap-2 text-sm text-foreground"><Check className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />{feature}</li>
+        ))}
+      </ul>
+      {unavailableNote && <p className="mb-3 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">{unavailableNote}</p>}
+      <Button asChild size="lg" className="self-start" variant={highlight ? "default" : "outline"}>
+        <Link href={action.href}>{action.label}</Link>
+      </Button>
+    </article>
+  );
+}
 
 export default function Pricing() {
+  const isSignedIn = useIsSignedIn();
+  const [country, setCountry] = usePricingCountry();
+  const currency = currencyForCountry(country);
+  const { data, isPending, isError, refetch } = useQuery<{ plans: PublicBillingPlan[] }>({ queryKey: ["/api/public/billing/plans"] });
+
+  const free = data?.plans.find(plan => plan.amount === 0);
+  const paid = data ? plansForCurrency(data.plans, currency) : [];
+  const monthly = paid.find(plan => plan.interval === "monthly");
+  const yearly = paid.find(plan => plan.interval === "annual");
+  const saving = monthly && yearly ? yearlySaving(monthly.amount, yearly.amount) : 0;
+  const startFree = { label: isSignedIn ? "Go to Dashboard" : "Start free", href: isSignedIn ? "/dashboard" : "/sign-up" };
+  const notYet = `Paying in ${CURRENCY_NAMES[currency]} opens soon.`;
+  const buy = (plan: PublicBillingPlan) => plan.available === false ? startFree : { label: `Choose ${plan.name}`, href: "/dashboard/settings?tab=billing" };
+
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <SEO 
-        title="Pricing"
-        canonical="/pricing"
-        description="Simple, value-based pricing for TheSocialPundit. Start free and scale your professional authority with plans starting at $0/month."
-      />
+    <div className="flex min-h-screen flex-col bg-background">
+      <SEO title="Pricing" canonical="/pricing" description="TheSocialPundit pricing in your currency: rupees for India, US dollars everywhere else." />
       <SiteHeader />
-      
-      <main className="flex-1">
-        <section className="py-20 lg:py-28" data-testid="section-pricing">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <Reveal variants={fadeUp} className="text-center mb-16">
-              <Badge className="bg-success/10 text-success border-success/20 text-sm font-bold tracking-wider uppercase px-4 py-2 mb-6">
-                Free for the First 1,000 Subscribers
-              </Badge>
-              <h1 className="heading-display mb-6" data-testid="text-pricing-headline">
-                Start building authority today.
-              </h1>
-              <p className="text-lg text-muted-foreground max-w-xl mx-auto">
-                We're opening TheSocialPundit to early adopters for free. Get full access while we grow together.
-              </p>
-            </Reveal>
-            
-            <StaggerGroup className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-              <StaggerItem>
-              <Card className="p-8 relative bg-surface-ink text-surface-ink-foreground border-surface-ink h-full" data-testid="card-pricing-early-adopter">
-                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-success text-success-foreground">
-                  EARLY ADOPTER
-                </Badge>
-                
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="text-lg font-semibold">Full Access</h3>
-                    <div className="mt-4 flex items-baseline gap-2">
-                      <span className="text-4xl font-bold">$0</span>
-                      <span className="text-surface-ink-foreground/60 line-through">$49/mo</span>
-                    </div>
-                    <p className="mt-4 text-sm text-surface-ink-foreground/60">
-                      Everything you need to build your professional authority. Free while we grow.
-                    </p>
-                  </div>
-                  
-                  <ul className="space-y-3">
-                    {earlyAdopterFeatures.map((feature, index) => (
-                      <li key={index} className="flex items-center gap-3 text-sm">
-                        <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
-                          <Check className="w-3 h-3 text-success-foreground" />
-                        </div>
-                        <span>{feature.text}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  
-                  <Link href="/sign-up">
-                    <Button className="w-full bg-success hover:bg-success/90 text-success-foreground" data-testid="button-start-free">
-                      Start Free Today
-                    </Button>
-                  </Link>
-                </div>
-              </Card>
-              </StaggerItem>
-              
-              <StaggerItem>
-              <Card className="p-8 relative h-full" data-testid="card-pricing-coming-soon">
-                <Badge variant="outline" className="absolute -top-3 left-1/2 -translate-x-1/2">
-                  COMING SOON
-                </Badge>
-                
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="text-lg font-semibold">On the Roadmap</h3>
-                    <p className="mt-4 text-sm text-muted-foreground">
-                      We're building more features based on early adopter feedback. Here's what's next:
-                    </p>
-                  </div>
-                  
-                  <ul className="space-y-3">
-                    {comingSoonFeatures.map((feature, index) => (
-                      <li key={index} className="flex items-center gap-3 text-sm text-muted-foreground">
-                        <div className="w-4 h-4 rounded-full bg-muted flex items-center justify-center">
-                          <Check className="w-3 h-3 text-muted-foreground" />
-                        </div>
-                        <span>{feature.text}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  
-                  <p className="text-xs text-muted-foreground pt-4 border-t">
-                    Early adopters will be grandfathered into premium features as they launch.
-                  </p>
-                </div>
-              </Card>
-              </StaggerItem>
-            </StaggerGroup>
+      <main className="flex-1" data-testid="section-pricing">
+        <section className="border-b bg-card px-4 pb-12 pt-16 sm:px-6 lg:pt-20">
+          <div className="mx-auto max-w-3xl space-y-6 text-center">
+            <p className="text-xs font-bold uppercase tracking-wider text-secondary-text">Pricing</p>
+            <h1 className="heading-display text-foreground">Simple pricing, wherever you are</h1>
+            <p className="text-lg text-muted-foreground">Choose your country to see prices in your currency.</p>
+            <div className="mx-auto flex max-w-sm flex-col items-center gap-2 text-left">
+              <SearchableSelect
+                label={<><Globe2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />Prices for</>}
+                labelClassName="flex items-center justify-center gap-2 text-sm font-semibold text-foreground"
+                value={country} options={COUNTRIES} onChange={setCountry}
+                searchPlaceholder="Search countries" emptyMessage="No country found."
+              />
+              <p className="text-sm text-muted-foreground">Prices in {CURRENCY_NAMES[currency]} ({CURRENCY_SYMBOLS[currency]})</p>
+            </div>
           </div>
         </section>
-        
-        <section className="py-16 lg:py-20" data-testid="section-enterprise">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <Reveal>
-            <Card className="p-12 text-center bg-muted/30">
-              <h2 className="heading-section mb-4" data-testid="text-enterprise-headline">
-                Enterprise & Custom Solutions
-              </h2>
-              <p className="text-muted-foreground max-w-xl mx-auto mb-6">
-                Managing more than 10 profiles? We offer custom white-label solutions for agencies and executive teams.
-              </p>
-              <a href="mailto:founders@thesocialpundit.com" className="inline-flex items-center gap-2 text-primary font-medium hover:underline" data-testid="link-speak-founding-team">
-                Speak with our Founding Team <ArrowRight className="w-4 h-4" />
-              </a>
-            </Card>
-            </Reveal>
+
+        <section className="px-4 py-14 sm:px-6">
+          <div className="mx-auto max-w-6xl space-y-10">
+            {isPending && <p role="status" className="text-center text-muted-foreground">Loading current plans…</p>}
+            {(isError || (!isPending && !data?.plans.length)) && (
+              <div className="mx-auto max-w-xl space-y-4 rounded-2xl border bg-card p-6 text-center">
+                <p role="alert">The plan catalog is unavailable. No prices or access promises can be confirmed right now.</p>
+                <Button variant="outline" onClick={() => refetch()}>Retry</Button>
+              </div>
+            )}
+            {!isError && data && data.plans.length > 0 && (
+              <div className="grid gap-6 md:grid-cols-3" data-testid="pricing-plans">
+                {free && <PlanCard plan={free} price={formatPrice(0, currency)} unit="month" action={startFree} />}
+                {monthly && <PlanCard plan={monthly} price={formatPrice(monthly.amount, monthly.currency)} unit={intervalUnit(monthly.interval)}
+                  unavailableNote={monthly.available === false ? notYet : undefined} action={buy(monthly)} />}
+                {yearly && <PlanCard plan={yearly} price={formatPrice(yearly.amount, yearly.currency)} unit={intervalUnit(yearly.interval)} highlight
+                  detail={`About ${formatPrice(Math.round(yearly.amount / 1200) * 100, yearly.currency)} a month`}
+                  badge={saving > 0 ? `Save ${saving}%` : undefined}
+                  unavailableNote={yearly.available === false ? notYet : undefined} action={buy(yearly)} />}
+              </div>
+            )}
+
+            <div className="grid gap-6 rounded-2xl border bg-card p-7 md:grid-cols-3">
+              <div className="space-y-2">
+                <h2 className="font-semibold text-foreground">Which currency will I pay in?</h2>
+                <p className="text-sm text-muted-foreground">Rupees if you choose India, US dollars for every other country.</p>
+              </div>
+              <div className="space-y-2">
+                <h2 className="font-semibold text-foreground">Can I change my country?</h2>
+                <p className="text-sm text-muted-foreground">Yes. Pick another country above; we remember your choice on this device.</p>
+              </div>
+              <div className="space-y-2">
+                <h2 className="font-semibold text-foreground">Can I cancel?</h2>
+                <p className="text-sm text-muted-foreground">Yes. A one-time payment covers one month or year and doesn't renew; a subscription can be cancelled any time in Billing.</p>
+              </div>
+            </div>
+
+            <p className="flex items-start gap-2 text-sm text-muted-foreground">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              Pay for one month or year at a time, or subscribe and cancel whenever you like. Payments are handled securely by Razorpay.
+              Free plan allowances reset at midnight UTC.
+            </p>
           </div>
         </section>
       </main>
-      
       <SiteFooter />
     </div>
   );

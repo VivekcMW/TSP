@@ -1,11 +1,13 @@
+import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { ChevronDown, CreditCard, LogOut, Plus, Settings, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { useCreatePost } from "./create-post-provider";
 import { useQuery } from "@tanstack/react-query";
-import { signOut, useAuth, useIsSignedIn } from "@/lib/auth";
+import { signOut, useAuth } from "@/lib/auth";
+import { useIsSignedIn } from "@/lib/dev-auth";
 import type { User as DbUser } from "@shared/models/auth";
-import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -17,15 +19,14 @@ import {
 
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard": "Home",
+  "/dashboard/create": "Create post",
   "/dashboard/discover": "Discover",
   "/dashboard/inbox": "Discover",
   "/dashboard/content": "Content",
   "/dashboard/calendar": "Calendar",
   "/dashboard/drafts": "Drafts",
   "/dashboard/published": "Published",
-  "/dashboard/performance": "Performance",
   "/dashboard/connections": "Connections",
-  "/dashboard/analytics": "Performance",
   "/dashboard/preferences": "Preferences",
   "/dashboard/plugins": "Preferences",
   "/dashboard/profile": "Content Preferences",
@@ -37,8 +38,10 @@ const PAGE_TITLES: Record<string, string> = {
 // location-derived breadcrumb, and account actions that were previously only
 // reachable by opening the sidebar (useful once it's collapsed on mobile).
 export function DashboardNavbar() {
-  const { openCreate } = useCreatePost();
+  const { openCreate, hasCreation, startNewCreate, composer } = useCreatePost();
   const [location] = useLocation();
+  const { setOpenMobile, isMobile } = useSidebar();
+  useEffect(() => { setOpenMobile(false); }, [location, setOpenMobile]);
   const { user } = useAuth();
   const isSignedIn = useIsSignedIn();
 
@@ -55,30 +58,31 @@ export function DashboardNavbar() {
     : primaryEmail?.[0]?.toUpperCase() || "U";
 
   const pageTitle = PAGE_TITLES[location] ?? "Workspace";
+  const onCreateRoute = location === "/dashboard/create";
 
   return (
-    <header className="flex items-center justify-between gap-4 px-3 py-2.5 border-b bg-background sticky top-0 z-10">
-      <div className="flex items-center gap-3">
-        <SidebarTrigger data-testid="button-sidebar-toggle" />
-        <Link href="/dashboard" className="flex items-center gap-1.5 shrink-0" data-testid="link-navbar-logo">
-          <Zap className="w-5 h-5 text-primary fill-primary" />
-          <span className="font-bold text-base text-primary hidden sm:inline">TheSocialPundit</span>
+    <header className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-4 px-3 py-2.5 border-b bg-card text-card-foreground sticky top-0 z-10">
+      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
+        <SidebarTrigger className="shrink-0" aria-label={isMobile ? "Open navigation" : "Expand or collapse sidebar"} data-testid="button-navbar-navigation" />
+        <Link href="/dashboard" className="flex min-w-0 max-w-full items-center gap-1.5" aria-label="TheSocialPundit dashboard" data-testid="link-navbar-logo">
+          <Zap className="w-5 h-5 shrink-0 text-primary fill-primary" />
+          <span className="min-w-0 [overflow-wrap:anywhere] font-bold text-base text-primary hidden sm:inline">TheSocialPundit</span>
         </Link>
-        <span className="text-sm text-muted-foreground hidden md:inline" data-testid="text-navbar-title">
+        <span className="min-w-0 [overflow-wrap:anywhere] text-sm text-muted-foreground hidden md:inline" data-testid="text-navbar-title">
           / <span className="text-foreground font-medium">{pageTitle}</span>
         </span>
       </div>
 
-      <div className="flex items-center gap-2">
-      <Button onClick={() => openCreate()} data-testid="button-global-create"><Plus className="mr-1.5 h-4 w-4" />Create</Button>
+      <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
+      <Button variant={onCreateRoute ? "outline" : "default"} disabled={onCreateRoute && Boolean(composer?.busy || composer?.generation.recoverable)} onClick={() => onCreateRoute ? startNewCreate() : openCreate()} data-testid="button-global-create"><Plus className="h-4 w-4" />{hasCreation && !onCreateRoute ? "Resume creation" : "New post"}</Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="flex min-h-11 items-center gap-2 rounded-md px-2 py-1.5 hover-elevate"
+            className="flex min-h-11 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted ring-offset-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             aria-label="Account menu"
             data-testid="button-navbar-account"
           >
-            <Avatar className="h-7 w-7">
+            <Avatar className="h-[max(1.75rem,1.5em)] w-[max(1.75rem,1.5em)] text-xs">
               <AvatarImage src={user?.imageUrl || undefined} alt={firstName || "User"} />
               <AvatarFallback className="text-xs">{initials}</AvatarFallback>
             </Avatar>

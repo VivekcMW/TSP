@@ -1,6 +1,4 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { disposableRedisAvailable, startDisposableRedis } from "../../test/disposable-redis";
 import express from "express";
 import type { RateLimitRequestHandler } from "express-rate-limit";
 import Redis from "ioredis";
@@ -37,10 +35,8 @@ it("rejects use before initialization and invalid windows without issuing Redis 
 
 // Socket-only, no persistence, no configured services or environment files.
 // CI without redis-server explicitly skips only these real-Redis tests.
-const available = spawnSync("redis-server", ["--version"], { stdio: "ignore" }).status === 0;
-describe.skipIf(!available)("recoverable limiter with isolated Redis", () => {
-  let directory: string;
-  let server: ChildProcess;
+describe.skipIf(!disposableRedisAvailable)("recoverable limiter with isolated Redis", () => {
+  let fixture: Awaited<ReturnType<typeof startDisposableRedis>>;
   let first: Redis;
   let second: Redis;
   let limiters: typeof import("./rateLimit");
@@ -52,24 +48,9 @@ describe.skipIf(!available)("recoverable limiter with isolated Redis", () => {
   }
 
   beforeAll(async () => {
-    directory = await mkdtemp("/tmp/tsp-rl-redis-");
-    const socket = `${directory}/redis.sock`;
-    server = spawn("redis-server", ["--port", "0", "--unixsocket", socket,
-      "--unixsocketperm", "700", "--save", "", "--appendonly", "no", "--dir", directory],
-    { stdio: ["ignore", "pipe", "pipe"] });
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Isolated Redis startup timed out")), 5000);
-      server.once("error", () => { clearTimeout(timeout); reject(new Error("Isolated Redis startup failed")); });
-      server.once("exit", () => { clearTimeout(timeout); reject(new Error("Isolated Redis exited")); });
-      server.stdout?.on("data", (chunk: Buffer) => {
-        if (/ready to accept connections/i.test(chunk.toString())) { clearTimeout(timeout); resolve(); }
-      });
-    });
-    const options = { path: socket, lazyConnect: true, enableOfflineQueue: false,
-      retryStrategy: () => null, maxRetriesPerRequest: 0, commandTimeout: 1000 };
-    first = new Redis(options);
-    second = new Redis(options);
-    first.on("error", () => {}); second.on("error", () => {});
+    fixture = await startDisposableRedis();
+    first = fixture.client();
+    second = fixture.client();
     transport.call.mockImplementation((command: string, ...args: string[]) => first.call(command, ...args));
     // Construct the actual exported middleware before the client is connected.
     // There must be no SCRIPT LOAD promise capable of poisoning initialization.
@@ -79,14 +60,7 @@ describe.skipIf(!available)("recoverable limiter with isolated Redis", () => {
   });
 
   afterAll(async () => {
-    first?.disconnect(); second?.disconnect();
-    if (server && server.exitCode === null && server.signalCode === null) {
-      const exited = once(server, "exit");
-      server.kill("SIGTERM");
-      const force = setTimeout(() => server.kill("SIGKILL"), 1000);
-      try { await exited; } finally { clearTimeout(force); }
-    }
-    if (directory) await rm(directory, { recursive: true, force: true });
+    await fixture?.stop();
   });
 
   it("atomically counts across clients with a shared fixed TTL under concurrency", async () => {
@@ -149,9 +123,21 @@ describe.skipIf(!available)("recoverable limiter with isolated Redis", () => {
     return { app, provider, handler };
   }
 
+  async function ensureConnected(client: Redis) {
+    if (client.status === "end") {
+      await client.connect();
+    } else if (client.status !== "ready") {
+      await new Promise<void>((resolve, reject) => {
+        client.once("ready", resolve);
+        client.once("error", reject);
+      });
+    }
+  }
+
   it.each([
     ["aiGenerationRateLimit", "ai-generation", 30, 900],
-    ["instantReviewRateLimit", "instant-review", 10, 3600],
+    ["instantReviewRateLimit", "instant-review", 30, 3600],
+    ["onboardingSuggestionRateLimit", "onboarding-suggestions", 60, 3600],
     ["inboxRefreshRateLimit", "inbox-refresh", 20, 900],
   ] as const)("keeps %s's real quota and 429 responses across routes and outages", async (name, prefix, quota, seconds) => {
     const limiter = limiters[name];
@@ -179,7 +165,7 @@ describe.skipIf(!available)("recoverable limiter with isolated Redis", () => {
       expect(denied.headers["retry-after"]).toBe("5");
       expect(handler).toHaveBeenCalledTimes(quota);
       expect(provider).toHaveBeenCalledTimes(quota);
-    } finally { await first.connect(); }
+    } finally { await ensureConnected(first); }
     // Recovery must not reset the exhausted budget or fall back to memory.
     expect((await request(app).post("/one")).status).toBe(429);
     expect(provider).toHaveBeenCalledTimes(quota);
@@ -200,7 +186,7 @@ describe.skipIf(!available)("recoverable limiter with isolated Redis", () => {
       expect(handler).not.toHaveBeenCalled();
       expect(provider).not.toHaveBeenCalled();
       await expect(limiter.getKey("flush-user")).rejects.toBeInstanceOf(RateLimitStoreUnavailableError);
-    } finally { await first.connect(); }
+    } finally { await ensureConnected(first); }
     expect((await request(app).post("/one")).status).toBe(200);
     const recovered = await limiter.getKey("flush-user");
     expect(recovered?.totalHits).toBe(2);

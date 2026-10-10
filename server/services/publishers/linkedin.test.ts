@@ -8,6 +8,7 @@ const { getSocialAccountByProvider, getMediaAsset, readMedia } = vi.hoisted(() =
 
 vi.mock("../../storage", () => ({ storage: { getSocialAccountByProvider, getMediaAsset } }));
 vi.mock("../mediaStorage", () => ({ readMedia }));
+vi.mock("../webhookSecrets", () => ({ decryptStoredCredential: () => "linkedin-access-token" }));
 
 import { publishToLinkedIn } from "./linkedin";
 

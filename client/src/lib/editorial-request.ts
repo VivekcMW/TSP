@@ -4,7 +4,7 @@ export interface EditorialProgress { platformsCompleted: number; platformsTotal:
 interface JobStatus {
   status: "queued" | "active" | "completed" | "failed" | "cancelled";
   progress: EditorialProgress;
-  error?: { status: number; body: { message: string } };
+  error?: { status: number; body: { message: string; code?: string } };
 }
 const queuedPaths = new Set(["/api/instant-review/selected", "/api/instant-review/manual"]);
 
@@ -17,6 +17,8 @@ export interface EditorialRequestState {
   cancellation?: Promise<void>;
 }
 export const createEditorialRequestState = (): EditorialRequestState => ({ requestIntent: crypto.randomUUID() });
+// Lifecycle detach is not a user cancellation (reload, unmount, account switch).
+export const editorialDetachReason = () => new DOMException("Generation monitoring detached", "EditorialDetached");
 
 export async function cancelEditorialRequest(state: EditorialRequestState, headers?: Record<string, string>): Promise<void> {
   if (state.terminal) return;
@@ -24,10 +26,19 @@ export async function cancelEditorialRequest(state: EditorialRequestState, heade
   if (!state.cancellation) {
     state.cancellation = (async () => {
       try {
-        await apiRequest("DELETE", `/api/editorial/jobs/${encodeURIComponent(state.jobId!)}`, undefined,
+        const response = await apiRequest("DELETE", `/api/editorial/jobs/${encodeURIComponent(state.jobId!)}`, undefined,
           { headers, signal: AbortSignal.timeout(8000) });
+        const result = await response.json() as JobStatus;
+        if (result.status === "completed" || result.status === "failed") {
+          // Completion is not delivery: retain its recovery pointer until the
+          // result is actually fetched. A failed job has no result to recover.
+          state.terminal = result.status === "failed";
+          throw new ApiError(409, "Generation already finished. Retry the same request to check its outcome; cancellation did not undo the attempt.");
+        }
+        if (result.status !== "cancelled") throw new Error("Cancellation is not confirmed");
         state.terminal = true;
-      } catch {
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 409) throw error;
         throw new ApiError(503, "Cancellation could not be confirmed. The job may still be running. Retry or cancel again.");
       }
     })();
@@ -77,11 +88,14 @@ async function admitJob<T>(endpoint: string, body: unknown, state: EditorialRequ
 /** Prefer queued review without changing callers' result shape or direct routes. */
 export async function editorialRequest<T>(endpoint: string, body: unknown, options: {
   signal?: AbortSignal; headers?: Record<string, string>; onProgress?: (progress: EditorialProgress) => void;
+  onAdmitted?: (state: EditorialRequestState) => void;
+  reconnectOnly?: boolean;
   state?: EditorialRequestState;
 } = {}): Promise<T> {
   if (!queuedPaths.has(endpoint)) return (await apiRequest("POST", endpoint, body, options)).json();
   options.signal?.throwIfAborted();
   const state = options.state ?? createEditorialRequestState();
+  if (options.reconnectOnly && !state.jobId) throw new ApiError(404, "No generation job is available to reconnect.");
   state.deadline ??= Date.now() + 310_000;
   const controller = new AbortController();
   const timeout = () => controller.abort(new ApiError(504, "Generation timed out. Retry to check the same job before trying again."));
@@ -94,6 +108,7 @@ export async function editorialRequest<T>(endpoint: string, body: unknown, optio
     if (!state.jobId) {
       const direct = await admitJob<T>(endpoint, body, state, controller.signal, options.headers);
       if (direct) return direct.result;
+      options.onAdmitted?.(state);
     }
     const jobPath = `/api/editorial/jobs/${encodeURIComponent(state.jobId!)}`;
     while (true) {
@@ -109,15 +124,21 @@ export async function editorialRequest<T>(endpoint: string, body: unknown, optio
       if (status.status === "failed" || status.status === "cancelled") {
         state.terminal = true;
         if (status.status === "cancelled") throw new DOMException("Generation cancelled", "AbortError");
-        throw new ApiError(status.error?.status ?? 500, status.error?.body.message ?? "Generation failed. No posts were returned.");
+        throw new ApiError(status.error?.status ?? 500, status.error?.body.message ?? "Generation failed. No posts were returned.",
+          undefined, status.error?.body.code, status.error?.body);
       }
       if (!["active", "queued"].includes(status.status)) throw new ApiError(502, "Invalid editorial job status");
       await waitForPoll(controller.signal);
     }
   } catch (error) {
     if (controller.signal.aborted) {
+      if (controller.signal.reason?.name === "EditorialDetached" || options.reconnectOnly && !options.signal?.aborted) throw controller.signal.reason;
       await cancelEditorialRequest(state, options.headers);
       throw controller.signal.reason;
+    }
+    if (state.jobId && error instanceof ApiError && [404, 410].includes(error.status)) {
+      state.terminal = true;
+      throw new ApiError(error.status, "Generation result expired or unavailable. No new generation was started. An earlier attempt may have been charged; unsaved text cannot be recovered.");
     }
     if (!state.jobId && error instanceof ApiError && [400, 401, 403, 404, 413, 422].includes(error.status)) state.terminal = true;
     throw error;

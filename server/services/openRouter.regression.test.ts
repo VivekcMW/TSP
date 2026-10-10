@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("../lib/redis", () => ({ redis: undefined }));
 let ai: typeof import("./openRouter");
 const fetchMock = vi.fn();
 const completion = (content = "Grounded post") => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content } }] }), { status: 200 });
@@ -9,6 +10,8 @@ beforeEach(async () => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
   vi.stubEnv("AI_PROVIDER", "openrouter");
+  vi.stubEnv("AI_FALLBACK_PROVIDER", "");
+  vi.stubEnv("GEMINI_MODEL", "");
   vi.stubEnv("OPENROUTER_API_KEY", "unit-test-only");
   vi.stubEnv("OPENROUTER_BASE_URL", "https://provider.invalid/api/v1");
   vi.stubEnv("GEMINI_API_KEY", "unit-test-only");
@@ -157,5 +160,59 @@ describe("AI provider safety", () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.systemInstruction.parts[0].text).toBe("trusted rules");
     expect(body.contents[0].parts[0].text).toBe("article");
+  });
+
+  it.each(["gemini-3.1-pro-preview", "models/gemini-3.1-pro-preview", "gemini-3.1-pro-preview-customtools"])("uses direct paid Pro settings for %s and includes billable thinking usage", async model => {
+    vi.stubEnv("AI_PROVIDER", "gemini");
+    vi.stubEnv("GEMINI_MODEL", model);
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ modelVersion: "gemini-3.1-pro-preview",
+      usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 4, thoughtsTokenCount: 7 },
+      candidates: [{ finishReason: "STOP", content: { parts: [{ text: "private reasoning", thought: true }, { text: "Grounded post" }] } }],
+    }), { headers: { "content-type": "application/json" } }));
+    expect(await ai.generateTextWithMetadata("article", { systemPrompt: "trusted rules" })).toEqual({
+      text: "Grounded post", provider: "gemini", model: "gemini-3.1-pro-preview",
+      usage: { inputTokens: 10, outputTokens: 11 }, fallbackUsed: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("https://generativelanguage.googleapis.com/");
+    expect(String(url)).not.toContain("openrouter");
+    const body = JSON.parse(options.body);
+    expect(body.generationConfig).toMatchObject({ temperature: 1, maxOutputTokens: 8192, thinkingConfig: { thinkingLevel: "LOW" } });
+    expect(body.generationConfig.thinkingConfig).not.toHaveProperty("thinkingBudget");
+    expect(body.systemInstruction.parts[0].text).toBe("trusted rules");
+  });
+
+  it.each(["gemini-3.1-pro-preview", "gemini-3.6-flash"])("honors explicit caller token and temperature caps for %s", async model => {
+    vi.stubEnv("AI_PROVIDER", "gemini");
+    vi.stubEnv("GEMINI_MODEL", model);
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: "Post" }] } }] }), { headers: { "content-type": "application/json" } }));
+    await ai.generateText("article", { maxTokens: 1234, temperature: 0 });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).generationConfig).toMatchObject({ maxOutputTokens: 1234, temperature: 0 });
+  });
+
+  it("retains existing non-Pro defaults", async () => {
+    vi.stubEnv("AI_PROVIDER", "gemini");
+    vi.stubEnv("GEMINI_MODEL", "gemini-3.6-flash");
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: "Post" }] } }] }), { headers: { "content-type": "application/json" } }));
+    expect(await ai.generateTextWithMetadata("article")).toMatchObject({ usage: { inputTokens: null, outputTokens: null } });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).generationConfig).toMatchObject({ maxOutputTokens: 2048, temperature: 0.7, thinkingConfig: { thinkingBudget: 0 } });
+  });
+
+  it.each([402, 429])("does not fall back to OpenRouter when paid Gemini returns HTTP %s", async status => {
+    vi.stubEnv("AI_PROVIDER", "gemini");
+    vi.stubEnv("GEMINI_MODEL", "gemini-3.1-pro-preview");
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: { code: status, message: "private billing details" } }), { status, headers: { "content-type": "application/json" } }));
+    await expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_quota" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("generativelanguage.googleapis.com");
+  });
+
+  it("still rejects a truncated Pro response rather than returning partial content", async () => {
+    vi.stubEnv("AI_PROVIDER", "gemini");
+    vi.stubEnv("GEMINI_MODEL", "gemini-3.1-pro-preview");
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [{ text: "Partial post" }] } }] }), { headers: { "content-type": "application/json" } }));
+    await expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

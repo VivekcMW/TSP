@@ -2,63 +2,105 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "wouter";
 import { useIsSignedIn } from "@/lib/dev-auth";
-import { AnimatePresence, motion } from "framer-motion";
-import { Menu, X, Zap } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { ArrowRight, BookOpen, Compass, FileText, Menu, Newspaper, PenLine, Sparkles, X, Zap } from "lucide-react";
+import {
+  NavigationMenu, NavigationMenuContent, NavigationMenuItem, NavigationMenuLink, NavigationMenuList, NavigationMenuTrigger,
+} from "@/components/ui/navigation-menu";
+
+// Product areas open the matching tab of the landing page's product section.
+const productLinks = [
+  { href: "/#product-pundit", label: "Pundit setup agent", description: "Your news feed built in about a minute", icon: Sparkles },
+  { href: "/#product-discover", label: "Discover", description: "Stories picked for your topics, with a reason for each", icon: Compass },
+  { href: "/#product-create", label: "Create", description: "Posts in your voice for every network", icon: PenLine },
+  { href: "/#product-content", label: "Content", description: "Review, schedule and publish your drafts", icon: FileText },
+];
+const resourceLinks = [
+  { href: "/resources", label: "Guides and templates", description: "Playbooks for turning news into thought leadership", icon: BookOpen, slug: "resources" },
+  { href: "/blog", label: "Blog", description: "Ideas on content, AI writing and reputation", icon: Newspaper, slug: "blog" },
+];
+const plainLinks = [
+  { href: "/industries", label: "Industries", slug: "industries" },
+  { href: "/pricing", label: "Pricing", slug: "pricing" },
+];
+
+function MenuLink({ href, label, description, icon: Icon, testId }: { href: string; label: string; description: string; icon: typeof Compass; testId?: string }) {
+  return (
+    <NavigationMenuLink asChild>
+      <a href={href} className="flex gap-3 rounded-lg p-3 transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2" data-testid={testId}>
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground"><Icon className="h-4 w-4" aria-hidden="true" /></span>
+        <span className="space-y-0.5">
+          <span className="block text-sm font-semibold text-foreground">{label}</span>
+          <span className="block text-sm text-muted-foreground">{description}</span>
+        </span>
+      </a>
+    </NavigationMenuLink>
+  );
+}
 
 export function SiteHeader() {
   const isSignedIn = useIsSignedIn();
+  const reducedMotion = useReducedMotion();
   const [location] = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const navItems = [
-    { href: "/", label: "Home", slug: "home" },
-    { href: "/industries", label: "Industries", slug: "industries" },
-    { href: "/how-it-works", label: "How it Works", slug: "how-it-works" },
-    { href: "/resources", label: "Resources", slug: "resources" },
-    { href: "/blog", label: "Blog", slug: "blog" },
-    { href: "/pricing", label: "Pricing", slug: "pricing" },
-  ];
+  const close = () => setMobileMenuOpen(false);
+  const linkClass = (href: string) => `text-sm font-medium transition-colors hover:text-primary ${location === href ? "text-foreground" : "text-muted-foreground"}`;
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-50 w-full border-b bg-card text-card-foreground">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between gap-4">
           <div className="flex items-center gap-8">
             <Link href="/" className="flex items-center gap-1" data-testid="link-logo">
-              <Zap className="w-6 h-6 text-primary fill-primary" />
+              <Zap className="h-6 w-6 fill-primary text-primary" aria-hidden="true" />
               <span className="text-xl font-bold text-primary">TheSocialPundit</span>
             </Link>
-            
-            <nav className="hidden lg:flex items-center gap-6">
-              {navItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`text-sm font-medium transition-colors hover:text-primary ${
-                    location === item.href ? "text-foreground" : "text-muted-foreground"
-                  }`}
-                  data-testid={`link-nav-${item.slug}`}
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </nav>
+
+            <NavigationMenu className="hidden lg:flex">
+              <NavigationMenuList className="space-x-0 gap-1">
+                <NavigationMenuItem>
+                  <NavigationMenuTrigger className="bg-transparent text-muted-foreground" data-testid="button-nav-product">Product</NavigationMenuTrigger>
+                  <NavigationMenuContent>
+                    <div className="grid w-[640px] grid-cols-[1.3fr_1fr] gap-4 p-4">
+                      <div className="grid gap-1">
+                        {productLinks.map(link => <MenuLink key={link.href} {...link} />)}
+                      </div>
+                      <NavigationMenuLink asChild>
+                        <Link href="/how-it-works" className="flex flex-col justify-end rounded-card border bg-muted p-5 text-foreground" data-testid="link-nav-how-it-works">
+                          <Sparkles className="mb-auto h-6 w-6 text-muted-foreground" aria-hidden="true" />
+                          <span className="mt-10 block font-heading text-lg font-semibold">How it works</span>
+                          <span className="mt-1 block text-sm text-muted-foreground">From one sentence about your work to your first post, step by step.</span>
+                          <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary underline underline-offset-4">See the walkthrough<ArrowRight className="h-4 w-4" aria-hidden="true" /></span>
+                        </Link>
+                      </NavigationMenuLink>
+                    </div>
+                  </NavigationMenuContent>
+                </NavigationMenuItem>
+                <NavigationMenuItem>
+                  <NavigationMenuTrigger className="bg-transparent text-muted-foreground" data-testid="button-nav-resources">Resources</NavigationMenuTrigger>
+                  <NavigationMenuContent>
+                    <div className="grid w-[380px] gap-1 p-3">
+                      {resourceLinks.map(link => <MenuLink key={link.href} {...link} testId={`link-nav-${link.slug}`} />)}
+                    </div>
+                  </NavigationMenuContent>
+                </NavigationMenuItem>
+                {plainLinks.map(link => (
+                  <NavigationMenuItem key={link.href}>
+                    <Link href={link.href} className={`inline-flex h-10 items-center px-4 ${linkClass(link.href)}`} data-testid={`link-nav-${link.slug}`}>{link.label}</Link>
+                  </NavigationMenuItem>
+                ))}
+              </NavigationMenuList>
+            </NavigationMenu>
           </div>
-          
+
           <div className="flex items-center gap-3">
             <div className="hidden lg:block">
               {isSignedIn ? (
-                <Link href="/dashboard" data-testid="link-header-dashboard">
-                  <Button data-testid="button-header-dashboard">Dashboard</Button>
-                </Link>
+                <Button asChild><Link href="/dashboard" data-testid="link-header-dashboard">Dashboard</Link></Button>
               ) : (
                 <div className="flex items-center gap-2">
-                  <Link href="/sign-in" data-testid="link-header-login">
-                    <Button variant="ghost" data-testid="button-header-login">Sign In</Button>
-                  </Link>
-                  <Link href="/sign-up" data-testid="link-header-register">
-                    <Button data-testid="button-header-register">Start Free</Button>
-                  </Link>
+                  <Button asChild variant="ghost"><Link href="/sign-in" data-testid="link-header-login">Sign In</Link></Button>
+                  <Button asChild><Link href="/sign-up" data-testid="link-header-register">Start free</Link></Button>
                 </div>
               )}
             </div>
@@ -68,51 +110,56 @@ export function SiteHeader() {
               className="lg:hidden"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-expanded={mobileMenuOpen}
+              aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
               data-testid="button-mobile-menu"
             >
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </Button>
           </div>
         </div>
-        
+
         <AnimatePresence>
           {mobileMenuOpen && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="lg:hidden overflow-hidden"
+              transition={{ duration: reducedMotion ? 0 : 0.18, ease: [0.16, 1, 0.3, 1] }}
+              className="overflow-hidden lg:hidden"
+              data-testid="mobile-menu"
             >
-              <div className="border-t py-4 space-y-4">
-                <nav className="flex flex-col gap-3">
-                  {navItems.map((item) => (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={`text-sm font-medium py-2 transition-colors hover:text-primary ${
-                        location === item.href ? "text-foreground" : "text-muted-foreground"
-                      }`}
-                      data-testid={`link-mobile-nav-${item.slug}`}
-                      onClick={() => setMobileMenuOpen(false)}
-                    >
-                      {item.label}
+              <div className="max-h-[calc(100dvh-4rem)] space-y-5 overflow-y-auto border-t py-4">
+                <nav aria-label="Product" className="space-y-1">
+                  <p className="px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">Product</p>
+                  {productLinks.map(link => (
+                    <a key={link.href} href={link.href} onClick={close} className="flex min-h-11 items-center gap-3 rounded-md px-1 text-sm font-medium text-foreground hover:text-primary">
+                      <link.icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />{link.label}
+                    </a>
+                  ))}
+                  <Link href="/how-it-works" onClick={close} className="flex min-h-11 items-center gap-3 rounded-md px-1 text-sm font-medium text-foreground hover:text-primary" data-testid="link-mobile-nav-how-it-works">
+                    <ArrowRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />How it works
+                  </Link>
+                </nav>
+                <nav aria-label="More" className="flex flex-col">
+                  {[...plainLinks, ...resourceLinks.map(link => ({ href: link.href, label: link.label === "Guides and templates" ? "Resources" : link.label, slug: link.slug }))].map(link => (
+                    <Link key={link.href} href={link.href} onClick={close} className={`flex min-h-11 items-center px-1 ${linkClass(link.href)}`} data-testid={`link-mobile-nav-${link.slug}`}>
+                      {link.label}
                     </Link>
                   ))}
                 </nav>
-                <div className="pt-2 border-t">
+                <div className="border-t pt-4">
                   {isSignedIn ? (
-                    <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-dashboard">
-                      <Button className="w-full" data-testid="button-mobile-dashboard">Dashboard</Button>
-                    </Link>
+                    <Button asChild className="w-full">
+                      <Link href="/dashboard" onClick={close} data-testid="link-mobile-dashboard">Dashboard</Link>
+                    </Button>
                   ) : (
                     <div className="flex flex-col gap-2">
-                      <Link href="/sign-in" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-login">
-                        <Button variant="outline" className="w-full" data-testid="button-mobile-login">Sign In</Button>
-                      </Link>
-                      <Link href="/sign-up" onClick={() => setMobileMenuOpen(false)} data-testid="link-mobile-register">
-                        <Button className="w-full" data-testid="button-mobile-register">Start Free</Button>
-                      </Link>
+                      <Button asChild variant="outline" className="w-full" data-testid="button-mobile-login">
+                        <Link href="/sign-in" onClick={close}>Sign In</Link>
+                      </Button>
+                      <Button asChild className="w-full" data-testid="button-mobile-register">
+                        <Link href="/sign-up" onClick={close}>Start free</Link>
+                      </Button>
                     </div>
                   )}
                 </div>

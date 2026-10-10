@@ -9,6 +9,15 @@ export type AIDiagnosticTone = typeof TONES[number];
 
 const FINISH_REASONS = ["end_turn", "max_tokens", "tool_use", "pause_turn", "stop_sequence", "stop", "length", "tool_calls", "function_call", "STOP", "MAX_TOKENS", "OTHER", "MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL"] as const;
 const count = (value: unknown): number | null => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+const safeProvider = (value: unknown) => value === "anthropic" || value === "openrouter" || value === "gemini" || value === "openai" ? value : null;
+const safeModel = (value: unknown) => typeof value === "string" && /^[a-zA-Z0-9._:/-]{1,120}$/.test(value) &&
+  !/[\r\n\u2028\u2029]/.test(value) && !value.includes("://") && !/^(?:sk-|AIza|Bearer)/i.test(value) ? value : null;
+const FAILURE_CODES = ["ai_configuration", "ai_quota", "ai_rate_limit", "ai_unavailable", "ai_timeout", "ai_cancelled", "ai_invalid_input", "ai_refusal", "ai_busy", "ai_budget"] as const;
+const PROVIDER_STAGES = ["admission", "provider", "writer", "repair"] as const;
+const ABORT_ORIGINS = ["operation_deadline", "caller_deadline", "caller_cancel", "lease_lost", "upstream_timeout"] as const;
+export type AIProviderStage = typeof PROVIDER_STAGES[number];
+export type AIAbortOrigin = typeof ABORT_ORIGINS[number];
+const safeCorrelationId = (value: unknown) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value) ? value : null;
 
 /** Metadata only. Never pass prompts, output, SDK objects, errors, or request scope. */
 export interface AIDiagnosticInput {
@@ -29,13 +38,11 @@ export interface AIDiagnosticInput {
 export function logAIInvalidOutputDiagnostic(input: AIDiagnosticInput): void {
   try {
     if (!STAGES.includes(input.stage)) return;
-    const model = typeof input.model === "string" && /^[a-zA-Z0-9._:/-]{1,120}$/.test(input.model) &&
-      !/[\r\n\u2028\u2029]/.test(input.model) && !input.model.includes("://") && !/^(?:sk-|AIza|Bearer)/i.test(input.model) ? input.model : null;
     const diagnostic = {
       code: "ai_invalid_output",
       stage: input.stage,
-      provider: input.provider === "anthropic" || input.provider === "openrouter" || input.provider === "gemini" || input.provider === "openai" ? input.provider : null,
-      model,
+      provider: safeProvider(input.provider),
+      model: safeModel(input.model),
       finishReason: FINISH_REASONS.find(reason => reason === input.finishReason) ?? "other",
       maxTokens: count(input.maxTokens),
       inputTokens: count(input.inputTokens),
@@ -48,5 +55,35 @@ export function logAIInvalidOutputDiagnostic(input: AIDiagnosticInput): void {
     console.warn('[ai-diagnostic]', JSON.stringify(diagnostic));
   } catch {
     // Diagnostics must never replace the original error or cause a fallback.
+  }
+}
+
+/**
+ * One line per failed provider call, so an outage is visible (and which provider caused it)
+ * even when a retry or fallback follows. Metadata only: never messages, bodies or headers.
+ */
+export function logAIProviderFailure(input: {
+  provider?: unknown; model?: unknown; code?: unknown; status?: unknown; retryAfterSeconds?: unknown;
+  operationId?: unknown; jobId?: unknown; stage?: unknown; elapsedMs?: unknown; budgetMs?: unknown;
+  timeoutOrigin?: unknown; attempt?: unknown;
+}): void {
+  try {
+    const status = typeof input.status === "number" && Number.isInteger(input.status) && input.status >= 100 && input.status <= 599 ? input.status : null;
+    console.warn("[ai-provider-failure]", JSON.stringify({
+      provider: safeProvider(input.provider),
+      model: safeModel(input.model),
+      code: FAILURE_CODES.find(code => code === input.code) ?? "other",
+      status,
+      retryAfterSeconds: count(input.retryAfterSeconds),
+      operationId: safeCorrelationId(input.operationId),
+      jobId: safeCorrelationId(input.jobId),
+      stage: PROVIDER_STAGES.find(stage => stage === input.stage) ?? null,
+      elapsedMs: count(input.elapsedMs),
+      budgetMs: count(input.budgetMs),
+      timeoutOrigin: ABORT_ORIGINS.find(origin => origin === input.timeoutOrigin) ?? null,
+      attempt: input.attempt === 1 || input.attempt === 2 || input.attempt === 3 ? input.attempt : null,
+    }));
+  } catch {
+    // Diagnostics must never replace the original error.
   }
 }

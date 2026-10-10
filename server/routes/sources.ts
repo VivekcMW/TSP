@@ -6,6 +6,7 @@ import { z } from "zod";
 import { authedOf, requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
 import { discoverFeed } from "../services/feedDiscovery";
+import { getPublicationSourceStatuses } from "../services/publicationSources";
 import { normalizeIndustryToSlug } from "../services/metaEngine";
 import { storage } from "../storage";
 
@@ -45,6 +46,17 @@ export function registerSourcesRoutes(app: Express) {
     } catch (error) {
       console.error("Error fetching sources:", error);
       res.status(500).json({ message: "Failed to fetch sources" });
+    }
+  });
+
+  app.get("/api/sources/publications", requireDbUser, requirePermission("inbox:read:own"), async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    try {
+      const { tenant: scope } = authedOf(req);
+      res.json(await getPublicationSourceStatuses(scope));
+    } catch {
+      console.error("Error fetching publication source statuses");
+      res.status(500).json({ message: "Failed to fetch publication source statuses" });
     }
   });
 

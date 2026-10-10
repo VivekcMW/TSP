@@ -36,7 +36,7 @@ export async function resolveHashnodePublication(personalAccessToken: string): P
  * /api/integrations/hashnode/personal-access-token (server/routes/integrations.ts).
  */
 export async function publishToHashnode(scope: TenantScope, draftId: string, content: string) {
-  if (process.env.PUBLISHING_MODE !== "live") return { success: true, postId: `sandbox_hashnode_${Date.now()}` };
+  if (process.env.PUBLISHING_MODE !== "live") return { success: true, status: "simulated" };
   const account = await storage.getSocialAccountByProvider(scope, "hashnode");
   if (!account?.accessToken || !account.providerAccountId) return { success: false, error: "Hashnode account is not connected" };
   try {
@@ -58,6 +58,6 @@ export async function publishToHashnode(scope: TenantScope, draftId: string, con
     if (!post?.id) return { success: false, error: "Hashnode did not return a post ID" };
     return { success: true, postId: post.id, postUrl: post.url };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : "Hashnode publish failed" };
+    return { success: false, error: "Hashnode delivery could not be confirmed" };
   }
 }

@@ -228,6 +228,9 @@ export function setupSwagger(app: Express) {
     },
   };
 
+  // The docs map every endpoint and load a third-party script; production opts in explicitly.
+  if (process.env.NODE_ENV === "production" && process.env.API_DOCS_ENABLED !== "true") return;
+
   app.get("/api-docs.json", (_req, res) => {
     res.json(swaggerDocument);
   });

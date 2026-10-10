@@ -6,7 +6,7 @@ export const WEBHOOK_PROVIDERS = ["discord", "slack"] as const;
 export type WebhookProvider = typeof WEBHOOK_PROVIDERS[number];
 
 const rules: Record<WebhookProvider, RegExp> = {
-  discord: /^https:\/\/(?:discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[^/]+/,
+  discord: /^https:\/\/(?:discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+$/,
   slack: /^https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/_-]+$/,
 };
 
@@ -28,15 +28,17 @@ export async function verifyWebhook(provider: WebhookProvider, url: string): Pro
 }
 
 export async function publishToWebhook(provider: WebhookProvider, scope: TenantScope, content: string, media: Array<{ id: string; name: string }> = []) {
-  if (process.env.PUBLISHING_MODE !== "live") return { success: true, postId: `sandbox_${provider}_${Date.now()}` };
+  if (process.env.PUBLISHING_MODE !== "live") return { success: true, status: "simulated" };
   const account = await storage.getSocialAccountByProvider(scope, provider);
   if (!account?.accessToken) return { success: false, error: `${provider} webhook is not connected` };
   try {
     const url = decryptWebhookUrl(account.accessToken);
+    if (!isValidWebhookUrl(provider, url)) return { success: false, error: "Webhook configuration is invalid" };
     const endpoint = provider === "discord" ? `${url}?wait=true` : url;
     const attachments = provider === "discord" ? await Promise.all(media.map(async (item) => {
       const asset = await storage.getMediaAsset(scope, item.id);
-      return asset ? { name: asset.fileName, contentType: asset.contentType, buffer: await readMedia(asset.storageKey) } : null;
+      if (!asset) throw new Error("Attached media unavailable");
+      return { name: asset.fileName, contentType: asset.contentType, buffer: await readMedia(asset.storageKey) };
     })) : [];
     const uploaded = attachments.filter((item): item is { name: string; contentType: string; buffer: Buffer } => item !== null);
     const form = new FormData();
@@ -48,9 +50,13 @@ export async function publishToWebhook(provider: WebhookProvider, scope: TenantS
     } else {
       request = { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "TheSocialPundit/1.0" }, body: JSON.stringify(body(provider, content)) };
     }
-    const response = await fetch(endpoint, request);
+    const response = await fetch(endpoint, { ...request, signal: AbortSignal.timeout(15_000), redirect: "error" });
     if (!response.ok) return { success: false, error: `${provider} publish failed (${response.status})` };
+    if (provider === "slack") {
+      const accepted = (await response.text()).trim() === "ok";
+      return { success: accepted, status: accepted ? "accepted_unverified" : "unknown" };
+    }
     const data = await response.json().catch(() => ({})) as { id?: string; channel_id?: string };
-    return { success: true, postId: data.id ?? `${provider}_${Date.now()}`, postUrl: provider === "discord" && data.id && data.channel_id ? `https://discord.com/channels/@me/${data.channel_id}/${data.id}` : undefined };
-  } catch (error) { return { success: false, error: error instanceof Error ? error.message : `${provider} publish failed` }; }
+    return { success: !!data.id, postId: data.id, postUrl: data.id && data.channel_id ? `https://discord.com/channels/@me/${data.channel_id}/${data.id}` : undefined };
+  } catch { return { success: false, error: "Webhook delivery could not be confirmed" }; }
 }

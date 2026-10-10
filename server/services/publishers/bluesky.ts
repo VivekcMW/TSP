@@ -23,7 +23,7 @@ export async function verifyBlueskyAppPassword(handle: string, appPassword: stri
 }
 
 export async function publishToBluesky(scope: TenantScope, _draftId: string, content: string, media: Array<{ id: string }> = []) {
-  if (process.env.PUBLISHING_MODE !== "live") return { success: true, postId: `sandbox_bluesky_${Date.now()}` };
+  if (process.env.PUBLISHING_MODE !== "live") return { success: true, status: "simulated" };
 
   const account = await storage.getSocialAccountByProvider(scope, "bluesky");
   if (!account?.accessToken || !account.providerAccountId) {
@@ -44,7 +44,7 @@ export async function publishToBluesky(scope: TenantScope, _draftId: string, con
 
     const images = await Promise.all(media.map(async (item) => {
       const asset = await storage.getMediaAsset(scope, item.id);
-      if (!asset?.contentType.startsWith("image/")) return null;
+      if (!asset?.contentType.startsWith("image/")) throw new Error("Attached image unavailable");
       const upload = await fetch(`${BSKY_PDS}/com.atproto.repo.uploadBlob`, { method: "POST", headers: { Authorization: `Bearer ${session.accessJwt}`, "Content-Type": asset.contentType, "User-Agent": "TheSocialPundit/1.0" }, body: await readMedia(asset.storageKey) });
       const result = await upload.json().catch(() => ({})) as { blob?: Record<string, unknown> };
       if (!upload.ok || !result.blob) throw new Error(`Bluesky media upload failed (${upload.status})`);
@@ -62,6 +62,6 @@ export async function publishToBluesky(scope: TenantScope, _draftId: string, con
     if (!response.ok || !post.uri) return { success: false, error: post.message || `Bluesky publish failed (${response.status})` };
     return { success: true, postId: post.uri, postUrl: `https://bsky.app/profile/${account.providerAccountId}/post/${post.uri.split("/").pop()}` };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : "Bluesky publish failed" };
+    return { success: false, error: "Bluesky delivery could not be confirmed" };
   }
 }
