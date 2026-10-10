@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { LayoutDashboard, ArrowRight, RefreshCw, Plus, CalendarClock, AlertTriangle, Flame, TrendingUp, TrendingDown, Minus, Clock, Layers, BarChart3, ShieldCheck, Send } from "lucide-react";
+import { LayoutDashboard, ArrowRight, RefreshCw, Plus, CalendarClock, AlertTriangle, Flame, TrendingUp, TrendingDown, Minus, Clock, Layers, BarChart3, ShieldCheck, Send, Compass, FileText, CircleCheck, Sparkles } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useIsSignedIn } from "@/lib/dev-auth";
 import { useInboxRefreshJob, refreshJobMessage } from "@/hooks/use-inbox-refresh-job";
@@ -37,37 +37,39 @@ const trendIcon = (delta: number) => (delta === 0 ? Minus : delta > 0 ? Trending
 
 function KpiTile({ icon: Icon, label, value, trend, hint, tone = "default", testId }: Readonly<{ icon: typeof Flame; label: string; value: string; trend?: { delta: number; label: string }; hint?: string; tone?: "default" | "danger"; testId: string }>) {
   const TrendIcon = trend ? trendIcon(trend.delta) : null;
-  return <Card data-testid={testId} className={tone === "danger" ? "border-destructive/30 bg-destructive/[0.03]" : undefined}>
+  return <Card data-testid={testId} className={`overflow-hidden shadow-none ${tone === "danger" ? "border-destructive/30 bg-destructive/[0.03]" : "bg-card/90"}`}>
     {/* CardContent defaults to pt-0 sm:pt-0, assuming a CardHeader above it; this tile has none, so top padding needs an explicit override. */}
-    <CardContent className="flex items-center justify-between gap-3 p-5 pt-5 sm:pt-5">
+    <CardContent className="flex items-start justify-between gap-3 p-4 pt-4 sm:p-5 sm:pt-5">
       <div className="min-w-0">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-        <p className="mt-1 text-2xl font-semibold">{value}</p>
+        <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+        <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
         {trend && TrendIcon && <p className={`mt-1 flex items-center gap-1 text-xs ${trendTone(trend.delta)}`}><TrendIcon className="h-3 w-3 shrink-0" />{trend.label}</p>}
         {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
       </div>
-      <Icon className={`h-5 w-5 shrink-0 ${tone === "danger" ? "text-destructive" : "text-muted-foreground"}`} />
+      <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${tone === "danger" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"}`}>
+        <Icon className="h-4 w-4" aria-hidden="true" />
+      </span>
     </CardContent>
   </Card>;
 }
 
 function NextAction({ draftCount, article, activeCount, hasCreation, onCreate }: Readonly<{ draftCount: number; article?: InboxItem; activeCount: number; hasCreation: boolean; onCreate: () => void }>) {
   if (hasCreation) return <>
-    <p className="mt-2 text-sm text-muted-foreground">Continue your current creation. Resuming does not generate, save or publish anything.</p>
-    <Button className="mt-3" onClick={onCreate}>Resume creation<ArrowRight className="h-4 w-4" /></Button>
+    <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Continue your current creation. Resuming does not generate, save or publish anything.</p>
+    <Button className="mt-4" size="lg" onClick={onCreate}>Resume creation<ArrowRight className="h-4 w-4" /></Button>
   </>;
   if (draftCount > 0) return <>
-    <p className="mt-2 text-sm text-muted-foreground">{draftCount} draft{draftCount === 1 ? " is" : "s are"} ready to review. Pick one to edit, copy, or schedule.</p>
-    <Button asChild className="mt-3"><Link href="/dashboard/content">Review drafts<ArrowRight className="h-4 w-4" /></Link></Button>
+    <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">{draftCount} draft{draftCount === 1 ? " is" : "s are"} ready to review. Pick one to edit, copy, or schedule.</p>
+    <Button asChild className="mt-4" size="lg"><Link href="/dashboard/content">Review drafts<ArrowRight className="h-4 w-4" /></Link></Button>
   </>;
   if (article) return <>
-    <p className="mt-2 line-clamp-2 text-sm">{article.headline}</p>
+    <p className="mt-2 line-clamp-2 max-w-2xl text-sm font-medium leading-relaxed">{article.headline}</p>
     {activeCount > 1 && <p className="mt-1 text-xs text-muted-foreground">{activeCount} articles ready in Discover</p>}
-    <Button asChild className="mt-3"><Link href="/dashboard/discover">Explore story<ArrowRight className="ml-2 h-4 w-4" /></Link></Button>
+    <Button asChild className="mt-4" size="lg"><Link href="/dashboard/discover">Explore story<ArrowRight className="ml-2 h-4 w-4" /></Link></Button>
   </>;
   return <>
-    <p className="mt-2 text-sm text-muted-foreground">Start with your own idea or article. No connected account is needed to draft a post.</p>
-    <Button className="mt-3" onClick={onCreate} data-testid="button-overview-instant-review">Create post<ArrowRight className="ml-2 h-4 w-4" /></Button>
+    <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Start with your own idea or article. No connected account is needed to draft a post.</p>
+    <Button className="mt-4" size="lg" onClick={onCreate} data-testid="button-overview-instant-review">Create post<ArrowRight className="ml-2 h-4 w-4" /></Button>
   </>;
 }
 
@@ -129,10 +131,10 @@ export default function OverviewPage() {
     : null;
   const timeToPublishLabel = avgPublishHours === null ? "—" : avgPublishHours < 24 ? `${avgPublishHours.toFixed(1)}h` : `${(avgPublishHours / 24).toFixed(1)}d`;
   const funnelStages = [
-    { label: "Active in Discover", value: usableInbox.length },
-    { label: "Drafts ready", value: readyDrafts.length },
-    { label: "Scheduled", value: scheduledItems.filter((item) => item.status === "scheduled").length },
-    { label: "Published · 30d", value: activity30.published.length },
+    { label: "Discover", description: "Stories ready", value: usableInbox.length, icon: Compass, href: "/dashboard/discover" },
+    { label: "Drafts", description: "Ready to review", value: readyDrafts.length, icon: FileText, href: "/dashboard/content" },
+    { label: "Scheduled", description: "Queued to publish", value: scheduledItems.filter((item) => item.status === "scheduled").length, icon: CalendarClock, href: "/dashboard/calendar" },
+    { label: "Published", description: "Last 30 days", value: activity30.published.length, icon: CircleCheck, href: "/dashboard/content?view=published" },
   ];
   const topPlatforms = [...activity30.platforms].sort((a, b) => b.posts - a.posts).slice(0, 5);
   const followers = analyticsDisplayMetric("followers", analytics.data?.combined?.followers, analytics.data?.availability?.followers, now);
@@ -146,8 +148,38 @@ export default function OverviewPage() {
           <Plus className="h-4 w-4" />New post
         </Button> : undefined
       } />
-      <PageBody as="div" width="standard" contentClassName="space-y-4">
-          <h2 className="heading-dashboard text-xl">Hello, {firstName}</h2>
+      <PageBody as="div" width="standard" contentClassName="space-y-5 pb-10">
+          <section className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Your command center</p>
+              <h2 className="mt-1 font-heading text-2xl font-semibold tracking-tight sm:text-3xl">Hello, {firstName}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Here is what is moving and what needs your attention.</p>
+            </div>
+            {!isLoading && !hasError && <p className="text-sm text-muted-foreground">{now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p>}
+          </section>
+          {!isLoading && !hasError && (
+            <Card data-testid="card-personalized-briefing" className="relative overflow-hidden border-primary/20 bg-gradient-to-br from-primary/[0.08] via-card to-card shadow-sm">
+              <div className="pointer-events-none absolute -right-12 -top-16 size-48 rounded-full bg-primary/[0.08] blur-2xl" aria-hidden="true" />
+              <CardContent className="relative grid grid-cols-1 gap-6 p-5 pt-5 sm:p-7 sm:pt-7 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-primary">
+                    <Sparkles className="h-4 w-4" aria-hidden="true" />
+                    Focus for today
+                  </div>
+                  <h2 className="mt-3 font-heading text-2xl font-semibold tracking-tight">Next action</h2>
+                  <NextAction draftCount={readyDrafts.length} article={activeItem} activeCount={usableInbox.length} hasCreation={hasCreation} onCreate={hasCreation ? () => openCreate() : startNewCreate} />
+                </div>
+                <div className="flex flex-wrap items-center gap-3 border-t border-primary/10 pt-5 lg:max-w-64 lg:flex-col lg:items-stretch lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+                  <Link href="/dashboard/discover" className="inline-flex min-h-9 items-center gap-2 rounded-md px-2 text-sm font-medium text-foreground hover:bg-primary/5">
+                    <Compass className="h-4 w-4 text-primary" aria-hidden="true" />Discover articles
+                  </Link>
+                  <Button size="sm" variant="ghost" className="justify-start" onClick={() => void refresh.startRefresh()} disabled={refresh.isLoading || refresh.status === "unavailable"} data-testid="button-overview-refresh">
+                    <RefreshCw className={`h-4 w-4 ${refresh.isLoading ? "animate-spin" : ""}`} />{refresh.isLoading ? "Refreshing…" : "Refresh articles"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
           {!isLoading && !hasError && <>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="section-kpi-strip">
               <KpiTile testId="kpi-published" icon={Send} label="Published · this week" value={String(activity7.published.length)}
@@ -156,50 +188,10 @@ export default function OverviewPage() {
               <KpiTile testId="kpi-time-to-publish" icon={Clock} label="Avg. time to publish" value={timeToPublishLabel} hint="Draft created → live · 30d" />
               <KpiTile testId="kpi-attention" icon={AlertTriangle} label="Needs attention" value={String(failureCount)} hint={failureCount ? "Failed posts to review" : "Nothing stuck right now"} tone={failureCount > 0 ? "danger" : "default"} />
             </div>
-            <Card data-testid="card-content-funnel"><CardHeader><CardTitle as="h2" className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-muted-foreground" />Content pipeline</CardTitle></CardHeader>
-              <CardContent><div className="flex flex-wrap items-center gap-3">
-                {funnelStages.map((stage, index) => <div key={stage.label} className="flex items-center gap-3">
-                  <div className="min-w-28 rounded-md border bg-muted/20 px-4 py-3 text-center"><p className="text-xl font-semibold">{stage.value}</p><p className="mt-1 text-xs text-muted-foreground">{stage.label}</p></div>
-                  {index < funnelStages.length - 1 && <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
-                </div>)}
-              </div></CardContent>
-            </Card>
-            {topPlatforms.length > 0 && <Card data-testid="card-platform-breakdown"><CardHeader><CardTitle as="h2">Published by platform · 30d</CardTitle></CardHeader>
-              <CardContent><ul className="space-y-2">{topPlatforms.map((item) => <li key={item.platform} className="flex items-center justify-between gap-3 text-sm">
-                <span>{getPlatformMeta(item.platform).label}</span><span className="font-semibold">{item.posts}</span>
-              </li>)}</ul></CardContent>
-            </Card>}
-            {hasConnection && (followers.value !== null || engagementRate.value !== null) && <Card data-testid="card-reach-engagement">
-              <CardHeader><CardTitle as="h2" className="flex items-center gap-2"><TrendingUp className="h-4 w-4 text-muted-foreground" />Reach &amp; engagement</CardTitle></CardHeader>
-              <CardContent><div className="grid grid-cols-2 gap-4">
-                <div><p className="text-xs text-muted-foreground">Followers</p><p className="text-xl font-semibold">{followers.value !== null ? compactNumber(followers.value) : "—"}</p></div>
-                <div><p className="text-xs text-muted-foreground">Engagement rate</p><p className="text-xl font-semibold">{engagementRate.value !== null ? `${engagementRate.value}%` : "—"}</p></div>
-              </div><p className="mt-3 text-xs text-muted-foreground">From your connected LinkedIn/X account, as of the last sync.</p></CardContent>
-            </Card>}
-            {isTeamManager && <Card data-testid="card-team-pulse"><CardHeader><CardTitle as="h2" className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-muted-foreground" />Team pulse</CardTitle></CardHeader>
-              <CardContent><div className="grid grid-cols-3 gap-4">
-                <div><p className="text-xs text-muted-foreground">Members</p><p className="text-xl font-semibold">{teamMembers.data?.length ?? "—"}</p></div>
-                <div><p className="text-xs text-muted-foreground">Awaiting review</p><p className="text-xl font-semibold">{reviewQueue.data?.length ?? "—"}</p></div>
-                <div><p className="text-xs text-muted-foreground">Pending invites</p><p className="text-xl font-semibold">{pendingInvitations.data?.length ?? "—"}</p></div>
-              </div>{(reviewQueue.data?.length ?? 0) > 0 && <Link href="/dashboard/settings?tab=team" className="mt-3 inline-block text-sm text-primary underline">Review pending drafts</Link>}</CardContent>
-            </Card>}
           </>}
           {isLoading && <Skeleton className="h-32 w-full" />}
           {!isLoading && hasError && (
             <WorkflowStatus tone="error" title="Couldn't load your next action." actions={<Button variant="outline" onClick={() => { void inbox.refetch(); void drafts.refetch(); }}>Try again</Button>} />
-          )}
-          {!isLoading && !hasError && (
-            <Card data-testid="card-personalized-briefing">
-              <CardHeader><CardTitle as="h2">Next action</CardTitle></CardHeader>
-              <CardContent>
-              <NextAction draftCount={readyDrafts.length} article={activeItem} activeCount={usableInbox.length} hasCreation={hasCreation} onCreate={hasCreation ? () => openCreate() : startNewCreate} />
-              <div className="mt-4 flex flex-wrap items-center gap-3 border-t pt-3">
-                <Link href="/dashboard/discover" className="text-sm text-primary underline">Discover articles</Link>
-                <Button size="sm" variant="ghost" onClick={() => void refresh.startRefresh()} disabled={refresh.isLoading || refresh.status === "unavailable"} data-testid="button-overview-refresh">
-                  <RefreshCw className={`mr-2 h-4 w-4 ${refresh.isLoading ? "animate-spin" : ""}`} />{refresh.isLoading ? "Refreshing…" : "Refresh articles"}
-                </Button>
-              </div>
-            </CardContent></Card>
           )}
           {refresh.status !== "idle" && <WorkflowStatus tone={refresh.status === "failed" ? "error" : refresh.status === "unavailable" ? "warning" : refresh.status === "completed" ? "success" : "info"} actions={<>
             {refresh.status === "unavailable" && <Button variant="outline" size="sm" onClick={refresh.checkAgain}>Check status</Button>}
@@ -210,22 +202,66 @@ export default function OverviewPage() {
           </CardHeader><CardContent>
             <Link className="block text-sm text-primary underline" href="/dashboard/content?view=attention">Review {failureCount} failed post{failureCount === 1 ? "" : "s"}</Link>
           </CardContent></Card>}
-          <Card data-testid="card-posting-streak"><CardHeader>
-            <CardTitle as="h2" className="flex items-center gap-2"><Flame className="h-4 w-4 text-muted-foreground" />Posting streak</CardTitle>
-          </CardHeader><CardContent>
-            {published.isLoading ? <Skeleton className="h-10 w-32" /> : published.isError ? <p className="text-sm text-muted-foreground">Streak is unavailable right now.</p> : <>
-              <p className="text-2xl font-semibold">{streak.current} day{streak.current === 1 ? "" : "s"}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{streak.current > 0
-                ? (streak.postedToday ? "Posted today. Keep it going tomorrow." : "Post today to keep your streak alive.")
-                : streak.longest > 0 ? `Your streak reset. Best so far: ${streak.longest} day${streak.longest === 1 ? "" : "s"}.` : "Publish your first post to start a streak."}</p>
-              {streak.longest > streak.current && <p className="mt-1 text-xs text-muted-foreground">Best streak: {streak.longest} day{streak.longest === 1 ? "" : "s"}</p>}
-            </>}
-          </CardContent></Card>
-          <Card data-testid="card-upcoming-publishing"><CardHeader>
-            <div className="flex flex-wrap items-center justify-between gap-2"><div><CardTitle as="h2">Upcoming publishing</CardTitle><p className="text-xs text-muted-foreground">Times shown in your local timezone.</p></div><Link href="/dashboard/calendar" className="text-sm text-primary underline">Open calendar</Link></div>
-          </CardHeader><CardContent>
-            <UpcomingPosts items={upcoming} loading={schedules.isLoading} error={schedules.isError} onRetry={() => void schedules.refetch()} />
-          </CardContent></Card>
+          {!isLoading && !hasError && <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(17rem,0.75fr)]">
+            <div className="space-y-5">
+              <Card data-testid="card-content-funnel" className="shadow-none"><CardHeader className="flex-row items-start justify-between gap-4">
+                <div><CardTitle as="h2" className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-primary" />Content pipeline</CardTitle><p className="mt-1 text-sm text-muted-foreground">Move ideas from discovery to publication.</p></div>
+                <Link href="/dashboard/content" className="inline-flex items-center gap-1 text-sm font-medium text-primary">View content<ArrowRight className="h-4 w-4" /></Link>
+              </CardHeader>
+                <CardContent><div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {funnelStages.map((stage, index) => {
+                    const StageIcon = stage.icon;
+                    return <Link key={stage.label} href={stage.href} className="group relative rounded-lg border bg-muted/[0.18] p-4 transition-colors hover:border-primary/30 hover:bg-primary/[0.04]">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="flex size-8 items-center justify-center rounded-md bg-card text-primary shadow-sm"><StageIcon className="h-4 w-4" aria-hidden="true" /></span>
+                        <span className="text-2xl font-semibold tracking-tight">{stage.value}</span>
+                      </div>
+                      <p className="mt-4 text-sm font-semibold">{stage.label}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{stage.description}</p>
+                      {index < funnelStages.length - 1 && <ArrowRight className="absolute -right-[1.15rem] top-1/2 z-10 hidden h-4 w-4 -translate-y-1/2 text-muted-foreground/60 lg:block" aria-hidden="true" />}
+                    </Link>;
+                  })}
+                </div></CardContent>
+              </Card>
+              <Card data-testid="card-upcoming-publishing" className="shadow-none"><CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-2"><div><CardTitle as="h2" className="flex items-center gap-2"><CalendarClock className="h-4 w-4 text-primary" />Upcoming publishing</CardTitle><p className="mt-1 text-sm text-muted-foreground">Times shown in your local timezone.</p></div><Link href="/dashboard/calendar" className="inline-flex items-center gap-1 text-sm font-medium text-primary">Open calendar<ArrowRight className="h-4 w-4" /></Link></div>
+              </CardHeader><CardContent>
+                <UpcomingPosts items={upcoming} loading={schedules.isLoading} error={schedules.isError} onRetry={() => void schedules.refetch()} />
+              </CardContent></Card>
+            </div>
+            <aside className="space-y-5" aria-label="Publishing insights">
+              <Card data-testid="card-posting-streak" className="overflow-hidden shadow-none"><CardHeader className="bg-gradient-to-br from-warning-subtle to-card">
+                <div className="flex items-center justify-between gap-3"><CardTitle as="h2">Posting streak</CardTitle><span className="flex size-9 items-center justify-center rounded-full bg-warning-subtle text-warning"><Flame className="h-5 w-5" /></span></div>
+              </CardHeader><CardContent>
+                {published.isLoading ? <Skeleton className="h-10 w-32" /> : published.isError ? <p className="text-sm text-muted-foreground">Streak is unavailable right now.</p> : <>
+                  <p className="text-3xl font-semibold tracking-tight">{streak.current} day{streak.current === 1 ? "" : "s"}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{streak.current > 0
+                    ? (streak.postedToday ? "Posted today. Keep it going tomorrow." : "Post today to keep your streak alive.")
+                    : streak.longest > 0 ? `Your streak reset. Best so far: ${streak.longest} day${streak.longest === 1 ? "" : "s"}.` : "Publish your first post to start a streak."}</p>
+                  {streak.longest > streak.current && <p className="mt-2 text-xs text-muted-foreground">Best streak: {streak.longest} day{streak.longest === 1 ? "" : "s"}</p>}
+                </>}
+              </CardContent></Card>
+              {topPlatforms.length > 0 && <Card data-testid="card-platform-breakdown" className="shadow-none"><CardHeader><CardTitle as="h2">Published by platform</CardTitle><p className="text-xs text-muted-foreground">Last 30 days</p></CardHeader>
+                <CardContent><ul className="space-y-3">{topPlatforms.map((item) => <li key={item.platform} className="flex items-center justify-between gap-3 text-sm">
+                  <span>{getPlatformMeta(item.platform).label}</span><span className="rounded-md bg-muted px-2 py-0.5 font-semibold">{item.posts}</span>
+                </li>)}</ul></CardContent>
+              </Card>}
+              {hasConnection && (followers.value !== null || engagementRate.value !== null) && <Card data-testid="card-reach-engagement" className="shadow-none">
+                <CardHeader><CardTitle as="h2" className="flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" />Reach &amp; engagement</CardTitle></CardHeader>
+                <CardContent><div className="grid grid-cols-2 gap-4">
+                  <div><p className="text-xs text-muted-foreground">Followers</p><p className="mt-1 text-xl font-semibold">{followers.value !== null ? compactNumber(followers.value) : "—"}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Engagement</p><p className="mt-1 text-xl font-semibold">{engagementRate.value !== null ? `${engagementRate.value}%` : "—"}</p></div>
+                </div><p className="mt-3 text-xs leading-relaxed text-muted-foreground">From your connected LinkedIn/X account, as of the last sync.</p></CardContent>
+              </Card>}
+              {isTeamManager && <Card data-testid="card-team-pulse" className="shadow-none"><CardHeader><CardTitle as="h2" className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-primary" />Team pulse</CardTitle></CardHeader>
+                <CardContent><div className="grid grid-cols-3 gap-3">
+                  <div><p className="text-xs text-muted-foreground">Members</p><p className="mt-1 text-xl font-semibold">{teamMembers.data?.length ?? "—"}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Review</p><p className="mt-1 text-xl font-semibold">{reviewQueue.data?.length ?? "—"}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Invites</p><p className="mt-1 text-xl font-semibold">{pendingInvitations.data?.length ?? "—"}</p></div>
+                </div>{(reviewQueue.data?.length ?? 0) > 0 && <Link href="/dashboard/settings?tab=team" className="mt-3 inline-block text-sm text-primary underline">Review pending drafts</Link>}</CardContent>
+              </Card>}
+            </aside>
+          </div>}
           <details className="rounded-md border p-4" data-testid="optional-setup-checklist">
             <summary className="cursor-pointer text-sm font-medium">Optional setup and shortcuts</summary>
             <p className="mt-2 text-xs text-muted-foreground">These aren't requirements for creating a post. Add only what helps your workflow.</p>
@@ -239,4 +275,3 @@ export default function OverviewPage() {
     </main>
   );
 }
-

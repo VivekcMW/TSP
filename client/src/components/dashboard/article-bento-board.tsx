@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ArrowUp, Check, FileText, MessageSquare, Paperclip, Plus, Save, SlidersHorizontal, Sparkles, Undo2, X } from "lucide-react";
+import { ArrowUp, Check, FileText, Link2, MessageSquare, NotebookPen, Paperclip, PenLine, Plus, Ruler, Save, ShieldCheck, SlidersHorizontal, Sparkles, Undo2, Wand2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,6 +26,17 @@ const commands = [
   { key: "new", label: "Start a new document", description: "Replace this creation after confirmation" },
 ] as const;
 type Action = typeof commands[number]["key"];
+/** Mirrors the composer's selection cap; the composer stays the single source of truth for enforcement. */
+const MAX_BATCH_PLATFORMS = 4;
+const panelDescriptions: Partial<Record<Action, string>> = {
+  platforms: "Pick where this document should run. Versions are generated for review and never published automatically.",
+  sources: "Select the crawled articles Pundit should read with your next suggestion.",
+  tone: "Choose the voice for your next suggestion. Nothing is generated until you send one.",
+  length: "Choose how long your next suggestion should be.",
+  link: "Start from a public publisher URL. Replacing the source needs your confirmation.",
+  notes: "Supply your own material and upload media to use as the source.",
+  evidence: "Inspect the evidence and generation details behind this document.",
+};
 
 export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePostComposer }>) {
   const [panel, setPanel] = useState<Action>();
@@ -55,6 +66,30 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
   const documentKey = useMemo(() => crypto.randomUUID(), [c.sourceIdentity]);
   const waitingForSuggestion = Boolean(c.chat.pending && c.generation.pending);
   const sourceFailure = c.chat.failure ?? c.generation.sourceFailure;
+  const toneLabel = c.toneOptions.find(option => option.key === c.tone)?.label ?? "";
+  const lengthLabel = c.requestedFormat === "article" ? "Expanded article" : "Short draft";
+  const sourceHost = publicSourceUrl(c.url) ? new URL(c.url).hostname.replace(/^www\./, "") : "";
+  const sourceLabel = c.mode === "manual" ? "Working from your source notes"
+    : sourceHost ? `Working from ${sourceHost}`
+      : c.item?.source ? `Working from ${c.item.source}`
+        : "Blank document — write directly or attach an article";
+  const saveDot = { loading: "bg-muted-foreground/50", saving: "bg-primary", saved: "bg-emerald-500", error: "bg-destructive", unsaved: "bg-amber-500" }[c.persistence.status];
+  const charCount = c.main?.content.length ?? 0;
+  const toolbelt: { key: Action; label: string; value?: string; icon: typeof Wand2 }[] = [
+    { key: "sources", label: "Attach articles", value: selectedArticles.length ? String(selectedArticles.length) : undefined, icon: Paperclip },
+    { key: "tone", label: "Tone", value: toneLabel, icon: Wand2 },
+    { key: "length", label: "Length", value: lengthLabel, icon: Ruler },
+    { key: "link", label: "Article link", icon: Link2 },
+    { key: "notes", label: "Source notes", icon: NotebookPen },
+    { key: "evidence", label: "Review sources", icon: ShieldCheck },
+    { key: "new", label: "New document", icon: Plus },
+  ];
+  const starters = [
+    "Draft a short post from my attached article",
+    "Write my point of view on this story",
+    "Turn this into three key takeaways",
+  ];
+  const showStarters = !c.main?.content.trim() && !c.chat.input.trim() && !c.chat.messages.length && !waitingForSuggestion;
 
   useEffect(() => {
     const paper = title.current?.parentElement;
@@ -116,18 +151,37 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
   };
 
   return <div className="flex h-full min-h-0 min-w-0 flex-col bg-muted/20">
-    <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card px-3 py-2 sm:px-5">
-      <h1 className="sr-only" data-testid="text-page-title">Create post</h1>
-      <div className="flex min-w-0 items-center gap-1" aria-label="Editor views">
-        <Button variant={!showingVersions ? "secondary" : "ghost"} size="sm" aria-pressed={!showingVersions}
-          onClick={() => c.goToStep(c.main ? "review" : "source")} disabled={locked}><FileText className="h-4 w-4" />Document</Button>
-        <Button variant={showingVersions ? "secondary" : "ghost"} size="sm" aria-pressed={showingVersions}
-          onClick={() => runAction("versions")} disabled={locked || !c.main}>Versions{counts.total ? ` (${counts.total})` : ""}</Button>
+    <header className="shrink-0 border-b bg-card">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2 sm:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <span aria-hidden="true" className="hidden size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary sm:flex"><PenLine className="h-4 w-4" /></span>
+          <div className="min-w-0">
+            <h1 className="truncate font-heading text-base font-semibold leading-tight tracking-tight sm:text-lg" data-testid="text-page-title">Create post</h1>
+            <p className="truncate text-xs text-muted-foreground">{sourceLabel}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 sm:gap-2">
+          <output className="hidden items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-xs text-muted-foreground sm:inline-flex" aria-live="polite">
+            <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${saveDot}`} />{saveStatus}
+          </output>
+          <Button variant="ghost" size="icon" aria-label="Save progress" disabled={!c.persistence.ready || c.persistence.status === "saving"} onClick={() => void c.persistence.save()}><Save className="h-4 w-4" /></Button>
+          <Button size="sm" variant="outline" aria-label="Adapt for platforms" className="px-2 sm:px-3" disabled={locked || !c.mainReady} onClick={() => runAction("platforms")}><Sparkles className="h-4 w-4" /><span className="hidden sm:inline">Adapt for platforms</span></Button>
+        </div>
       </div>
-      <div className="flex items-center gap-2">
-        <output className="hidden text-xs text-muted-foreground sm:block" aria-live="polite">{saveStatus}</output>
-        <Button variant="ghost" size="icon" aria-label="Save progress" disabled={!c.persistence.ready || c.persistence.status === "saving"} onClick={() => void c.persistence.save()}><Save className="h-4 w-4" /></Button>
-        <Button size="sm" variant="outline" aria-label="Adapt for platforms" className="px-2 sm:px-3" disabled={locked || !c.mainReady} onClick={() => runAction("platforms")}><Sparkles className="h-4 w-4" /><span className="hidden sm:inline">Adapt for platforms</span></Button>
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-1.5 px-3 pb-2 sm:px-6">
+        <div className="flex shrink-0 items-center gap-1 rounded-lg bg-muted p-0.5" aria-label="Editor views">
+          <Button variant={!showingVersions ? "secondary" : "ghost"} size="sm" aria-pressed={!showingVersions} className={!showingVersions ? "shadow-sm" : ""}
+            onClick={() => c.goToStep(c.main ? "review" : "source")} disabled={locked}><FileText className="h-4 w-4" />Document</Button>
+          <Button variant={showingVersions ? "secondary" : "ghost"} size="sm" aria-pressed={showingVersions} className={showingVersions ? "shadow-sm" : ""}
+            onClick={() => runAction("versions")} disabled={locked || !c.main}>Versions{counts.total ? ` (${counts.total})` : ""}</Button>
+        </div>
+        <div className="hidden min-w-0 flex-wrap items-center gap-1.5 sm:flex">
+          {toolbelt.map(tool => <Button key={tool.key} variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground"
+            disabled={locked} onClick={() => runAction(tool.key)}>
+            <tool.icon className="h-4 w-4" />{tool.label}
+            {tool.value && <span className="rounded bg-muted px-1.5 py-0.5 text-[0.6875rem] font-medium text-foreground">{tool.value}</span>}
+          </Button>)}
+        </div>
       </div>
     </header>
 
@@ -143,13 +197,16 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
       </div>
       {showingVersions ? <section aria-label="Your platform posts" className="mx-auto max-w-7xl space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div><h2 className="text-lg font-semibold">Platform versions</h2><p className="text-sm text-muted-foreground">{counts.saved} saved · {counts.unsaved} unsaved or unconfirmed</p></div>
+          <div>
+            <h2 className="font-heading text-xl font-semibold tracking-tight">Platform versions</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{counts.saved} saved · {counts.unsaved} unsaved or unconfirmed</p>
+          </div>
           {c.batching && <Button variant="outline" disabled={c.batchStopRequested} onClick={c.stopBatchAfterCurrent}>Stop after current post</Button>}
           {c.hasBatchRecovery && !c.batching && <Button disabled={!c.canContinueBatch} onClick={() => void c.continueBatch()}>Continue remaining versions</Button>}
         </div>
         <p className="text-sm text-muted-foreground">Nothing is published automatically. Save a reviewed version to Content for supported scheduling and publishing.</p>
         {!selected.length && <p className="py-8 text-center text-muted-foreground">Use /platforms to choose the versions you want.</p>}
-        <div className="grid min-w-0 items-start gap-4 lg:grid-cols-2">{selected.map(platform => {
+        <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2">{selected.map(platform => {
           const version = c.versions[versionKey(platform.value, c.tone)];
           return <div key={`${platform.value}:${c.tone}`} className="min-w-0 space-y-2">
             {c.staleVersion(platform.value, c.tone) && <WorkflowStatus tone="warning" live={false}>Document updated. Your earlier text is kept. Use /platforms to regenerate from your reviewed document.</WorkflowStatus>}
@@ -158,10 +215,13 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
         })}</div>
         {c.copyStatus && <WorkflowStatus>{c.copyStatus}</WorkflowStatus>}
       </section> : <div className="mx-auto min-w-0 max-w-7xl">
-        <article aria-label="Editable document" className="min-w-0 rounded-sm border bg-card px-5 py-7 shadow-sm sm:px-10 sm:py-10">
-          <div className="mb-4 flex min-h-11 flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <FileText className="h-3.5 w-3.5" />Your document
+        <article aria-label="Editable document" className="min-w-0 rounded-xl border bg-card px-5 py-7 shadow-sm sm:px-10 sm:py-10">
+          <div className="mb-5 flex min-h-11 flex-wrap items-center gap-2 border-b pb-3 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 font-medium text-foreground"><FileText className="h-3.5 w-3.5" />Your document</span>
             {c.canUndoSuggestion && <span role="status"> · AI update ready</span>}
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium ${c.mainReady ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-muted"}`}>
+              {c.mainReady ? <><Check className="h-3.5 w-3.5" />Ready to adapt</> : "Add a title and 20+ characters to adapt"}
+            </span>
             <div className="ml-auto">{c.canUndoSuggestion
               ? <Button size="sm" variant="ghost" disabled={locked} onClick={c.undoSuggestion}><Undo2 className="h-3.5 w-3.5" />Undo AI update</Button>
               : <span>Editable</span>}</div>
@@ -175,7 +235,15 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
             onChange={event => c.editDocument({ title: event.target.value })}
             className="mb-4 min-h-0 resize-none overflow-hidden rounded-none border-0 bg-transparent px-0 py-2 font-serif text-2xl font-semibold leading-snug shadow-none focus-visible:ring-1 md:text-3xl" />
           <DocumentEditor key={documentKey} content={c.main?.content ?? ""} formatJson={c.main?.formatJson} disabled={locked} onChange={c.editDocument} />
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground"><span>Document · {wordCount} words</span><span>{c.main?.content.length ?? 0} / 5,000</span></div>
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
+            <span>Document · {wordCount} words · {Math.max(1, Math.round(wordCount / 200))} min read</span>
+            <span className="flex items-center gap-2">
+              <span aria-hidden="true" className="h-1 w-20 overflow-hidden rounded-full bg-muted">
+                <span className={`block h-full rounded-full ${charCount > 4500 ? "bg-amber-500" : "bg-primary"}`} style={{ width: `${Math.min(100, (charCount / 5000) * 100)}%` }} />
+              </span>
+              {charCount} / 5,000
+            </span>
+          </div>
           <p className="mt-2 text-xs text-muted-foreground">Formatting is saved in this document. Platform versions use plain text.</p>
         </article>
       </div>}
@@ -184,7 +252,7 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
     <section aria-label="Pundit chat" className="z-20 shrink-0 border-t bg-background px-3 pb-3 pt-2 sm:px-6" data-testid="sticky-chat">
       <div className="relative mx-auto max-w-7xl">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-primary" /><span className="font-medium text-foreground">Pundit</span><span>Your writing partner</span></div>
+          <div className="flex items-center gap-2"><span aria-hidden="true" className="flex size-5 items-center justify-center rounded-md bg-primary/10 text-primary"><Sparkles className="h-3.5 w-3.5" /></span><span className="font-medium text-foreground">Pundit</span><span>Your writing partner</span></div>
           <div className="flex items-center gap-2">
             {!!c.chat.messages.length && <Button variant="ghost" size="sm" className="h-auto min-h-11 px-2 text-xs" aria-expanded={conversationOpen} onClick={() => setConversationOpen(!conversationOpen)}><MessageSquare className="h-3.5 w-3.5" />Conversation ({c.chat.messages.length})</Button>}
             <span className="sm:hidden">{saveStatus}</span>
@@ -194,7 +262,11 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
           {c.chat.messages.map(message => <div key={message.id} className={message.role === "user" ? "ml-5 rounded-md bg-muted p-2" : "mr-5 p-2"}><span className="mb-1 block text-xs font-medium text-muted-foreground">{message.role === "user" ? "You" : "Pundit"}</span><p className="whitespace-pre-wrap break-words">{message.content}</p></div>)}
         </div>}
         {c.chat.pending && !c.generation.pending && !c.generation.recoverable && <WorkflowStatus tone="warning" actions={<Button variant="outline" onClick={c.discardSuggestion}>Dismiss interrupted suggestion</Button>}>A previous suggestion was interrupted. No new AI attempt has been started.</WorkflowStatus>}
-        <div className="rounded-xl border bg-card p-2 shadow-sm focus-within:border-primary/50">
+        <div className="rounded-xl border bg-card p-2 shadow-sm transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/10">
+          {showStarters && <div className="mb-1 flex flex-wrap gap-1.5" aria-label="Suggested prompts">
+            {starters.map(starter => <Button key={starter} type="button" variant="outline" size="sm" className="shrink-0 rounded-full text-xs font-normal text-muted-foreground"
+              disabled={!c.persistence.ready} onClick={() => { c.setChatInput(starter); focusChat(); }}><Sparkles className="h-3.5 w-3.5 text-primary" />{starter}</Button>)}
+          </div>}
           {!!selectedArticles.length && <div className="mb-1 flex gap-1 overflow-x-auto" aria-label="Attached articles">{selectedArticles.map(({ url, item }) => <div key={url} className="flex max-w-full shrink-0 items-center rounded-md border bg-muted/40 pl-2 text-xs">
             <FileText className="mr-1 h-3.5 w-3.5 shrink-0" /><span className="max-w-40 truncate" title={item?.headline ?? url}>{item?.headline ?? url}</span>
             <Button size="icon" variant="ghost" className="h-11 w-11 shrink-0" aria-label={`Remove ${item?.headline ?? url}`} disabled={locked || Boolean(c.chat.pending)}
@@ -256,7 +328,7 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
 
     <Dialog open={Boolean(panel)} onOpenChange={open => { if (!open) { setPanel(undefined); focusChat(); } }}>
       <DialogContent className="max-h-[85dvh] w-[calc(100%-1rem)] max-w-2xl overflow-y-auto">
-        <DialogHeader><DialogTitle>{panelTitle}</DialogTitle><DialogDescription>Keep the document in focus. Change options here without generating automatically.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{panelTitle}</DialogTitle><DialogDescription>{(panel && panelDescriptions[panel]) ?? "Keep the document in focus. Change options here without generating automatically."}</DialogDescription></DialogHeader>
         {panel === "sources" && <div className="space-y-3">
           <Input aria-label="Search crawled articles" placeholder="Search titles or publications..." value={search} onChange={event => setSearch(event.target.value)} />
           <p className="text-sm text-muted-foreground">Select up to {MAX_CREATION_REFERENCES} articles. Pundit reads the selected sources together when you send a suggestion.</p>
@@ -275,21 +347,40 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
           </fieldset>
           <div className="flex items-center justify-between gap-2"><span className="text-sm">{c.chat.referenceUrls.length} selected</span><Button onClick={() => { setPanel(undefined); focusChat(); }}>Use selected articles</Button></div>
         </div>}
-        {panel === "tone" && <div role="group" aria-label="Writing tone" className="grid gap-2 sm:grid-cols-2">{c.toneOptions.map(tone => <Button key={tone.key} variant={c.tone === tone.key ? "secondary" : "outline"} aria-pressed={c.tone === tone.key} disabled={locked} onClick={() => c.setTone(tone.key)}>{tone.label}</Button>)}</div>}
-        {panel === "length" && <div role="group" aria-label="Draft length" className="grid gap-2 sm:grid-cols-2">
+        {panel === "tone" && <div role="group" aria-label="Writing tone" className="grid grid-cols-1 gap-2 sm:grid-cols-2">{c.toneOptions.map(tone => <Button key={tone.key} variant={c.tone === tone.key ? "secondary" : "outline"} aria-pressed={c.tone === tone.key} disabled={locked} onClick={() => c.setTone(tone.key)}>{tone.label}</Button>)}</div>}
+        {panel === "length" && <div role="group" aria-label="Draft length" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Button aria-pressed={c.requestedFormat === "short-post"} variant={c.requestedFormat === "short-post" ? "secondary" : "outline"} disabled={locked} onClick={() => c.setFormat("short-post")}>Short draft</Button>
           <Button aria-pressed={c.requestedFormat === "article"} variant={c.requestedFormat === "article" ? "secondary" : "outline"} disabled={locked} onClick={() => c.setFormat("article")}>Expanded article</Button>
         </div>}
-        {panel === "platforms" && <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">Use your reviewed document, including your edits. Choose up to four platforms.</p>
+        {panel === "platforms" && <div className="space-y-3">
           {c.preferencesReady && !c.platforms.length && <p>No enabled platforms are available. Update your publishing preferences in Settings.</p>}
-          <fieldset aria-label="Platforms to generate" disabled={locked} className="grid gap-2 sm:grid-cols-2">{c.platforms.map(platform => {
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold">{c.selectedPlatforms.length} of {MAX_BATCH_PLATFORMS} selected</span>
+              <span aria-hidden="true" className="flex items-center gap-1">
+                {Array.from({ length: MAX_BATCH_PLATFORMS }, (_, index) =>
+                  <span key={index} className={`size-1.5 rounded-full ${index < c.selectedPlatforms.length ? "bg-primary" : "bg-muted-foreground/25"}`} />)}
+              </span>
+            </div>
+            <Button variant="ghost" size="sm" className="h-auto min-h-8 px-2 text-xs" disabled={locked || !c.selectedPlatforms.length} onClick={() => c.setSelectedPlatforms([])}>Clear selection</Button>
+          </div>
+          <fieldset aria-label="Platforms to generate" disabled={locked} className="grid max-h-[min(20rem,38dvh)] grid-cols-1 gap-2 overflow-y-auto p-0.5 sm:grid-cols-2 lg:grid-cols-3">{c.platforms.map(platform => {
             const checked = c.selectedPlatforms.includes(platform.value);
-            return <label key={platform.value} className={`flex min-h-14 cursor-pointer items-center gap-3 rounded-md border p-3 ${checked ? "border-primary bg-primary/5" : ""}`}>
-              <input type="checkbox" checked={checked} disabled={!checked && c.selectedPlatforms.length >= 4} onChange={() => c.toggleSelectedPlatform(platform.value)} className="h-4 w-4 accent-primary" />{platform.label}
+            const capped = !checked && c.selectedPlatforms.length >= MAX_BATCH_PLATFORMS;
+            return <label key={platform.value} className={`flex min-h-11 items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition-colors ${checked ? "border-primary bg-primary/5 font-medium" : "hover:bg-muted/50"} ${capped ? "cursor-not-allowed opacity-45" : "cursor-pointer"}`}>
+              <input type="checkbox" checked={checked} disabled={capped} onChange={() => c.toggleSelectedPlatform(platform.value)} className="size-4 shrink-0 accent-primary" />
+              <span className="min-w-0 break-words">{platform.label}</span>
+              {checked && <Check className="ml-auto size-4 shrink-0 text-primary" aria-hidden="true" />}
             </label>;
           })}</fieldset>
-          <Button disabled={!c.canGenerateBatch} data-testid="button-generate-selected" onClick={() => { setPanel(undefined); void c.generateBatch(c.selectedPlatforms); }}><Sparkles className="h-4 w-4" />Create platform versions</Button>
+          <p className="text-xs text-muted-foreground">
+            {c.selectedPlatforms.length >= MAX_BATCH_PLATFORMS
+              ? `Maximum of ${MAX_BATCH_PLATFORMS} reached. Unselect one to choose another.`
+              : "Each version is generated from your reviewed document and saved for you to review. Nothing is published automatically."}
+          </p>
+          <div className="sticky bottom-0 -mx-1 border-t bg-background px-1 pb-1 pt-3">
+            <Button className="w-full sm:w-auto" disabled={!c.canGenerateBatch} data-testid="button-generate-selected" onClick={() => { setPanel(undefined); void c.generateBatch(c.selectedPlatforms); }}><Sparkles className="h-4 w-4" />Create platform versions</Button>
+          </div>
         </div>}
         {panel === "link" && <div className="space-y-3">
           <Input aria-label="Article URL" type="url" value={link} onChange={event => setLink(event.target.value)} placeholder="https://publisher.com/article" />
