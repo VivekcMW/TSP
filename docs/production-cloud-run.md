@@ -1,6 +1,6 @@
 # Production on Cloud Run
 
-Verified 2026-09-23. This replaces the Vercel + Render setup described in older
+Verified 2026-10-11. This replaces the Vercel + Render setup described in older
 documents, which has been retired.
 
 ## Topology
@@ -12,8 +12,8 @@ documents, which has been retired.
   (project `tsp-social-pundit`, region `asia-south1`). The same container
   serves the API and the built frontend.
 - Configuration comes from Secret Manager and plain service environment
-  variables. `DATABASE_URL` points to Neon project `aged-breeze-22174577`
-  (endpoint `ep-quiet-field-azkwtx6k`, pooled). `REDIS_URL` points to the
+  variables. `DATABASE_URL` points to Neon project `bitter-queen-12361026`
+  (endpoint `ep-wandering-haze-b3gbbgun`, pooled). `REDIS_URL` points to the
   Redis Cloud database `tsp-production`.
 - Service settings: minimum and maximum 1 instance, CPU always allocated,
   `BACKGROUND_JOBS_ENABLED=true`, `CRON_SCHEDULER=true`. With one instance
@@ -188,7 +188,7 @@ endpoint, with an explicit `:5432` and only `sslmode=require` in the URL. The
 tool rejects other parameters and needs a session-level connection:
 
 ```bash
-OWNER_DATABASE_URL='postgresql://neondb_owner:<password>@ep-quiet-field-azkwtx6k.c-3.ap-southeast-1.aws.neon.tech:5432/neondb?sslmode=require' \
+OWNER_DATABASE_URL='postgresql://neondb_owner:<password>@ep-wandering-haze-b3gbbgun.c-4.ap-southeast-1.aws.neon.tech:5432/neondb?sslmode=require' \
   pnpm run db:migrate:dry
 ```
 
