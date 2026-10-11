@@ -2,6 +2,7 @@ import { Link } from "wouter";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { SEO } from "@/components/seo";
+import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
 import { BLOG_POSTS } from "@/lib/blog-posts";
 import { USE_CASES } from "@shared/use-cases";
 
@@ -44,30 +45,34 @@ export default function SitemapPage() {
       <SiteHeader />
       <main className="flex-1">
         <section className="border-b bg-card py-16 lg:py-20">
-          <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+          <Reveal className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-secondary-text">Sitemap</p>
             <h1 className="mt-4 heading-display">Find your way around.</h1>
             <p className="mt-4 max-w-2xl text-lg text-muted-foreground">Every public page, organised for people—not just crawlers.</p>
-          </div>
+          </Reveal>
         </section>
         <section className="py-16 lg:py-20">
-          <div className="mx-auto grid max-w-6xl gap-10 px-4 sm:grid-cols-2 sm:px-6 lg:grid-cols-3 lg:px-8">
+          <StaggerGroup className="mx-auto grid max-w-6xl gap-10 px-4 sm:grid-cols-2 sm:px-6 lg:grid-cols-3 lg:px-8">
             {groups.map(group => (
-              <section key={group.title} aria-labelledby={`sitemap-${group.title.toLowerCase()}`}>
+              <StaggerItem key={group.title}>
+              <section aria-labelledby={`sitemap-${group.title.toLowerCase()}`}>
                 <h2 id={`sitemap-${group.title.toLowerCase()}`} className="font-heading text-2xl font-semibold">{group.title}</h2>
                 <ul className="mt-5 space-y-3">
-                  {group.links.map(link => <li key={link.href}><Link href={link.href} className="inline-flex min-h-11 items-center text-muted-foreground hover:text-primary hover:underline">{link.label}</Link></li>)}
+                  {group.links.map(link => <li key={link.href}><Link href={link.href} className="inline-flex min-h-11 items-center text-muted-foreground transition-colors hover:text-primary hover:underline">{link.label}</Link></li>)}
                 </ul>
               </section>
+              </StaggerItem>
             ))}
-          </div>
-          <section className="mx-auto mt-16 max-w-6xl border-t px-4 pt-12 sm:px-6 lg:px-8" aria-labelledby="sitemap-journal">
+          </StaggerGroup>
+          <Reveal className="mx-auto mt-16 max-w-6xl border-t px-4 pt-12 sm:px-6 lg:px-8">
+          <section aria-labelledby="sitemap-journal">
             <h2 id="sitemap-journal" className="font-heading text-2xl font-semibold">Journal</h2>
             <ul className="mt-6 grid gap-x-10 gap-y-3 md:grid-cols-2">
               <li><Link href="/blog" className="inline-flex min-h-11 items-center font-semibold text-primary hover:underline">All journal articles</Link></li>
-              {BLOG_POSTS.map(post => <li key={post.slug}><Link href={`/blog/${post.slug}`} className="inline-flex min-h-11 items-center text-muted-foreground hover:text-primary hover:underline">{post.title}</Link></li>)}
+              {BLOG_POSTS.map(post => <li key={post.slug}><Link href={`/blog/${post.slug}`} className="inline-flex min-h-11 items-center text-muted-foreground transition-colors hover:text-primary hover:underline">{post.title}</Link></li>)}
             </ul>
           </section>
+          </Reveal>
         </section>
       </main>
       <SiteFooter />

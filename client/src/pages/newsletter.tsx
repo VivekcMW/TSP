@@ -6,6 +6,8 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { SEO } from "@/components/seo";
 import { NewsletterSignup } from "@/components/newsletter-signup";
+import { Reveal } from "@/components/motion/reveal";
+import { scaleIn } from "@/lib/motion";
 import { NEWSLETTER_PROMISE } from "@shared/newsletter";
 
 type Action = "confirm" | "unsubscribe";
@@ -57,7 +59,7 @@ export default function NewsletterPage() {
       <SEO title="Newsletter" canonical="/newsletter" description={NEWSLETTER_PROMISE} />
       <SiteHeader />
       <main className="flex flex-1 items-start justify-center px-4 py-16 sm:px-6 lg:py-24">
-        <div className="w-full max-w-xl space-y-6 rounded-2xl border bg-card p-7 sm:p-10">
+        <Reveal variants={scaleIn} className="w-full max-w-xl space-y-6 rounded-2xl border bg-card p-7 sm:p-10">
           <span className="grid h-12 w-12 place-items-center rounded-xl bg-primary text-primary-foreground">
             {state === "done" ? <CheckCircle2 className="h-6 w-6" aria-hidden="true" /> : <Mail className="h-6 w-6" aria-hidden="true" />}
           </span>
@@ -90,7 +92,7 @@ export default function NewsletterPage() {
               <NewsletterSignup source="newsletter-page" />
             </div>
           )}
-        </div>
+        </Reveal>
       </main>
       <SiteFooter />
     </div>

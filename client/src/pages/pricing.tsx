@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { SEO } from "@/components/seo";
+import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
 import { useIsSignedIn } from "@/lib/dev-auth";
 import { formatPrice, intervalUnit, plansForCurrency, yearlySaving, type PublicBillingPlan } from "@/lib/billing";
 
@@ -25,7 +26,7 @@ interface PlanCardProps {
 function PlanCard({ plan, price, unit, eyebrow, detail, badge, highlight, unavailableNote, action }: PlanCardProps) {
   return (
     <article
-      className={`relative flex min-w-0 flex-col overflow-hidden rounded-3xl border bg-card p-6 shadow-sm sm:p-7 ${
+      className={`relative flex h-full min-w-0 flex-col overflow-hidden rounded-3xl border bg-card p-6 shadow-sm hover-lift sm:p-7 ${
         highlight ? "border-primary shadow-[0_20px_60px_-32px_hsl(var(--primary)/0.55)] ring-1 ring-primary" : ""
       }`}
       data-testid={`plan-${plan.key}`}
@@ -83,7 +84,7 @@ export default function Pricing() {
           <div className="pointer-events-none absolute -bottom-52 left-1/4 h-96 w-96 rounded-full bg-secondary/20 blur-3xl" aria-hidden="true" />
           <div className="pointer-events-none absolute inset-0 opacity-[0.05] [background-image:linear-gradient(to_right,currentColor_1px,transparent_1px),linear-gradient(to_bottom,currentColor_1px,transparent_1px)] [background-size:48px_48px]" aria-hidden="true" />
           <div className="relative mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:gap-20">
-            <div>
+            <Reveal>
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary-foreground/70">Pricing built to grow with you</p>
               <h1 className="mt-5 max-w-3xl font-heading text-5xl font-semibold leading-[0.98] tracking-tight text-white sm:text-6xl lg:text-7xl">
                 Begin with your voice. Pay when you need momentum.
@@ -101,8 +102,9 @@ export default function Pricing() {
                   </span>
                 ))}
               </div>
-            </div>
+            </Reveal>
 
+            <Reveal delay={0.1}>
             <div className="relative mx-auto w-full max-w-md" aria-label="A simple path from Free to Pro">
               <div className="absolute -inset-5 rounded-[2rem] border border-white/10 bg-white/5" aria-hidden="true" />
               <div className="relative rotate-[-2deg] rounded-3xl border border-white/15 bg-white/10 p-6 shadow-2xl backdrop-blur-md">
@@ -143,16 +145,17 @@ export default function Pricing() {
                 </p>
               </div>
             </div>
+            </Reveal>
           </div>
         </section>
 
         <section className="bg-muted/30 px-4 py-16 sm:px-6 lg:py-24">
           <div className="mx-auto max-w-6xl">
-            <div className="mb-10 max-w-2xl">
+            <Reveal className="mb-10 max-w-2xl">
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Choose your plan</p>
               <h2 className="mt-3 font-heading text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">A simple path from first post to full momentum.</h2>
               <p className="mt-3 text-muted-foreground">Every plan keeps you in control. Pro adds the complete creation, scheduling, and performance workflow.</p>
-            </div>
+            </Reveal>
             {isPending && <p role="status" className="text-center text-muted-foreground">Loading current plans…</p>}
             {(isError || (!isPending && !data?.plans.length)) && (
               <div className="grid overflow-hidden rounded-3xl border bg-card shadow-sm lg:grid-cols-[1fr_auto]">
@@ -168,18 +171,18 @@ export default function Pricing() {
               </div>
             )}
             {!isError && data && data.plans.length > 0 && (
-              <div className="grid gap-6 md:grid-cols-3" data-testid="pricing-plans">
-                {free && <PlanCard plan={free} eyebrow="Start here" price={formatPrice(0, GLOBAL_CURRENCY)} unit="month" detail="No card required" action={startFree} />}
-                {monthly && <PlanCard plan={monthly} eyebrow="Stay flexible" price={formatPrice(monthly.amount, monthly.currency)} unit={intervalUnit(monthly.interval)}
-                  unavailableNote={monthly.available === false ? notYet : undefined} action={buy(monthly)} />}
-                {yearly && <PlanCard plan={yearly} eyebrow="Best value" price={formatPrice(yearly.amount, yearly.currency)} unit={intervalUnit(yearly.interval)} highlight
+              <StaggerGroup className="grid gap-6 md:grid-cols-3" data-testid="pricing-plans">
+                {free && <StaggerItem><PlanCard plan={free} eyebrow="Start here" price={formatPrice(0, GLOBAL_CURRENCY)} unit="month" detail="No card required" action={startFree} /></StaggerItem>}
+                {monthly && <StaggerItem><PlanCard plan={monthly} eyebrow="Stay flexible" price={formatPrice(monthly.amount, monthly.currency)} unit={intervalUnit(monthly.interval)}
+                  unavailableNote={monthly.available === false ? notYet : undefined} action={buy(monthly)} /></StaggerItem>}
+                {yearly && <StaggerItem><PlanCard plan={yearly} eyebrow="Best value" price={formatPrice(yearly.amount, yearly.currency)} unit={intervalUnit(yearly.interval)} highlight
                   detail={`About ${formatPrice(Math.round(yearly.amount / 1200) * 100, yearly.currency)} a month`}
                   badge={saving > 0 ? `Save ${saving}%` : undefined}
-                  unavailableNote={yearly.available === false ? notYet : undefined} action={buy(yearly)} />}
-              </div>
+                  unavailableNote={yearly.available === false ? notYet : undefined} action={buy(yearly)} /></StaggerItem>}
+              </StaggerGroup>
             )}
 
-            <div className="mt-14 grid gap-px overflow-hidden rounded-3xl border bg-border md:grid-cols-2">
+            <Reveal className="mt-14 grid gap-px overflow-hidden rounded-3xl border bg-border md:grid-cols-2">
               <div className="bg-card p-7">
                 <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><ShieldCheck className="h-5 w-5" aria-hidden="true" /></span>
                 <h2 className="mt-5 font-semibold text-foreground">Secure checkout</h2>
@@ -190,12 +193,14 @@ export default function Pricing() {
                 <h2 className="mt-5 font-semibold text-foreground">No lock-in</h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">Pay once for a month or year, or subscribe and cancel whenever you like from Billing.</p>
               </div>
-            </div>
+            </Reveal>
 
+            <Reveal>
             <p className="mx-auto mt-6 flex max-w-3xl items-start justify-center gap-2 text-center text-sm text-muted-foreground">
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               Free plan allowances reset at midnight UTC. Paid access begins only after a successful checkout.
             </p>
+            </Reveal>
           </div>
         </section>
       </main>
