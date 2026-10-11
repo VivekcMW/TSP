@@ -56,16 +56,16 @@ export default function BlogPage() {
       <main className="flex-1">
         <section className="border-b bg-card" data-testid="section-blog-hero">
           <div className="mx-auto max-w-7xl px-4 pb-16 pt-14 sm:px-6 lg:pb-20 lg:pt-20">
-            <div className="flex flex-wrap items-end justify-between gap-8">
+            <div className="flex flex-col items-center gap-8 text-center">
               <div className="max-w-3xl">
                 <h1 className="font-heading text-5xl font-semibold leading-[0.98] tracking-tight text-foreground sm:text-6xl lg:text-7xl" data-testid="text-blog-title">
                   Ideas for people<br className="hidden sm:block" /> with something to say.
                 </h1>
-                <p className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground">
+                <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted-foreground">
                   Clear thinking on professional authority, useful AI, and the craft of showing up with a point of view people remember.
                 </p>
               </div>
-              <p className="max-w-xs border-l-2 border-primary pl-4 text-sm leading-6 text-muted-foreground">
+              <p className="max-w-md border-t-2 border-primary px-4 pt-4 text-sm leading-6 text-muted-foreground">
                 New perspectives for the people building a reputation in public.
               </p>
             </div>
