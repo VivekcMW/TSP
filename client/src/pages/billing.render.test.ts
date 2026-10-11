@@ -67,13 +67,14 @@ describe("rendered billing and public catalog (mocked, no browser/providers)", (
     expect(html).toContain("Recurring checkout is not configured for this plan");
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>[\s\S]*?Start recurring checkout[\s\S]*?<\/button>/);
   });
-  it("says when the visitor's country currency can't be paid in yet, and which currency checkout uses", () => {
-    // Outside a browser the country guess is the United States, so US dollars are preferred.
+  it("offers only global USD plans for new checkout", () => {
     data.plans = [{ ...plan, id: "inr", amount: 99900, currency: "INR" }];
-    const html = render();
-    expect(html).toContain("Paying in US dollars opens soon. Until then, checkout is in Indian rupees.");
+    expect(render()).not.toContain("Available plans");
     data.plans = [plan];
-    expect(render()).not.toContain("opens soon");
+    const html = render();
+    expect(html).toContain("Available plans · USD");
+    expect(html).toContain("$73.11");
+    expect(html).not.toContain("₹");
   });
   it("public pricing uses the live catalog contract, with no unlimited-free promotion", () => {
     const html = renderToStaticMarkup(React.createElement(Pricing));
@@ -84,6 +85,6 @@ describe("rendered billing and public catalog (mocked, no browser/providers)", (
   it("shows unavailable instead of speculative prices on catalog failure", () => {
     state.query.mockReturnValue({ isError: true, isPending: false, data: undefined });
     const html = renderToStaticMarkup(React.createElement(Pricing));
-    expect(html).toContain("plan catalog is unavailable"); expect(html).not.toContain("$73.11");
+    expect(html).toContain("Current pricing is temporarily unavailable"); expect(html).not.toContain("$73.11");
   });
 });

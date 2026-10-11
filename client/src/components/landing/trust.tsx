@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import { Link2, Lock, ShieldCheck, UserCheck } from "lucide-react";
 import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
 
@@ -25,6 +26,16 @@ export function Trust() {
             </StaggerItem>
           ))}
         </StaggerGroup>
+        <Reveal className="mt-8 flex flex-col gap-4 rounded-card border bg-background p-5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+            The details should be as easy to inspect as the promise. Review how AI, personal information, and retention are handled before you sign up.
+          </p>
+          <nav aria-label="Trust policies" className="flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold">
+            <Link href="/ai-data-processing" className="min-h-11 content-center text-primary hover:underline">AI data</Link>
+            <Link href="/privacy" className="min-h-11 content-center text-primary hover:underline">Privacy</Link>
+            <Link href="/data-retention" className="min-h-11 content-center text-primary hover:underline">Data retention</Link>
+          </nav>
+        </Reveal>
       </div>
     </section>
   );

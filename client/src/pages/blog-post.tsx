@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Reveal } from "@/components/motion/reveal";
 import { LoadingScreen } from "@/components/loading-screen";
 import { getBlogPost, getRelatedPosts } from "@/lib/blog-posts";
-import { ArrowLeft, CalendarDays, Clock, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Clock, Sparkles } from "lucide-react";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
@@ -34,67 +34,113 @@ export default function BlogPostPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <SEO title={post.title} canonical={`/blog/${post.slug}`} description={post.excerpt} type="article" />
+      <SEO
+        title={post.title}
+        canonical={`/blog/${post.slug}`}
+        description={post.excerpt}
+        type="article"
+        jsonLd={[
+          {
+            "@context": "https://schema.org",
+            "@type": "Article",
+            headline: post.title,
+            description: post.excerpt,
+            datePublished: post.date,
+            dateModified: post.date,
+            mainEntityOfPage: `https://www.thesocialpundit.com/blog/${post.slug}`,
+            author: { "@type": "Organization", name: post.author, url: "https://www.thesocialpundit.com/about" },
+            publisher: {
+              "@type": "Organization",
+              name: "TheSocialPundit",
+              url: "https://www.thesocialpundit.com",
+              logo: { "@type": "ImageObject", url: "https://www.thesocialpundit.com/favicon.png" },
+            },
+          },
+          {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            itemListElement: [
+              { "@type": "ListItem", position: 1, name: "Home", item: "https://www.thesocialpundit.com/" },
+              { "@type": "ListItem", position: 2, name: "Journal", item: "https://www.thesocialpundit.com/blog" },
+              { "@type": "ListItem", position: 3, name: post.title, item: `https://www.thesocialpundit.com/blog/${post.slug}` },
+            ],
+          },
+        ]}
+      />
       <SiteHeader />
       <main className="flex-1">
-        <article className="py-16 lg:py-24" data-testid="section-blog-post">
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-            <Link
-              href="/blog"
-              className="flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors mb-8"
-              data-testid="link-back-to-blog"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back to Blog
-            </Link>
+        <article className="bg-card" data-testid="section-blog-post">
+          <div className="mx-auto max-w-5xl px-4 pb-16 pt-12 sm:px-6 lg:pb-24 lg:pt-16">
+            <nav aria-label="Breadcrumb" className="mb-12">
+              <ol className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                <li><Link href="/" className="transition-colors hover:text-primary">Home</Link></li>
+                <li aria-hidden="true">/</li>
+                <li>
+                  <Link href="/blog" className="inline-flex items-center gap-1.5 transition-colors hover:text-primary" data-testid="link-back-to-blog">
+                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />Journal
+                  </Link>
+                </li>
+                <li aria-hidden="true">/</li>
+                <li className="font-medium text-foreground" aria-current="page">{post.category}</li>
+              </ol>
+            </nav>
 
-            <Badge variant="secondary" className="text-xs mb-4">
-              {post.category}
-            </Badge>
-            <h1 className="heading-display mb-4" data-testid="text-blog-post-title">
-              {post.title}
-            </h1>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground mb-10 pb-8 border-b">
-              <span>
-                {post.author} &middot; {post.authorRole}
-              </span>
-              <span className="flex items-center gap-1">
-                <CalendarDays className="w-3.5 h-3.5" />
-                {formatDate(post.date)}
-              </span>
-              <span className="flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5" />
-                {post.readTime}
-              </span>
+            <div className="grid items-end gap-10 lg:grid-cols-[1fr_0.3fr]">
+              <div>
+                <Badge className="border-0 bg-primary/10 text-primary">{post.category}</Badge>
+                <h1 className="mt-6 max-w-4xl font-heading text-5xl font-semibold leading-[1.02] tracking-tight text-foreground sm:text-6xl lg:text-7xl" data-testid="text-blog-post-title">
+                  {post.title}
+                </h1>
+                <p className="mt-6 max-w-3xl text-xl leading-8 text-muted-foreground">{post.excerpt}</p>
+              </div>
+              <div className="border-l-2 border-primary pl-5 text-sm leading-6 text-muted-foreground">
+                <p className="font-semibold text-foreground">{post.author}</p>
+                <p>{post.authorRole}</p>
+                <div className="mt-4 space-y-2">
+                  <p className="flex items-center gap-2"><CalendarDays className="h-4 w-4" aria-hidden="true" />{formatDate(post.date)}</p>
+                  <p className="flex items-center gap-2"><Clock className="h-4 w-4" aria-hidden="true" />{post.readTime}</p>
+                </div>
+              </div>
             </div>
-
-            <div className="prose prose-neutral dark:prose-invert max-w-none">
-              {post.content.map((paragraph, index) => (
-                <p key={index} className="text-base leading-relaxed text-foreground/90 mb-5">
-                  {paragraph}
-                </p>
-              ))}
-            </div>
-
-            <Reveal>
-              <Card className="mt-12 border-primary/20 bg-primary/5">
-                <CardContent className="p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-                  <div>
-                    <p className="font-semibold mb-1">Ready to put this into practice?</p>
-                    <p className="text-sm text-muted-foreground">
-                      Generate on-brand posts for 23 platforms in minutes, not hours.
-                    </p>
-                  </div>
-                  <Button asChild>
-                    <Link href="/sign-up" data-testid="link-blog-post-signup">
-                      <Sparkles className="w-4 h-4 mr-2" />
-                      Start Free
-                    </Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            </Reveal>
           </div>
+        </article>
+
+        <article className="mx-auto max-w-5xl px-4 py-14 sm:px-6 lg:py-20">
+          <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_13rem]">
+            <div className="min-w-0 lg:col-start-1">
+              <div className="prose prose-neutral max-w-2xl dark:prose-invert">
+                {post.content.map((paragraph, index) => (
+                  <p key={index} className={`text-lg leading-8 text-foreground/85 ${index === 0 ? "first-letter:float-left first-letter:mr-2 first-letter:mt-1 first-letter:font-heading first-letter:text-6xl first-letter:font-semibold first-letter:leading-[0.8] first-letter:text-primary" : ""}`}>
+                    {paragraph}
+                  </p>
+                ))}
+              </div>
+            </div>
+            <aside className="hidden self-start border-l pl-6 text-sm text-muted-foreground lg:block">
+              <p className="font-semibold text-foreground">In this story</p>
+              <p className="mt-3 leading-6">A considered take on {post.category.toLowerCase()}, written for people building their reputation in public.</p>
+              <Link href="/blog" className="mt-6 inline-flex items-center gap-1.5 font-semibold text-primary hover:underline">
+                More stories <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            </aside>
+          </div>
+
+          <Reveal>
+            <Card className="mt-16 overflow-hidden border-primary/20 bg-primary/5">
+              <CardContent className="flex flex-col justify-between gap-5 p-6 sm:flex-row sm:items-center sm:p-8">
+                <div>
+                  <p className="font-semibold">Ready to put this into practice?</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Turn your next strong opinion into a post worth remembering.</p>
+                </div>
+                <Button asChild className="shrink-0">
+                  <Link href="/sign-up" data-testid="link-blog-post-signup">
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Start free
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </Reveal>
         </article>
 
         {related.length > 0 && (

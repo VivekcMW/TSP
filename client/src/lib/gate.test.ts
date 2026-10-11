@@ -37,6 +37,8 @@ describe("resolveGate", () => {
       expect(out("/")).toBe("public");
       expect(out("/pricing")).toBe("public");
       expect(out("/blog/some-slug")).toBe("public");
+      expect(out("/use-cases/thought-leadership")).toBe("public");
+      expect(out("/sitemap")).toBe("public");
       expect(out("/sign-in")).toBe("public");
       expect(out("/reset-password")).toBe("public");
     });
@@ -59,6 +61,7 @@ describe("resolveGate", () => {
     it("still allows browsing the marketing site", () => {
       expect(resolveGate(input({ path: "/pricing" }))).toBe("public");
       expect(resolveGate(input({ path: "/blog/x" }))).toBe("public");
+      expect(resolveGate(input({ path: "/use-cases/multi-platform-publishing" }))).toBe("public");
     });
 
     it("reaches the dashboard when registration and onboarding are complete", () => {

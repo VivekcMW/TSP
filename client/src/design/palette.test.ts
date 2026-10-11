@@ -118,7 +118,7 @@ describe("Ink & Cobalt authored palette", () => {
 describe("owned chrome adoption guardrails", () => {
   it.each([
     "../pages/auth.tsx", "../pages/how-it-works.tsx", "../components/site-header.tsx", "../components/site-footer.tsx",
-    "../components/newsletter-signup.tsx", "../components/landing/facts.tsx", "../components/landing/final-cta.tsx",
+    "../components/newsletter-signup.tsx", "../components/landing/authority-loop.tsx", "../components/landing/final-cta.tsx",
     "../components/landing/markets.tsx", "../components/landing/announcement-bar.tsx",
   ])("%s migrates complete light pairs without on-dark overrides", (file) => {
     expect(source(file)).not.toContain("surface-ink");

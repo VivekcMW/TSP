@@ -165,6 +165,22 @@ export const drafts = pgTable("drafts", {
   index("idx_drafts_tenant_publish_status").on(table.tenantId, table.publishStatus, table.scheduledAt),
 ]);
 
+/** Content-free quality signals for evaluating generation usefulness. No draft text is copied here. */
+export const draftFeedbackEvents = pgTable("draft_feedback_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  draftId: varchar("draft_id").notNull(),
+  eventType: varchar("event_type").notNull(),
+  previousLength: integer("previous_length"),
+  newLength: integer("new_length"),
+  changeRatio: numeric("change_ratio", { precision: 5, scale: 4 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  index("idx_draft_feedback_tenant_created").on(table.tenantId, table.createdAt),
+  index("idx_draft_feedback_draft").on(table.tenantId, table.draftId),
+]);
+
 export const INDUSTRY_SLUGS = [
   "media_advertising",
   "product_marketing",

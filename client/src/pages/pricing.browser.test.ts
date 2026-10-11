@@ -76,39 +76,31 @@ async function open(context: BrowserContext): Promise<Page> {
   return page;
 }
 const plans = (page: Page) => page.getByTestId("pricing-plans");
-const picker = (page: Page) => page.getByRole("combobox", { name: "Prices for" });
-async function chooseCountry(page: Page, search: string, country: string) {
-  await picker(page).click();
-  await page.getByPlaceholder("Search countries").fill(search);
-  await page.getByRole("option", { name: country, exact: true }).click();
-}
-
-describe("pricing by country", () => {
-  it("shows a visitor in India rupee prices they can buy, with the yearly saving", async () => {
+describe("global pricing", () => {
+  it("shows the same global USD plans to a visitor in India", async () => {
     const context = await newVisitor("Asia/Kolkata", "en-US");
     try {
       const page = await open(context);
-      await expect(picker(page).innerText()).resolves.toBe("India");
-      await plans(page).getByText("₹999").waitFor();
+      await plans(page).getByText("$200").waitFor();
       const text = await plans(page).innerText();
-      expect(text).toContain("₹9,999");
+      expect(text).toMatch(/\$20\s*\/ month/);
+      expect(text).toMatch(/\$200\s*\/ year/);
       expect(text).toContain("Save 17%");
-      expect(text).not.toContain("$");
-      await expect(page.getByRole("link", { name: "Choose Pro Monthly" }).getAttribute("href")).resolves.toBe("/dashboard/settings?tab=billing");
+      expect(text).not.toContain("₹");
+      await expect(page.getByText("Global checkout opens soon.").first().isVisible()).resolves.toBe(true);
     } finally { await context.close(); }
   });
 
-  it("shows a visitor elsewhere US dollar prices, says dollar checkout opens soon, and offers Start free", async () => {
+  it("shows identical USD plans to a visitor elsewhere and offers Start free while checkout is unavailable", async () => {
     const context = await newVisitor("Europe/Berlin", "de-DE");
     try {
       const page = await open(context);
-      await expect(picker(page).innerText()).resolves.toBe("Germany");
       await plans(page).getByText("$200").waitFor();
       const text = await plans(page).innerText();
       expect(text).toMatch(/\$20\s*\/ month/);
       expect(text).toMatch(/\$200\s*\/ year/);
       expect(text).not.toContain("₹");
-      await expect(page.getByText("Paying in US dollars opens soon.").first().isVisible()).resolves.toBe(true);
+      await expect(page.getByText("Global checkout opens soon.").first().isVisible()).resolves.toBe(true);
       await expect(page.getByRole("link", { name: /^Choose Pro/ }).count()).resolves.toBe(0);
       const starts = await plans(page).getByRole("link", { name: "Start free" }).evaluateAll(links => links.map(link => link.getAttribute("href")));
       expect(starts.length).toBeGreaterThanOrEqual(3);
@@ -116,35 +108,13 @@ describe("pricing by country", () => {
     } finally { await context.close(); }
   });
 
-  it("switches currency with the chosen country and remembers the choice", async () => {
-    const context = await newVisitor("Europe/Berlin", "de-DE");
-    try {
-      let page = await open(context);
-      await chooseCountry(page, "ind", "India");
-      await plans(page).getByText("₹999").waitFor();
-      await expect(page.getByText("Prices in Indian rupees").isVisible()).resolves.toBe(true);
-      await page.close();
-      page = await open(context);
-      await expect(picker(page).innerText()).resolves.toBe("India");
-      await plans(page).getByText("₹9,999").waitFor();
-    } finally { await context.close(); }
-  });
-
-  it("finds a country by typing part of its name, says when nothing matches, and works by keyboard", async () => {
+  it("does not expose country or local-currency controls", async () => {
     const context = await newVisitor("Asia/Kolkata", "en-IN");
     try {
       const page = await open(context);
-      await picker(page).click();
-      const search = page.getByPlaceholder("Search countries");
-      await search.fill("kingd");
-      await expect(page.getByRole("option").allInnerTexts()).resolves.toEqual(["United Kingdom"]);
-      await search.fill("zzz");
-      await page.getByText("No country found.").waitFor();
-      await search.fill("singa");
-      await page.keyboard.press("Enter");
-      await expect(picker(page).innerText()).resolves.toBe("Singapore");
-      await expect(picker(page).getAttribute("aria-expanded")).resolves.toBe("false");
       await plans(page).getByText("$200").waitFor();
+      await expect(page.getByRole("combobox").count()).resolves.toBe(0);
+      await expect(page.locator("main").innerText()).resolves.not.toContain("₹");
     } finally { await context.close(); }
   });
 
@@ -161,7 +131,7 @@ describe("pricing by country", () => {
     const context = await newVisitor("Asia/Kolkata", "en-IN", 390);
     try {
       const page = await open(context);
-      await plans(page).getByText("₹999").waitFor();
+      await plans(page).getByText("$200").waitFor();
       await expect(page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).resolves.toBeLessThanOrEqual(0);
     } finally { await context.close(); }
   });

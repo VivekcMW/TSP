@@ -3,7 +3,6 @@ import { Zap } from "lucide-react";
 import { Reveal } from "@/components/motion/reveal";
 import { fadeIn } from "@/lib/motion";
 import { openCookieSettings } from "@/lib/analytics-consent";
-import { SOCIAL_NETWORKS } from "@/lib/platforms";
 
 export function SiteFooter() {
   return (
@@ -19,7 +18,7 @@ export function SiteFooter() {
               Turn industry news into thought leadership.
             </p>
             <p className="mt-2 text-sm text-muted-foreground max-w-xs">
-              Build your professional authority across {SOCIAL_NETWORKS.length} networks, in minutes, not hours.
+              Find timely ideas, shape a credible point of view, and approve every post before it leaves your workspace.
             </p>
           </div>
           
@@ -32,13 +31,8 @@ export function SiteFooter() {
                 </Link>
               </li>
               <li>
-                <Link href="/industries" className="hover:text-primary transition-colors" data-testid="link-footer-industries">
-                  Industries
-                </Link>
-              </li>
-              <li>
-                <Link href="/resources" className="hover:text-primary transition-colors" data-testid="link-footer-resources">
-                  Resources
+                <Link href="/use-cases" className="hover:text-primary transition-colors" data-testid="link-footer-use-cases">
+                  Use Cases
                 </Link>
               </li>
               <li>
@@ -65,6 +59,11 @@ export function SiteFooter() {
               <li>
                 <Link href="/contact" className="hover:text-primary transition-colors" data-testid="link-footer-contact">
                   Contact
+                </Link>
+              </li>
+              <li>
+                <Link href="/sitemap" className="hover:text-primary transition-colors">
+                  Sitemap
                 </Link>
               </li>
             </ul>

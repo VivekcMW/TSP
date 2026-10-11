@@ -13,7 +13,7 @@ export default defineConfig({
   test: {
     environment: "node",
     // Include integration-security suites; fixtures/setup lack the .test.ts suffix.
-    include: ["{client,server,shared,test}/**/*.test.ts"],
+    include: ["{client,script,server,shared,test}/**/*.test.ts"],
     setupFiles: ["test/setup.ts"],
     // The server suite talks to a real Postgres and shares one schema, so
     // parallel files would race on TRUNCATE. Small suite; serial is fine.

@@ -1,5 +1,5 @@
 import {
-  users, userProfiles, publicationResolutions, userSourceDeletions, profileSocialLinks, inboxItems, inboxRefreshReceipts, drafts, industrySources, userSources, engineRunLogs,
+  users, userProfiles, publicationResolutions, userSourceDeletions, profileSocialLinks, inboxItems, inboxRefreshReceipts, drafts, draftFeedbackEvents, industrySources, userSources, engineRunLogs,
   socialAccounts, socialOAuthStates, socialAnalytics, draftSchedules, draftScheduleTargets, publishJobLogs, mediaAssets, publishingRules,
   type User, type UserProfile, type PublicationResolution, type InboxItem, type Draft,
   type InsertUserProfile, type ProfileSocialLink, type InsertProfileSocialLink, type InsertInboxItem, type InsertDraft,
@@ -31,9 +31,15 @@ import { selectDiverse } from "./services/inboxDiversity";
 import { TREND_ROW_LIMIT, TREND_WINDOW_MS, type TrendRow } from "./services/personalTrends";
 import { DraftConflictError, draftPreconditionSchema, type DraftPrecondition } from "@shared/draft-revision";
 import { assertPublishingConsent, type PublishingConsent } from "@shared/publishing-consent";
+import { draftChangeRatio } from "@shared/draft-feedback";
 
 /** A transaction handle, as drizzle hands it to the transaction callback. */
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function draftFeedbackAvailable(tx: Tx): Promise<boolean> {
+  const result = await tx.execute(sql`select to_regclass('public.draft_feedback_events') as relation`);
+  return Boolean(result.rows[0]?.relation);
+}
 
 /**
  * Tenant-scoped data access.
@@ -868,6 +874,17 @@ export class DatabaseStorage implements IStorage {
           ),
         )
         .returning();
+      if (updated && data.content !== undefined && data.content !== draft.content && await draftFeedbackAvailable(tx)) {
+        await tx.insert(draftFeedbackEvents).values({
+          tenantId: scope.tenantId,
+          userId: scope.userId,
+          draftId: draft.id,
+          eventType: "edited",
+          previousLength: draft.content.length,
+          newLength: data.content.length,
+          changeRatio: draftChangeRatio(draft.content, data.content).toFixed(4),
+        });
+      }
       return updated || undefined;
     });
   }
@@ -1241,7 +1258,19 @@ export class DatabaseStorage implements IStorage {
       if (!draft) return undefined;
       if (draft.content !== expectedContent || draft.updatedAt?.getTime() !== new Date(expectedUpdatedAt).getTime()) throw new ScheduleConflictError("Draft changed. Reload and review the current content.");
       if (!["draft", "scheduled", "failed"].includes(draft.publishStatus)) throw new ScheduleConflictError("This draft cannot be approved in its current delivery state.");
-      return (await tx.update(drafts).set({ publishApprovalHash: reviewFingerprint(draft), publishApprovedBy: scope.userId, publishApprovedAt: new Date() }).where(eq(drafts.id, draft.id)).returning())[0];
+      const approved = (await tx.update(drafts).set({ publishApprovalHash: reviewFingerprint(draft), publishApprovedBy: scope.userId, publishApprovedAt: new Date() }).where(eq(drafts.id, draft.id)).returning())[0];
+      if (await draftFeedbackAvailable(tx)) {
+        await tx.insert(draftFeedbackEvents).values({
+          tenantId: scope.tenantId,
+          userId: scope.userId,
+          draftId: draft.id,
+          eventType: "approved_for_publishing",
+          previousLength: draft.content.length,
+          newLength: draft.content.length,
+          changeRatio: "0.0000",
+        });
+      }
+      return approved;
     });
   }
 

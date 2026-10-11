@@ -6,7 +6,8 @@ import express from "express";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { precompressAssets } from "./precompress";
-import { precompressedAssets } from "./static";
+import { indexingHeaders, precompressedAssets, seoDocumentHandler } from "./static";
+import { BLOG_POSTS } from "../client/src/lib/blog-posts";
 
 // Visitors abroad download the app's scripts over long links; compressed copies cut them to about a third.
 const script = `export const words = ${JSON.stringify(Array.from({ length: 4000 }, (_, i) => `word-${i % 50}`))};\n`;
@@ -65,6 +66,20 @@ describe("precompressedAssets", () => {
     expect(res.body.toString()).toBe(script);
   });
 
+  describe("indexingHeaders", () => {
+    const indexingApp = express().use(indexingHeaders).get("*", (_req, res) => res.send("ok"));
+
+    it.each(["/dashboard", "/dashboard/settings", "/admin", "/onboarding", "/sign-in", "/api/public/billing/plans"])("prevents indexing private route %s", async route => {
+      const response = await request(indexingApp).get(route);
+      expect(response.headers["x-robots-tag"]).toBe("noindex, nofollow");
+    });
+
+    it.each(["/", "/pricing", "/blog", "/blog/one-voice-ten-platforms"])("leaves public route %s indexable", async route => {
+      const response = await request(indexingApp).get(route);
+      expect(response.headers["x-robots-tag"]).toBeUndefined();
+    });
+  });
+
   it("falls back to gzip, then to the original file", async () => {
     const gzip = await request(app).get("/assets/index-abc123.css").set("Accept-Encoding", "gzip").buffer(true).parse(raw);
     expect(gzip.headers["content-encoding"]).toBe("gzip");
@@ -102,5 +117,52 @@ describe("precompressedAssets", () => {
     expect(res.headers["content-encoding"]).toBeUndefined();
     const missing = await request(app).get("/assets/nope.js").set("Accept-Encoding", "br");
     expect(missing.status).toBe(404);
+  });
+});
+
+describe("seoDocumentHandler", () => {
+  const template = readFileSync(path.resolve("client/index.html"), "utf8");
+  let seoApp: express.Express;
+
+  beforeAll(() => {
+    seoApp = express();
+    seoApp.use(indexingHeaders);
+    seoApp.use("*", seoDocumentHandler(template));
+  });
+
+  it("renders metadata for the requested route, not the homepage", async () => {
+    const home = await request(seoApp).get("/");
+    expect(home.text).toContain('<title data-rh="true">TheSocialPundit - Build Your Professional Authority on Social Media</title>');
+
+    const pricing = await request(seoApp).get("/pricing");
+    expect(pricing.status).toBe(200);
+    expect(pricing.text).toContain('<title data-rh="true">Pricing | TheSocialPundit</title>');
+    expect(pricing.text).toContain('href="https://www.thesocialpundit.com/pricing"');
+    expect(pricing.headers["x-robots-tag"]).toBeUndefined();
+  });
+
+  it("keeps route metadata when the URL carries a query string", async () => {
+    const res = await request(seoApp).get("/pricing?utm_source=newsletter");
+    expect(res.text).toContain('<title data-rh="true">Pricing | TheSocialPundit</title>');
+  });
+
+  it("renders article metadata for a journal post", async () => {
+    const post = BLOG_POSTS[0];
+    const res = await request(seoApp).get(`/blog/${post.slug}`);
+    expect(res.text).toContain(`<title data-rh="true">${post.title} | TheSocialPundit</title>`);
+    expect(res.text).toContain(`https://www.thesocialpundit.com/blog/${post.slug}`);
+  });
+
+  it("404s file-like paths instead of passing off the app shell as a real page", async () => {
+    const res = await request(seoApp).get("/sitemap.xml");
+    expect(res.status).toBe(404);
+    expect(res.text).not.toContain("<title>");
+    expect(res.headers["x-robots-tag"]).toBe("noindex, nofollow");
+  });
+
+  it("marks unknown routes noindex", async () => {
+    const res = await request(seoApp).get("/no-such-page");
+    expect(res.status).toBe(200);
+    expect(res.headers["x-robots-tag"]).toBe("noindex, nofollow");
   });
 });

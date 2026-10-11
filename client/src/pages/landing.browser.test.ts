@@ -6,8 +6,6 @@ import tailwindcss from "tailwindcss";
 import { chromium, type Browser, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import config from "../../../tailwind.config";
-import { PLATFORMS } from "@/lib/platforms";
-import { SEARCH_EDITIONS } from "@shared/search-editions";
 
 // The real landing page, header and footer with the app's CSS, signed out. Images resolve
 // to stand-in paths and every network request is refused, so nothing leaves the page.
@@ -60,26 +58,28 @@ async function openLanding(width: number, height = 900, hash = ""): Promise<Page
   return page;
 }
 
-const networks = PLATFORMS.filter(platform => platform.value !== "slack").length;
-
 describe("landing page", () => {
   it("leads with the promise and two ways in", async () => {
     const page = await openLanding(1440);
     try {
-      await expect(page.getByRole("heading", { level: 1 }).innerText()).resolves.toBe("Be the voice your industry listens to.");
+      await expect(page.getByRole("heading", { level: 1 }).innerText()).resolves.toBe("Turn what you know into influence.");
       const hero = page.getByTestId("section-hero");
-      await expect(hero.getByRole("link", { name: "Start free" }).getAttribute("href")).resolves.toBe("/sign-up");
+      await expect(hero.getByRole("link", { name: "Build my authority" }).getAttribute("href")).resolves.toBe("/sign-up");
       await expect(hero.getByRole("link", { name: "See how it works" }).getAttribute("href")).resolves.toBe("/how-it-works");
     } finally { await page.close(); }
   });
 
-  it("states only what the product does, with counts taken from the product itself", async () => {
+  it("states only what the product does and links outcomes to focused use cases", async () => {
     const page = await openLanding(1440);
     try {
-      const facts = (await page.getByTestId("section-facts").innerText()).replace(/\s+/g, " ");
-      expect(facts).toContain(`${networks} networks, one voice`);
-      expect(facts).toContain(`${SEARCH_EDITIONS.length} regional news editions`);
-      expect(facts).toContain("4 tones that sound like you");
+      const useCases = page.getByTestId("section-use-cases");
+      for (const [name, path] of [
+        ["Thought leadership", "/use-cases/thought-leadership"],
+        ["Professional content creation", "/use-cases/professional-content-creation"],
+        ["Multi-platform publishing", "/use-cases/multi-platform-publishing"],
+      ]) {
+        await expect(useCases.getByRole("link", { name: new RegExp(name, "i") }).first().getAttribute("href")).resolves.toBe(path);
+      }
       const text = await page.locator("body").innerText();
       for (const banned of [/\[[^\]]*\]/, /lorem/i, /\d+\+ comments/i, /80\+/, /\bRSS\b/, /2025/]) expect(text, String(banned)).not.toMatch(banned);
       const footerLinks = await page.locator("footer a").evaluateAll(links => links.map(link => link.getAttribute("href")));
@@ -88,29 +88,30 @@ describe("landing page", () => {
     } finally { await page.close(); }
   });
 
-  it("gives every photo and screenshot alt text, sizes and reserved space; only the hero loads eagerly", async () => {
+  it("gives every editorial photo alt text, sizes and reserved space; all load below the fold", async () => {
     const page = await openLanding(1440);
     try {
       const images = await page.locator("img").evaluateAll(list => list.map(image => ({
         alt: image.getAttribute("alt"), width: image.getAttribute("width"), height: image.getAttribute("height"),
         srcset: image.getAttribute("srcset"), loading: image.getAttribute("loading"), priority: image.getAttribute("fetchpriority"),
       })));
-      expect(images.length).toBeGreaterThanOrEqual(3);
+      expect(images.length).toBeGreaterThanOrEqual(1);
       for (const image of images) {
         expect(image.alt?.trim(), JSON.stringify(image)).toBeTruthy();
         expect(Number(image.width) > 0 && Number(image.height) > 0, JSON.stringify(image)).toBe(true);
         expect(image.srcset, JSON.stringify(image)).toMatch(/ \d+w/);
       }
-      expect(images.filter(image => image.loading === "eager")).toEqual([expect.objectContaining({ priority: "high" })]);
+      expect(images.filter(image => image.loading !== "lazy")).toEqual([]);
+      expect(images.filter(image => image.priority === "high")).toEqual([]);
     } finally { await page.close(); }
   });
 
-  it("switches product tabs to the matching screenshot, and opens the one named in the address", async () => {
+  it("switches product tabs to the matching illustration, and opens the one named in the address", async () => {
     const page = await openLanding(1440);
     try {
       const product = page.getByTestId("section-product");
       await product.getByRole("tab", { name: "Create" }).click();
-      await expect(product.getByRole("tabpanel").locator("img").getAttribute("alt")).resolves.toMatch(/Create/);
+      await expect(product.getByRole("tabpanel").getByTestId("product-illustration-create").getAttribute("aria-label")).resolves.toMatch(/Create/);
     } finally { await page.close(); }
     const linked = await openLanding(1440, 900, "#product-content");
     try {
@@ -128,6 +129,19 @@ describe("landing page", () => {
       await markets.getByRole("tab", { name: "Europe" }).click();
       const europe = await markets.getByRole("tabpanel").innerText();
       for (const name of ["Xing", "German (Germany)", "French (France)"]) expect(europe).toContain(name);
+    } finally { await page.close(); }
+  });
+
+  it("presents major industries as examples while supporting any custom niche", async () => {
+    const page = await openLanding(1440);
+    try {
+      const section = page.getByTestId("section-industries");
+      const text = (await section.innerText()).replace(/\s+/g, " ");
+      for (const industry of ["Technology & SaaS", "Healthcare & Pharma", "Manufacturing", "Agriculture & Food"]) {
+        expect(text).toContain(industry);
+      }
+      expect(text).toContain("These are examples, not limits.");
+      expect(text).toContain("No preset required");
     } finally { await page.close(); }
   });
 
@@ -172,6 +186,8 @@ describe("landing page", () => {
       await page.getByRole("button", { name: "Open menu" }).click();
       const menu = page.getByTestId("mobile-menu");
       await expect(menu.getByRole("link", { name: "Discover" }).getAttribute("href")).resolves.toBe("/#product-discover");
+      await expect(menu.getByRole("link", { name: "Use cases" }).getAttribute("href")).resolves.toBe("/use-cases");
+      await expect(menu.getByRole("link", { name: "Blog" }).getAttribute("href")).resolves.toBe("/blog");
       await expect(menu.getByRole("link", { name: "Start free" }).getAttribute("href")).resolves.toBe("/sign-up");
     } finally { await page.close(); }
   });

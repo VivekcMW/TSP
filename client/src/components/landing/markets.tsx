@@ -1,6 +1,6 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Reveal } from "@/components/motion/reveal";
-import { EDITION_COUNT, REGIONS } from "./landing-content";
+import { REGIONS } from "./landing-content";
 
 /** Regions as tabs: a city photo, the networks drafted for there, and its news editions. */
 export function Markets() {
@@ -13,8 +13,7 @@ export function Markets() {
               <p className="text-xs font-bold uppercase tracking-wider text-secondary-text">Global</p>
               <h2 className="heading-section">Works in your market</h2>
               <p className="text-lg text-muted-foreground">
-                Pundit reads news from {EDITION_COUNT} regional editions and writes for the networks your audience
-                actually uses, from LinkedIn to WeChat.
+                Pundit follows regional news and writes for the networks your audience actually uses, from LinkedIn to WeChat.
               </p>
             </Reveal>
             <TabsList className="-mx-4 flex h-auto justify-start gap-2 overflow-x-auto bg-transparent px-4 pb-1 sm:mx-0 sm:px-0 lg:flex-col lg:items-stretch lg:overflow-visible">
