@@ -1,12 +1,8 @@
-import { SOCIAL_NETWORKS, getPlatformMeta } from "@/lib/platforms";
+import { getPlatformMeta } from "@/lib/platforms";
 import { SEARCH_EDITIONS, type SearchEditionId } from "@shared/search-editions";
 import { CREATE_TONES } from "@/components/dashboard/create-post-state";
-import { industryPhotos, regionPhotos, type LandingImage } from "./landing-images";
+import { regionPhotos, type LandingImage } from "./landing-images";
 
-// Counts come from the product itself so the page can never drift from what the app does.
-export const NETWORKS = SOCIAL_NETWORKS;
-export const NETWORK_COUNT = NETWORKS.length;
-export const EDITION_COUNT = SEARCH_EDITIONS.length;
 export const TONES = CREATE_TONES.map(tone => tone.label);
 
 const editionLabel = (id: SearchEditionId) => SEARCH_EDITIONS.find(edition => edition.value === id)!.label;
@@ -47,38 +43,12 @@ export const REGIONS: Region[] = [
     networks: networks("line", "naver", "linkedin", "twitter"), editions: [editionLabel("ja-JP"), editionLabel("en-AU")], photo: regionPhotos.apac },
 ];
 
-export interface Industry {
-  key: keyof typeof industryPhotos;
-  label: string;
-  story: string;
-  post: string;
-}
-
-// Illustrative examples (labelled as such on the page), not real posts or outcomes.
-export const INDUSTRIES: Industry[] = [
-  { key: "finance", label: "Finance and Banking",
-    story: "Regulators publish new rules for instant cross-border payments",
-    post: "Instant cross-border payments just stopped being a pilot. The banks that win won't be the fastest; they'll be the ones customers trust with the exceptions." },
-  { key: "healthcare", label: "Healthcare and Pharma",
-    story: "Hospitals adopt AI triage to shorten emergency waits",
-    post: "AI triage doesn't replace clinicians. It removes the excuse for late detection. Hospitals slow to adopt it will fall behind on outcomes, not technology." },
-  { key: "media", label: "Media and Advertising",
-    story: "Streaming platforms move ad budgets toward live sports",
-    post: "Live sports is the last appointment viewing left. If your CTV plan treats it like any other inventory, you're pricing attention wrong." },
-  { key: "technology", label: "Technology and SaaS",
-    story: "Developer tools switch from seat licences to usage pricing",
-    post: "Usage pricing lets teams start free and grow with you. The catch is surprise bills, so the winners will ship spend caps before customers ask." },
-  { key: "consulting", label: "Consulting",
-    story: "Companies bring sustainability reporting in-house as new rules land",
-    post: "Sustainability reporting is moving from the consultant's slide deck to the finance team's close. Advisors who help build that muscle will stay; the rest will be replaced by software." },
-];
-
 /** Direct-publishing networks that need no setup on our side beyond connecting an account. */
 const DIRECT = ["LinkedIn", "Bluesky", "Mastodon", "Telegram", "Discord", "Dev.to", "Hashnode"];
 
 export const FAQS = [
   { question: "Which countries and languages do you support?",
-    answer: `You can use TheSocialPundit from anywhere. Discover reads news from ${EDITION_COUNT} regional editions (${SEARCH_EDITIONS.map(edition => edition.label).join(", ")}), and Create drafts posts for ${NETWORK_COUNT} networks, including regional ones such as WeChat, Weibo, Naver Blog, LINE, Xing and VK. The app itself is in English today.` },
+    answer: `You can use TheSocialPundit from anywhere. Discover follows regional news across ${SEARCH_EDITIONS.map(edition => edition.label).join(", ")}, and Create prepares posts for global and regional networks such as LinkedIn, WeChat, Weibo, Naver Blog, LINE and Xing. The app itself is in English today.` },
   { question: "Will posts actually sound like me, not like generic AI?",
     answer: `Every draft starts from a real, current article in your field and takes a clear position instead of summarising it. You choose a tone (${TONES.join(", ")}) so your voice stays consistent, and you can edit anything before it goes out.` },
   { question: "Does anything post without my approval?",

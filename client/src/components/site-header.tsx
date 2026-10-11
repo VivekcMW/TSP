@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "wouter";
 import { useIsSignedIn } from "@/lib/dev-auth";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowRight, BookOpen, Compass, FileText, Menu, Newspaper, PenLine, Sparkles, X, Zap } from "lucide-react";
+import { ArrowRight, Compass, FileText, Menu, PenLine, Sparkles, X, Zap } from "lucide-react";
 import {
   NavigationMenu, NavigationMenuContent, NavigationMenuItem, NavigationMenuLink, NavigationMenuList, NavigationMenuTrigger,
 } from "@/components/ui/navigation-menu";
@@ -15,12 +15,9 @@ const productLinks = [
   { href: "/#product-create", label: "Create", description: "Posts in your voice for every network", icon: PenLine },
   { href: "/#product-content", label: "Content", description: "Review, schedule and publish your drafts", icon: FileText },
 ];
-const resourceLinks = [
-  { href: "/resources", label: "Guides and templates", description: "Playbooks for turning news into thought leadership", icon: BookOpen, slug: "resources" },
-  { href: "/blog", label: "Blog", description: "Ideas on content, AI writing and reputation", icon: Newspaper, slug: "blog" },
-];
 const plainLinks = [
-  { href: "/industries", label: "Industries", slug: "industries" },
+  { href: "/use-cases", label: "Use cases", slug: "use-cases" },
+  { href: "/blog", label: "Blog", slug: "blog" },
   { href: "/pricing", label: "Pricing", slug: "pricing" },
 ];
 
@@ -47,13 +44,22 @@ export function SiteHeader() {
   const linkClass = (href: string) => `text-sm font-medium transition-colors hover:text-primary ${location === href ? "text-foreground" : "text-muted-foreground"}`;
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-card text-card-foreground">
+    <>
+    <a
+      href="#main-content"
+      className="sr-only rounded-md bg-foreground px-4 py-2 font-semibold text-background shadow-lg focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+    >
+      Skip to main content
+    </a>
+    <header className="sticky top-0 z-50 w-full border-b bg-card/95 text-card-foreground shadow-[0_1px_0_hsl(var(--border))] backdrop-blur-xl">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between gap-4">
           <div className="flex items-center gap-8">
-            <Link href="/" className="flex items-center gap-1" data-testid="link-logo">
-              <Zap className="h-6 w-6 fill-primary text-primary" aria-hidden="true" />
-              <span className="text-xl font-bold text-primary">TheSocialPundit</span>
+            <Link href="/" className="flex items-center gap-2" data-testid="link-logo">
+              <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+                <Zap className="h-4 w-4 fill-current" aria-hidden="true" />
+              </span>
+              <span className="text-lg font-bold tracking-tight text-foreground">TheSocialPundit</span>
             </Link>
 
             <NavigationMenu className="hidden lg:flex">
@@ -76,14 +82,6 @@ export function SiteHeader() {
                     </div>
                   </NavigationMenuContent>
                 </NavigationMenuItem>
-                <NavigationMenuItem>
-                  <NavigationMenuTrigger className="bg-transparent text-muted-foreground" data-testid="button-nav-resources">Resources</NavigationMenuTrigger>
-                  <NavigationMenuContent>
-                    <div className="grid w-[380px] gap-1 p-3">
-                      {resourceLinks.map(link => <MenuLink key={link.href} {...link} testId={`link-nav-${link.slug}`} />)}
-                    </div>
-                  </NavigationMenuContent>
-                </NavigationMenuItem>
                 {plainLinks.map(link => (
                   <NavigationMenuItem key={link.href}>
                     <Link href={link.href} className={`inline-flex h-10 items-center px-4 ${linkClass(link.href)}`} data-testid={`link-nav-${link.slug}`}>{link.label}</Link>
@@ -100,7 +98,7 @@ export function SiteHeader() {
               ) : (
                 <div className="flex items-center gap-2">
                   <Button asChild variant="ghost"><Link href="/sign-in" data-testid="link-header-login">Sign In</Link></Button>
-                  <Button asChild><Link href="/sign-up" data-testid="link-header-register">Start free</Link></Button>
+                  <Button asChild className="shadow-sm"><Link href="/sign-up" data-testid="link-header-register">Start free</Link></Button>
                 </div>
               )}
             </div>
@@ -141,7 +139,7 @@ export function SiteHeader() {
                   </Link>
                 </nav>
                 <nav aria-label="More" className="flex flex-col">
-                  {[...plainLinks, ...resourceLinks.map(link => ({ href: link.href, label: link.label === "Guides and templates" ? "Resources" : link.label, slug: link.slug }))].map(link => (
+                  {plainLinks.map(link => (
                     <Link key={link.href} href={link.href} onClick={close} className={`flex min-h-11 items-center px-1 ${linkClass(link.href)}`} data-testid={`link-mobile-nav-${link.slug}`}>
                       {link.label}
                     </Link>
@@ -169,5 +167,7 @@ export function SiteHeader() {
         </AnimatePresence>
       </div>
     </header>
+    <span id="main-content" tabIndex={-1} className="sr-only">Main content</span>
+    </>
   );
 }

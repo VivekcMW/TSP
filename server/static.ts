@@ -2,9 +2,61 @@ import express, { type Express, type RequestHandler } from "express";
 import fs from "fs";
 import path from "path";
 import { filesUnder } from "./precompress";
+import { renderInitialSeo } from "./public-seo";
 
 const ENCODINGS = [["br", ".br"], ["gzip", ".gz"]] as const;
 const LONG_CACHE = { maxAge: "1y", immutable: true };
+const NOINDEX_PATHS = [
+  "/dashboard",
+  "/admin",
+  "/onboarding",
+  "/sign-in",
+  "/sign-up",
+  "/reset-password",
+  "/complete-registration",
+  "/accept-invite",
+  "/email-preferences",
+  "/invitation-preferences",
+  // Public but intentionally unindexed: honest "coming soon" placeholders. Thin pages like
+  // these dilute site quality, so they stay out of the index and out of sitemap.xml until
+  // they carry real content.
+  "/case-studies",
+  "/careers",
+];
+
+export const indexingHeaders: RequestHandler = (req, res, next) => {
+  if (req.path.startsWith("/api/") || NOINDEX_PATHS.some(pathname => req.path === pathname || req.path.startsWith(`${pathname}/`))) {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  }
+  next();
+};
+
+/** Strips the query string and hash from a raw request URL, leaving the route path. */
+export function requestPathname(originalUrl: string): string {
+  return originalUrl.split(/[?#]/, 1)[0] || "/";
+}
+
+/**
+ * Serves the SPA shell with metadata for the requested route. Mounted last, so it only sees
+ * requests that no static file matched.
+ */
+export function seoDocumentHandler(indexTemplate: string): RequestHandler {
+  return (req, res) => {
+    // Inside `app.use("*")` Express strips the mount path, so `req.path` is always "/".
+    // The requested route only survives on `originalUrl`.
+    const pathname = requestPathname(req.originalUrl);
+    // Anything that looks like a file was not matched by express.static above. Replying with
+    // the SPA shell and a 200 would make a missing sitemap.xml or asset look like a real page.
+    if (path.extname(pathname)) {
+      res.setHeader("X-Robots-Tag", "noindex, nofollow");
+      res.status(404).type("txt").send("Not found");
+      return;
+    }
+    const rendered = renderInitialSeo(indexTemplate, pathname);
+    if (!rendered.indexable) res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    res.type("html").send(rendered.html);
+  };
+}
 
 /**
  * Sends the build-time `.br` or `.gz` copy of an asset (see precompress.ts) to browsers that
@@ -39,6 +91,8 @@ export function serveStatic(app: Express) {
     );
   }
 
+  app.use(indexingHeaders);
+
   // Vite emits content-hashed filenames under /assets/ (e.g. index-CEo2F5WN.js)
   // that never change for a given build — cache them for a year so the CDN in
   // front of the app (and browsers) can actually cache them instead of
@@ -48,10 +102,10 @@ export function serveStatic(app: Express) {
   // default no-long-cache behavior since those aren't safe to cache long.
   const assets = path.resolve(distPath, "assets");
   app.use("/assets", precompressedAssets(assets), express.static(assets, LONG_CACHE));
-  app.use(express.static(distPath));
+  app.use(express.static(distPath, { index: false }));
 
-  // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
-  });
+  // Serve route-specific metadata in the initial HTML so crawlers and link
+  // unfurlers do not need to execute the React bundle to identify the page.
+  const indexTemplate = fs.readFileSync(path.resolve(distPath, "index.html"), "utf8");
+  app.use("*", seoDocumentHandler(indexTemplate));
 }

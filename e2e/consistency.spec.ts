@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const publicRoutes = [
-  "/", "/pricing", "/how-it-works", "/industries", "/blog",
-  "/blog/one-voice-ten-platforms", "/resources", "/about", "/contact",
+  "/", "/pricing", "/how-it-works", "/blog",
+  "/blog/one-voice-ten-platforms", "/about", "/contact",
   "/privacy", "/terms", "/refund-policy", "/subscription-cancellation",
   "/data-retention", "/ai-data-processing", "/cookies", "/email-preferences",
   "/invitation-preferences", "/newsletter", "/case-studies", "/careers",

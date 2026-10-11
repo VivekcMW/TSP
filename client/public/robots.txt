@@ -4,11 +4,38 @@
 User-agent: *
 Allow: /
 Disallow: /dashboard
+Disallow: /admin
 Disallow: /onboarding
 Disallow: /api/
 
+# Search and answer engines may discover and cite public pages.
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /onboarding
+Disallow: /api/
+
+User-agent: Claude-SearchBot
+Allow: /
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /onboarding
+Disallow: /api/
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /onboarding
+Disallow: /api/
+
+# Search visibility is allowed; model-training reuse is not granted by default.
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
 # Sitemap location
 Sitemap: https://www.thesocialpundit.com/sitemap.xml
-
-# Crawl delay (optional - be polite to servers)
-Crawl-delay: 1

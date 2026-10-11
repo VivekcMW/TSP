@@ -1,0 +1,29 @@
+# TheSocialPundit
+
+> TheSocialPundit is an AI-assisted professional authority platform. It helps professionals discover relevant industry signals, shape a clear point of view, draft content in their own voice, and review every post before publishing.
+
+## Primary pages
+
+- [Home](https://www.thesocialpundit.com/): Product overview and positioning.
+- [How it works](https://www.thesocialpundit.com/how-it-works): The workflow from industry signal to approved post.
+- [Pricing](https://www.thesocialpundit.com/pricing): Current public plans and availability.
+- [Use cases](https://www.thesocialpundit.com/use-cases): Outcome-led workflows for thought leadership, professional content creation, and multi-platform publishing.
+- [Thought leadership](https://www.thesocialpundit.com/use-cases/thought-leadership): Build authority from current industry signals and professional judgment.
+- [Professional content creation](https://www.thesocialpundit.com/use-cases/professional-content-creation): Move from a source, link, or original idea to an approved draft.
+- [Multi-platform publishing](https://www.thesocialpundit.com/use-cases/multi-platform-publishing): Adapt one point of view for the channels an audience uses.
+- [TheSocialPundit Journal](https://www.thesocialpundit.com/blog): Editorial guidance on professional authority, content strategy, AI-assisted writing, and platform craft.
+- [About](https://www.thesocialpundit.com/about): Company purpose and product principles.
+- [AI data processing](https://www.thesocialpundit.com/ai-data-processing): How AI-related data is handled.
+- [Privacy](https://www.thesocialpundit.com/privacy): Privacy practices and user rights.
+
+## Product principles
+
+- The user approves every post.
+- The product supports professional judgment rather than replacing it.
+- Current source material grounds factual claims.
+- A user's editorial voice and data remain isolated from other users.
+- Public pricing and product claims should be taken from the current website, not inferred.
+
+## Contact
+
+- [Contact TheSocialPundit](https://www.thesocialpundit.com/contact)

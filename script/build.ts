@@ -3,6 +3,7 @@ import { rm, readFile } from "fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { precompressAssets } from "../server/precompress";
+import { writeSearchFiles } from "./generate-search-files";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -55,6 +56,7 @@ export async function serverBuildOptions(): Promise<BuildOptions> {
 
 async function buildAll() {
   await rm("dist", { recursive: true, force: true });
+  await writeSearchFiles();
   console.log("building client...");
   const { build: viteBuild } = await import("vite");
   await viteBuild();

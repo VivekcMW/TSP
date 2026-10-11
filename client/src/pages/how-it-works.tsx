@@ -6,8 +6,7 @@ import { Check } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { SEO } from "@/components/seo";
-import { PLATFORMS, SOCIAL_NETWORKS } from "@/lib/platforms";
-import { SEARCH_EDITIONS } from "@shared/search-editions";
+import { PLATFORMS } from "@/lib/platforms";
 import { Reveal } from "@/components/motion/reveal";
 import { fadeUp } from "@/lib/motion";
 
@@ -17,7 +16,7 @@ export default function HowItWorks() {
       <SEO 
         title="How It Works"
         canonical="/how-it-works"
-        description={`How TheSocialPundit works: Pundit finds current news in your field, drafts posts in your voice, and publishes or prepares them for ${SOCIAL_NETWORKS.length} networks, from LinkedIn and X to WeChat and Naver Blog.`}
+        description="How TheSocialPundit works: Pundit finds current news in your field, drafts posts in your voice, and prepares each version for your review before publishing."
       />
       <SiteHeader />
       
@@ -92,7 +91,7 @@ export default function HowItWorks() {
                   <p className="text-sm font-semibold text-primary uppercase tracking-wide">Step 2</p>
                   <h2 className="heading-section">Your Discover feed comes alive.</h2>
                   <p className="text-muted-foreground">
-                    Pundit picks trusted publications in your field and adds live news from {SEARCH_EDITIONS.length} regional editions, then shows you only the stories that match what you want to be known for. No noise, no scrolling.
+                    Pundit picks trusted publications in your field and adds relevant regional news, then shows you the stories that match what you want to be known for. No noise, no endless scrolling.
                   </p>
                 </div>
               </div>
@@ -137,7 +136,7 @@ export default function HowItWorks() {
                   <p className="text-sm font-semibold text-primary uppercase tracking-wide">Step 4</p>
                   <h2 className="heading-section">Publish or copy in a click.</h2>
                   <p className="text-muted-foreground">
-                    Publish or schedule directly to networks such as LinkedIn, Bluesky and Mastodon once you connect them, or copy a post shaped for any of our {SOCIAL_NETWORKS.length} networks, including WeChat and Naver Blog. Stay consistent without spending hours on content creation. Your authority builds while you focus on your core work.
+                    Publish or schedule directly where a connected network supports it, or copy a post shaped for the destination you choose. Stay consistent while keeping every final decision in your hands.
                   </p>
                 </div>
               </div>

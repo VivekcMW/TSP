@@ -2,39 +2,145 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://www.thesocialpundit.com/</loc>
-    <lastmod>2025-12-26</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://www.thesocialpundit.com/pricing</loc>
-    <lastmod>2025-12-26</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
     <loc>https://www.thesocialpundit.com/how-it-works</loc>
-    <lastmod>2025-12-26</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <priority>0.9</priority>
   </url>
-  <url><loc>https://www.thesocialpundit.com/privacy</loc><changefreq>yearly</changefreq><priority>0.4</priority></url>
-  <url><loc>https://www.thesocialpundit.com/terms</loc><changefreq>yearly</changefreq><priority>0.4</priority></url>
-  <url><loc>https://www.thesocialpundit.com/refund-policy</loc><changefreq>yearly</changefreq><priority>0.4</priority></url>
-  <url><loc>https://www.thesocialpundit.com/subscription-cancellation</loc><changefreq>yearly</changefreq><priority>0.4</priority></url>
-  <url><loc>https://www.thesocialpundit.com/data-retention</loc><changefreq>yearly</changefreq><priority>0.4</priority></url>
-  <url><loc>https://www.thesocialpundit.com/ai-data-processing</loc><changefreq>yearly</changefreq><priority>0.4</priority></url>
-  <url><loc>https://www.thesocialpundit.com/cookies</loc><changefreq>yearly</changefreq><priority>0.4</priority></url>
   <url>
-    <loc>https://www.thesocialpundit.com/login</loc>
-    <lastmod>2025-12-26</lastmod>
+    <loc>https://www.thesocialpundit.com/use-cases</loc>
     <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/pricing</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/about</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/contact</loc>
+    <changefreq>yearly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>https://www.thesocialpundit.com/register</loc>
-    <lastmod>2025-12-26</lastmod>
+    <loc>https://www.thesocialpundit.com/newsletter</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/privacy</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/terms</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/refund-policy</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/subscription-cancellation</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/data-retention</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/ai-data-processing</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/cookies</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/sitemap</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/use-cases/thought-leadership</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/use-cases/professional-content-creation</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/use-cases/multi-platform-publishing</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/one-voice-ten-platforms</loc>
+    <lastmod>2026-07-14</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/15-minute-content-calendar</loc>
+    <lastmod>2026-06-02</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/ai-content-still-sound-like-you</loc>
+    <lastmod>2026-05-20</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/linkedin-algorithm-2026</loc>
+    <lastmod>2026-04-11</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/generic-ai-content-fails</loc>
+    <lastmod>2026-03-08</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/personal-brand-vs-company-brand</loc>
+    <lastmod>2026-02-19</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/beyond-linkedin-reddit-mastodon</loc>
+    <lastmod>2026-01-22</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/why-consistency-beats-virality</loc>
+    <lastmod>2025-12-10</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.7</priority>
   </url>
 </urlset>

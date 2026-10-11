@@ -12,11 +12,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { color } from "@/design/tokens";
 import type { SettingsPageProps } from "@/components/settings/settings-page-props";
 import { Input } from "@/components/ui/input";
-import { billingCurrencies, billingPeriodLabel, billingStatusLabel, canCancelSubscription, checkoutRequest, checkoutVerification, formatBillingAmount as formatAmount, formatPrice, intervalUnit, plansForCurrency, type BillingSubscription, type CheckoutMode, type PublicBillingPlan } from "@/lib/billing";
-import { currencyForCountry, type PricingCurrency } from "@/lib/pricing-country";
-import { usePricingCountry } from "@/lib/use-pricing-country";
-
-const CURRENCY_NAMES: Record<PricingCurrency, string> = { INR: "Indian rupees", USD: "US dollars" };
+import { billingPeriodLabel, billingStatusLabel, canCancelSubscription, checkoutRequest, checkoutVerification, formatBillingAmount as formatAmount, formatPrice, intervalUnit, plansForCurrency, type BillingSubscription, type CheckoutMode, type PublicBillingPlan } from "@/lib/billing";
 export { billingPeriodLabel } from "@/lib/billing";
 
 declare global {
@@ -51,10 +47,6 @@ export function BillingPanel({ compact = false }: Readonly<{ compact?: boolean }
   const [checkoutPending, setCheckoutPending] = useState<string | null>(null);
   const [checkoutMode, setCheckoutMode] = useState<CheckoutMode>("order");
   const [cycles, setCycles] = useState("");
-  // Follows the country chosen on the pricing page (or registration) until the currency is switched here.
-  const [country] = usePricingCountry();
-  const preferredCurrency = currencyForCountry(country);
-  const [currency, setCurrency] = useState<string | null>(null);
   const invalidateBilling = () => Promise.all([
     cache.invalidateQueries({ queryKey: ["/api/billing"] }),
     cache.invalidateQueries({ queryKey: ["/api/billing/entitlements"] }),
@@ -100,11 +92,7 @@ export function BillingPanel({ compact = false }: Readonly<{ compact?: boolean }
   if (isError || !data) return <Card><CardContent className="p-6"><p role="alert">Billing information is unavailable right now.</p><Button className="mt-4" variant="outline" onClick={() => refetch()}>Retry</Button></CardContent></Card>;
   const subscription = data.subscription;
   const canCancel = canCancelSubscription(subscription);
-  const currencies = billingCurrencies(data.plans);
-  const wantedCurrency = currency ?? preferredCurrency;
-  const shownCurrency = currencies.includes(wantedCurrency) ? wantedCurrency : currencies[0];
-  const preferredUnavailable = Boolean(shownCurrency) && !currencies.includes(preferredCurrency);
-  const paidPlans = shownCurrency ? plansForCurrency(data.plans, shownCurrency) : [];
+  const paidPlans = plansForCurrency(data.plans, "USD");
   const now = Date.now();
   const billingStatus = billingStatusLabel(subscription, now);
   const periodLabel = billingPeriodLabel(subscription, now);
@@ -132,10 +120,8 @@ export function BillingPanel({ compact = false }: Readonly<{ compact?: boolean }
         {checkoutMode === "subscription" && <><Field id="billing-cycles" label="Number of recurring billing cycles (1–100)" render={(controlProps) => <Input {...controlProps} type="number" min={1} max={100} step={1} value={cycles} disabled={checkoutPending !== null} onChange={event => setCycles(event.target.value)} />} /><p className="text-sm text-muted-foreground">Charged each catalog interval for the number of cycles you choose. Requires a configured provider plan.</p></>}
         <p className="text-sm text-muted-foreground">One generation attempt makes one post. Attempts that fail before any AI work (an unreadable link or an AI provider outage) don't count; other failed or cancelled attempts do. Free allowances reset at midnight UTC.</p>
       </CardContent></Card>
-      {paidPlans.length > 0 && <Card><CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0"><CardTitle>Available plans</CardTitle>
-        {currencies.length > 1 && <div role="group" aria-label="Currency" className="inline-flex rounded-md border p-1">{currencies.map((code) =>
-          <Button key={code} type="button" size="sm" variant={code === shownCurrency ? "default" : "ghost"} aria-pressed={code === shownCurrency} disabled={checkoutPending !== null} onClick={() => setCurrency(code)}>{code}</Button>)}</div>}
-      </CardHeader>{preferredUnavailable && <p className="px-6 text-sm text-muted-foreground">Paying in {CURRENCY_NAMES[preferredCurrency]} opens soon. Until then, checkout is in {CURRENCY_NAMES[shownCurrency as PricingCurrency] ?? shownCurrency}.</p>}<CardContent className="grid gap-4 md:grid-cols-2">
+      {paidPlans.length > 0 && <Card><CardHeader><CardTitle>Available plans · USD</CardTitle>
+      </CardHeader><CardContent className="grid gap-4 md:grid-cols-2">
         {paidPlans.map((plan) => {
           let label = checkoutMode === "order" ? "Buy one interval" : "Start recurring checkout";
           if (data.currentPlan?.id === plan.id) label = "Current plan";

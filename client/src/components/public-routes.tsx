@@ -8,10 +8,8 @@ import { LoadingScreen } from "@/components/loading-screen";
 
 const PricingPage = lazy(() => import("@/pages/pricing"));
 const HowItWorksPage = lazy(() => import("@/pages/how-it-works"));
-const IndustriesPage = lazy(() => import("@/pages/industries"));
 const BlogPage = lazy(() => import("@/pages/blog"));
 const BlogPostPage = lazy(() => import("@/pages/blog-post"));
-const ResourcesPage = lazy(() => import("@/pages/resources"));
 const AboutPage = lazy(() => import("@/pages/about"));
 const ContactPage = lazy(() => import("@/pages/contact"));
 const PrivacyPolicyPage = lazy(() => import("@/pages/privacy"));
@@ -26,6 +24,9 @@ const InvitationPreferencesPage = lazy(() => import("@/pages/invitation-preferen
 const NewsletterPage = lazy(() => import("@/pages/newsletter"));
 const CaseStudiesPage = lazy(() => import("@/pages/case-studies"));
 const CareersPage = lazy(() => import("@/pages/careers"));
+const UseCasesPage = lazy(() => import("@/pages/use-cases"));
+const UseCasePage = lazy(() => import("@/pages/use-case"));
+const SitemapPage = lazy(() => import("@/pages/sitemap"));
 
 /**
  * The marketing site. Reachable signed in or signed out, so this list lived in
@@ -42,10 +43,10 @@ export function PublicRoutes({ signInRoutes, location }: { signInRoutes?: ReactN
       <Route path="/" component={LandingPage} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/how-it-works" component={HowItWorksPage} />
-      <Route path="/industries" component={IndustriesPage} />
+      <Route path="/use-cases" component={UseCasesPage} />
+      <Route path="/use-cases/:slug" component={UseCasePage} />
       <Route path="/blog" component={BlogPage} />
       <Route path="/blog/:slug" component={BlogPostPage} />
-      <Route path="/resources" component={ResourcesPage} />
       <Route path="/about" component={AboutPage} />
       <Route path="/contact" component={ContactPage} />
       <Route path="/privacy" component={PrivacyPolicyPage} />
@@ -60,6 +61,7 @@ export function PublicRoutes({ signInRoutes, location }: { signInRoutes?: ReactN
       <Route path="/newsletter" component={NewsletterPage} />
       <Route path="/case-studies" component={CaseStudiesPage} />
       <Route path="/careers" component={CareersPage} />
+      <Route path="/sitemap" component={SitemapPage} />
       <Route path="/reset-password" component={ResetPasswordPage} />
       {signInRoutes}
       <Route component={NotFound} />

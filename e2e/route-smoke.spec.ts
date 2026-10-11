@@ -1,12 +1,15 @@
 import { expect, test } from "@playwright/test";
 
 const publicRoutes = [
-  { path: "/", heading: /Be the voice your industry listens to/i },
-  { path: "/pricing", heading: /Simple pricing, wherever you are/i },
+  { path: "/", heading: /Turn what you know into influence/i },
+  { path: "/pricing", heading: /Begin with your voice/i },
   { path: "/how-it-works", heading: /Automate your professional narrative/i },
-  { path: "/industries", heading: /Industry-specific AI that knows your field/i },
-  { path: "/blog", heading: /Blog/i },
-  { path: "/resources", heading: /Resources/i },
+  { path: "/use-cases", heading: /Start with the outcome/i },
+  { path: "/use-cases/thought-leadership", heading: /Build authority from what is happening now/i },
+  { path: "/use-cases/professional-content-creation", heading: /Move from a blank page/i },
+  { path: "/use-cases/multi-platform-publishing", heading: /One point of view/i },
+  { path: "/blog", heading: /Ideas for people/i },
+  { path: "/sitemap", heading: /Find your way around/i },
 ];
 
 for (const route of publicRoutes) {
