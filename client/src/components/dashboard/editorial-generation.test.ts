@@ -678,7 +678,7 @@ describe("editorial generation UI (mocked browser)", { timeout: 15_000 }, () => 
     await page.getByRole("button", { name: "Stop after current post" }).click();
     await page.evaluate(() => (window as any).__pending.shift()());
     await browserExpect(page.getByTestId("text-post-content-linkedin")).toContainText("linkedin original");
-    await browserExpect(page.getByText(/Stopped after 1 completed post/)).toBeVisible();
+    await browserExpect.poll(() => page.evaluate(() => (window as any).__toasts.at(-1)?.description)).toMatch(/Stopped after 1 completed post/);
     expect((await calls()).filter((call: any) => call.url.includes("instant-review"))).toHaveLength(1);
   });
 
@@ -1102,7 +1102,7 @@ describe("editorial generation UI (mocked browser)", { timeout: 15_000 }, () => 
     await mount("panel", [{ body }, { body: response("twitter") }]);
     await page.locator("#open-story").click(); await preparePlatforms(undefined, false);
     await page.getByTestId("button-generate-selected").click();
-    await browserExpect(page.getByText(/No usable text was returned/)).toBeVisible();
+    await browserExpect.poll(() => page.evaluate(() => (window as any).__toasts.at(-1)?.description)).toMatch(/No usable text was returned/);
     await browserExpect(page.getByTestId("social-preview-linkedin")).toContainText("Needs retry");
     await browserExpect(page.getByTestId("social-preview-twitter")).toContainText("Not attempted");
     expect((await calls()).filter((call: any) => call.url.includes("instant-review"))).toHaveLength(1);
@@ -1185,7 +1185,7 @@ describe("editorial generation UI (mocked browser)", { timeout: 15_000 }, () => 
     await browserExpect(cardSave()).toHaveCount(0);
     await browserExpect(cardHandoff()).toHaveCount(0);
     await cardGenerate().click();
-    await browserExpect(page.getByText(/No usable text was returned/)).toBeVisible();
+    await browserExpect.poll(() => page.evaluate(() => (window as any).__toasts.at(-1)?.description)).toMatch(/No usable text was returned/);
     await browserExpect(cardSave()).toBeDisabled();
     await browserExpect(cardCopy()).toBeDisabled();
     await browserExpect(cardHandoff()).toHaveCount(0);
@@ -1978,7 +1978,7 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", { timeout: 15_000
     page.once("dialog", dialog => dialog.accept());
     await primary().click();
     await browserExpect(card()).toContainText("Needs retry");
-    await browserExpect(page.getByText(/No usable text was returned/)).toBeVisible();
+    await browserExpect.poll(() => page.evaluate(() => (window as any).__toasts.at(-1)?.description)).toMatch(/No usable text was returned/);
     await browserExpect(card("twitter")).toContainText("Not attempted");
     await browserExpect(card("medium")).toContainText("Not attempted");
     await browserExpect(primary()).toHaveText("Continue remaining versions");

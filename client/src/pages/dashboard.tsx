@@ -140,7 +140,7 @@ export default function DashboardPage() {
       />
 
       <PageBody as="div" width="workbench" scrollable={false} className="overflow-y-auto [@media(max-height:500px)]:min-h-[24rem]" contentClassName="flex h-full min-h-0 flex-col gap-5">
-        <PageToolbar aria-label="Discover filters" className="relative shrink-0 rounded-xl border bg-card/80 p-2 shadow-sm">
+        <PageToolbar aria-label="Discover filters" className="shrink-0 rounded-xl border bg-card/80 p-2 shadow-sm">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <span className="px-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Library</span>
             <fieldset className="flex min-w-0 flex-wrap gap-1.5" aria-label="Article status">

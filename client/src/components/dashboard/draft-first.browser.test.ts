@@ -216,7 +216,10 @@ describe("document editor and integrated agent chat", { timeout: 15_000 }, () =>
     await editor().press("ControlOrMeta+z"); await check(editor()).toHaveText("");
   });
   it("keeps text revisions and versions current after formatting, and sends only canonical plain text", async () => {
-    await open(); await editor().fill(mainText); await saveProgress();
+    await open(); await editor().fill(mainText);
+    // Adapting to platforms now requires a title, so set one before saving.
+    await page.getByRole("textbox", { name: "Document title", exact: true }).fill("A measured rollout");
+    await saveProgress();
     const revision = saved.state!.main!.revision;
     await selectDocument(); await format("Bold").click(); await saveProgress();
     expect(saved.state?.main?.revision).toBe(revision);

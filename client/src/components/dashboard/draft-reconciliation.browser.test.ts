@@ -105,6 +105,8 @@ async function mount() {
   await page.evaluate(() => history.replaceState(null, "", "/dashboard/create"));
   await page.addScriptTag({ content: bundle });
   await page.getByRole("textbox", { name: "Document text", exact: true }).fill("Source evidence never changes.");
+  // Adapting to platforms requires a title alongside the document body.
+  await page.getByRole("textbox", { name: "Document title", exact: true }).fill("Source evidence");
   await page.getByRole("button", { name: "Adapt for platforms", exact: true }).click();
   await page.getByRole("checkbox", { name: "LinkedIn", exact: true }).check();
   await page.getByTestId("button-generate-selected").click();

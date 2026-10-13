@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { ChevronDown, CreditCard, LogOut, Plus, Settings, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -59,9 +59,22 @@ export function DashboardNavbar() {
 
   const pageTitle = PAGE_TITLES[location] ?? "Workspace";
   const onCreateRoute = location === "/dashboard/create";
+  const headerRef = useRef<HTMLElement>(null);
+
+  // Publish the navbar height so overlays (toasts) can clear the persistent navigation.
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const root = document.documentElement;
+    const observer = new ResizeObserver(() => {
+      root.style.setProperty("--app-navbar-height", `${header.getBoundingClientRect().height}px`);
+    });
+    observer.observe(header);
+    return () => { observer.disconnect(); root.style.removeProperty("--app-navbar-height"); };
+  }, []);
 
   return (
-    <header className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-4 px-3 py-2.5 border-b bg-card text-card-foreground sticky top-0 z-10">
+    <header ref={headerRef} className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-4 px-3 py-2.5 border-b bg-card text-card-foreground sticky top-0 z-10">
       <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
         <SidebarTrigger className="shrink-0" aria-label={isMobile ? "Open navigation" : "Expand or collapse sidebar"} data-testid="button-navbar-navigation" />
         <Link href="/dashboard" className="flex min-w-0 max-w-full items-center gap-1.5" aria-label="TheSocialPundit dashboard" data-testid="link-navbar-logo">

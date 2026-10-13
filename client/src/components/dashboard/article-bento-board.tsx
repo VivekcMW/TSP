@@ -259,7 +259,7 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
         <div className="relative mx-auto max-w-7xl">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <div className="flex items-center gap-2"><span aria-hidden="true" className="flex size-5 items-center justify-center rounded-md bg-primary/10 text-primary"><Sparkles className="h-3.5 w-3.5" /></span><span className="font-medium text-foreground">Pundit</span><span>Your writing partner</span></div>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
               {!!c.chat.messages.length && <Button variant="ghost" size="sm" className="h-auto min-h-11 px-2 text-xs" aria-expanded={conversationOpen} onClick={() => setConversationOpen(!conversationOpen)}><MessageSquare className="h-3.5 w-3.5" />Conversation ({c.chat.messages.length})</Button>}
               <span className="sm:hidden">{saveStatus}</span>
               <Button variant="ghost" size="sm" className="h-auto min-h-11 px-2 text-xs" aria-expanded={chatOpen} aria-controls={chatBody}
@@ -300,7 +300,7 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
               }}
               className="max-h-24 min-h-11 resize-none border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0" />
             <div className="flex flex-wrap items-center justify-between gap-1">
-              <div className="flex items-center gap-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-1">
                 <Button variant="ghost" size="sm" disabled={locked || Boolean(c.chat.pending)} onClick={() => runAction("sources")}><Paperclip className="h-4 w-4" />Articles{selectedArticles.length ? ` (${selectedArticles.length})` : ""}</Button>
                 <Button variant="ghost" size="icon" aria-label="Open slash commands" aria-expanded={commandsOpen} aria-controls={commandList}
                   disabled={!c.persistence.ready} onClick={() => { c.setChatInput(`${c.chat.input.trimEnd()} /`.trimStart()); focusChat(); }}><SlidersHorizontal className="h-4 w-4" /></Button>

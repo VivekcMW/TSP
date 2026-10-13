@@ -365,10 +365,20 @@ async function openNotes() {
   await browserExpect(page.getByTestId("editor-manual-article")).toBeVisible();
 }
 
+async function dismissToasts() {
+  // Toasts are transient top-right overlays; close them so they cannot intercept header clicks.
+  const close = page.getByRole("button", { name: "Close notification" });
+  for (let open = await close.count(); open > 0; open = await close.count()) {
+    await close.first().click();
+    await browserExpect(close).toHaveCount(open - 1);
+  }
+}
+
 async function prepareActualPlatforms(api: ActualAppApi, width: number) {
   api.seedDocument();
   await openWorkspace("/dashboard/create", width);
   await browserExpect(page.getByRole("textbox", { name: "Document text", exact: true })).toHaveText(LONG_TEXT);
+  await dismissToasts();
   await page.getByRole("button", { name: "Adapt for platforms", exact: true }).click();
   const labels: Record<string, string> = { linkedin: "LinkedIn", twitter: "Twitter/X", threads: "Threads" };
   for (const platform of api.state.enabledPlatforms) {
@@ -913,6 +923,8 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
     });
     await submit.click();
     await browserExpect(dialog).toHaveCount(0);
+    // Headless windows are unfocused, so Radix pauses the toast auto-dismiss timer.
+    await dismissToasts();
     await page.getByRole("button", { name: "Agenda", exact: true }).click();
     await browserExpect(page.locator('[data-linked-draft="true"]')).toContainText(localText);
     expect(api.state.drafts.find(draft => draft.id === "unrelated")?.publishStatus).toBe("draft");
