@@ -398,6 +398,46 @@ function getProvenanceFooter(content: string, article: Pick<EditorialArticle, "s
   return [credit, url].filter(Boolean).join(" ");
 }
 
+const WRITER_URL_PATTERN = /https?:\/\/\S+/g;
+
+function hasDisallowedUrls(content: string, articleUrl: string): boolean {
+  const urls = content.match(WRITER_URL_PATTERN) ?? [];
+  return urls.length > 1 || urls.some(url => url !== articleUrl && trimLinkPunctuation(url) !== articleUrl);
+}
+
+/** Removes every link (and a dangling short label such as "Read more:") so the
+ * provenance footer can re-add the single supplied article URL. Applied
+ * identically to content and attribution spans to keep spans exact. */
+function stripWriterUrls(text: string): string {
+  return text
+    .split("\n")
+    .flatMap(line => {
+      if (!/https?:\/\//.test(line)) return [line];
+      const stripped = line
+        .replace(/[ \t]*\(?(https?:\/\/\S+)/g, (match, url: string) => {
+          const kept = url.slice(trimLinkPunctuation(url).length);
+          return match.trimStart().startsWith("(") ? kept.replace(/^\)/, "") : kept;
+        })
+        .replace(/[ \t]{2,}/g, " ").replace(/[ \t]+([.,;:!?])/g, "$1").trimEnd();
+      // Drop lines that were only a link, or a short label pointing at one.
+      return /^\s*(?:[\p{L}\p{N}'’ ]{1,40}\s*[:\-–—→])?\s*[.,;]?$/u.test(stripped) ? [] : [stripped];
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function sanitizeWriterUrls<T extends { content: string; attributions: { text: string; excerptIds: string[] }[] }>(parsed: T, articleUrl: string): T {
+  if (!hasDisallowedUrls(parsed.content, articleUrl)) return parsed;
+  return {
+    ...parsed,
+    content: stripWriterUrls(parsed.content),
+    attributions: parsed.attributions
+      .map(attribution => ({ ...attribution, text: stripWriterUrls(attribution.text) }))
+      .filter(attribution => attribution.text),
+  };
+}
+
 function getPostSystemPrompt(platform: WritingDestination, format: EditorialFormat, isManual: boolean, provenanceBudget: number, adaptReviewedDraft = false): string {
   const limits = writingLimits(platform);
   const shortPlatform = limits.charLimit <= 600;
@@ -878,12 +918,15 @@ async function writeFromEvidence(
     }
     if (text === "INSUFFICIENT_SOURCE_CONTENT") {
       logFailure("writer_sentinel", ["insufficient_source"]);
-      throw new AIGenerationError("ai_invalid_output");
+      throw new AIGenerationError("ai_insufficient_source");
     }
-    const parsed = parseWriterOutput(rawText, logFailure);
-    if (!parsed) continue;
+    const unsanitized = parseWriterOutput(rawText, logFailure);
+    if (!unsanitized) continue;
+    // The only permitted rewrite: drop invented/extra links (a frequent Gemini
+    // failure) so the footer supplies the exact article URL instead.
+    const parsed = sanitizeWriterUrls(unsanitized, article.articleUrl ?? "");
     const { attributions } = parsed;
-    // Supplied provenance only: never rewrite writer text or fabricate citations.
+    // Supplied provenance only: never fabricate citations.
     // Complete it before all final validation, including platform length checks.
     const footer = getProvenanceFooter(parsed.content, article, isManual);
     const content = footer ? `${parsed.content}\n\n${footer}` : parsed.content;

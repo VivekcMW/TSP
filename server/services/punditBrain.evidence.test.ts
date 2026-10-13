@@ -339,8 +339,6 @@ describe("bounded publisher credit completion", () => {
   it.each([
     ["missing evidence", claim.text, [], "attribution"],
     ["unknown passage", claim.text, ["p99"], "attribution"],
-    ["invented link", claim.text + " https://elsewhere.test/trial", ["p1"], "unexpected_url"],
-    ["invented link suffix", claim.text + " " + article.articleUrl + "-invented", ["p1"], "unexpected_url"],
     ["unsupported quote", claim.text + ' "Guaranteed success"', ["p1"], "quotation"],
     ["excess hashtags", claim.text + " #one #two #three", ["p1"], "hashtags"],
     ["personal experience", claim.text + " I tested this.", ["p1"], "personal_experience"],
@@ -390,12 +388,9 @@ describe("safe writer-attempt diagnostics", () => {
   });
 
   it.each([
-    ["source_url_missing", "Research Desk reports 12% lower latency. https://elsewhere.test/trial"],
-    ["unexpected_url", post + "-invented"],
     ["length", post + " " + "x".repeat(281)],
     ["hashtags", post + " #one #two #three"],
     ["placeholder_url", post + " [URL]"],
-    ["multiple_urls", post + " " + article.articleUrl],
     ["quotation", post + ' "Guaranteed success"'],
     ["personal_experience", post + " I tested this."],
   ])("reports precise %s validation on both attempts", async (reason, content) => {
@@ -426,12 +421,12 @@ describe("safe writer-attempt diagnostics", () => {
   });
 
   it.each([
-    ["INSUFFICIENT_SOURCE_CONTENT", "writer_sentinel", "insufficient_source"],
-    [" \nINSUFFICIENT_SOURCE_CONTENT\t ", "writer_sentinel", "insufficient_source"],
-    [" \n\t ", "writer_validation", "empty_content"],
-  ])("logs terminal response %# once without adding a repair", async (text, stage, reason) => {
+    ["INSUFFICIENT_SOURCE_CONTENT", "writer_sentinel", "insufficient_source", "ai_insufficient_source"],
+    [" \nINSUFFICIENT_SOURCE_CONTENT\t ", "writer_sentinel", "insufficient_source", "ai_insufficient_source"],
+    [" \n\t ", "writer_validation", "empty_content", "ai_invalid_output"],
+  ])("logs terminal response %# once without adding a repair", async (text, stage, reason, code) => {
     provider.mockResolvedValue(reply(post, [attribution], { text }));
-    await expect(generatePostContentDetailed(article, "linkedin", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    await expect(generatePostContentDetailed(article, "linkedin", "professional")).rejects.toMatchObject({ code });
     expect(provider).toHaveBeenCalledTimes(1);
     expect(diagnostics()).toEqual([expect.objectContaining({ stage, attempt: 1, validationReasons: [reason], provider: "anthropic", model: "test-model" })]);
   });
@@ -630,7 +625,6 @@ describe("trusted manual publication exemption", () => {
     ["unknown passage", [{ text: content, excerptIds: ["p99"] }], "attribution"],
     ["unsupported quote", [{ text: 'The pilot reported "guaranteed success".', excerptIds: ["p1"] }], "quotation"],
     ["wrong quote passage", [{ text: 'The pilot reported "12% lower latency".', excerptIds: ["p2"] }], "quotation"],
-    ["invented URL", [{ text: content + " " + article.articleUrl, excerptIds: ["p1", "p2"] }], "unexpected_url"],
     ["personal experience", [{ text: "I tested this pilot.", excerptIds: ["p1"] }], "personal_experience"],
   ] as const)("still rejects manual %s on both attempts", async (_label, output, reason) => {
     provider.mockResolvedValue(segmentReply(output.map(segment => ({ text: segment.text, excerptIds: "excerptIds" in segment ? [...segment.excerptIds] : [] }))));
@@ -709,7 +703,7 @@ describe("metadata-aware editorial pipeline", () => {
   });
 
   it("never increases short-platform limits in article format", async () => {
-    provider.mockResolvedValue(reply(post + "x".repeat(281)));
+    provider.mockResolvedValue(reply("x".repeat(281) + " " + post));
     await expect(generatePostContentDetailed(article, "twitter", "professional", { format: "article" })).rejects.toMatchObject({ code: "ai_invalid_output" });
     expect(provider).toHaveBeenCalledTimes(2);
     expect(provider.mock.calls[0][1].systemPrompt).toContain("Never exceed 280 characters");
@@ -821,7 +815,7 @@ describe("short-form platforms and tone selection", () => {
   });
 
   it.each([["twitter", 280], ["threads", 500], ["substack", 600], ["bluesky", 300], ["mastodon", 500], ["farcaster", 320]] as const)("gives %s a provenance-aware prose budget and a compact repair strategy", async (platform, limit) => {
-    const failed = [{ text: post.padEnd(limit + 1, "x"), excerptIds: ["p1"] }];
+    const failed = [{ text: claim.text.padEnd(limit + 1, "x"), excerptIds: ["p1"] }];
     provider.mockResolvedValueOnce(segmentReply(failed)).mockResolvedValueOnce(segmentReply([claim]));
     await generatePostContentDetailed(longArticle, platform, "professional", { format: "article" });
     const footerBudget = platformTextLength(`\n\nSource: ${article.source} ${longUrl}`, platform);
@@ -851,10 +845,26 @@ describe("short-form platforms and tone selection", () => {
     expect(provider).toHaveBeenCalledTimes(1);
   });
 
-  it("still rejects a different link even when it ends with punctuation", async () => {
+  it("strips a different link even when it ends with punctuation and restores the article link", async () => {
     provider.mockResolvedValue(segmentReply([{ text: `Research Desk reports 12% lower latency in a 30-store pilot. ${article.articleUrl}-invented.`, excerptIds: ["p1"] }]));
-    await expect(generatePostContentDetailed(article, "medium", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
-    expect(diagnostics().map(record => record.validationReasons)).toEqual([["unexpected_url"], ["unexpected_url"]]);
+    const result = await generatePostContentDetailed(article, "medium", "professional");
+    expect(result.content).not.toContain("-invented");
+    expect(result.content).toContain("Research Desk reports 12% lower latency in a 30-store pilot.");
+    expect(result.content.trimEnd().endsWith(article.articleUrl)).toBe(true);
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["invented link", "Research Desk reports 12% lower latency in a 30-store pilot. https://elsewhere.test/trial"],
+    ["link label line", "Research Desk reports 12% lower latency in a 30-store pilot.\n\nRead more: https://elsewhere.test/trial"],
+    ["duplicate article link", `Research Desk reports 12% lower latency in a 30-store pilot. ${article.articleUrl} ${article.articleUrl}`],
+  ])("sanitizes an %s instead of failing generation", async (_label, text) => {
+    provider.mockResolvedValue(segmentReply([{ text, excerptIds: ["p1"] }]));
+    const result = await generatePostContentDetailed(article, "medium", "professional");
+    expect(result.content).not.toContain("elsewhere.test");
+    expect(result.content).not.toContain("Read more");
+    expect(result.content.split(article.articleUrl)).toHaveLength(2);
+    expect(provider).toHaveBeenCalledTimes(1);
   });
 
   it("states the X link rule in the writer prompt", async () => {

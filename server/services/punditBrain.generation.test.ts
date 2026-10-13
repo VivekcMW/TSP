@@ -41,10 +41,12 @@ describe("platform-neutral main draft", () => {
     generateText.mockResolvedValue(content);
     expect((await generateMainDraftDetailed(fetched)).mainDraft?.content).toBe(content);
   });
-  it("retains provenance, rejects invented URLs, and allows only one repair", async () => {
-    generateText.mockResolvedValue("Invented story https://invented.test/");
-    await expect(generateMainDraftDetailed(fetched)).rejects.toMatchObject({ code: "ai_invalid_output" });
-    expect(generateText).toHaveBeenCalledTimes(2);
+  it("strips invented URLs and restores the article link without a repair", async () => {
+    generateText.mockResolvedValue("Research Desk reports a 12% latency drop. https://invented.test/");
+    const result = await generateMainDraftDetailed(fetched);
+    expect(result.mainDraft?.content).not.toContain("invented.test");
+    expect(result.mainDraft?.content).toContain(article.articleUrl);
+    expect(generateText).toHaveBeenCalledTimes(1);
   });
   it("does not generate after cancellation", async () => {
     const controller = new AbortController(); controller.abort();
@@ -95,9 +97,9 @@ describe("grounded post generation", () => {
     expect(generateText).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["", "INSUFFICIENT_SOURCE_CONTENT"])("rejects unusable content %j", async output => {
+  it.each([["", "ai_invalid_output"], ["INSUFFICIENT_SOURCE_CONTENT", "ai_insufficient_source"]])("rejects unusable content %j", async (output, code) => {
     generateText.mockResolvedValue(output);
-    await expect(generatePostContent(article, "twitter", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    await expect(generatePostContent(article, "twitter", "professional")).rejects.toMatchObject({ code });
     expect(generateText).toHaveBeenCalledTimes(1);
   });
 
@@ -108,7 +110,7 @@ describe("grounded post generation", () => {
   });
 
   it("accepts a valid repair without truncating or fabricating text", async () => {
-    generateText.mockResolvedValueOnce("Invalid https://elsewhere.test/pilot").mockResolvedValueOnce(post);
+    generateText.mockResolvedValueOnce("x".repeat(281) + " " + post).mockResolvedValueOnce(post);
     expect(await generatePostContent(article, "twitter", "professional")).toBe(post);
     expect(generateText.mock.calls[1][1].systemPrompt).toContain("Correct these format issues");
   });
@@ -123,9 +125,11 @@ describe("grounded post generation", () => {
     expect(JSON.parse(generateText.mock.calls[0][0]).article.articleUrl).toBe(article.articleUrl);
   });
 
-  it("rejects invented URL suffixes, rather than accepting a substring match", async () => {
+  it("strips invented URL suffixes, rather than accepting a substring match", async () => {
     generateText.mockResolvedValue(post + "-invented");
-    await expect(generatePostContent(article, "twitter", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    const content = await generatePostContent(article, "twitter", "professional");
+    expect(content).not.toContain("-invented");
+    expect(content.trimEnd().endsWith(article.articleUrl)).toBe(true);
   });
 
   it("accepts real URLs with parentheses and does not mistake report.com for t.co", async () => {
@@ -135,11 +139,13 @@ describe("grounded post generation", () => {
     await expect(generatePostContent({ ...article, articleUrl: url }, "twitter", "professional")).resolves.toBe(output);
   });
 
-  it("supports manual text without a link but rejects an invented one", async () => {
+  it("supports manual text without a link and strips an invented one", async () => {
     generateText.mockResolvedValueOnce("Research Desk reports 12% lower latency.");
     await expect(generatePostContent({ ...article, articleUrl: "" }, "twitter", "professional")).resolves.toContain("12%");
     generateText.mockResolvedValue(post);
-    await expect(generatePostContent({ ...article, articleUrl: "" }, "twitter", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    const content = await generatePostContent({ ...article, articleUrl: "" }, "twitter", "professional");
+    expect(content).toContain("12% lower latency");
+    expect(content).not.toContain("https://");
   });
 
   it("does not truncate overlong model text into a seemingly successful post", async () => {

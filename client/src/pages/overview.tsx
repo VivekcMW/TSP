@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { LayoutDashboard, ArrowRight, RefreshCw, Plus, CalendarClock, AlertTriangle, Flame, TrendingUp, TrendingDown, Minus, Clock, Layers, BarChart3, ShieldCheck, Send, Compass, FileText, CircleCheck, Sparkles } from "lucide-react";
+import { LayoutDashboard, ArrowRight, RefreshCw, Plus, CalendarClock, AlertTriangle, Flame, TrendingUp, TrendingDown, Minus, Clock, Layers, ShieldCheck, Send, Compass, FileText, CircleCheck, Sparkles } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useIsSignedIn } from "@/lib/dev-auth";
 import { useInboxRefreshJob, refreshJobMessage } from "@/hooks/use-inbox-refresh-job";
@@ -140,6 +140,7 @@ export default function OverviewPage() {
   const followers = analyticsDisplayMetric("followers", analytics.data?.combined?.followers, analytics.data?.availability?.followers, now);
   const engagementRate = analyticsDisplayMetric("engagementRate", analytics.data?.combined?.engagementRate, analytics.data?.availability?.engagementRate, now);
   const hasConnection = analytics.data?.connected?.linkedin || analytics.data?.connected?.twitter;
+  const hasInsights = topPlatforms.length > 0 || (hasConnection && (followers.value !== null || engagementRate.value !== null)) || isTeamManager;
 
   return (
     <main className="flex h-full min-w-0 flex-col overflow-hidden">
@@ -151,13 +152,13 @@ export default function OverviewPage() {
       <PageBody as="div" width="standard" contentClassName="space-y-5 pb-10">
           <section className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Your command center</p>
               <h2 className="mt-1 font-heading text-2xl font-semibold tracking-tight sm:text-3xl">Hello, {firstName}</h2>
               <p className="mt-1 text-sm text-muted-foreground">Here is what is moving and what needs your attention.</p>
             </div>
             {!isLoading && !hasError && <p className="text-sm text-muted-foreground">{now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p>}
           </section>
           {!isLoading && !hasError && (
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(17rem,0.75fr)]" data-testid="section-next-action-row">
             <Card data-testid="card-personalized-briefing" className="relative overflow-hidden border-primary/20 bg-gradient-to-br from-primary/[0.08] via-card to-card shadow-sm">
               <div className="pointer-events-none absolute -right-12 -top-16 size-48 rounded-full bg-primary/[0.08] blur-2xl" aria-hidden="true" />
               <CardContent className="relative grid grid-cols-1 gap-6 p-5 pt-5 sm:p-7 sm:pt-7 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
@@ -179,6 +180,18 @@ export default function OverviewPage() {
                 </div>
               </CardContent>
             </Card>
+            <Card data-testid="card-posting-streak" className="overflow-hidden shadow-none"><CardHeader className="bg-gradient-to-br from-warning-subtle to-card">
+                <div className="flex items-center justify-between gap-3"><CardTitle as="h2">Posting streak</CardTitle><span className="flex size-9 items-center justify-center rounded-full bg-warning-subtle text-warning"><Flame className="h-5 w-5" /></span></div>
+              </CardHeader><CardContent>
+                {published.isLoading ? <Skeleton className="h-10 w-32" /> : published.isError ? <p className="text-sm text-muted-foreground">Streak is unavailable right now.</p> : <>
+                  <p className="text-3xl font-semibold tracking-tight">{streak.current} day{streak.current === 1 ? "" : "s"}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{streak.current > 0
+                    ? (streak.postedToday ? "Posted today. Keep it going tomorrow." : "Post today to keep your streak alive.")
+                    : streak.longest > 0 ? `Your streak reset. Best so far: ${streak.longest} day${streak.longest === 1 ? "" : "s"}.` : "Publish your first post to start a streak."}</p>
+                  {streak.longest > streak.current && <p className="mt-2 text-xs text-muted-foreground">Best streak: {streak.longest} day{streak.longest === 1 ? "" : "s"}</p>}
+                </>}
+              </CardContent></Card>
+            </div>
           )}
           {!isLoading && !hasError && <>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="section-kpi-strip">
@@ -202,10 +215,8 @@ export default function OverviewPage() {
           </CardHeader><CardContent>
             <Link className="block text-sm text-primary underline" href="/dashboard/content?view=attention">Review {failureCount} failed post{failureCount === 1 ? "" : "s"}</Link>
           </CardContent></Card>}
-          {!isLoading && !hasError && <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(17rem,0.75fr)]">
-            <div className="space-y-5">
-              <Card data-testid="card-content-funnel" className="shadow-none"><CardHeader className="flex-row items-start justify-between gap-4">
-                <div><CardTitle as="h2" className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-primary" />Content pipeline</CardTitle><p className="mt-1 text-sm text-muted-foreground">Move ideas from discovery to publication.</p></div>
+          {!isLoading && !hasError && <Card data-testid="card-content-funnel" className="shadow-none"><CardHeader className="flex-row items-start justify-between gap-4">
+                <div><CardTitle as="h2">Content pipeline</CardTitle><p className="mt-1 text-sm text-muted-foreground">Move ideas from discovery to publication.</p></div>
                 <Link href="/dashboard/content" className="inline-flex items-center gap-1 text-sm font-medium text-primary">View content<ArrowRight className="h-4 w-4" /></Link>
               </CardHeader>
                 <CardContent><div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -222,25 +233,16 @@ export default function OverviewPage() {
                     </Link>;
                   })}
                 </div></CardContent>
-              </Card>
+              </Card>}
+          {!isLoading && !hasError && <div className={hasInsights ? "grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(17rem,0.75fr)]" : "space-y-5"}>
+            <div className="space-y-5">
               <Card data-testid="card-upcoming-publishing" className="shadow-none"><CardHeader>
-                <div className="flex flex-wrap items-center justify-between gap-2"><div><CardTitle as="h2" className="flex items-center gap-2"><CalendarClock className="h-4 w-4 text-primary" />Upcoming publishing</CardTitle><p className="mt-1 text-sm text-muted-foreground">Times shown in your local timezone.</p></div><Link href="/dashboard/calendar" className="inline-flex items-center gap-1 text-sm font-medium text-primary">Open calendar<ArrowRight className="h-4 w-4" /></Link></div>
+                <div className="flex flex-wrap items-center justify-between gap-2"><div><CardTitle as="h2">Upcoming publishing</CardTitle><p className="mt-1 text-sm text-muted-foreground">Times shown in your local timezone.</p></div><Link href="/dashboard/calendar" className="inline-flex items-center gap-1 text-sm font-medium text-primary">Open calendar<ArrowRight className="h-4 w-4" /></Link></div>
               </CardHeader><CardContent>
                 <UpcomingPosts items={upcoming} loading={schedules.isLoading} error={schedules.isError} onRetry={() => void schedules.refetch()} />
               </CardContent></Card>
             </div>
-            <aside className="space-y-5" aria-label="Publishing insights">
-              <Card data-testid="card-posting-streak" className="overflow-hidden shadow-none"><CardHeader className="bg-gradient-to-br from-warning-subtle to-card">
-                <div className="flex items-center justify-between gap-3"><CardTitle as="h2">Posting streak</CardTitle><span className="flex size-9 items-center justify-center rounded-full bg-warning-subtle text-warning"><Flame className="h-5 w-5" /></span></div>
-              </CardHeader><CardContent>
-                {published.isLoading ? <Skeleton className="h-10 w-32" /> : published.isError ? <p className="text-sm text-muted-foreground">Streak is unavailable right now.</p> : <>
-                  <p className="text-3xl font-semibold tracking-tight">{streak.current} day{streak.current === 1 ? "" : "s"}</p>
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{streak.current > 0
-                    ? (streak.postedToday ? "Posted today. Keep it going tomorrow." : "Post today to keep your streak alive.")
-                    : streak.longest > 0 ? `Your streak reset. Best so far: ${streak.longest} day${streak.longest === 1 ? "" : "s"}.` : "Publish your first post to start a streak."}</p>
-                  {streak.longest > streak.current && <p className="mt-2 text-xs text-muted-foreground">Best streak: {streak.longest} day{streak.longest === 1 ? "" : "s"}</p>}
-                </>}
-              </CardContent></Card>
+            {hasInsights && <aside className="space-y-5" aria-label="Publishing insights">
               {topPlatforms.length > 0 && <Card data-testid="card-platform-breakdown" className="shadow-none"><CardHeader><CardTitle as="h2">Published by platform</CardTitle><p className="text-xs text-muted-foreground">Last 30 days</p></CardHeader>
                 <CardContent><ul className="space-y-3">{topPlatforms.map((item) => <li key={item.platform} className="flex items-center justify-between gap-3 text-sm">
                   <span>{getPlatformMeta(item.platform).label}</span><span className="rounded-md bg-muted px-2 py-0.5 font-semibold">{item.posts}</span>
@@ -260,7 +262,7 @@ export default function OverviewPage() {
                   <div><p className="text-xs text-muted-foreground">Invites</p><p className="mt-1 text-xl font-semibold">{pendingInvitations.data?.length ?? "—"}</p></div>
                 </div>{(reviewQueue.data?.length ?? 0) > 0 && <Link href="/dashboard/settings?tab=team" className="mt-3 inline-block text-sm text-primary underline">Review pending drafts</Link>}</CardContent>
               </Card>}
-            </aside>
+            </aside>}
           </div>}
           <details className="rounded-md border p-4" data-testid="optional-setup-checklist">
             <summary className="cursor-pointer text-sm font-medium">Optional setup and shortcuts</summary>

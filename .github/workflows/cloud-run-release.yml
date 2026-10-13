@@ -131,7 +131,7 @@ jobs:
             --no-traffic \
             --tag "$tag" \
             --revision-suffix "$suffix" \
-            --update-env-vars BACKGROUND_JOBS_ENABLED=false,CRON_SCHEDULER=false \
+            --update-env-vars BACKGROUND_JOBS_ENABLED=false,CRON_SCHEDULER=false,INVITATIONS_ENABLED=true \
             --quiet
 
           service_json="$(gcloud run services describe "$SERVICE" \
@@ -331,6 +331,7 @@ jobs:
           PUBLISHING_MODE: live
           BACKGROUND_JOBS_ENABLED: "true"
           CRON_SCHEDULER: "true"
+          INVITATIONS_ENABLED: "true"
           PROCESS_ROLE: scheduler
         run: pnpm run check:production
 
@@ -376,7 +377,7 @@ jobs:
             --image "${{ steps.release.outputs.image }}" \
             --no-traffic \
             --revision-suffix "$final_suffix" \
-            --update-env-vars BACKGROUND_JOBS_ENABLED=true,CRON_SCHEDULER=true \
+            --update-env-vars BACKGROUND_JOBS_ENABLED=true,CRON_SCHEDULER=true,INVITATIONS_ENABLED=true \
             --quiet
 
           gcloud run services update-traffic "$SERVICE" \

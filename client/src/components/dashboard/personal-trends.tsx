@@ -15,9 +15,9 @@ export function PersonalTrends() {
   const [open, setOpen] = useState(false);
   const trends = useQuery<PersonalTrend[]>({ queryKey: ["/api/trends"], enabled: !!signedIn && open });
   if (!signedIn) return null;
-  return <section className="shrink-0 border-b bg-muted/30 px-4 py-2" aria-label="Personal article trends">
+  return <div className="shrink-0" aria-label="Personal article trends">
     <Button variant="ghost" size="sm" aria-expanded={open} aria-controls="personal-trends" onClick={() => setOpen(!open)}>Topics in your recent articles</Button>
-    {open && <div id="personal-trends" className="max-h-52 overflow-y-auto space-y-2 py-2 text-sm">
+    {open && <div id="personal-trends" className="absolute z-10 mt-1 max-h-52 max-w-[min(42rem,calc(100vw-2rem))] overflow-y-auto rounded-md border bg-card p-3 shadow-md space-y-2 text-sm">
       <p className="text-xs text-muted-foreground">Your admitted articles: last 7 days versus the previous 7, including saved and dismissed. At most the first 5,000 scored admissions in those windows. Limited by refreshes and inbox capacity—not market trends.</p>
       {trends.isLoading && <p>Loading topics…</p>}
       {trends.isError && <p>Topics unavailable. <Button variant="ghost" onClick={() => void trends.refetch()}>Retry topics</Button></p>}
@@ -31,5 +31,5 @@ export function PersonalTrends() {
           <ul>{trend.articles.map(article => <li key={article.link}><a className="inline-block max-w-full truncate text-xs underline" href={article.link} target="_blank" rel="noopener noreferrer">{article.title}<span className="sr-only"> (opens in a new tab)</span></a></li>)}</ul>
         </li>)}</ul>}
     </div>}
-  </section>;
+  </div>;
 }

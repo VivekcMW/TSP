@@ -263,7 +263,7 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
   const editDocument = (patch: Partial<Pick<MainDraft, "title" | "content" | "formatJson">>) => {
     if (sourceLocked() || !persistence.ready) return;
     if (mainRef.current) { editMain(patch); return; }
-    setMain({ title: "Untitled draft", content: "", original: "", revision: 1, ...patch });
+    setMain({ title: "", content: "", original: "", revision: 1, ...patch });
     setStep("review");
   };
   const choosePlatforms = () => {

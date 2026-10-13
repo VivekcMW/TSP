@@ -12,7 +12,7 @@ const count = (value: unknown): number | null => typeof value === "number" && Nu
 const safeProvider = (value: unknown) => value === "anthropic" || value === "openrouter" || value === "gemini" || value === "openai" ? value : null;
 const safeModel = (value: unknown) => typeof value === "string" && /^[a-zA-Z0-9._:/-]{1,120}$/.test(value) &&
   !/[\r\n\u2028\u2029]/.test(value) && !value.includes("://") && !/^(?:sk-|AIza|Bearer)/i.test(value) ? value : null;
-const FAILURE_CODES = ["ai_configuration", "ai_quota", "ai_rate_limit", "ai_unavailable", "ai_timeout", "ai_cancelled", "ai_invalid_input", "ai_refusal", "ai_busy", "ai_budget"] as const;
+const FAILURE_CODES = ["ai_configuration", "ai_quota", "ai_rate_limit", "ai_unavailable", "ai_timeout", "ai_cancelled", "ai_invalid_input", "ai_insufficient_source", "ai_refusal", "ai_busy", "ai_budget"] as const;
 const PROVIDER_STAGES = ["admission", "provider", "writer", "repair"] as const;
 const ABORT_ORIGINS = ["operation_deadline", "caller_deadline", "caller_cancel", "lease_lost", "upstream_timeout"] as const;
 export type AIProviderStage = typeof PROVIDER_STAGES[number];

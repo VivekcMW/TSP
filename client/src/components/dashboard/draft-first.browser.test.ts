@@ -40,6 +40,7 @@ beforeAll(async () => {
       import { queryClient } from "@/lib/queryClient";
       import { CreatePostProvider, useCreatePost } from "@/components/dashboard/create-post-provider";
       import CreatePostPage from "@/pages/create-post";
+      import { Toaster } from "@/components/ui/toaster";
       import { Link, Route } from "wouter";
       function App() {
         const context = useCreatePost();
@@ -50,7 +51,7 @@ beforeAll(async () => {
           <div style={{flex:1,minHeight:0}}><Route path="/dashboard/create"><CreatePostPage /></Route><Route path="/dashboard/content"><h1>Content fixture</h1></Route></div>
         </div>;
       }
-      createRoot(document.getElementById("root")).render(<QueryClientProvider client={queryClient}><CreatePostProvider><App /></CreatePostProvider></QueryClientProvider>);
+      createRoot(document.getElementById("root")).render(<QueryClientProvider client={queryClient}><CreatePostProvider><App /><Toaster /></CreatePostProvider></QueryClientProvider>);
     ` }, bundle: true, write: false, format: "iife", jsx: "automatic",
     alias: { "@": path.join(root, "client/src"), "@shared": path.join(root, "shared") },
     plugins: [{ name: "auth-fixture", setup(build) {
@@ -547,13 +548,17 @@ describe("document editor and integrated agent chat", { timeout: 15_000 }, () =>
     if (accepted) await check(page.getByRole("region", { name: "Pundit chat" })).toContainText("Another story");
     expect(generationCalls).toHaveLength(1);
   });
-  it.each([390, 1440])("keeps chat visible while the document scrolls and avoids overflow at %i px", async width => {
+  it.each([390, 1440])("scrolls chat with the document, toggles it and avoids overflow at %i px", async width => {
     await page.setViewportSize({ width, height: 900 }); await open();
     await editor().fill("A long paragraph about the pilot and its caveats.\n\n".repeat(60));
     const dock = page.getByTestId("sticky-chat"), before = await dock.boundingBox();
     await page.getByTestId("document-scroll-area").evaluate(element => { element.scrollTop = element.scrollHeight; });
     const after = await dock.boundingBox();
-    expect(after!.y).toBe(before!.y); expect(after!.y + after!.height).toBeLessThanOrEqual(901);
+    expect(after!.y).toBeLessThan(before!.y); expect(after!.y + after!.height).toBeLessThanOrEqual(901);
+    await page.getByRole("button", { name: "Hide chat" }).click();
+    await check(page.getByRole("textbox", { name: "Message Pundit" })).toBeHidden();
+    await page.getByRole("button", { name: "Show chat" }).click();
+    await check(page.getByRole("textbox", { name: "Message Pundit" })).toBeVisible();
     const paper = await page.getByRole("article", { name: "Editable document" }).boundingBox();
     if (width === 1440) expect(paper!.width).toBeGreaterThan(1100);
     else {

@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ArrowUp, Check, FileText, Link2, MessageSquare, NotebookPen, Paperclip, PenLine, Plus, Ruler, Save, ShieldCheck, SlidersHorizontal, Sparkles, Undo2, Wand2, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, ChevronUp, FileText, Link2, MessageSquare, NotebookPen, Paperclip, PenLine, Plus, Ruler, Save, ShieldCheck, SlidersHorizontal, Sparkles, Undo2, Wand2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -43,13 +44,17 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
   const [search, setSearch] = useState("");
   const [link, setLink] = useState("");
   const [conversationOpen, setConversationOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(true);
   const [commandIndex, setCommandIndex] = useState(0);
   const [dismissedCommands, setDismissedCommands] = useState(false);
-  const [actionNotice, setActionNotice] = useState("");
+  const { toast } = useToast();
+  const setActionNotice = (message: string) => { if (message) toast({ description: message }); };
+  useEffect(() => { if (c.notice) toast({ description: c.notice }); }, [c.notice]);
   const input = useRef<HTMLTextAreaElement>(null);
   const title = useRef<HTMLTextAreaElement>(null);
   const commandMenu = useRef<HTMLDivElement>(null);
   const commandList = useId();
+  const chatBody = useId();
   const slashQuery = c.chat.input.match(/(?:^|\s)\/([a-z]*)$/i)?.[1];
   const matchingCommands = commands.filter(command => `${command.key} ${command.label}`.toLowerCase().includes((slashQuery ?? "").toLowerCase()));
   const commandsOpen = slashQuery !== undefined && !dismissedCommands;
@@ -61,6 +66,9 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
   const saveStatus = { loading: "Loading...", saving: "Saving...", saved: "All changes saved", error: "Not saved", unsaved: "Unsaved changes" }[c.persistence.status];
   const availableArticles = c.item && !c.inbox.some(article => article.articleUrl === c.item?.articleUrl) ? [c.item, ...c.inbox] : c.inbox;
   const selectedArticles = c.chat.referenceUrls.map(url => ({ url, item: availableArticles.find(article => article.articleUrl === url) }));
+  const articleTitle = (selectedArticles.find(article => article.item?.headline)?.item?.headline ?? c.item?.headline ?? "").trim().slice(0, 200);
+  const documentTitle = c.main ? c.main.title : articleTitle;
+  const editDocument: typeof c.editDocument = patch => c.editDocument(c.main || "title" in patch ? patch : { title: articleTitle, ...patch });
   const stories = availableArticles.filter(article => `${article.headline} ${article.source}`.toLowerCase().includes(search.toLowerCase()));
   const panelTitle = commands.find(command => command.key === panel)?.label ?? "Draft actions";
   const documentKey = useMemo(() => crypto.randomUUID(), [c.sourceIdentity]);
@@ -121,7 +129,7 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
     commandMenu.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }, [commandsOpen, commandIndex]);
 
-  const focusChat = () => requestAnimationFrame(() => input.current?.focus());
+  const focusChat = () => { setChatOpen(true); requestAnimationFrame(() => input.current?.focus()); };
   const runAction = (action: Action) => {
     setActionNotice("");
     if (locked) { setActionNotice("Wait for the current operation before changing draft actions."); return; }
@@ -192,8 +200,6 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
           <Button variant="outline" disabled={c.busy || c.generation.recoverable} onClick={c.persistence.reload}>Reload saved creation</Button>
         </>}>{c.persistence.error} Keep this tab open until your changes are saved.</WorkflowStatus>}
         {c.preferencesError && <WorkflowStatus tone="error" actions={<Button onClick={c.retryPreferences}>Retry preferences</Button>}>Could not load publishing preferences.</WorkflowStatus>}
-        {c.notice && <WorkflowStatus tone="info">{c.notice}</WorkflowStatus>}
-        {actionNotice && <WorkflowStatus tone="info">{actionNotice}</WorkflowStatus>}
       </div>
       {showingVersions ? <section aria-label="Your platform posts" className="mx-auto max-w-7xl space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -231,10 +237,12 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
             <Button disabled={locked} onClick={c.applySuggestion}>Use generated draft</Button>
             <Button variant="outline" disabled={locked} onClick={c.discardSuggestion}>Discard</Button>
           </>}>{c.proposalStale ? "Your document changed while Pundit worked. Your edits have not been overwritten." : "A saved generated draft is ready. Your document has not been replaced."} Using it replaces the document text and formatting; Undo AI update restores your current version.</WorkflowStatus>}
-          <Textarea ref={title} aria-label="Document title" rows={1} placeholder="Untitled draft" value={c.main?.title ?? ""} maxLength={200} disabled={locked}
+          <Textarea ref={title} aria-label="Document title" rows={1} placeholder="Add article title" value={documentTitle} maxLength={200} disabled={locked}
             onChange={event => c.editDocument({ title: event.target.value })}
             className="mb-4 min-h-0 resize-none overflow-hidden rounded-none border-0 bg-transparent px-0 py-2 font-serif text-2xl font-semibold leading-snug shadow-none focus-visible:ring-1 md:text-3xl" />
-          <DocumentEditor key={documentKey} content={c.main?.content ?? ""} formatJson={c.main?.formatJson} disabled={locked} onChange={c.editDocument} />
+          {c.main && !c.main.title.trim() && articleTitle && !locked &&
+            <Button size="sm" variant="ghost" className="-mt-3 mb-3 h-8 px-2 text-xs" onClick={() => c.editDocument({ title: articleTitle })}>Use article title: {articleTitle.length > 60 ? `${articleTitle.slice(0, 60)}…` : articleTitle}</Button>}
+          <DocumentEditor key={documentKey} content={c.main?.content ?? ""} formatJson={c.main?.formatJson} disabled={locked} onChange={editDocument} />
           <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
             <span>Document · {wordCount} words · {Math.max(1, Math.round(wordCount / 200))} min read</span>
             <span className="flex items-center gap-2">
@@ -247,84 +255,86 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
           <p className="mt-2 text-xs text-muted-foreground">Formatting is saved in this document. Platform versions use plain text.</p>
         </article>
       </div>}
-    </div>
-
-    <section aria-label="Pundit chat" className="z-20 shrink-0 border-t bg-background px-3 pb-3 pt-2 sm:px-6" data-testid="sticky-chat">
-      <div className="relative mx-auto max-w-7xl">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <div className="flex items-center gap-2"><span aria-hidden="true" className="flex size-5 items-center justify-center rounded-md bg-primary/10 text-primary"><Sparkles className="h-3.5 w-3.5" /></span><span className="font-medium text-foreground">Pundit</span><span>Your writing partner</span></div>
-          <div className="flex items-center gap-2">
-            {!!c.chat.messages.length && <Button variant="ghost" size="sm" className="h-auto min-h-11 px-2 text-xs" aria-expanded={conversationOpen} onClick={() => setConversationOpen(!conversationOpen)}><MessageSquare className="h-3.5 w-3.5" />Conversation ({c.chat.messages.length})</Button>}
-            <span className="sm:hidden">{saveStatus}</span>
-          </div>
-        </div>
-        {conversationOpen && <div role="log" aria-label="Draft conversation" className="mb-2 max-h-36 space-y-2 overflow-y-auto rounded-md border bg-card p-3 text-sm">
-          {c.chat.messages.map(message => <div key={message.id} className={message.role === "user" ? "ml-5 rounded-md bg-muted p-2" : "mr-5 p-2"}><span className="mb-1 block text-xs font-medium text-muted-foreground">{message.role === "user" ? "You" : "Pundit"}</span><p className="whitespace-pre-wrap break-words">{message.content}</p></div>)}
-        </div>}
-        {c.chat.pending && !c.generation.pending && !c.generation.recoverable && <WorkflowStatus tone="warning" actions={<Button variant="outline" onClick={c.discardSuggestion}>Dismiss interrupted suggestion</Button>}>A previous suggestion was interrupted. No new AI attempt has been started.</WorkflowStatus>}
-        <div className="rounded-xl border bg-card p-2 shadow-sm transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/10">
-          {showStarters && <div className="mb-1 flex flex-wrap gap-1.5" aria-label="Suggested prompts">
-            {starters.map(starter => <Button key={starter} type="button" variant="outline" size="sm" className="shrink-0 rounded-full text-xs font-normal text-muted-foreground"
-              disabled={!c.persistence.ready} onClick={() => { c.setChatInput(starter); focusChat(); }}><Sparkles className="h-3.5 w-3.5 text-primary" />{starter}</Button>)}
-          </div>}
-          {!!selectedArticles.length && <div className="mb-1 flex gap-1 overflow-x-auto" aria-label="Attached articles">{selectedArticles.map(({ url, item }) => <div key={url} className="flex max-w-full shrink-0 items-center rounded-md border bg-muted/40 pl-2 text-xs">
-            <FileText className="mr-1 h-3.5 w-3.5 shrink-0" /><span className="max-w-40 truncate" title={item?.headline ?? url}>{item?.headline ?? url}</span>
-            <Button size="icon" variant="ghost" className="h-11 w-11 shrink-0" aria-label={`Remove ${item?.headline ?? url}`} disabled={locked || Boolean(c.chat.pending)}
-              onClick={() => c.setChatReferences(c.chat.referenceUrls.filter(value => value !== url))}><X className="h-3 w-3" /></Button>
-          </div>)}</div>}
-          <Textarea ref={input} aria-label="Message Pundit" placeholder="Suggest an edit or describe your idea... type / for actions"
-            rows={1} maxLength={4000} value={c.chat.input} disabled={!c.persistence.ready}
-            aria-controls={commandsOpen ? commandList : undefined}
-            aria-activedescendant={commandsOpen && matchingCommands.length ? `${commandList}-${commandIndex}` : undefined}
-            onChange={event => c.setChatInput(event.target.value)}
-            onKeyDown={event => {
-              if (event.nativeEvent.isComposing) return;
-              if (commandsOpen && ["ArrowDown", "ArrowUp"].includes(event.key)) {
-                event.preventDefault(); setCommandIndex(index => (index + (event.key === "ArrowDown" ? 1 : -1) + matchingCommands.length) % Math.max(1, matchingCommands.length)); return;
-              }
-              if (event.key === "Escape") { setDismissedCommands(true); return; }
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                if (commandsOpen && matchingCommands[commandIndex]) runAction(matchingCommands[commandIndex].key);
-                else if (!locked && c.preferencesReady && !c.chat.proposal && !c.chat.pending) send();
-              }
-            }}
-            className="max-h-24 min-h-11 resize-none border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0" />
-          <div className="flex flex-wrap items-center justify-between gap-1">
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="sm" disabled={locked || Boolean(c.chat.pending)} onClick={() => runAction("sources")}><Paperclip className="h-4 w-4" />Articles{selectedArticles.length ? ` (${selectedArticles.length})` : ""}</Button>
-              <Button variant="ghost" size="icon" aria-label="Open slash commands" aria-expanded={commandsOpen} aria-controls={commandList}
-                disabled={!c.persistence.ready} onClick={() => { c.setChatInput(`${c.chat.input.trimEnd()} /`.trimStart()); focusChat(); }}><SlidersHorizontal className="h-4 w-4" /></Button>
-              <span className="hidden text-xs text-muted-foreground sm:inline">/ actions · Shift+Enter for a new line</span>
+      <section aria-label="Pundit chat" className="mt-6" data-testid="sticky-chat">
+        <div className="relative mx-auto max-w-7xl">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2"><span aria-hidden="true" className="flex size-5 items-center justify-center rounded-md bg-primary/10 text-primary"><Sparkles className="h-3.5 w-3.5" /></span><span className="font-medium text-foreground">Pundit</span><span>Your writing partner</span></div>
+            <div className="flex items-center gap-2">
+              {!!c.chat.messages.length && <Button variant="ghost" size="sm" className="h-auto min-h-11 px-2 text-xs" aria-expanded={conversationOpen} onClick={() => setConversationOpen(!conversationOpen)}><MessageSquare className="h-3.5 w-3.5" />Conversation ({c.chat.messages.length})</Button>}
+              <span className="sm:hidden">{saveStatus}</span>
+              <Button variant="ghost" size="sm" className="h-auto min-h-11 px-2 text-xs" aria-expanded={chatOpen} aria-controls={chatBody}
+                onClick={() => chatOpen ? setChatOpen(false) : focusChat()}>{chatOpen ? <><ChevronDown className="h-3.5 w-3.5" />Hide chat</> : <><ChevronUp className="h-3.5 w-3.5" />Show chat</>}</Button>
             </div>
-            <Button size="icon" aria-label="Send suggestion" disabled={locked || !c.preferencesReady || !c.chat.input.trim() || Boolean(c.chat.proposal || c.chat.pending)} onClick={send}><ArrowUp className="h-4 w-4" /></Button>
+          </div>
+          <div id={chatBody} hidden={!chatOpen}>
+          {conversationOpen && <div role="log" aria-label="Draft conversation" className="mb-2 max-h-36 space-y-2 overflow-y-auto rounded-md border bg-card p-3 text-sm">
+            {c.chat.messages.map(message => <div key={message.id} className={message.role === "user" ? "ml-5 rounded-md bg-muted p-2" : "mr-5 p-2"}><span className="mb-1 block text-xs font-medium text-muted-foreground">{message.role === "user" ? "You" : "Pundit"}</span><p className="whitespace-pre-wrap break-words">{message.content}</p></div>)}
+          </div>}
+          {c.chat.pending && !c.generation.pending && !c.generation.recoverable && <WorkflowStatus tone="warning" actions={<Button variant="outline" onClick={c.discardSuggestion}>Dismiss interrupted suggestion</Button>}>A previous suggestion was interrupted. No new AI attempt has been started.</WorkflowStatus>}
+          <div className="rounded-xl border bg-card p-2 shadow-sm transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/10">
+            {showStarters && <div className="mb-1 flex flex-wrap gap-1.5" aria-label="Suggested prompts">
+              {starters.map(starter => <Button key={starter} type="button" variant="outline" size="sm" className="shrink-0 rounded-full text-xs font-normal text-muted-foreground"
+                disabled={!c.persistence.ready} onClick={() => { c.setChatInput(starter); focusChat(); }}><Sparkles className="h-3.5 w-3.5 text-primary" />{starter}</Button>)}
+            </div>}
+            {!!selectedArticles.length && <div className="mb-1 flex gap-1 overflow-x-auto" aria-label="Attached articles">{selectedArticles.map(({ url, item }) => <div key={url} className="flex max-w-full shrink-0 items-center rounded-md border bg-muted/40 pl-2 text-xs">
+              <FileText className="mr-1 h-3.5 w-3.5 shrink-0" /><span className="max-w-40 truncate" title={item?.headline ?? url}>{item?.headline ?? url}</span>
+              <Button size="icon" variant="ghost" className="h-11 w-11 shrink-0" aria-label={`Remove ${item?.headline ?? url}`} disabled={locked || Boolean(c.chat.pending)}
+                onClick={() => c.setChatReferences(c.chat.referenceUrls.filter(value => value !== url))}><X className="h-3 w-3" /></Button>
+            </div>)}</div>}
+            <Textarea ref={input} aria-label="Message Pundit" placeholder="Suggest an edit or describe your idea... type / for actions"
+              rows={1} maxLength={4000} value={c.chat.input} disabled={!c.persistence.ready}
+              aria-controls={commandsOpen ? commandList : undefined}
+              aria-activedescendant={commandsOpen && matchingCommands.length ? `${commandList}-${commandIndex}` : undefined}
+              onChange={event => c.setChatInput(event.target.value)}
+              onKeyDown={event => {
+                if (event.nativeEvent.isComposing) return;
+                if (commandsOpen && ["ArrowDown", "ArrowUp"].includes(event.key)) {
+                  event.preventDefault(); setCommandIndex(index => (index + (event.key === "ArrowDown" ? 1 : -1) + matchingCommands.length) % Math.max(1, matchingCommands.length)); return;
+                }
+                if (event.key === "Escape") { setDismissedCommands(true); return; }
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  if (commandsOpen && matchingCommands[commandIndex]) runAction(matchingCommands[commandIndex].key);
+                  else if (!locked && c.preferencesReady && !c.chat.proposal && !c.chat.pending) send();
+                }
+              }}
+              className="max-h-24 min-h-11 resize-none border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0" />
+            <div className="flex flex-wrap items-center justify-between gap-1">
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="sm" disabled={locked || Boolean(c.chat.pending)} onClick={() => runAction("sources")}><Paperclip className="h-4 w-4" />Articles{selectedArticles.length ? ` (${selectedArticles.length})` : ""}</Button>
+                <Button variant="ghost" size="icon" aria-label="Open slash commands" aria-expanded={commandsOpen} aria-controls={commandList}
+                  disabled={!c.persistence.ready} onClick={() => { c.setChatInput(`${c.chat.input.trimEnd()} /`.trimStart()); focusChat(); }}><SlidersHorizontal className="h-4 w-4" /></Button>
+                <span className="hidden text-xs text-muted-foreground sm:inline">/ actions · Shift+Enter for a new line</span>
+              </div>
+              <Button size="icon" aria-label="Send suggestion" disabled={locked || !c.preferencesReady || !c.chat.input.trim() || Boolean(c.chat.proposal || c.chat.pending)} onClick={send}><ArrowUp className="h-4 w-4" /></Button>
+            </div>
+          </div>
+          {commandsOpen && <div ref={commandMenu} id={commandList} role="listbox" aria-label="Slash commands" className="absolute bottom-full left-0 right-0 z-30 mb-2 max-h-72 overflow-y-auto rounded-lg border bg-popover p-1 shadow-lg">
+            {!matchingCommands.length && <p className="p-3 text-sm text-muted-foreground">No matching command. Try /sources, /tone, or /platforms.</p>}
+            {matchingCommands.map((command, index) => <button type="button" id={`${commandList}-${index}`} key={command.key} role="option" aria-selected={index === commandIndex}
+              onMouseDown={event => event.preventDefault()} onMouseEnter={() => setCommandIndex(index)} onClick={() => runAction(command.key)}
+              className={`flex min-h-11 w-full items-center gap-3 rounded-md p-2 text-left ${index === commandIndex ? "bg-accent text-accent-foreground" : "text-popover-foreground"}`}>
+              <span className="w-24 shrink-0 font-mono text-xs">/{command.key}</span><span className="min-w-0"><span className="block text-sm font-medium">{command.label}</span><span className="block text-xs text-muted-foreground">{command.description}</span></span>
+            </button>)}
+          </div>}
+          <EditorialProgress {...c.generation} error={sourceFailure ? "" : c.generation.error} pending={c.generation.pending && !waitingForSuggestion} batch={c.batching ? c.batch : undefined} />
+          {sourceFailure && <WorkflowStatus tone="error" title="Some sources could not be read" actions={<>
+            {sourceFailure.sources.some(source => c.chat.referenceUrls.includes(source.url)) &&
+              <Button variant="outline" disabled={locked} onClick={c.removeUnreadableSources}>Remove unavailable articles</Button>}
+            <Button variant="outline" disabled={locked} onClick={() => runAction("notes")}>Add source notes</Button>
+          </>}>
+            <p>{sourceFailure.message}</p>
+            <ul className="mt-1 max-h-24 overflow-y-auto text-xs">{sourceFailure.sources.map(source =>
+              <li key={source.url}><a className="underline" href={source.url} target="_blank" rel="noopener noreferrer">{new URL(source.url).hostname}</a>: {source.message}</li>)}</ul>
+            <p className="mt-1 text-xs">Your document, attachments and message have been kept. Sources are never silently skipped.</p>
+          </WorkflowStatus>}
+          {c.generation.recoverable && !c.generation.pending && <WorkflowStatus tone="warning" actions={<>
+            <Button variant="outline" onClick={() => void c.generate(true)}>Retry same request</Button><Button variant="outline" onClick={() => void c.generation.cancel()}>Cancel generation</Button>
+          </>}>Check the original request before starting another AI attempt.</WorkflowStatus>}
           </div>
         </div>
-        {commandsOpen && <div ref={commandMenu} id={commandList} role="listbox" aria-label="Slash commands" className="absolute bottom-full left-0 right-0 z-30 mb-2 max-h-72 overflow-y-auto rounded-lg border bg-popover p-1 shadow-lg">
-          {!matchingCommands.length && <p className="p-3 text-sm text-muted-foreground">No matching command. Try /sources, /tone, or /platforms.</p>}
-          {matchingCommands.map((command, index) => <button type="button" id={`${commandList}-${index}`} key={command.key} role="option" aria-selected={index === commandIndex}
-            onMouseDown={event => event.preventDefault()} onMouseEnter={() => setCommandIndex(index)} onClick={() => runAction(command.key)}
-            className={`flex min-h-11 w-full items-center gap-3 rounded-md p-2 text-left ${index === commandIndex ? "bg-accent text-accent-foreground" : "text-popover-foreground"}`}>
-            <span className="w-24 shrink-0 font-mono text-xs">/{command.key}</span><span className="min-w-0"><span className="block text-sm font-medium">{command.label}</span><span className="block text-xs text-muted-foreground">{command.description}</span></span>
-          </button>)}
-        </div>}
-        <EditorialProgress {...c.generation} error={sourceFailure ? "" : c.generation.error} pending={c.generation.pending && !waitingForSuggestion} batch={c.batching ? c.batch : undefined} />
-        {sourceFailure && <WorkflowStatus tone="error" title="Some sources could not be read" actions={<>
-          {sourceFailure.sources.some(source => c.chat.referenceUrls.includes(source.url)) &&
-            <Button variant="outline" disabled={locked} onClick={c.removeUnreadableSources}>Remove unavailable articles</Button>}
-          <Button variant="outline" disabled={locked} onClick={() => runAction("notes")}>Add source notes</Button>
-        </>}>
-          <p>{sourceFailure.message}</p>
-          <ul className="mt-1 max-h-24 overflow-y-auto text-xs">{sourceFailure.sources.map(source =>
-            <li key={source.url}><a className="underline" href={source.url} target="_blank" rel="noopener noreferrer">{new URL(source.url).hostname}</a>: {source.message}</li>)}</ul>
-          <p className="mt-1 text-xs">Your document, attachments and message have been kept. Sources are never silently skipped.</p>
-        </WorkflowStatus>}
-        {c.generation.recoverable && !c.generation.pending && <WorkflowStatus tone="warning" actions={<>
-          <Button variant="outline" onClick={() => void c.generate(true)}>Retry same request</Button><Button variant="outline" onClick={() => void c.generation.cancel()}>Cancel generation</Button>
-        </>}>Check the original request before starting another AI attempt.</WorkflowStatus>}
-        <p className="mt-1 text-center text-xs text-muted-foreground">Pundit writes in your document. Review before publishing. AI requests may count toward usage.</p>
-      </div>
-    </section>
+      </section>
+    </div>
 
     <Dialog open={Boolean(panel)} onOpenChange={open => { if (!open) { setPanel(undefined); focusChat(); } }}>
       <DialogContent className="max-h-[85dvh] w-[calc(100%-1rem)] max-w-2xl overflow-y-auto">

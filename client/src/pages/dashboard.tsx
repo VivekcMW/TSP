@@ -140,7 +140,7 @@ export default function DashboardPage() {
       />
 
       <PageBody as="div" width="workbench" scrollable={false} className="overflow-y-auto [@media(max-height:500px)]:min-h-[24rem]" contentClassName="flex h-full min-h-0 flex-col gap-5">
-        <PageToolbar aria-label="Discover filters" className="shrink-0 rounded-xl border bg-card/80 p-2 shadow-sm">
+        <PageToolbar aria-label="Discover filters" className="relative shrink-0 rounded-xl border bg-card/80 p-2 shadow-sm">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <span className="px-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Library</span>
             <fieldset className="flex min-w-0 flex-wrap gap-1.5" aria-label="Article status">
@@ -159,11 +159,11 @@ export default function DashboardPage() {
                 </Button>
               ))}
             </fieldset>
+            <PersonalTrends />
           </div>
           <span className="hidden text-xs text-muted-foreground sm:block">{filteredItems.length} {filteredItems.length === 1 ? "story" : "stories"} in view</span>
         </PageToolbar>
 
-      <PersonalTrends />
       <div
         className={`min-h-[16rem] min-w-0 flex-1 rounded-xl border bg-card shadow-sm ${paneState === "ready" ? "overflow-hidden" : "overflow-y-auto"}`}
         data-discover-panes=""

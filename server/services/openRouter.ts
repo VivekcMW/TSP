@@ -39,6 +39,7 @@ const FAILURE_DETAILS = {
   ai_timeout: { status: 504, message: "AI generation timed out. Please try again later." },
   ai_cancelled: { status: 503, message: "AI generation was cancelled. No posts were returned." },
   ai_invalid_output: { status: 502, message: "The AI provider did not return a usable post. Check the article content and try again." },
+  ai_insufficient_source: { status: 422, message: "This article doesn't have enough readable text to write from (it may be paywalled or mostly media). Try another link or paste the article text." },
   ai_invalid_input: { status: 400, message: "Provide a supported platform, tone, source, and non-empty article content within the allowed limits." },
   ai_rate_limit: { status: 503, message: "The AI provider is rate limited. Please wait before trying again." },
   ai_refusal: { status: 422, message: "The AI provider declined this request. No posts were returned." },

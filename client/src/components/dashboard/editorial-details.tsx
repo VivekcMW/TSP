@@ -49,13 +49,5 @@ export function EditorialDetails({ evidence, detail, edited = false, currentCont
       {evidence?.warnings.map(warning => <p key={warning.code}>{warning.message}</p>)}
     </WorkflowStatus>
     {detail && <ClaimSupportReview key={evidence?.sourceId} report={detail.claimSupport} text={detail.content} edited={edited} currentContent={currentContent} />}
-    <details className="rounded-[6px] border bg-card px-3 py-2">
-      <summary className="min-h-11 cursor-pointer py-2 font-medium">Generation details</summary>
-      <div className="space-y-3">
-        {detail?.generation && <p>Provider: {detail.generation.provider} · Model: {detail.generation.model}</p>}
-        {evidence && <details><summary className="min-h-11 cursor-pointer py-2 font-medium">Source evidence excerpts ({evidence.excerpts.length})</summary><div className="mt-2 max-h-64 space-y-3 overflow-y-auto">{evidence.excerpts.map(excerpt => <blockquote key={excerpt.id} className="border-l-2 pl-3"><span className="text-xs font-medium">{excerpt.id}</span><p className="whitespace-pre-wrap break-words">{excerpt.text}</p></blockquote>)}</div></details>}
-        {!!detail?.attributions?.length && <details><summary className="min-h-11 cursor-pointer py-2">Reported claims → source passages</summary><ul className="mt-2 space-y-2">{detail.attributions.map((attribution, index) => <li key={`${index}:${attribution.text}`}>{attribution.text} <span className="text-xs text-muted-foreground">({attribution.excerptIds.join(", ")})</span></li>)}</ul></details>}
-      </div>
-    </details>
   </section>;
 }
