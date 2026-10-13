@@ -7,7 +7,8 @@ export const key = (value: string) => value.trim().toLowerCase();
 export const short = (value: string) => value.replace(/\s+/g, " ").trim().slice(0, 80);
 
 export async function askJson<S extends z.ZodTypeAny>(prompt: string, schema: S, scope: { tenantId: string }, signal?: AbortSignal,
-  { maxTokens = 1500, timeoutMs = 20_000 }: { maxTokens?: number; timeoutMs?: number } = {}): Promise<z.infer<S>> {
+  { maxTokens = 4096, timeoutMs = 20_000 }: { maxTokens?: number; timeoutMs?: number } = {}): Promise<z.infer<S>> {
+  // maxTokens includes Gemini Pro thinking tokens; 1500 truncated JSON (MAX_TOKENS).
   // Route and caller deadlines bound these provider waits across a full onboarding run.
   // Each route's own budget (and the caller's signal) still bounds the whole request.
   const text = await generateText(prompt, { scope, signal, timeoutMs, maxTokens });

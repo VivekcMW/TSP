@@ -159,11 +159,11 @@ export default function DashboardPage() {
                 </Button>
               ))}
             </fieldset>
+            <PersonalTrends />
           </div>
           <span className="hidden text-xs text-muted-foreground sm:block">{filteredItems.length} {filteredItems.length === 1 ? "story" : "stories"} in view</span>
         </PageToolbar>
 
-      <PersonalTrends />
       <div
         className={`min-h-[16rem] min-w-0 flex-1 rounded-xl border bg-card shadow-sm ${paneState === "ready" ? "overflow-hidden" : "overflow-y-auto"}`}
         data-discover-panes=""

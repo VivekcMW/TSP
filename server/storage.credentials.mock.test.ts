@@ -63,7 +63,7 @@ describe("social credential repository writes", () => {
     expect(params).toContain(scope.tenantId); expect(params).toContain(scope.userId);
     expect(params).not.toContain("spoofed"); expect(params).not.toContain("fake-access");
     expect(input.accessToken).toBe("fake-access");
-    expect(query.mock.calls[0][1]).toEqual([scope.tenantId]);
+    expect(query.mock.calls[0][1]).toEqual([scope.tenantId, scope.userId]);
   });
   it("authenticates pre-encrypted OAuth values without double encryption", async () => {
     const token = encryptWebhookUrl("fake-oauth-token");

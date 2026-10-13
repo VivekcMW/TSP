@@ -678,7 +678,7 @@ describe("editorial generation UI (mocked browser)", { timeout: 15_000 }, () => 
     await page.getByRole("button", { name: "Stop after current post" }).click();
     await page.evaluate(() => (window as any).__pending.shift()());
     await browserExpect(page.getByTestId("text-post-content-linkedin")).toContainText("linkedin original");
-    await browserExpect(page.getByText(/Stopped after 1 completed post/)).toBeVisible();
+    await browserExpect.poll(() => page.evaluate(() => (window as any).__toasts.at(-1)?.description)).toMatch(/Stopped after 1 completed post/);
     expect((await calls()).filter((call: any) => call.url.includes("instant-review"))).toHaveLength(1);
   });
 
@@ -1102,7 +1102,7 @@ describe("editorial generation UI (mocked browser)", { timeout: 15_000 }, () => 
     await mount("panel", [{ body }, { body: response("twitter") }]);
     await page.locator("#open-story").click(); await preparePlatforms(undefined, false);
     await page.getByTestId("button-generate-selected").click();
-    await browserExpect(page.getByText(/No usable text was returned/)).toBeVisible();
+    await browserExpect.poll(() => page.evaluate(() => (window as any).__toasts.at(-1)?.description)).toMatch(/No usable text was returned/);
     await browserExpect(page.getByTestId("social-preview-linkedin")).toContainText("Needs retry");
     await browserExpect(page.getByTestId("social-preview-twitter")).toContainText("Not attempted");
     expect((await calls()).filter((call: any) => call.url.includes("instant-review"))).toHaveLength(1);
@@ -1169,11 +1169,9 @@ describe("editorial generation UI (mocked browser)", { timeout: 15_000 }, () => 
       const save = Array.from(element.querySelectorAll("button")).find(button => button.textContent?.includes("Save draft"))!;
       return Boolean(guidance.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING);
     })).toBe(true);
-    await card().getByText("Generation details", { exact: true }).click();
-    await browserExpect(card().getByText(/mock-fallback-model/)).toBeVisible();
-    await card().getByText("Source evidence excerpts (1)").click();
-    await browserExpect(card().getByRole("blockquote").locator("p")).toHaveText(source);
-    await browserExpect(card().getByText("p1", { exact: true })).toBeVisible();
+    await browserExpect(card().getByText("Generation details", { exact: true })).toHaveCount(0);
+    await browserExpect(card().getByText(/Source evidence excerpts/)).toHaveCount(0);
+    await browserExpect(card().getByText(/Reported claims/)).toHaveCount(0);
     expect((await calls())[0]).toMatchObject({ url: "/api/instant-review/manual", body: { stage: "platform", content: source, sourceUrl: "https://news.test/a", sourceLabel: "Desk", selectedPlatforms: ["linkedin"] } });
     expect(await page.evaluate(() => (window as any).__actions)).toEqual([]);
   });
@@ -1187,7 +1185,7 @@ describe("editorial generation UI (mocked browser)", { timeout: 15_000 }, () => 
     await browserExpect(cardSave()).toHaveCount(0);
     await browserExpect(cardHandoff()).toHaveCount(0);
     await cardGenerate().click();
-    await browserExpect(page.getByText(/No usable text was returned/)).toBeVisible();
+    await browserExpect.poll(() => page.evaluate(() => (window as any).__toasts.at(-1)?.description)).toMatch(/No usable text was returned/);
     await browserExpect(cardSave()).toBeDisabled();
     await browserExpect(cardCopy()).toBeDisabled();
     await browserExpect(cardHandoff()).toHaveCount(0);
@@ -1261,13 +1259,8 @@ describe("editorial generation UI (mocked browser)", { timeout: 15_000 }, () => 
     await cardGenerate("twitter").click();
     await expectContent(/twitter regenerated:/, "twitter");
     await expectContent(/linkedin original:/);
-    await card().getByText("Generation details", { exact: true }).click();
-    await card().getByText("Source evidence excerpts (1)").click();
-    await browserExpect(card().getByRole("blockquote").locator("p")).toHaveText(source);
-    expect(await card().getByText(/Snapshot: regenerated/).count()).toBe(0);
-    await card("twitter").getByText("Generation details", { exact: true }).click();
-    await card("twitter").getByText("Source evidence excerpts (1)").click();
-    await browserExpect(card("twitter").getByRole("blockquote").locator("p")).toHaveText(`${source} Snapshot: regenerated.`);
+    const snapshots = await page.evaluate(() => Object.entries(((window as any).__composer as CreatePostComposer).versions).map(([key, version]) => [key.split(":")[0], version.review.evidence?.excerpts[0]?.text]));
+    expect(snapshots).toEqual(expect.arrayContaining([["linkedin", source], ["twitter", `${source} Snapshot: regenerated.`]]));
     const requests = await calls();
     expect(requests.map((call: any) => call.body.selectedPlatforms)).toEqual([["linkedin"], ["twitter"], ["twitter"]]);
     expect(requests.every((call: any) => call.url === "/api/instant-review/manual")).toBe(true);
@@ -1985,7 +1978,7 @@ describe("UX-06 — partial batch recovery (mocked Chromium)", { timeout: 15_000
     page.once("dialog", dialog => dialog.accept());
     await primary().click();
     await browserExpect(card()).toContainText("Needs retry");
-    await browserExpect(page.getByText(/No usable text was returned/)).toBeVisible();
+    await browserExpect.poll(() => page.evaluate(() => (window as any).__toasts.at(-1)?.description)).toMatch(/No usable text was returned/);
     await browserExpect(card("twitter")).toContainText("Not attempted");
     await browserExpect(card("medium")).toContainText("Not attempted");
     await browserExpect(primary()).toHaveText("Continue remaining versions");

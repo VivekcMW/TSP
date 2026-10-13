@@ -301,6 +301,9 @@ async function confirmSource(accept: boolean, action: () => Promise<unknown>, qu
 const articleUrl = () => page.getByRole("textbox", { name: "Article URL", exact: true });
 const platformTrigger = () => page.getByRole("button", { name: /^(Adapt for )?platforms$/ });
 const chat = () => page.getByRole("textbox", { name: "Message Pundit", exact: true });
+// Composer notices are surfaced as toasts, which this fixture records instead of rendering.
+const expectNotice = (text: string) =>
+  browserExpect.poll(() => page.evaluate(() => (window as any).__toasts.at(-1)?.description)).toBe(text);
 async function command(value: string) { await chat().fill(`/${value}`); await chat().press("Enter"); }
 async function closePanel() {
   if (await page.locator('[role="dialog"][data-state="open"]').count()) await page.getByRole("button", { name: "Close", exact: true }).click();
@@ -502,7 +505,7 @@ describe("UX-04 — canonical Create entry and in-memory resumption", () => {
     await browserExpect.poll(work).toEqual(before);
     await page.locator("#fixture-other").click();
     await page.locator("#fixture-state").click();
-    await browserExpect(page.getByText(keptNotice, { exact: true })).toBeVisible();
+    await expectNotice(keptNotice);
     await expectHistoryClean();
     await browserExpect.poll(work).toEqual(before);
     expect(dialogs).toEqual([]);
@@ -526,7 +529,7 @@ describe("UX-04 — canonical Create entry and in-memory resumption", () => {
     await browserExpect.poll(work).toEqual(before);
     await page.locator("#fixture-other").click();
     await page.locator(`#fixture-${entry}`).click();
-    await browserExpect(page.getByText(keptNotice, { exact: true })).toBeVisible();
+    await expectNotice(keptNotice);
     expect((await work()).url).toBe(urlA);
     expect((await work()).item?.id).toBe("a");
     await expectHistoryClean(entry === "state" ? { marker: "retained" } : null);
@@ -605,7 +608,7 @@ describe("UX-17/18 — explicit new/resume and selection continuity", () => {
       return c.startNewCreate();
     }, operation)).toBe(false);
     expect((await work()).url).toBe(urlA);
-    await browserExpect(page.getByText(lockedNotice, { exact: true })).toBeVisible();
+    await expectNotice(lockedNotice);
     expect(dialogs).toEqual([]);
     if (operation === "generation" || operation === "save") await release(operation);
     if (operation === "upload") await page.evaluate(() => (window as unknown as FixtureWindow).__composer.setUploading(false));
@@ -851,7 +854,7 @@ describe("Document and checkbox platform dialog", () => {
 });
 
 describe("UX-11/12 — shared Create frame and preserved toolbar", () => {
-  it.each([320, 375, 390, 768, 1024, 1440])("contains the document, sticky chat and all formatting controls at %i px", async width => {
+  it.each([320, 375, 390, 768, 1024, 1440])("contains the document, scrollable chat and all formatting controls at %i px", async width => {
     await mount(); await page.setViewportSize({ width, height: 900 });
     await browserExpect(page.getByRole("main")).toHaveCount(1);
     for (const target of [page.getByRole("article", { name: "Editable document" }), page.getByTestId("sticky-chat")]) {
@@ -859,6 +862,8 @@ describe("UX-11/12 — shared Create frame and preserved toolbar", () => {
       expect(bounds.x).toBeGreaterThanOrEqual(0);
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
     }
+    // The chat scrolls with the document instead of being pinned, so reach it first.
+    await chat().scrollIntoViewIfNeeded();
     await browserExpect(chat()).toBeInViewport();
     await useNotes();
     const toolbar = page.getByRole("group", { name: "Article formatting toolbar" });
@@ -1065,7 +1070,7 @@ describe("UX-05 — synchronous operation locks and recovery ownership", () => {
     await browserExpect(page.getByRole("button", { name: "Document", exact: true })).toBeDisabled();
     expect((await work()).url).toBe(urlA);
     expect((await work()).item?.id).toBe("a");
-    await browserExpect(page.getByText(keptNotice, { exact: true })).toBeVisible();
+    await expectNotice(keptNotice);
     await release("generation");
     await browserExpect(preview()).toHaveText(text());
     await idle();
@@ -1178,7 +1183,7 @@ describe("UX-05 — synchronous operation locks and recovery ownership", () => {
     expect(original.body?.requestIntent).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
     expect(await attemptAllSourceChanges()).toEqual(blockedChanges);
     expect(await page.evaluate(() => (window as unknown as FixtureWindow).__composer.selectPasteUrl())).toBe(false);
-    await browserExpect(page.getByText(lockedNotice, { exact: true })).toBeVisible();
+    await expectNotice(lockedNotice);
     await browserExpect(page.getByRole("button", { name: "Document", exact: true })).toBeDisabled();
     expect(await work()).toEqual(before);
     await browserExpect(card().getByRole("button", { name: "Generate LinkedIn again", exact: true })).toBeDisabled();
@@ -1186,7 +1191,7 @@ describe("UX-05 — synchronous operation locks and recovery ownership", () => {
     await page.locator("#fixture-story-b").click();
     await browserExpect(page.locator("#fixture-route")).toHaveText(otherRoute);
     await page.locator("#fixture-query").click();
-    await browserExpect(page.getByText(keptNotice, { exact: true })).toBeVisible();
+    await expectNotice(keptNotice);
     await expectHistoryClean(null);
     expect(await work()).toEqual(before);
     await expectRequests([["POST", "/api/instant-review/manual"]]);
@@ -1277,7 +1282,7 @@ describe("UX-05 — synchronous operation locks and recovery ownership", () => {
   it.each(["retry", "cancel"] as const)("loaded recovery survives link arrival/source attempts and explicit %s never admits another job", async action => {
     await mount({ route: `${createRoute}?keep=1&article=${encodeURIComponent(urlB)}`, recovery,
       steps: [{ method: "GET", url: `/api/editorial/jobs/${jobId}`, defer: "reconnect", status: 403, body: { message: "Status temporarily inaccessible" } }] });
-    await browserExpect(page.getByText(keptNotice, { exact: true })).toBeVisible();
+    await expectNotice(keptNotice);
     await expectHistoryClean();
     await expectSource("");
     await browserExpect(page.getByRole("button", { name: "Send suggestion", exact: true })).toBeDisabled();
@@ -1293,7 +1298,7 @@ describe("UX-05 — synchronous operation locks and recovery ownership", () => {
     expect(await attemptAllSourceChanges()).toEqual(blockedChanges);
     await page.locator("#fixture-other").click();
     await page.locator("#fixture-state").click();
-    await browserExpect(page.getByText(keptNotice, { exact: true })).toBeVisible();
+    await expectNotice(keptNotice);
     await expectHistoryClean();
     await expectRequests([["GET", `/api/editorial/jobs/${jobId}`]]);
     await browserExpect(platformTrigger()).toBeDisabled();

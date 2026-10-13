@@ -55,7 +55,9 @@ describe("inbox detail relevance explanations", () => {
   it("labels legacy creation as Added and never invents Today", async () => {
     await mount({ createdAt: new Date("2020-01-02T12:00:00Z") });
     await browserExpect(page.getByText(/Added .*Publication date unknown/)).toBeVisible();
-    await browserExpect(page.getByText(/Saved excerpt \(legacy provenance unavailable\)/)).toBeVisible();
+    // Provenance labels moved out of the UI; the excerpt body and its backend metadata stay.
+    await browserExpect(page.getByText(/Saved excerpt \(legacy provenance unavailable\)/)).toHaveCount(0);
+    await browserExpect(page.getByRole("region", { name: "Article excerpt" })).toContainText("Article summary");
     expect(await page.locator("body").innerText()).not.toContain("Today");
   });
 

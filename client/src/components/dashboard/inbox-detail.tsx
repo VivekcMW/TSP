@@ -22,9 +22,6 @@ export function InboxDetail({ item, onGeneratePost, onSave, onDismiss, inSheet =
   const matchedKeywords = item.matchedKeywords || [];
   const relevanceReason = relevanceSummary(item);
   const headline = <h2 {...(!inSheet && titleId ? { id: titleId } : {})} className="heading-dashboard mb-3 break-words text-xl leading-snug" data-testid={`text-headline-${item.id}`}>{item.headline}</h2>;
-  let excerptLabel = "Saved excerpt (legacy provenance unavailable)";
-  if (item.qualityMetadata?.summary?.method === "extractive") excerptLabel = "Article excerpt";
-  if (item.qualityMetadata?.summary?.method === "source_excerpt") excerptLabel = "Source excerpt (feed or provider snippet)";
 
   return (
     <div className="dashboard-touch-targets flex h-full min-h-0 min-w-0 flex-col">
@@ -52,7 +49,6 @@ export function InboxDetail({ item, onGeneratePost, onSave, onDismiss, inSheet =
             </p>
           )}
           {item.summary?.trim() && <section aria-label="Article excerpt" className="mb-4">
-            <p className="mb-1 text-xs font-medium text-muted-foreground">{excerptLabel} · Not independently verified</p>
             <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">{item.summary}</p>
           </section>}
           {matchedKeywords.length > 0 && (
