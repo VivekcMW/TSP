@@ -50,7 +50,7 @@ describe("draft editing CAS (mocked storage)", () => {
     const lock = query.mock.calls.find(([config]) => config.text.includes('from "drafts"'))!;
     expect(lock[0].text).toMatch(/where .*"id" = .*"tenant_id" = .*"user_id" = .*for update$/);
     expect(lock[1]).toEqual(["d", scope.tenantId, scope.userId]);
-    expect(query.mock.calls[0][1]).toEqual([scope.tenantId]);
+    expect(query.mock.calls[0][1]).toEqual([scope.tenantId, scope.userId]);
     expect(writes()).toHaveLength(1);
     const [update, params] = writes()[0];
     expect(update.text).toContain('"publish_approval_hash" =');

@@ -24,8 +24,8 @@ describe("discovery-window compiled SQL (mocked driver, no DB)", () => {
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(query).toHaveBeenCalledTimes(2);
     const [setup, setupParams] = query.mock.calls[0];
-    expect(setup.text).toBe("select set_config('app.tenant_id', $1, true)");
-    expect(setupParams).toEqual([scope.tenantId]);
+    expect(setup.text).toBe("select set_config('app.tenant_id', $1, true), set_config('app.user_id', $2, true)");
+    expect(setupParams).toEqual([scope.tenantId, scope.userId]);
     const [compiled, params] = query.mock.calls[1];
     const sql = compiled.text.replace(/\s+/g, " ");
     expect(sql).toContain('"inbox_items"."tenant_id" = $1');

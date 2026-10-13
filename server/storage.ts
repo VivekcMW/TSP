@@ -246,8 +246,13 @@ export interface IStorage {
 }
 
 /**
- * Runs a query inside a transaction with app.tenant_id set transaction-locally,
- * which is what activates the Row-Level Security policies (migration 0002).
+ * Runs a query inside a transaction with app.tenant_id and app.user_id set
+ * transaction-locally, which is what activates the Row-Level Security policies
+ * (migration 0002 for tenant tables, 0053 for per-user tables).
+ *
+ * Both settings are required: policies that also match app.user_id (such as
+ * draft_feedback_owner) reject every row when it is missing, because
+ * current_setting(..., true) returns NULL and the comparison is never true.
  *
  * Transaction-local (`set_config(..., true)`) is essential: a session-level
  * setting would leak to the next request that borrowed the same pooled
@@ -259,7 +264,7 @@ export interface IStorage {
  */
 async function scoped<T>(scope: TenantScope, fn: (tx: Tx) => Promise<T>): Promise<T> {
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select set_config('app.tenant_id', ${scope.tenantId}, true)`);
+    await tx.execute(sql`select set_config('app.tenant_id', ${scope.tenantId}, true), set_config('app.user_id', ${scope.userId}, true)`);
     return fn(tx);
   });
 }
