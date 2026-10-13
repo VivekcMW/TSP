@@ -91,7 +91,6 @@ function DashboardRouter() {
         {location => (
           <Suspense fallback={<LoadingScreen />}>
           <Switch location={location}>
-            <Route path="/dashboard" component={OverviewPage} />
             <Route path="/dashboard/create" component={CreatePostPage} />
             <Route path="/dashboard/discover" component={DashboardPage} />
             <Route path="/dashboard/inbox"><DashboardRedirect to="/dashboard/discover" /></Route>
@@ -110,6 +109,7 @@ function DashboardRouter() {
             <Route path="/dashboard/billing"><DashboardRedirect to="/dashboard/settings?tab=billing" /></Route>
             <Route path="/dashboard/calendar" component={CalendarPage} />
             <Route path="/dashboard/accept-invite" component={AcceptInvitePage} />
+            <Route path="/dashboard" component={OverviewPage} />
             <Route component={NotFound} />
           </Switch>
           </Suspense>
