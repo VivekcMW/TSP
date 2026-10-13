@@ -116,7 +116,7 @@ export default function BlogPage() {
                 type="button"
                 onClick={() => setActiveCategory(category)}
                 aria-pressed={activeCategory === category}
-                className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${activeCategory === category ? "bg-foreground text-background" : "text-muted-foreground hover:bg-card hover:text-foreground"}`}
+                className={`inline-flex min-h-11 shrink-0 items-center justify-center rounded-full px-4 py-2 text-sm font-medium transition-colors ${activeCategory === category ? "bg-foreground text-background" : "text-muted-foreground hover:bg-card hover:text-foreground"}`}
               >
                 {category}
               </button>
