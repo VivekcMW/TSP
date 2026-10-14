@@ -36,13 +36,7 @@ export function AppSidebar() {
                       tooltip={item.title}
                       data-testid={`nav-${item.title.toLowerCase()}`}
                     >
-                      <Link href={item.url} className="relative" aria-current={isActive ? "page" : undefined}>
-                        {isActive && (
-                          <div
-                            aria-hidden="true"
-                            className="pointer-events-none absolute inset-y-1 left-0 border-l-2 border-sidebar-primary"
-                          />
-                        )}
+                      <Link href={item.url} aria-current={isActive ? "page" : undefined}>
                         <item.icon className={`w-4 h-4 ${isActive ? "text-sidebar-accent-foreground" : ""}`} />
                         <span className={isActive ? "font-medium text-sidebar-accent-foreground" : ""}>{item.title}</span>
                       </Link>

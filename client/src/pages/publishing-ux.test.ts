@@ -36,6 +36,7 @@ beforeAll(async () => {
       import { QueryClientProvider } from "@tanstack/react-query";
       import { queryClient } from "@/lib/queryClient";
       import Drafts from "@/pages/drafts";
+      import Overview from "@/pages/overview";
       import Calendar from "@/pages/calendar";
       import { ScheduleArticleModal } from "@/components/schedule-article-modal";
       import { usePublishStatus, useDraftPublishStatus } from "@/hooks/use-publish-status";
@@ -137,8 +138,20 @@ beforeAll(async () => {
           if (s.scheduleError) return new Response(JSON.stringify({ message: "Temporarily unavailable" }), { status: 503 });
           return new Response(JSON.stringify({ items: s.schedules, total: s.schedules.length }));
         }
-        if (url === "/api/drafts") return new Response(JSON.stringify(s.draftsError ? { message: "Unavailable" } : s.drafts), { status: s.draftsError ? 503 : 200 });
+        if (url === "/api/drafts" || String(url).startsWith("/api/drafts?")) {
+          const params = new URL(String(url), "http://localhost").searchParams;
+          const offset = Number(params.get("offset") || 0);
+          const limit = Number(params.get("limit") || 200);
+          return new Response(JSON.stringify(s.draftsError ? { message: "Unavailable" } : s.drafts.slice(offset, offset + limit)), { status: s.draftsError ? 503 : 200 });
+        }
         if (url === "/api/profile") return new Response(JSON.stringify(s.profile));
+        if (String(url).startsWith("/api/inbox?")) {
+          const offset = Number(new URL(String(url), "http://localhost").searchParams.get("offset") || 0);
+          return new Response(JSON.stringify((s.inbox || []).slice(offset, offset + 200)));
+        }
+        if (url === "/api/me") return new Response(JSON.stringify({ firstName: "Local" }));
+        if (url === "/api/analytics/summary") return new Response(JSON.stringify({}));
+        if (url === "/api/team/context") return new Response(JSON.stringify({ tenantKind: "personal", role: "owner" }));
         if (url === "/api/integrations") return new Response(JSON.stringify(s.integrations));
         if (url === "/api/publishing-rules") return new Response(JSON.stringify(s.rules));
         if (String(url).includes("/status")) return new Response(JSON.stringify(s.connections?.[String(url).split("/")[3]] ?? { connected: true, assessment: { canPublish: true, status: "connected" } }));
@@ -156,15 +169,24 @@ beforeAll(async () => {
         const [open, setOpen] = useState(true);
         const [location, navigate] = useLocation();
         window.__navigate = navigate;
-        return <QueryClientProvider client={queryClient}><Link id="leave-content" href="/elsewhere">Leave Content</Link>{location === "/elsewhere" ? <Link href="/">Return to Content</Link> : window.__surface === "calendar" ? <Calendar /> : window.__surface === "modal" ? <><button onClick={() => setOpen(true)}>Reopen modal</button><ScheduleArticleModal draftId="d" open={open} onOpenChange={setOpen} /></> : window.__surface === "jobs" ? <JobHarness /> : window.__surface === "monitor" ? <MonitorHarness /> : <Drafts />}</QueryClientProvider>;
+        return <QueryClientProvider client={queryClient}><Link id="leave-content" href="/elsewhere">Leave Content</Link>{location === "/elsewhere" ? <Link href="/">Return to Content</Link> : window.__surface === "overview" ? <Overview /> : window.__surface === "calendar" ? <Calendar /> : window.__surface === "modal" ? <><button onClick={() => setOpen(true)}>Reopen modal</button><ScheduleArticleModal draftId="d" open={open} onOpenChange={setOpen} /></> : window.__surface === "jobs" ? <JobHarness /> : window.__surface === "monitor" ? <MonitorHarness /> : <Drafts />}</QueryClientProvider>;
       }
       createRoot(document.getElementById("root")).render(<App />);
     ` },
     bundle: true, write: false, format: "iife", platform: "browser", jsx: "automatic",
     define: { "process.env.NODE_ENV": '"test"' },
     plugins: [{ name: "mock-user-boundaries", setup(builder) {
-      builder.onResolve({ filter: /^@\/lib\/dev-auth$|^@\/hooks\/use-toast$/ }, args => ({ path: args.path, namespace: "mock" }));
-      builder.onLoad({ filter: /.*/, namespace: "mock" }, args => ({ contents: args.path.includes("dev-auth") ? "export const useIsSignedIn = () => true;" : "export const useToast = () => ({ toast: value => window.__toasts.push(value) });", loader: "js" }));
+      builder.onResolve({ filter: /^@\/lib\/(dev-auth|auth)$|^@\/hooks\/(use-toast|use-inbox-refresh-job)$|^@\/components\/dashboard\/create-post-provider$/ }, args => ({ path: args.path, namespace: "mock" }));
+      builder.onLoad({ filter: /.*/, namespace: "mock" }, args => {
+        const mocks: Record<string, string> = {
+          "@/lib/dev-auth": "export const useIsSignedIn = () => true;",
+          "@/lib/auth": "export const useAuth = () => ({ user: { firstName: 'Local' } });",
+          "@/hooks/use-toast": "export const useToast = () => ({ toast: value => window.__toasts.push(value) });",
+          "@/hooks/use-inbox-refresh-job": "export const useInboxRefreshJob = () => ({ status: 'idle', progress: {}, isLoading: false, startRefresh() {}, checkAgain() {} }); export const refreshJobMessage = () => '';",
+          "@/components/dashboard/create-post-provider": "export const useCreatePost = () => ({ hasCreation: false, openCreate() {}, startNewCreate() {} });",
+        };
+        return { contents: mocks[args.path], loader: "js" };
+      });
     } }],
   });
   bundle = result.outputFiles[0].text;
@@ -204,12 +226,152 @@ async function openPublish(scheduled = false) {
   await browserExpect(page.getByTestId("button-publish-now")).toBeEnabled();
 }
 
+describe("Home dashboard metric mappings (isolated browser)", () => {
+  it("renders complete totals, confirmed streaks, durations and every pipeline stage", async () => {
+    const posts = [
+      ...Array.from({ length: 205 }, (_, index) => draft(`ready-${index}`)),
+      ...["16", "17"].map(day => ({
+        ...draft(`published-${day}`, "published"), publishedAt: `2026-09-${day}T09:00:00Z`, createdAt: `2026-09-${day}T06:00:00Z`,
+      })),
+      draft("queued", "queued"), draft("mixed", "scheduled"), draft("unknown", "unknown"),
+    ];
+    await mount("overview", {
+      drafts: posts,
+      schedules: [schedule(["queued"], "scheduled", "queued"), schedule(["queued", "failed"], "scheduled", "mixed")],
+      inbox: [
+        ...Array.from({ length: 205 }, (_, index) => ({ id: `article-${index}`, status: "active", headline: "A useful industry story", summary: "Story summary", articleUrl: "https://news.test/story" })),
+        { id: "dismissed", status: "dismissed", headline: "Dismissed story", articleUrl: "https://news.test/story" },
+        { id: "login", status: "active", headline: "Login", articleUrl: "https://news.test/login" },
+      ],
+    });
+    await browserExpect(page.getByTestId("kpi-published")).toContainText("2");
+    await browserExpect(page.getByTestId("kpi-pipeline")).toContainText("205");
+    await browserExpect(page.getByTestId("kpi-time-to-publish")).toContainText("3.0h");
+    await browserExpect(page.getByTestId("kpi-attention")).toContainText("2");
+    await browserExpect(page.getByTestId("card-posting-streak")).toContainText("2 days");
+    const pipeline = page.getByTestId("card-content-funnel");
+    await browserExpect(pipeline.getByTestId("pipeline-count-discover")).toHaveText("205");
+    await browserExpect(pipeline.getByTestId("pipeline-count-ready")).toHaveText("205");
+    await browserExpect(pipeline.getByTestId("pipeline-count-scheduled")).toHaveText("1");
+    await browserExpect(pipeline.getByTestId("pipeline-count-published")).toHaveText("2");
+    await browserExpect(pipeline.getByTestId("pipeline-stage-ready")).toHaveAttribute("data-next-action", "true");
+    await browserExpect(pipeline.getByRole("link", { name: "Review drafts" })).toHaveAttribute("href", "/dashboard/content?view=ready");
+    await browserExpect(pipeline.getByTestId("card-attention-required")).toContainText("2 posts need attention");
+    await browserExpect(pipeline.getByRole("link", { name: "Review posts" })).toHaveAttribute("href", "/dashboard/content?view=attention");
+    expect((await calls()).some((call: { url: string }) => call.url === "/api/drafts?limit=200&offset=200")).toBe(true);
+    expect((await calls()).some((call: { url: string }) => call.url === "/api/inbox?limit=200&offset=200")).toBe(true);
+    await change({ drafts: [...posts, draft("new-ready")] }, true);
+    await browserExpect(page.getByTestId("kpi-pipeline")).toContainText("206");
+  });
+
+  it("shows unavailable data and retry, not false zeros, when the schedule read fails", async () => {
+    await mount("overview", { scheduleError: true });
+    await browserExpect(page.getByText("Couldn't load dashboard data.")).toBeVisible();
+    await browserExpect(page.getByTestId("section-kpi-strip")).toHaveCount(0);
+    await browserExpect(page.getByTestId("card-content-funnel")).toHaveCount(0);
+    await change({ scheduleError: false });
+    await page.getByRole("button", { name: "Try again" }).click();
+    await browserExpect(page.getByTestId("kpi-pipeline")).toContainText("1");
+    await browserExpect(page.getByTestId("kpi-time-to-publish")).toContainText("—");
+  });
+
+  it.each([320, 375, 768, 1024, 1280])("keeps the pipeline actionable without horizontal overflow at %ipx", async width => {
+    await mount("overview", { drafts: [] }, width);
+    const pipeline = page.getByTestId("card-content-funnel");
+    await browserExpect(pipeline.getByRole("link", { name: "Create a post" })).toHaveAttribute("href", "/dashboard/create");
+    await browserExpect(pipeline.getByRole("link", { name: "Explore stories" })).toHaveAttribute("href", "/dashboard/discover");
+    await browserExpect(pipeline.getByRole("link", { name: "Open calendar" })).toHaveAttribute("href", "/dashboard/calendar");
+    await browserExpect(pipeline.getByRole("link", { name: "View published" })).toHaveAttribute("href", "/dashboard/content?view=published");
+    await browserExpect(pipeline.getByRole("link", { name: "View all content" })).toHaveAttribute("href", "/dashboard/content?view=all");
+    await browserExpect(pipeline.getByText("No posts scheduled. Schedule a reviewed draft when ready.")).toHaveCount(0);
+    await browserExpect(pipeline.getByText("No confirmed publications in the last 30 days.")).toHaveCount(0);
+    await browserExpect(pipeline.getByTestId("card-attention-required")).toHaveCount(0);
+    const stages = await pipeline.locator("li").evaluateAll(nodes => nodes.map(node => {
+      const rect = node.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, clientWidth: node.clientWidth, scrollWidth: node.scrollWidth };
+    }));
+    const workflowWidth = await pipeline.getByRole("list", { name: "Content workflow" }).evaluate(node => ({ client: node.clientWidth, scroll: node.scrollWidth }));
+    expect(workflowWidth.scroll).toBeLessThanOrEqual(workflowWidth.client);
+    const textFits = await pipeline.locator("li > p, li > a").evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth));
+    expect(textFits).toBe(true);
+    if (width < 1024) {
+      expect(stages.every(stage => stage.x === stages[0].x)).toBe(true);
+      expect(stages[1].y).toBeGreaterThan(stages[0].y);
+      const targets = await pipeline.getByRole("link").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
+      expect(targets.every(height => height >= (width < 768 ? 44 : 32))).toBe(true);
+    } else {
+      expect(stages.every(stage => stage.y === stages[0].y)).toBe(true);
+      expect(stages[1].x).toBeGreaterThan(stages[0].x);
+    }
+    await browserExpect(pipeline.getByRole("link", { name: "Review posts" })).toHaveCount(0);
+    await pipeline.getByRole("link", { name: "Create a post" }).focus();
+    await browserExpect(pipeline.getByRole("link", { name: "Create a post" })).toBeFocused();
+    await page.keyboard.press("Enter");
+    expect(new URL(page.url()).pathname).toBe("/dashboard/create");
+    expect((await calls()).filter((call: { method: string }) => call.method !== "GET")).toEqual([]);
+  });
+
+  it("prioritizes ready drafts over a larger Discover count, then discovery or scheduled work", async () => {
+    const article = { status: "active", headline: "A useful industry story", summary: "Story summary", articleUrl: "https://news.test/story" };
+    await mount("overview", { inbox: Array(20).fill(article) });
+    await browserExpect(page.getByTestId("pipeline-stage-ready")).toHaveAttribute("data-next-action", "true");
+    await change({ drafts: [] }, true);
+    await browserExpect(page.getByTestId("pipeline-stage-discover")).toHaveAttribute("data-next-action", "true");
+    await change({ inbox: [], drafts: [draft("queued", "queued")], schedules: [schedule(["queued"], "scheduled", "queued")] }, true);
+    await browserExpect(page.getByTestId("pipeline-stage-scheduled")).toHaveAttribute("data-next-action", "true");
+    await browserExpect(page.getByTestId("card-content-funnel").getByText("Next step")).toHaveCount(1);
+  });
+
+  it("keeps KPI cards and pipeline stages free of supporting descriptions", async () => {
+    await mount("overview", { inbox: [{ status: "active", headline: "Industry news", articleUrl: "https://news.test/story" }] });
+    const kpis = page.getByTestId("section-kpi-strip");
+    await browserExpect(kpis).toBeVisible();
+    for (const text of ["Same as last week", "Monday → today · your publishing timezone", "Ready to review or schedule", "Draft created → live · 30d", "Nothing stuck right now"]) {
+      await browserExpect(kpis.getByText(text, { exact: true })).toHaveCount(0);
+    }
+    await browserExpect(kpis.locator("p")).toHaveCount(8);
+    const pipeline = page.getByTestId("card-content-funnel");
+    for (const text of ["Find your next idea from your curated stories.", "Review your drafts, then copy or schedule a post.", "No posts scheduled. Schedule a reviewed draft when ready.", "No confirmed publications in the last 30 days."]) {
+      await browserExpect(pipeline.getByText(text, { exact: true })).toHaveCount(0);
+    }
+    await browserExpect(pipeline.locator("li > p")).toHaveCount(4);
+    await browserExpect(pipeline.getByRole("link", { name: "Review drafts" })).toBeVisible();
+  });
+});
+
 describe("content library redesign", () => {
   afterEach(async () => {
     expect((await calls()).filter((call: { method: string }) => call.method !== "GET")).toEqual([]);
   });
   const rows = () => page.locator('[data-testid^="content-row-"]');
   const preview = () => page.getByRole("region", { name: "Post preview", exact: true });
+  it("toggles Content filters after Published and retains active selections while collapsed", async () => {
+    await mount("drafts", { drafts: [draft(), draft("other", "draft", "twitter")] });
+    const toggle = page.getByRole("button", { name: "Filter", exact: true });
+    const labels = ["Search drafts", "Filter by platform", "Sort posts"];
+    await browserExpect(toggle).toHaveAttribute("aria-expanded", "false");
+    for (const label of labels) await browserExpect(page.getByLabel(label, { exact: true })).toBeHidden();
+    await browserExpect(page.getByTestId("tab-all")).toBeVisible();
+    expect(await toggle.evaluate(node => !!(node.compareDocumentPosition(document.querySelector('[data-testid="tab-published"]')!) & Node.DOCUMENT_POSITION_PRECEDING))).toBe(true);
+    const publishedBounds = await page.getByTestId("tab-published").boundingBox();
+    const filterBounds = await toggle.boundingBox();
+    expect(filterBounds!.x).toBeGreaterThanOrEqual(publishedBounds!.x + publishedBounds!.width);
+    expect(filterBounds!.y).toBe(publishedBounds!.y);
+    await toggle.click();
+    for (const label of labels) await browserExpect(page.getByLabel(label, { exact: true })).toBeVisible();
+    await page.getByLabel("Filter by platform", { exact: true }).selectOption("twitter");
+    await page.getByLabel("Sort posts", { exact: true }).selectOption("oldest");
+    await browserExpect(rows()).toHaveCount(1);
+    await toggle.click();
+    await browserExpect(toggle).toHaveAttribute("aria-expanded", "false");
+    await browserExpect(page.getByLabel("Filter by platform", { exact: true })).toBeHidden();
+    await browserExpect(rows()).toHaveCount(1);
+    await page.getByRole("button", { name: "Clear filters", exact: true }).click();
+    await browserExpect(rows()).toHaveCount(2);
+    await toggle.focus(); await page.keyboard.press("Enter");
+    await browserExpect(page.getByLabel("Sort posts", { exact: true })).toHaveValue("oldest");
+    await browserExpect(page.getByLabel("Filter by platform", { exact: true })).toHaveValue("all");
+  });
   it.each([375, 1280])("keeps the Twitter/X preview header evenly padded at %ipx", async width => {
     await mount("drafts", { drafts: [draft("twitter-post", "draft", "twitter")] }, width);
     await page.getByTestId("button-preview-twitter-post").click();
@@ -245,6 +407,7 @@ describe("content library redesign", () => {
     await mount("drafts", { drafts: [first, second] });
     await browserExpect(rows().first()).toHaveAttribute("data-testid", "content-row-other");
     await page.getByTestId("button-preview-d").click();
+    await page.getByRole("button", { name: "Filter", exact: true }).click();
     await page.getByLabel("Sort posts").selectOption("oldest");
     await browserExpect(rows().first()).toHaveAttribute("data-testid", "content-row-d");
     await page.getByLabel("Sort posts").selectOption("newest");
@@ -258,6 +421,7 @@ describe("content library redesign", () => {
     await mount("drafts", { drafts: [draft(), draft("planned", "scheduled"), draft("done", "published"), draft("review", "unknown")], schedules: [schedule(["scheduled", "scheduled"], "scheduled", "planned")] });
     await page.getByTestId("tab-all").click();
     await browserExpect(rows()).toHaveCount(4);
+    await page.getByRole("button", { name: "Filter", exact: true }).click();
     await page.getByLabel("Filter by platform").selectOption("twitter");
     await browserExpect(rows()).toHaveCount(1);
     await browserExpect(rows().first()).toContainText("planned");
@@ -275,6 +439,7 @@ describe("content library redesign", () => {
     await page.getByTestId("checkbox-select-d").check();
     await browserExpect(page.getByRole("checkbox", { name: "Select all visible drafts" })).toHaveAttribute("aria-checked", "mixed");
     await page.getByRole("checkbox", { name: "Select all visible drafts" }).check();
+    await page.getByRole("button", { name: "Filter", exact: true }).click();
     await page.getByLabel("Filter by platform").selectOption("twitter");
     await browserExpect(page.getByText("1 not in this view", { exact: false })).toBeVisible();
     await page.getByRole("button", { name: "Schedule 2 selected", exact: true }).click();
@@ -378,6 +543,27 @@ describe("calendar planner redesign", () => {
     expect((await calls()).filter((call: { method: string }) => call.method !== "GET")).toEqual([]);
   });
   const day = (key: string) => page.locator(`[data-select-day="${key}"]`);
+  it("toggles all calendar filters before Month without resetting active selections", async () => {
+    await mount("calendar", { schedules: [schedule(["scheduled"])] });
+    const toggle = page.getByRole("button", { name: "Filter", exact: true });
+    await browserExpect(toggle).toHaveAttribute("aria-expanded", "false");
+    const labels = ["Search posts", "Platform", "Status", "Display & scheduling timezone"];
+    for (const label of labels) await browserExpect(page.getByLabel(label, { exact: true })).toBeHidden();
+    expect(await toggle.evaluate(node => !!(node.compareDocumentPosition(document.querySelector('[aria-label="Calendar view"]')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+    await toggle.click();
+    await browserExpect(toggle).toHaveAttribute("aria-expanded", "true");
+    for (const label of labels) await browserExpect(page.getByLabel(label, { exact: true })).toBeVisible();
+    await page.getByLabel("Search posts", { exact: true }).fill("no-match");
+    await browserExpect(day("2026-09-20")).toHaveAttribute("aria-label", /, 0 posts$/);
+    await toggle.click();
+    await browserExpect(page.getByLabel("Search posts", { exact: true })).toBeHidden();
+    await browserExpect(day("2026-09-20")).toHaveAttribute("aria-label", /, 0 posts$/);
+    await page.getByRole("button", { name: "Clear filters", exact: true }).click();
+    await browserExpect(day("2026-09-20")).toHaveAttribute("aria-label", /, 1 post$/);
+    await toggle.focus();
+    await page.keyboard.press("Enter");
+    await browserExpect(page.getByLabel("Search posts", { exact: true })).toHaveValue("");
+  });
   it("opens a real seven-column month with selected-day details and a draft queue", async () => {
     await mount("calendar");
     await browserExpect(page.getByRole("button", { name: "Month", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -439,6 +625,7 @@ describe("calendar planner redesign", () => {
     const xSchedule = schedule(["scheduled"], "scheduled", "x");
     xSchedule.targets[0].platform = "twitter";
     await mount("calendar", { drafts: [draft(), draft("x-draft", "draft", "twitter")], schedules: [schedule(["scheduled"]), xSchedule] });
+    await page.getByRole("button", { name: "Filter", exact: true }).click();
     await page.getByLabel("Platform", { exact: true }).selectOption("twitter");
     await browserExpect(day("2026-09-20")).toHaveAttribute("aria-label", /, 1 post$/);
     await browserExpect(page.getByTestId("queue-draft-x-draft")).toBeVisible();
@@ -457,6 +644,7 @@ describe("calendar planner redesign", () => {
     ["cancelled", "cancelled", "Cancelled"],
   ])("filters %s outcomes without treating them as verified publication", async (status, filter, label) => {
     await mount("calendar", { schedules: [schedule([status], status)] });
+    await page.getByRole("button", { name: "Filter", exact: true }).click();
     await page.getByLabel("Status", { exact: true }).selectOption(filter);
     await page.getByRole("button", { name: "Agenda", exact: true }).click();
     await browserExpect(page.getByLabel("Monthly agenda")).toContainText(label);
@@ -466,6 +654,7 @@ describe("calendar planner redesign", () => {
   it("moves posts between calendar dates when the display timezone changes", async () => {
     await mount("calendar", { schedules: [{ ...schedule(["scheduled"]), scheduledPublishAt: "2026-09-20T00:15:00Z" }] });
     await browserExpect(day("2026-09-20")).toHaveAttribute("aria-label", /, 1 post$/);
+    await page.getByRole("button", { name: "Filter", exact: true }).click();
     await page.getByLabel("Display & scheduling timezone").selectOption("America/Los_Angeles");
     await browserExpect(day("2026-09-19")).toHaveAttribute("aria-label", /, 1 post$/);
     await browserExpect(day("2026-09-20")).toHaveAttribute("aria-label", /, 0 posts$/);
@@ -781,6 +970,7 @@ describe("UX-07 and UX-08 counts and scheduling intent (isolated browser)", () =
 describe("Content and Calendar page-adoption layout (authored, isolated browser)", () => {
   it.each((["drafts", "calendar"] as const).flatMap(surface => [320, 375, 768, 1024, 1440, 1920].map(width => ({ surface, width }))))("aligns $surface containers and wrapping filter targets at $width px", async ({ surface, width }) => {
     await mount(surface, {}, width);
+    await page.getByRole("button", { name: "Filter", exact: true }).click();
     // Simulate the space taken by the unowned desktop sidebar, not its internals.
     if (width >= 768) await page.locator("#root").evaluate(element => {
       element.style.marginLeft = "256px"; element.style.width = "calc(100% - 256px)";
@@ -1296,8 +1486,20 @@ describe("audited publishing UX (isolated browser)", () => {
   });
   it.each(["published", "partial", "unknown", "publishing"])("disables edits for a %s target despite a stale draft flag", async (status) => {
     await mount("drafts", { schedules: [schedule([status], "scheduled")] });
+    if (status !== "publishing") await page.getByTestId("tab-attention").click();
     await page.getByTestId("button-menu-d").click();
     await browserExpect(page.getByTestId("button-edit-d")).toHaveAttribute("aria-disabled", "true");
+  });
+  it("loads drafts beyond the first page and maps mixed target failures to attention", async () => {
+    await mount("drafts", {
+      drafts: [...Array.from({ length: 200 }, (_, index) => draft(`ready-${index}`)), draft("older", "scheduled")],
+      schedules: [schedule(["queued", "failed"], "scheduled", "older")],
+    });
+    await browserExpect(page.getByTestId("tab-attention")).toContainText("1");
+    await page.getByTestId("tab-attention").click();
+    await browserExpect(page.getByTestId("button-preview-older")).toBeVisible();
+    await browserExpect(page.getByTestId("tab-scheduled")).toContainText("0");
+    expect((await calls()).some((call: { url: string }) => call.url === "/api/drafts?limit=200&offset=200")).toBe(true);
   });
   it("still checks every scheduled target's readiness, not just the draft platform", async () => {
     await mount("drafts", { drafts: [draft("d", "scheduled")], schedules: [schedule(["scheduled", "scheduled"])], rules: [{ platform: "twitter", enabled: false }] });
@@ -1566,6 +1768,7 @@ describe("audited publishing UX (isolated browser)", () => {
   });
   it("fits mobile cards and scheduling dialog with named keyboard controls", async () => {
     await mount("drafts", {}, 375);
+    await page.getByRole("button", { name: "Filter", exact: true }).click();
     await browserExpect(page.getByLabel("Search drafts", { exact: true })).toBeVisible();
     await page.getByTestId("button-preview-d").click();
     await browserExpect(page.getByRole("button", { name: "Actions for LinkedIn draft" })).toBeVisible();

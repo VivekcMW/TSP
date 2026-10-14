@@ -1,6 +1,7 @@
 import { Bookmark, Check } from "lucide-react";
 import type { InboxItem } from "@shared/schema";
 import { articleDateLabel } from "@/lib/article-date-label";
+import { addedRelativeLabel } from "@shared/discover";
 
 const AVATAR_PALETTE = [
   "bg-primary/15 text-primary",
@@ -19,13 +20,16 @@ function avatarClassFor(source: string): string {
 interface InboxListRowProps {
   item: InboxItem;
   isActive: boolean;
+  /** Added since the previous Discover visit and not yet opened. */
+  isNew?: boolean;
   onSelect: () => void;
 }
 
 /** Compact, scannable row for the Discover triage list — dense on purpose so a user can skim many candidates fast before deciding. */
-export function InboxListRow({ item, isActive, onSelect }: Readonly<InboxListRowProps>) {
+export function InboxListRow({ item, isActive, isNew = false, onSelect }: Readonly<InboxListRowProps>) {
   const matchedKeywords = item.matchedKeywords || [];
   const isSaved = item.status === "saved";
+  const added = addedRelativeLabel(item);
 
   return (
     <button
@@ -33,19 +37,29 @@ export function InboxListRow({ item, isActive, onSelect }: Readonly<InboxListRow
       onClick={onSelect}
       data-testid={`row-inbox-${item.id}`}
       aria-current={isActive}
+      data-new={isNew || undefined}
       className={`flex w-full items-start gap-3 border-b border-l-2 px-4 py-3.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
-        isActive ? "border-primary bg-accent text-foreground shadow-sm" : "border-transparent hover:bg-card/80"
+        isActive ? "border-primary bg-accent text-foreground shadow-sm" : isNew ? "border-transparent bg-primary/5 hover:bg-primary/10" : "border-transparent hover:bg-card/80"
       }`}
     >
       <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${avatarClassFor(item.source)}`}>
         {item.source.slice(0, 1).toUpperCase()}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="line-clamp-2 text-sm font-semibold leading-snug">{item.headline}</p>
+        <p className="line-clamp-2 text-sm font-semibold leading-snug">
+          {isNew && <span className="mr-1.5 inline-flex rounded-md bg-primary/10 px-1.5 py-0.5 align-[1px] text-[11px] font-semibold leading-none text-primary" data-testid={`badge-new-${item.id}`}>New</span>}
+          {item.headline}
+        </p>
         <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
           <span className="max-w-[110px] truncate">{item.source}</span>
           <span>·</span>
           <span className="truncate" title={articleDateLabel(item)}>{articleDateLabel(item)}</span>
+          {added && (
+            <>
+              <span>·</span>
+              <span className="shrink-0" data-testid={`text-added-${item.id}`}>{added}</span>
+            </>
+          )}
           {matchedKeywords[0] && (
             <>
               <span>·</span>

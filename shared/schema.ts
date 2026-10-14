@@ -138,6 +138,22 @@ export const inboxRefreshReceipts = pgTable("inbox_refresh_receipts", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, table => [primaryKey({ columns: [table.tenantId, table.userId, table.operationId] })]);
 
+/** Per-user explicit opens of Discover rows. Auto-selection never writes here. */
+export const inboxReads = pgTable("inbox_reads", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  inboxItemId: varchar("inbox_item_id").notNull().references(() => inboxItems.id, { onDelete: "cascade" }),
+  readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [primaryKey({ columns: [table.tenantId, table.userId, table.inboxItemId] })]);
+
+/** Cross-device Discover visit marker: `previousVisitAt` defines what counts as New. */
+export const discoverVisits = pgTable("discover_visits", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  currentVisitAt: timestamp("current_visit_at", { withTimezone: true }).notNull(),
+  previousVisitAt: timestamp("previous_visit_at", { withTimezone: true }),
+}, table => [primaryKey({ columns: [table.tenantId, table.userId] })]);
+
 export const drafts = pgTable("drafts", {
   /** Owning tenant. Every query must be scoped by this. */
   tenantId: varchar("tenant_id").notNull(),
@@ -731,6 +747,10 @@ export type UserProfile = typeof userProfiles.$inferSelect;
 
 export type InsertInboxItem = z.infer<typeof insertInboxItemSchema>;
 export type InboxItem = typeof inboxItems.$inferSelect;
+/** GET /api/inbox row: the item plus this user's explicit-open time (null = unread). */
+export type InboxListItem = InboxItem & { readAt: Date | null };
+/** POST /api/inbox/visit: null previous marker means first visit, so nothing is New. */
+export interface DiscoverVisitMarker { previousVisitAt: Date | null; currentVisitAt: Date }
 
 export type InsertDraft = z.infer<typeof insertDraftSchema>;
 export type Draft = typeof drafts.$inferSelect;

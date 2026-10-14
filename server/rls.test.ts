@@ -117,11 +117,13 @@ describe("the database enforces isolation without help from the query", () => {
     const expected = [
       "billing_customers",
       "billing_generation_operations",
+      "discover_visits",
       "draft_schedule_targets",
       "draft_schedules",
       "drafts",
       "engine_run_logs",
       "inbox_items",
+      "inbox_reads",
       "inbox_refresh_receipts",
       "job_execution_logs",
       "media_assets",

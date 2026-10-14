@@ -50,6 +50,9 @@ afterEach(async () => {
 });
 afterAll(async () => { await pool.end(); await ownerPool.end(); });
 
+// getInboxItems returns list items with the caller's Discover read state.
+const listed = <T extends object>(row: T) => ({ ...row, readAt: null });
+
 async function seed(overrides: Partial<InboxItem> = {}, target = scope) {
   const id = randomUUID();
   const [item] = await ownerDb.insert(inboxItems).values({
@@ -68,7 +71,7 @@ describe("inbox relevance retrieval", () => {
     const low = await seed({ relevanceScore: "0.1", matchedKeywords: [], relevanceReason: null });
     const legacy = await seed({ relevanceScore: null, matchedKeywords: null, relevanceReason: null });
     const duplicate = await seed({ relevanceScore: "0", articleUrl: low.articleUrl, matchedKeywords: [] });
-    const expected = [low, duplicate, legacy];
+    const expected = [low, duplicate, legacy].map(listed);
     expect((await storage.getInboxItems(scope, { order: "relevance" })).every(row => row.status !== "active")).toBe(true);
     expect(await storage.getInboxItems(scope, { status: "active", order: "relevance" })).toEqual(expected);
     const first = await storage.getInboxItems(scope, { status: "active", order: "relevance", limit: 1 });
@@ -78,7 +81,7 @@ describe("inbox relevance retrieval", () => {
     for (const status of ["saved", "dismissed"] as const) {
       const rows = await storage.getInboxItems(scope, { status, order: "relevance" });
       expect(rows).toHaveLength(255);
-      expect(rows).toEqual(expect.arrayContaining(history.filter(row => row.status === status)));
+      expect(rows).toEqual(expect.arrayContaining(history.filter(row => row.status === status).map(listed)));
     }
   });
 
@@ -91,7 +94,7 @@ describe("inbox relevance retrieval", () => {
     const first = await storage.getInboxItems(scope, { status: "active", order: "relevance", limit: 1000 });
     expect(first).toHaveLength(500);
     const last = await storage.getInboxItems(scope, { status: "active", order: "relevance", offset: 500 });
-    expect([...first, ...last]).toEqual(rows);
+    expect([...first, ...last]).toEqual(rows.map(listed));
   });
 
   it("applies status in both order modes without crossing tenant/user scopes", async () => {
@@ -101,7 +104,7 @@ describe("inbox relevance retrieval", () => {
       const active = await seed({ relevanceScore: "0" }, target);
       await seed({ status: "saved", relevanceScore: "1", createdAt: new Date("2026-09-05") }, target);
       for (const order of [undefined, "relevance"] as const) {
-        expect(await storage.getInboxItems(target, { status: "active", order, limit: 1 })).toEqual([active]);
+        expect(await storage.getInboxItems(target, { status: "active", order, limit: 1 })).toEqual([listed(active)]);
         expect(await storage.getInboxItems(target, { status: "active", order, limit: 1, offset: 1 })).toEqual([]);
       }
     }
@@ -171,7 +174,7 @@ describe("inbox relevance retrieval", () => {
       expect(rows).toHaveLength(3);
       expect(rows).toEqual(expect.arrayContaining([
         { ...legacy, canonicalUrl: legacy.articleUrl }, { ...dismissed, canonicalUrl: dismissed.articleUrl }, active,
-      ]));
+      ].map(listed)));
     }
     expect(await storage.getInboxItemByUrl(scope, legacy.articleUrl)).toEqual({ ...legacy, canonicalUrl: legacy.articleUrl });
     expect(await storage.getInboxItemByUrl(scope, dismissed.articleUrl)).toEqual({ ...dismissed, canonicalUrl: dismissed.articleUrl });

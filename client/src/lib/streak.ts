@@ -19,7 +19,8 @@ function addDaysToKey(dateKey: string, days: number): string {
  * UI can encourage posting today to extend it.
  */
 export function computeStreak(publishedAt: Array<string | Date | null | undefined>, timeZone: string, now = new Date()): StreakSummary {
-  const dateKeys = new Set(publishedAt.filter((value): value is string | Date => Boolean(value)).map(value => dateKeyInTimeZone(value, timeZone)));
+  const dateKeys = new Set(publishedAt.filter((value): value is string | Date => !!value &&
+    Number.isFinite(new Date(value).getTime()) && new Date(value) <= now).map(value => dateKeyInTimeZone(value, timeZone)));
   if (!dateKeys.size) return { current: 0, longest: 0, postedToday: false };
   const todayKey = dateKeyInTimeZone(now, timeZone);
   const postedToday = dateKeys.has(todayKey);

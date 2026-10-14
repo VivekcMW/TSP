@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { LayoutDashboard, ArrowRight, RefreshCw, Plus, CalendarClock, AlertTriangle, Flame, TrendingUp, TrendingDown, Minus, Clock, Layers, ShieldCheck, Send, Compass, FileText, CircleCheck, Sparkles } from "lucide-react";
+import { LayoutDashboard, ArrowRight, RefreshCw, Plus, CalendarClock, AlertTriangle, Flame, TrendingUp, Clock, Layers, ShieldCheck, Send, Compass, FileText, CircleCheck, Sparkles } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useIsSignedIn } from "@/lib/dev-auth";
 import { useInboxRefreshJob, refreshJobMessage } from "@/hooks/use-inbox-refresh-job";
@@ -12,39 +12,26 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPlatformMeta } from "@/lib/platforms";
 import { isUsableInboxArticle } from "@/lib/inbox-quality";
-import { computeStreak } from "@/lib/streak";
 import { publishingDefaults } from "@/lib/calendar";
-import { buildPublishingActivity } from "@/lib/publishing-activity";
+import { buildOverviewMetrics } from "@/lib/overview-metrics";
+import { fetchAllPages } from "@/lib/queryClient";
+import { fetchPublishingSchedules, publishingStatus, type PublishingSchedule } from "@/lib/publishing";
 import { analyticsDisplayMetric, type AnalyticsSummary } from "@shared/analytics-availability";
 import type { InboxItem, Draft, UserProfile } from "@shared/schema";
 import type { User as DbUser } from "@shared/models/auth";
 
 interface TeamContext { tenantKind: string; role: string }
 
-interface ScheduledItem {
-  id: string;
-  draftId: string;
-  scheduledPublishAt: string;
-  status: string;
-  lastError?: string | null;
-  draft?: Draft | null;
-  targets?: { platform: string; status: string; lastError?: string | null }[];
-}
+type ScheduledItem = PublishingSchedule;
 
 const compactNumber = (value: number) => Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
-const trendTone = (delta: number) => (delta === 0 ? "text-muted-foreground" : delta > 0 ? "text-success" : "text-destructive");
-const trendIcon = (delta: number) => (delta === 0 ? Minus : delta > 0 ? TrendingUp : TrendingDown);
-
-function KpiTile({ icon: Icon, label, value, trend, hint, tone = "default", testId }: Readonly<{ icon: typeof Flame; label: string; value: string; trend?: { delta: number; label: string }; hint?: string; tone?: "default" | "danger"; testId: string }>) {
-  const TrendIcon = trend ? trendIcon(trend.delta) : null;
+function KpiTile({ icon: Icon, label, value, tone = "default", testId }: Readonly<{ icon: typeof Flame; label: string; value: string; tone?: "default" | "danger"; testId: string }>) {
   return <Card data-testid={testId} className={`overflow-hidden shadow-none ${tone === "danger" ? "border-destructive/30 bg-destructive/[0.03]" : "bg-card/90"}`}>
     {/* CardContent defaults to pt-0 sm:pt-0, assuming a CardHeader above it; this tile has none, so top padding needs an explicit override. */}
     <CardContent className="flex items-start justify-between gap-3 p-4 pt-4 sm:p-5 sm:pt-5">
       <div className="min-w-0">
         <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
         <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
-        {trend && TrendIcon && <p className={`mt-1 flex items-center gap-1 text-xs ${trendTone(trend.delta)}`}><TrendIcon className="h-3 w-3 shrink-0" />{trend.label}</p>}
-        {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
       </div>
       <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${tone === "danger" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"}`}>
         <Icon className="h-4 w-4" aria-hidden="true" />
@@ -91,12 +78,12 @@ export default function OverviewPage() {
   const { user } = useAuth();
   const isSignedIn = useIsSignedIn();
   const { openCreate, hasCreation, startNewCreate } = useCreatePost();
-  const inbox = useQuery<InboxItem[]>({ queryKey: ["/api/inbox"], enabled: !!isSignedIn });
-  const drafts = useQuery<Draft[]>({ queryKey: ["/api/drafts"], enabled: !!isSignedIn });
-  const { data: profile } = useQuery<UserProfile>({ queryKey: ["/api/profile"], enabled: !!isSignedIn });
+  const inbox = useQuery<InboxItem[]>({ queryKey: ["/api/inbox"], queryFn: ({ signal }) => fetchAllPages<InboxItem>("/api/inbox", signal), enabled: !!isSignedIn, refetchInterval: 15_000 });
+  const drafts = useQuery<Draft[]>({ queryKey: ["/api/drafts"], queryFn: ({ signal }) => fetchAllPages<Draft>("/api/drafts", signal), enabled: !!isSignedIn, refetchInterval: 15_000, staleTime: 0 });
+  const profileQuery = useQuery<UserProfile>({ queryKey: ["/api/profile"], enabled: !!isSignedIn });
+  const profile = profileQuery.data;
   const { data: dbUser } = useQuery<DbUser | null>({ queryKey: ["/api/me"], enabled: !!isSignedIn });
-  const schedules = useQuery<{ items: ScheduledItem[] }>({ queryKey: ["/api/drafts/scheduled"], enabled: !!isSignedIn });
-  const published = useQuery<Draft[]>({ queryKey: ["/api/drafts/published"], enabled: !!isSignedIn });
+  const schedules = useQuery({ queryKey: ["/api/drafts/scheduled-info"], queryFn: ({ signal }) => fetchPublishingSchedules(signal), enabled: !!isSignedIn, refetchInterval: 15_000, staleTime: 0 });
   const analytics = useQuery<AnalyticsSummary>({ queryKey: ["/api/analytics/summary"], enabled: !!isSignedIn });
   const teamContext = useQuery<TeamContext>({ queryKey: ["/api/team/context"], enabled: !!isSignedIn });
   const isTeamManager = teamContext.data?.tenantKind === "team" && ["manager", "admin", "owner"].includes(teamContext.data.role);
@@ -104,39 +91,32 @@ export default function OverviewPage() {
   const teamMembers = useQuery<unknown[]>({ queryKey: ["/api/team/members"], enabled: !!isSignedIn && isTeamManager });
   const pendingInvitations = useQuery<unknown[]>({ queryKey: ["/api/team/invitations"], enabled: !!isSignedIn && isTeamManager });
   const refresh = useInboxRefreshJob();
-  const readyDrafts = (drafts.data ?? []).filter((draft) => draft.publishStatus === "draft");
+  const now = new Date();
+  const metrics = buildOverviewMetrics(drafts.data ?? [], schedules.data?.items ?? [], publishingDefaults(profile).timeZone, now);
+  const readyDrafts = metrics.readyDrafts;
   const usableInbox = (inbox.data ?? []).filter((item) => item.status === "active" && isUsableInboxArticle(item));
   const activeItem = usableInbox[0];
-  const streak = computeStreak((published.data ?? []).map((draft) => draft.publishedAt), publishingDefaults(profile).timeZone);
+  const streak = metrics.streak;
   const scheduledItems = schedules.data?.items ?? [];
-  const failedSchedules = scheduledItems.filter((item) => item.status === "failed" || item.targets?.some((target) => target.status === "failed"));
-  const failedDrafts = (drafts.data ?? []).filter((draft) => draft.publishStatus === "failed" && !failedSchedules.some((item) => item.draftId === draft.id));
-  const failureCount = failedSchedules.length + failedDrafts.length;
-  const upcoming = scheduledItems.filter((item) => item.status === "scheduled")
+  const failureCount = metrics.attentionCount;
+  const upcoming = scheduledItems.filter((item) => publishingStatus(item).key === "pending")
     .sort((a, b) => new Date(a.scheduledPublishAt).getTime() - new Date(b.scheduledPublishAt).getTime()).slice(0, 3);
   const firstName = user?.firstName || dbUser?.firstName || "there";
-  const isLoading = inbox.isLoading || drafts.isLoading;
-  const hasError = inbox.isError || drafts.isError;
+  const isLoading = inbox.isLoading || drafts.isLoading || schedules.isLoading || profileQuery.isLoading;
+  const hasError = inbox.isError || drafts.isError || schedules.isError || profileQuery.isError;
 
-  // KPI computations — all derived from data already fetched above, no new backend calls.
-  const now = new Date();
-  const lastWeek = new Date(now); lastWeek.setDate(lastWeek.getDate() - 7);
-  const activity30 = buildPublishingActivity(drafts.data ?? [], 30, now);
-  const activity7 = buildPublishingActivity(drafts.data ?? [], 7, now);
-  const activityPrior7 = buildPublishingActivity(drafts.data ?? [], 7, lastWeek);
-  const weekDelta = activity7.published.length - activityPrior7.published.length;
-  const publishedWithDuration = activity30.published.filter((draft) => draft.createdAt);
-  const avgPublishHours = publishedWithDuration.length
-    ? publishedWithDuration.reduce((sum, draft) => sum + (new Date(draft.publishedAt!).getTime() - new Date(draft.createdAt!).getTime()), 0) / publishedWithDuration.length / 3_600_000
-    : null;
+  const { avgPublishHours } = metrics;
   const timeToPublishLabel = avgPublishHours === null ? "—" : avgPublishHours < 24 ? `${avgPublishHours.toFixed(1)}h` : `${(avgPublishHours / 24).toFixed(1)}d`;
   const funnelStages = [
-    { label: "Discover", description: "Stories ready", value: usableInbox.length, icon: Compass, href: "/dashboard/discover" },
-    { label: "Drafts", description: "Ready to review", value: readyDrafts.length, icon: FileText, href: "/dashboard/content" },
-    { label: "Scheduled", description: "Queued to publish", value: scheduledItems.filter((item) => item.status === "scheduled").length, icon: CalendarClock, href: "/dashboard/calendar" },
-    { label: "Published", description: "Last 30 days", value: activity30.published.length, icon: CircleCheck, href: "/dashboard/content?view=published" },
+    { key: "discover", label: "Discover", unit: "stories", value: usableInbox.length, icon: Compass, action: "Explore stories", href: "/dashboard/discover" },
+    { key: "ready", label: "Ready to review", unit: "drafts", value: readyDrafts.length, icon: FileText, action: readyDrafts.length ? "Review drafts" : "Create a post", href: readyDrafts.length ? "/dashboard/content?view=ready" : "/dashboard/create" },
+    { key: "scheduled", label: "Scheduled", unit: "posts", value: metrics.scheduledCount, icon: CalendarClock, action: "Open calendar", href: "/dashboard/calendar" },
+    { key: "published", label: "Published", unit: "posts · last 30 days", value: metrics.published30, icon: CircleCheck, action: "View published", href: "/dashboard/content?view=published" },
   ];
-  const topPlatforms = [...activity30.platforms].sort((a, b) => b.posts - a.posts).slice(0, 5);
+  let nextStage = "ready";
+  if (!readyDrafts.length && usableInbox.length) nextStage = "discover";
+  else if (!readyDrafts.length && metrics.scheduledCount) nextStage = "scheduled";
+  const topPlatforms = [...metrics.platforms].sort((a, b) => b.posts - a.posts).slice(0, 5);
   const followers = analyticsDisplayMetric("followers", analytics.data?.combined?.followers, analytics.data?.availability?.followers, now);
   const engagementRate = analyticsDisplayMetric("engagementRate", analytics.data?.combined?.engagementRate, analytics.data?.availability?.engagementRate, now);
   const hasConnection = analytics.data?.connected?.linkedin || analytics.data?.connected?.twitter;
@@ -183,56 +163,63 @@ export default function OverviewPage() {
             <Card data-testid="card-posting-streak" className="overflow-hidden shadow-none"><CardHeader className="bg-gradient-to-br from-warning-subtle to-card">
                 <div className="flex items-center justify-between gap-3"><CardTitle as="h2">Posting streak</CardTitle><span className="flex size-9 items-center justify-center rounded-full bg-warning-subtle text-warning"><Flame className="h-5 w-5" /></span></div>
               </CardHeader><CardContent>
-                {published.isLoading ? <Skeleton className="h-10 w-32" /> : published.isError ? <p className="text-sm text-muted-foreground">Streak is unavailable right now.</p> : <>
+                <>
                   <p className="text-3xl font-semibold tracking-tight">{streak.current} day{streak.current === 1 ? "" : "s"}</p>
                   <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{streak.current > 0
                     ? (streak.postedToday ? "Posted today. Keep it going tomorrow." : "Post today to keep your streak alive.")
                     : streak.longest > 0 ? `Your streak reset. Best so far: ${streak.longest} day${streak.longest === 1 ? "" : "s"}.` : "Publish your first post to start a streak."}</p>
                   {streak.longest > streak.current && <p className="mt-2 text-xs text-muted-foreground">Best streak: {streak.longest} day{streak.longest === 1 ? "" : "s"}</p>}
-                </>}
+                </>
               </CardContent></Card>
             </div>
           )}
           {!isLoading && !hasError && <>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="section-kpi-strip">
-              <KpiTile testId="kpi-published" icon={Send} label="Published · this week" value={String(activity7.published.length)}
-                trend={{ delta: weekDelta, label: weekDelta === 0 ? "Same as last week" : `${weekDelta > 0 ? "+" : ""}${weekDelta} vs last week` }} />
-              <KpiTile testId="kpi-pipeline" icon={Layers} label="Drafts in pipeline" value={String(readyDrafts.length)} hint="Ready to review or schedule" />
-              <KpiTile testId="kpi-time-to-publish" icon={Clock} label="Avg. time to publish" value={timeToPublishLabel} hint="Draft created → live · 30d" />
-              <KpiTile testId="kpi-attention" icon={AlertTriangle} label="Needs attention" value={String(failureCount)} hint={failureCount ? "Failed posts to review" : "Nothing stuck right now"} tone={failureCount > 0 ? "danger" : "default"} />
+              <KpiTile testId="kpi-published" icon={Send} label="Published · this week" value={String(metrics.publishedThisWeek)} />
+              <KpiTile testId="kpi-pipeline" icon={Layers} label="Drafts in pipeline" value={String(readyDrafts.length)} />
+              <KpiTile testId="kpi-time-to-publish" icon={Clock} label="Avg. time to publish" value={timeToPublishLabel} />
+              <KpiTile testId="kpi-attention" icon={AlertTriangle} label="Needs attention" value={String(failureCount)} tone={failureCount > 0 ? "danger" : "default"} />
             </div>
           </>}
           {isLoading && <Skeleton className="h-32 w-full" />}
           {!isLoading && hasError && (
-            <WorkflowStatus tone="error" title="Couldn't load your next action." actions={<Button variant="outline" onClick={() => { void inbox.refetch(); void drafts.refetch(); }}>Try again</Button>} />
+            <WorkflowStatus tone="error" title="Couldn't load dashboard data." actions={<Button variant="outline" onClick={() => { void inbox.refetch(); void drafts.refetch(); void schedules.refetch(); void profileQuery.refetch(); }}>Try again</Button>} />
           )}
           {refresh.status !== "idle" && <WorkflowStatus tone={refresh.status === "failed" ? "error" : refresh.status === "unavailable" ? "warning" : refresh.status === "completed" ? "success" : "info"} actions={<>
             {refresh.status === "unavailable" && <Button variant="outline" size="sm" onClick={refresh.checkAgain}>Check status</Button>}
             {refresh.progress.needsSetup && <Link className="underline" href="/dashboard/discover">Set up Discover</Link>}
           </>}>{refreshJobMessage(refresh)}</WorkflowStatus>}
-          {failureCount > 0 && <Card data-testid="card-attention-required"><CardHeader>
-            <CardTitle as="h2" className="flex items-center gap-2 text-destructive"><AlertTriangle className="h-4 w-4" />Publishing needs attention</CardTitle>
-          </CardHeader><CardContent>
-            <Link className="block text-sm text-primary underline" href="/dashboard/content?view=attention">Review {failureCount} failed post{failureCount === 1 ? "" : "s"}</Link>
-          </CardContent></Card>}
-          {!isLoading && !hasError && <Card data-testid="card-content-funnel" className="shadow-none"><CardHeader className="flex-row items-start justify-between gap-4">
-                <div><CardTitle as="h2">Content pipeline</CardTitle><p className="mt-1 text-sm text-muted-foreground">Move ideas from discovery to publication.</p></div>
-                <Link href="/dashboard/content" className="inline-flex items-center gap-1 text-sm font-medium text-primary">View content<ArrowRight className="h-4 w-4" /></Link>
+          {!isLoading && !hasError && <Card data-testid="card-content-funnel" className="overflow-hidden shadow-none"><CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
+                <div><CardTitle as="h2">Content pipeline</CardTitle><p className="mt-1 text-sm text-muted-foreground">What's ready, what's next, and what's blocked.</p></div>
+                <Button asChild variant="ghost" size="sm"><Link href="/dashboard/content?view=all">View all content<ArrowRight className="h-4 w-4" aria-hidden="true" /></Link></Button>
               </CardHeader>
-                <CardContent><div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <CardContent className="space-y-4">
+                  <ol aria-label="Content workflow" className="divide-y rounded-md border bg-muted/10 lg:grid lg:grid-cols-4 lg:divide-x lg:divide-y-0">
                   {funnelStages.map((stage, index) => {
                     const StageIcon = stage.icon;
-                    return <Link key={stage.label} href={stage.href} className="group relative rounded-lg border bg-muted/[0.18] p-4 transition-colors hover:border-primary/30 hover:bg-primary/[0.04]">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="flex size-8 items-center justify-center rounded-md bg-card text-primary shadow-sm"><StageIcon className="h-4 w-4" aria-hidden="true" /></span>
-                        <span className="text-2xl font-semibold tracking-tight">{stage.value}</span>
+                    const isNext = stage.key === nextStage;
+                    return <li key={stage.key} data-testid={`pipeline-stage-${stage.key}`} data-next-action={isNext} className={`relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 p-4 lg:flex lg:flex-col lg:p-5 ${isNext ? "bg-primary/[0.06]" : ""}`}>
+                      <div className="flex flex-wrap items-center gap-2 lg:min-h-16 lg:content-start">
+                        <span className={`flex size-8 shrink-0 items-center justify-center rounded-md ${isNext ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}><StageIcon className="h-4 w-4" aria-hidden="true" /></span>
+                        <h3 className="text-sm font-semibold">{stage.label}</h3>
+                        {isNext && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[0.625rem] font-semibold text-primary">Next step</span>}
                       </div>
-                      <p className="mt-4 text-sm font-semibold">{stage.label}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{stage.description}</p>
-                      {index < funnelStages.length - 1 && <ArrowRight className="absolute -right-[1.15rem] top-1/2 z-10 hidden h-4 w-4 -translate-y-1/2 text-muted-foreground/60 lg:block" aria-hidden="true" />}
-                    </Link>;
+                      <p className="text-right lg:mt-3 lg:flex-1 lg:text-left"><span data-testid={`pipeline-count-${stage.key}`} className="block text-3xl font-semibold tabular-nums tracking-tight">{stage.value}</span><span className="mt-1 block text-xs text-muted-foreground">{stage.unit}</span></p>
+                      <Button asChild variant={isNext ? "default" : "ghost"} size="sm" className="col-span-2 w-fit max-w-full lg:mt-3">
+                        <Link href={stage.href}>{stage.action}<ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" /></Link>
+                      </Button>
+                      {index < funnelStages.length - 1 && <span className="absolute -right-3 top-9 z-10 hidden size-6 items-center justify-center rounded-full border bg-card text-muted-foreground lg:flex" aria-hidden="true"><ArrowRight className="h-3 w-3" /></span>}
+                    </li>;
                   })}
-                </div></CardContent>
+                  </ol>
+                  {failureCount > 0 && <div data-testid="card-attention-required" className="flex flex-col gap-3 rounded-md border border-warning/20 bg-warning-subtle p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+                      <div><p className="text-sm font-semibold text-warning">{failureCount} post{failureCount === 1 ? "" : "s"} need{failureCount === 1 ? "s" : ""} attention</p><p className="mt-1 text-xs text-muted-foreground">Check failed or uncertain delivery before trying again.</p></div>
+                    </div>
+                    <Button asChild variant="outline" size="sm" className="w-fit shrink-0"><Link href="/dashboard/content?view=attention">Review posts<ArrowRight className="h-4 w-4" aria-hidden="true" /></Link></Button>
+                  </div>}
+                </CardContent>
               </Card>}
           {!isLoading && !hasError && <div className={hasInsights ? "grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(17rem,0.75fr)]" : "space-y-5"}>
             <div className="space-y-5">

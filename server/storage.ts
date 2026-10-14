@@ -1,7 +1,7 @@
 import {
-  users, userProfiles, publicationResolutions, userSourceDeletions, profileSocialLinks, inboxItems, inboxRefreshReceipts, drafts, draftFeedbackEvents, industrySources, userSources, engineRunLogs,
+  users, userProfiles, publicationResolutions, userSourceDeletions, profileSocialLinks, inboxItems, inboxRefreshReceipts, inboxReads, discoverVisits, drafts, draftFeedbackEvents, industrySources, userSources, engineRunLogs,
   socialAccounts, socialOAuthStates, socialAnalytics, draftSchedules, draftScheduleTargets, publishJobLogs, mediaAssets, publishingRules,
-  type User, type UserProfile, type PublicationResolution, type InboxItem, type Draft,
+  type User, type UserProfile, type PublicationResolution, type InboxItem, type InboxListItem, type DiscoverVisitMarker, type Draft,
   type InsertUserProfile, type ProfileSocialLink, type InsertProfileSocialLink, type InsertInboxItem, type InsertDraft,
   type IndustrySource, type InsertIndustrySource,
   type UserSource, type InsertUserSource,
@@ -14,7 +14,8 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { registerPublications } from "./services/articlePool";
-import { eq, and, desc, gte, sql, count, inArray, notInArray, gt, or } from "drizzle-orm";
+import { eq, and, desc, gte, sql, count, inArray, notInArray, gt, or, getTableColumns } from "drizzle-orm";
+import { DISCOVER_VISIT_SESSION_MS } from "@shared/discover";
 import { tenantMembers, tenants } from "@shared/models/tenancy";
 import { randomUUID } from "node:crypto";
 import { aggregateScheduleStatus } from "./jobs/schedule-state";
@@ -35,6 +36,17 @@ import { draftChangeRatio } from "@shared/draft-feedback";
 
 /** A transaction handle, as drizzle hands it to the transaction callback. */
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+// Cache only a positive answer so a later 0054 migration is picked up without a restart.
+let discoverStateReady = false;
+async function discoverStateAvailable(tx: Tx): Promise<boolean> {
+  if (discoverStateReady) return true;
+  const result = await tx.execute(sql`select to_regclass('public.inbox_reads') is not null and to_regclass('public.discover_visits') is not null as ready`);
+  discoverStateReady = result.rows[0]?.ready === true;
+  return discoverStateReady;
+}
+
+export class DiscoverStateUnavailableError extends Error {}
 
 async function draftFeedbackAvailable(tx: Tx): Promise<boolean> {
   const result = await tx.execute(sql`select to_regclass('public.draft_feedback_events') as relation`);
@@ -171,7 +183,11 @@ export interface IStorage {
   deleteProfileSocialLink(scope: TenantScope, id: string): Promise<void>;
   reorderProfileSocialLinks(scope: TenantScope, ids: string[]): Promise<ProfileSocialLink[]>;
 
-  getInboxItems(scope: TenantScope, page?: Pagination): Promise<InboxItem[]>;
+  getInboxItems(scope: TenantScope, page?: Pagination): Promise<InboxListItem[]>;
+  /** Explicit open only. Idempotent; keeps the first read time. undefined = not this user's item. */
+  markInboxItemRead(scope: TenantScope, id: string): Promise<Date | undefined>;
+  /** Starts (or continues, within the session window) a Discover visit and returns the previous marker. */
+  recordDiscoverVisit(scope: TenantScope): Promise<DiscoverVisitMarker>;
   getInboxDiscoveryWindow(scope: TenantScope, now: Date): Promise<TrendRow[]>;
   getInboxRefreshReceipt(scope: TenantScope, operationId: string, autoRefresh: boolean): Promise<InboxRefreshResult | undefined>;
   beginInboxRefresh(scope: TenantScope, operationId: string, autoRefresh: boolean): Promise<{ receipt?: InboxRefreshResult; snapshot: InboxRefreshSnapshot; activeCount: number }>;
@@ -646,10 +662,14 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async getInboxItems(scope: TenantScope, page: Pagination = {}): Promise<InboxItem[]> {
+  async getInboxItems(scope: TenantScope, page: Pagination = {}): Promise<InboxListItem[]> {
     return scoped(scope, async (tx) => {
+      const readAt = (await discoverStateAvailable(tx))
+        ? sql<Date | null>`(select r.read_at from ${inboxReads} r where r.tenant_id = ${inboxItems.tenantId}
+            and r.user_id = ${inboxItems.userId} and r.inbox_item_id = ${inboxItems.id})`.mapWith(value => value ? new Date(value) : null)
+        : sql<Date | null>`null`.mapWith(() => null);
       return tx
-        .select()
+        .select({ ...getTableColumns(inboxItems), readAt })
         .from(inboxItems)
         .where(and(inboxScope(scope), page.status === undefined ? undefined : eq(inboxItems.status, page.status)))
         .orderBy(...(page.order === "relevance"
@@ -657,6 +677,34 @@ export class DatabaseStorage implements IStorage {
           : [desc(inboxItems.createdAt)]))
         .limit(clampLimit(page.limit))
         .offset(page.offset && page.offset > 0 ? page.offset : 0);
+    });
+  }
+
+  async markInboxItemRead(scope: TenantScope, id: string): Promise<Date | undefined> {
+    return scoped(scope, async tx => {
+      if (!await discoverStateAvailable(tx)) throw new DiscoverStateUnavailableError("Discover reading state is not migrated");
+      const [owned] = await tx.select({ id: inboxItems.id }).from(inboxItems).where(and(inboxScope(scope), eq(inboxItems.id, id)));
+      if (!owned) return undefined;
+      const [row] = await tx.insert(inboxReads).values({ ...scope, inboxItemId: id, readAt: sql`clock_timestamp()` })
+        .onConflictDoUpdate({ target: [inboxReads.tenantId, inboxReads.userId, inboxReads.inboxItemId], set: { readAt: sql`${inboxReads.readAt}` } })
+        .returning({ readAt: inboxReads.readAt });
+      return row.readAt;
+    });
+  }
+
+  async recordDiscoverVisit(scope: TenantScope): Promise<DiscoverVisitMarker> {
+    return scoped(scope, async tx => {
+      if (!await discoverStateAvailable(tx)) return { previousVisitAt: null, currentVisitAt: new Date() };
+      // Reloads, StrictMode remounts and other tabs inside the session window
+      // continue the same visit, so they cannot wipe the New markers.
+      const expired = sql`${discoverVisits.currentVisitAt} < clock_timestamp() - make_interval(secs => ${DISCOVER_VISIT_SESSION_MS / 1000})`;
+      const [row] = await tx.insert(discoverVisits).values({ ...scope, currentVisitAt: sql`clock_timestamp()`, previousVisitAt: null })
+        .onConflictDoUpdate({ target: [discoverVisits.tenantId, discoverVisits.userId], set: {
+          previousVisitAt: sql`case when ${expired} then ${discoverVisits.currentVisitAt} else ${discoverVisits.previousVisitAt} end`,
+          currentVisitAt: sql`case when ${expired} then clock_timestamp() else ${discoverVisits.currentVisitAt} end`,
+        } })
+        .returning({ previousVisitAt: discoverVisits.previousVisitAt, currentVisitAt: discoverVisits.currentVisitAt });
+      return row;
     });
   }
 

@@ -13,6 +13,85 @@ The [palette specification](INK_AND_COBALT_LIGHT_THEME.md) remains the design
 reference; its checklist and the UX master tracker distinguish local completion
 from the still-open UX-28/COLOR-12 deployment gate.
 
+## Home dashboard data contract
+
+- Content pipeline is one actionable workflow panel: Discover, Ready to review,
+  Scheduled, Published. Each stage has a count, unit and explicit
+  navigation action. Highlight ready drafts first, then available discovery,
+  then scheduled work; an empty workflow highlights creating a post.
+- Desktop uses four columns with decorative directional connectors; mobile
+  uses a vertical list with touch-sized actions. This is not a conversion
+  funnel or completion progress bar. Published explicitly shows its 30-day
+  window. Keep KPI tiles to labels and values, without trends or supporting
+  descriptions. Pipeline stages omit explanatory prose; actions remain visible
+  even when their count is zero.
+- A separate amber strip inside the panel links to posts needing attention.
+  Recovery is a blocker, not a fifth stage; hide the strip when none need review.
+- Home and Content load all draft pages; the Home pipeline also loads all inbox
+  and schedule pages. Metrics refresh every 15 seconds and after publishing
+  mutations. Failed required reads show a retry state, not zero-valued metrics.
+- Posting streak uses confirmed live publications across all history, grouped in
+  the profile's publishing timezone. Invalid/future dates do not count.
+- Published this week means Monday through now in that timezone, compared with
+  the complete previous Monday–Sunday week. Published in the pipeline means the
+  last 30 local calendar days, including today.
+- Drafts in pipeline means ready-to-review drafts. Scheduled includes scheduled,
+  queued and publishing posts. Needs attention counts distinct drafts requiring
+  review or delivery checks, including partial/unverified results and failed
+  targets; a draft is never counted twice for multiple failed targets.
+- Average time to publish uses valid, nonnegative creation-to-publication
+  durations for confirmed posts published in the last 30 local days. With no
+  valid samples it displays a dash, not an invented duration. Simulation and
+  manual/unverified delivery do not inflate confirmed-publication metrics.
+
+## Calendar filters
+
+- A Filter button precedes the Month/Week/Agenda view controls and opens a
+  collision-safe side popover. Search posts, Platform, Status and Display &
+  scheduling timezone are shown in the popover without expanding the page.
+- Closing the popover preserves selected filters and the display timezone.
+  Active-filter guidance and Clear filters remain visible when it is closed.
+
+## Content filters
+
+- A Filter button follows Published, alongside the always-visible Content status
+  tabs, and opens a collision-safe side popover. Search drafts, Filter by
+  platform and Sort posts are shown in the popover without expanding the page.
+- Closing preserves search, platform, sort and bulk selections. Matching-post
+  counts, Clear filters and bulk-selection actions remain visible outside the
+  popover.
+
+## Discover topic dropdown
+
+- Topics in your recent articles opens an on-demand, single-column dropdown
+  list, not a grid of cards or a topic-selection filter.
+- Explain the purpose (finding a post idea), last-7-day article counts and
+  comparison with the previous 7 days. Each separated row retains source
+  coverage, discovery dates, partial-coverage notices and example article links.
+- Preserve empty, loading and retry states, keyboard dismissal and the
+  distinction between personal article coverage and market/post-performance trends.
+
+## Discover filters, sort and New articles
+
+- Keep All/Saved/Dismissed visible. One Filter button opens an anchored popover
+  (never an inline panel that pushes the page down) with search (headline,
+  source, keywords), Added to Discover (any/today/7/30 days), topic, source and
+  reading (all/unread/read). On desktop it opens beside the button; below 768px
+  it opens below it. Both stay inside the viewport (16px collision padding,
+  width capped at the viewport, scrolling when taller than the space left).
+  Escape and outside presses close it and focus returns to Filter. Closing keeps
+  every value, and the button shows the active filter count. Sort stays outside the popover:
+  Recently added (default), Relevance, Newest published (missing dates last).
+  There is no "most viewed" sort because view counts are not collected.
+- The Sort select is a toolbar control, not a form field: it uses the small
+  button geometry (32px desktop, 13px label, 44px touch target) so it shares a
+  height and centre line with the Topics and Filter triggers and wraps with them.
+- Matching count and Clear filters remain visible in the page outside the popover.
+- New uses a pale primary row tint plus a small "New" badge; "Added …" (time in
+  Discover) is shown separately from the publication date.
+- After a refresh, show the actual added count and a Show new articles action
+  that resets to All/Recently added without clearing the story being read.
+
 ## Token ownership and light-only compatibility
 
 - Author values in `client/src/design/tokens.ts`; the `design:tokens` package

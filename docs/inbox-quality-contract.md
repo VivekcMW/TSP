@@ -158,6 +158,32 @@ interests and inbox capacity, not market trends or total crawl volume.
 The authenticated Discover panel fetches only when opened, has loading/error/empty
 states and a bounded scroll area, and uses existing semantic design tokens.
 
+## Discover reading state and New articles
+
+Migration `0054_discover_reading_state.sql` adds two tenant-scoped, forced-RLS tables:
+`inbox_reads` (one `read_at` per tenant/user/inbox item, first open wins) and
+`discover_visits` (per tenant/user `previous_visit_at`/`current_visit_at`). They are
+server-side so read state and New are consistent across devices.
+
+- `POST /api/inbox/visit` records a Discover visit. Calls within 30 minutes continue
+  the current visit; a later call rotates current → previous. Returns
+  `{ previousVisitAt, currentVisitAt }`. The first visit has `previousVisitAt: null`,
+  so the existing library is not marked New.
+- `POST /api/inbox/:id/read` is idempotent, returns `{ id, readAt }`, 404 for items
+  outside the caller's user/tenant, 503 if the migration is missing.
+- `GET /api/inbox` rows include `readAt`.
+
+New = `discoveredAt ?? createdAt` after the previous visit and not read. Only an
+explicit row open marks a story read; automatic first-row selection does not. Filtering
+and sorting (`shared/discover.ts`) run client-side over the complete paged history
+(`fetchAllPages`) for Saved/Dismissed and the complete active list for All. A story
+opened under Unread stays visible while it is being read.
+
+Verification: `shared/discover.test.ts`, `server/routes/inbox.discover-state.test.ts`,
+`server/storage.discover-state.test.ts` (real test DB, includes RLS),
+`server/rls.test.ts` and `client/src/pages/discover-filters.browser.test.ts`.
+Apply with `pnpm db:migrate` (never `db:push`).
+
 ## Excerpts (`contiguous-v1`)
 
 The deterministic extractor uses at most the first 100,000 input characters and the

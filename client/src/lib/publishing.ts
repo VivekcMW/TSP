@@ -63,6 +63,11 @@ export function publishingStatus(item: PublishingSchedule) {
   return { key: "attention", label: "Check delivery", className: "bg-warning-subtle text-warning", dot: "bg-warning" };
 }
 
+export function contentStatusGroup(status: string | null | undefined, schedule?: PublishingSchedule) {
+  const group = draftStatusGroup(status);
+  return group === "attention" || (schedule && publishingStatus(schedule).key === "attention") ? "attention" : group;
+}
+
 // Paginate list views so older partial/unknown schedules retain recovery controls.
 export async function fetchPublishingSchedules(signal?: AbortSignal): Promise<{ items: PublishingSchedule[] }> {
   const items: PublishingSchedule[] = [];

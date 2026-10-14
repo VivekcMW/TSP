@@ -5,7 +5,7 @@ import { requirePermission } from "../middlewares/requirePermission";
 import { engineRegistry } from "../services/engines/index.js";
 import { normalizeIndustryToSlug } from "../services/metaEngine";
 import { validateUrl, validateUrlSync } from "../services/urlValidator";
-import { storage, InboxCapacityError, InboxOperationConflictError } from "../storage";
+import { storage, InboxCapacityError, InboxOperationConflictError, DiscoverStateUnavailableError } from "../storage";
 import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod";
 import { enqueueInboxRefresh, getJobStatus, InboxRefreshAdmissionError } from "../jobs/queue";
@@ -215,6 +215,29 @@ export function registerInboxRoutes(app: Express) {
       if (error instanceof InboxCapacityError) return res.status(409).json({ message: error.message, outcome: "capacity" });
       console.error("Error adding trend to inbox:", error);
       res.status(500).json({ message: "Failed to add article to inbox" });
+    }
+  });
+
+  // Called once per Discover mount; the server decides whether a new visit starts.
+  app.post("/api/inbox/visit", requireDbUser, requirePermission("inbox:write:own"), async (req, res) => {
+    try {
+      res.json(await storage.recordDiscoverVisit(authedOf(req).tenant));
+    } catch (error) {
+      console.error("Error recording Discover visit:", error);
+      res.status(500).json({ message: "Failed to record Discover visit" });
+    }
+  });
+
+  // Explicit row open only. Idempotent: repeated opens keep the first read time.
+  app.post("/api/inbox/:id/read", requireDbUser, requirePermission("inbox:write:own"), async (req, res) => {
+    try {
+      const readAt = await storage.markInboxItemRead(authedOf(req).tenant, req.params.id);
+      if (!readAt) return res.status(404).json({ message: "Item not found" });
+      res.json({ id: req.params.id, readAt });
+    } catch (error) {
+      if (error instanceof DiscoverStateUnavailableError) return res.status(503).json({ message: "Reading state is not available yet" });
+      console.error("Error marking inbox item read:", error);
+      res.status(500).json({ message: "Failed to mark article read" });
     }
   });
 
