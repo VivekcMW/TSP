@@ -36,7 +36,14 @@ export function AppSidebar() {
                       tooltip={item.title}
                       data-testid={`nav-${item.title.toLowerCase()}`}
                     >
-                      <Link href={item.url} aria-current={isActive ? "page" : undefined}>
+                      <Link href={item.url} className="relative" aria-current={isActive ? "page" : undefined}>
+                        {/* Not colour alone: the pale active row needs this cobalt marker (Ink & Cobalt sidebar contract). */}
+                        {isActive && (
+                          <div
+                            aria-hidden="true"
+                            className="pointer-events-none absolute inset-y-1 left-0 border-l-2 border-sidebar-primary"
+                          />
+                        )}
                         <item.icon className={`w-4 h-4 ${isActive ? "text-sidebar-accent-foreground" : ""}`} />
                         <span className={isActive ? "font-medium text-sidebar-accent-foreground" : ""}>{item.title}</span>
                       </Link>
