@@ -62,7 +62,9 @@ describe("analytics page views and events", () => {
       await page.addScriptTag({ content: script });
       await banner(page).getByRole("button", { name: "Accept analytics" }).click();
       await expect.poll(() => tagRequests.length).toBe(2);
-      expect(await gtagCalls(page)).toContainEqual(["config", "G-D5K9DSSFW2", { send_page_view: false }]);
+      // The sanitised URL is set at config level too, so GA's automatic events
+      // (scroll, session_start, form_start…) never carry the raw URL either.
+      expect(await gtagCalls(page)).toContainEqual(["config", "G-D5K9DSSFW2", { send_page_view: false, page_location: "https://consent.test/reset-password?utm_source=mail" }]);
       await expect.poll(() => pageViews(page)).toHaveLength(1);
       const [view] = await pageViews(page);
       expect(view.page_location).toBe("https://consent.test/reset-password?utm_source=mail");
@@ -96,13 +98,17 @@ describe("analytics page views and events", () => {
       await expect.poll(() => pageViews(page)).toHaveLength(1);
       await page.evaluate(() => {
         history.pushState(null, "", "/pricing?token=zzz");
-        // Helmet applies the new title a frame later; the page view must wait for it.
-        requestAnimationFrame(() => { document.title = "Pricing | TheSocialPundit"; });
+        // A lazy-loaded route sets its title only once its chunk has rendered (~0.5 s
+        // on production); the page view must wait for the title, not a fixed delay.
+        setTimeout(() => { document.title = "Pricing | TheSocialPundit"; }, 700);
         (window as unknown as { __schedulePageView: () => void }).__schedulePageView();
       });
-      await expect.poll(() => pageViews(page)).toHaveLength(2);
+      await expect.poll(() => pageViews(page), { timeout: 5000 }).toHaveLength(2);
       const [, view] = await pageViews(page);
       expect(view).toEqual({ page_location: "https://consent.test/pricing", page_title: "Pricing | TheSocialPundit", page_referrer: "https://consent.test/" });
+      // Subsequent automatic events must use the new page too.
+      const sets = (await gtagCalls(page)).filter(c => c[0] === "set").map(c => c[1] as Record<string, string>);
+      expect(sets.at(-1)).toEqual({ page_location: "https://consent.test/pricing", page_title: "Pricing | TheSocialPundit", page_referrer: "https://consent.test/" });
     } finally { await context.close(); }
   });
 });

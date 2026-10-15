@@ -86,13 +86,15 @@ export function loadGoogleAnalytics(): void {
   };
   const gtag = (window as AnalyticsWindow).gtag!;
   gtag("js", new Date());
-  gtag("config", GA_MEASUREMENT_ID, { send_page_view: false });
+  // page_location at config level covers GA's automatic events (scroll, session_start,
+  // form_start…), which otherwise carry the raw URL regardless of what page_view says.
+  gtag("config", GA_MEASUREMENT_ID, { send_page_view: false, ...pageParams() });
   const script = document.createElement("script");
   script.async = true;
   script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`;
   script.dataset.ga = GA_MEASUREMENT_ID;
   document.head.appendChild(script);
-  schedulePageView();
+  schedulePageView(false);
 }
 
 function isAnalyticsActive(): boolean {
@@ -123,23 +125,43 @@ export function track(name: string, params: EventParams = {}): void {
 
 let lastPageLocation: string | null = null;
 
+/** The sanitised location and referrer of the current page (referrer omitted when empty). */
+function pageParams(): Record<string, string> {
+  const referrer = lastPageLocation ?? sanitizeUrl(document.referrer);
+  return { page_location: sanitizeUrl(window.location.href), ...(referrer ? { page_referrer: referrer } : {}) };
+}
+
 /** Sends a page_view for the current URL and title, with sensitive query parameters removed. */
 export function trackPageView(): void {
   if (!isAnalyticsActive()) return;
-  const pageLocation = sanitizeUrl(window.location.href);
-  const referrer = lastPageLocation ?? sanitizeUrl(document.referrer);
-  const params: Record<string, string> = { page_location: pageLocation, page_title: document.title };
-  if (referrer) params.page_referrer = referrer;
-  (window as AnalyticsWindow).gtag!("event", "page_view", params);
-  lastPageLocation = pageLocation;
+  const params: Record<string, string> = { ...pageParams(), page_title: document.title };
+  const gtag = (window as AnalyticsWindow).gtag!;
+  gtag("set", params); // every later event (scroll, form_start, custom) reports this page
+  gtag("event", "page_view", params);
+  lastPageLocation = params.page_location;
 }
 
+const TITLE_WAIT_MS = 1500;
+let pendingPageView = 0;
+
 /**
- * Sends the page view once the document title has caught up with the route. react-helmet-async
- * applies head changes in an animation frame, so waiting two frames plus a task is enough.
+ * Sends the page view once the document title has caught up with the route. On a full load
+ * the server-rendered title is already right, so two frames (react-helmet-async's own delay)
+ * suffice. After an in-app navigation (`waitForTitle`), lazily loaded pages set their title
+ * only once their code arrives (~0.5 s), and a page view sent before that would name the
+ * previous page: wait for the title to change, at most TITLE_WAIT_MS. A newer navigation
+ * supersedes a pending one.
  */
-export function schedulePageView(): void {
-  requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(trackPageView, 0)));
+export function schedulePageView(waitForTitle = true): void {
+  const ticket = ++pendingPageView;
+  const startingTitle = document.title;
+  const startedAt = Date.now();
+  const attempt = () => {
+    if (ticket !== pendingPageView) return;
+    if (!waitForTitle || document.title !== startingTitle || Date.now() - startedAt >= TITLE_WAIT_MS) trackPageView();
+    else setTimeout(attempt, 100);
+  };
+  requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(attempt, 0)));
 }
 
 /** Loads every analytics tool. Call only once the visitor has granted consent. */
