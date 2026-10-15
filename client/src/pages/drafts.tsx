@@ -40,6 +40,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { ScheduleTargetActions } from "@/components/publishing-target-actions";
 import { canChangeSchedule, contentStatusGroup, draftStatusGroup, fetchDraftDetails, fetchPublishingSchedules, invalidatePublishingQueries, publishingTextValidation, scheduleConfirmationKey, selectionBlockers } from "@/lib/publishing";
 import { capturePublishingConsent, type PublishingConsent } from "@shared/publishing-consent";
+import { track } from "@/lib/analytics-consent";
 import { dateKeyInTimeZone, publishingDefaults, scheduleTimeValidation } from "@/lib/calendar";
 import { distinctDaySendSlots } from "@/lib/send-time";
 import type { Draft } from "@shared/schema";
@@ -423,6 +424,7 @@ export default function DraftsPage() {
     setPublishMessage("Submitting direct publication request…");
     try {
       await apiRequest("POST", `/api/drafts/${encodeURIComponent(draft.id)}/publish-now`, { consent });
+      track("publish_post", { platform: draft.platform, mode: "now" });
       setPublishMessage("Request processed. Checking every target; a completed or skipped job is not confirmation of delivery.");
     } catch (error) {
       if (error instanceof ApiError && error.status === 409 && error.code === "publishing_reconfirm_required") {

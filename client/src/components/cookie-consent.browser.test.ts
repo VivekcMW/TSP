@@ -10,7 +10,8 @@ const fixture = `
   import React from "react";
   import { createRoot } from "react-dom/client";
   import { CookieConsent } from "@/components/cookie-consent";
-  import { openCookieSettings, startAnalyticsIfConsented } from "@/lib/analytics-consent";
+  import { openCookieSettings, schedulePageView, startAnalyticsIfConsented, track } from "@/lib/analytics-consent";
+  Object.assign(window, { __track: track, __schedulePageView: schedulePageView });
   startAnalyticsIfConsented();
   createRoot(document.getElementById("root")).render(React.createElement(React.Fragment, null,
     React.createElement("button", { onClick: openCookieSettings }, "Cookie settings"),
@@ -47,6 +48,64 @@ async function open() {
   return { context, page, tagRequests };
 }
 const banner = (page: Page) => page.getByRole("region", { name: "Cookie consent" });
+// Every gtag() call, as plain arrays. gtag.js is stubbed, so the queue is the full record.
+const gtagCalls = (page: Page) => page.evaluate(() => ((window as unknown as { dataLayer?: unknown[] }).dataLayer ?? [])
+  .filter(entry => Object.prototype.toString.call(entry) === "[object Arguments]")
+  .map(entry => Array.from(entry as ArrayLike<unknown>)) as unknown[][]);
+const pageViews = async (page: Page) => (await gtagCalls(page)).filter(c => c[0] === "event" && c[1] === "page_view").map(c => c[2] as Record<string, string>);
+
+describe("analytics page views and events", () => {
+  it("sends page views itself, with tokens removed from the URL", async () => {
+    const { context, page, tagRequests } = await open();
+    try {
+      await page.goto("https://consent.test/reset-password?token=abc123&utm_source=mail");
+      await page.addScriptTag({ content: script });
+      await banner(page).getByRole("button", { name: "Accept analytics" }).click();
+      await expect.poll(() => tagRequests.length).toBe(2);
+      expect(await gtagCalls(page)).toContainEqual(["config", "G-D5K9DSSFW2", { send_page_view: false }]);
+      await expect.poll(() => pageViews(page)).toHaveLength(1);
+      const [view] = await pageViews(page);
+      expect(view.page_location).toBe("https://consent.test/reset-password?utm_source=mail");
+      expect(view.page_title).toBe(await page.title());
+    } finally { await context.close(); }
+  });
+
+  it("tracks custom events only with consent, and never with an email address in them", async () => {
+    const { context, page, tagRequests } = await open();
+    try {
+      await visit(page, tagRequests);
+      const events = () => gtagCalls(page).then(calls => calls.filter(c => c[0] === "event" && c[1] !== "page_view"));
+      await page.evaluate(() => (window as unknown as { __track: (n: string, p?: object) => void }).__track("sign_up", { method: "email" }));
+      expect(await events()).toEqual([]);
+      await banner(page).getByRole("button", { name: "Accept analytics" }).click();
+      await expect.poll(() => tagRequests.length).toBe(2);
+      await page.evaluate(() => {
+        const track = (window as unknown as { __track: (n: string, p?: object) => void }).__track;
+        track("sign_up", { method: "email" });
+        track("newsletter_subscribe", { email: "someone@example.com" });
+      });
+      expect(await events()).toEqual([["event", "sign_up", { method: "email" }]]);
+    } finally { await context.close(); }
+  });
+
+  it("sends an in-app navigation as a page view once the new title is in place", async () => {
+    const { context, page, tagRequests } = await open();
+    try {
+      await visit(page, tagRequests);
+      await banner(page).getByRole("button", { name: "Accept analytics" }).click();
+      await expect.poll(() => pageViews(page)).toHaveLength(1);
+      await page.evaluate(() => {
+        history.pushState(null, "", "/pricing?token=zzz");
+        // Helmet applies the new title a frame later; the page view must wait for it.
+        requestAnimationFrame(() => { document.title = "Pricing | TheSocialPundit"; });
+        (window as unknown as { __schedulePageView: () => void }).__schedulePageView();
+      });
+      await expect.poll(() => pageViews(page)).toHaveLength(2);
+      const [, view] = await pageViews(page);
+      expect(view).toEqual({ page_location: "https://consent.test/pricing", page_title: "Pricing | TheSocialPundit", page_referrer: "https://consent.test/" });
+    } finally { await context.close(); }
+  });
+});
 
 describe("cookie consent", () => {
   it("loads no analytics until the visitor accepts, and remembers the choice", async () => {

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const { request } = vi.hoisted(() => ({ request: vi.fn() }));
+const { request, track } = vi.hoisted(() => ({ request: vi.fn(), track: vi.fn() }));
 vi.mock("./queryClient", async original => ({ ...await original<typeof import("./queryClient")>(), apiRequest: request }));
+vi.mock("./analytics-consent", async original => ({ ...await original<typeof import("./analytics-consent")>(), track }));
 import { cancelEditorialRequest, createEditorialRequestState, editorialDetachReason, editorialRequest } from "./editorial-request";
 import { ApiError } from "./queryClient";
 
@@ -245,5 +246,24 @@ describe("editorial request transport", () => {
     await expect(editorialRequest("/api/instant-review/manual", {})).rejects.toMatchObject({ status: 403 });
     expect(request.mock.calls.map(call => call[0])).toEqual(["POST", "POST", "GET"]);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("generation analytics", () => {
+  it("records generate_post once a direct generation succeeds, never on failure", async () => {
+    request.mockResolvedValueOnce(response({ content: "post" }));
+    await editorialRequest("/api/ai/generate-post", { platform: "linkedin", tones: ["confident"], content: "private text" });
+    expect(track.mock.calls).toEqual([["generate_post", { surface: "create", platform: "linkedin", tone: "confident" }]]);
+    request.mockRejectedValueOnce(new ApiError(422, "Unreadable"));
+    await expect(editorialRequest("/api/ai/generate-post", { platform: "linkedin" })).rejects.toMatchObject({ status: 422 });
+    expect(track).toHaveBeenCalledTimes(1);
+  });
+
+  it("records generate_post when a queued generation completes", async () => {
+    request.mockResolvedValueOnce(response({ jobId: id }, 202))
+      .mockResolvedValueOnce(response({ status: "completed", progress: {} }))
+      .mockResolvedValueOnce(response({ posts: [] }));
+    await editorialRequest("/api/instant-review/selected", { platforms: ["linkedin", "twitter"], articleIds: ["a1"] });
+    expect(track.mock.calls).toEqual([["generate_post", { surface: "instant_review", platform: "linkedin,twitter" }]]);
   });
 });

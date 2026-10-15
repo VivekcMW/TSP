@@ -6,6 +6,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useInboxRefreshJob } from "@/hooks/use-inbox-refresh-job";
 import type { OnboardingData } from "@/lib/onboarding-choices";
+import { track } from "@/lib/analytics-consent";
 
 interface User {
   id: string;
@@ -33,6 +34,7 @@ export default function OnboardingPage() {
     onSuccess: (_response, data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       setSaved(data);
+      track("onboarding_complete");
       // Fill Discover while the finished view is read, so it isn't empty on arrival.
       // The refresh runs server-side; Discover shows its progress. Nothing to search: skip.
       if (data.keywords.length || data.publications.length || data.influencers.length || data.companies.length) void startRefresh();

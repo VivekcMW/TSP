@@ -1,6 +1,14 @@
 import { ApiError, apiRequest } from "./queryClient";
+import { track } from "./analytics-consent";
+import { editorialEvent } from "./analytics-events";
 
 export interface EditorialProgress { platformsCompleted: number; platformsTotal: number }
+
+// One place records every successful generation, whichever surface asked for it.
+function recordGeneration(endpoint: string, body: unknown): void {
+  const event = editorialEvent(endpoint, body);
+  if (event) track(event.name, event.params);
+}
 interface JobStatus {
   status: "queued" | "active" | "completed" | "failed" | "cancelled";
   progress: EditorialProgress;
@@ -92,7 +100,11 @@ export async function editorialRequest<T>(endpoint: string, body: unknown, optio
   reconnectOnly?: boolean;
   state?: EditorialRequestState;
 } = {}): Promise<T> {
-  if (!queuedPaths.has(endpoint)) return (await apiRequest("POST", endpoint, body, options)).json();
+  if (!queuedPaths.has(endpoint)) {
+    const result = await (await apiRequest("POST", endpoint, body, options)).json();
+    recordGeneration(endpoint, body);
+    return result;
+  }
   options.signal?.throwIfAborted();
   const state = options.state ?? createEditorialRequestState();
   if (options.reconnectOnly && !state.jobId) throw new ApiError(404, "No generation job is available to reconnect.");
@@ -107,7 +119,7 @@ export async function editorialRequest<T>(endpoint: string, body: unknown, optio
     controller.signal.throwIfAborted();
     if (!state.jobId) {
       const direct = await admitJob<T>(endpoint, body, state, controller.signal, options.headers);
-      if (direct) return direct.result;
+      if (direct) { recordGeneration(endpoint, body); return direct.result; }
       options.onAdmitted?.(state);
     }
     const jobPath = `/api/editorial/jobs/${encodeURIComponent(state.jobId!)}`;
@@ -119,6 +131,7 @@ export async function editorialRequest<T>(endpoint: string, body: unknown, optio
         const result = await readJobJson<T>(`${jobPath}/result`, controller.signal, state.deadline, options.headers);
         controller.signal.throwIfAborted();
         state.terminal = true;
+        recordGeneration(endpoint, body);
         return result as T;
       }
       if (status.status === "failed" || status.status === "cancelled") {

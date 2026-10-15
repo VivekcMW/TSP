@@ -1,6 +1,8 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { authClient } from "./auth-client";
 import { accountCache } from "./queryClient";
+import { track } from "./analytics-consent";
+import { authReturnEvent, takeAuthMethod } from "./analytics-events";
 
 export interface AuthUser {
   id: string;
@@ -31,6 +33,17 @@ export function useAuth() {
       emailVerified: source.emailVerified,
     };
   }, [session.data]);
+
+  // A session that appears right after a sign-in attempt is that attempt's outcome.
+  // The remembered method is consumed once, so only the first mounted caller records it.
+  const sessionUser = session.data?.user;
+  useEffect(() => {
+    if (!sessionUser) return;
+    const method = takeAuthMethod();
+    if (!method) return;
+    const event = authReturnEvent(sessionUser as { createdAt?: string | Date | null }, method);
+    track(event.name, event.params);
+  }, [sessionUser]);
 
   return { ...session, user };
 }

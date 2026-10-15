@@ -42,7 +42,7 @@ const pages: Record<string, PublicPage> = {
     lastmod: "2026-10-15",
   },
   "/how-it-works": {
-    title: "How TheSocialPundit Works | TheSocialPundit",
+    title: "How It Works | TheSocialPundit",
     description: "See how TheSocialPundit finds relevant industry signals, helps shape your point of view, drafts in your voice, and keeps you in control before publishing.",
     lastmod: "2026-10-11",
   },

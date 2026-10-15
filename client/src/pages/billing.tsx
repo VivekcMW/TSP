@@ -14,6 +14,8 @@ import type { SettingsPageProps } from "@/components/settings/settings-page-prop
 import { Input } from "@/components/ui/input";
 import { billingPeriodLabel, billingStatusLabel, canCancelSubscription, checkoutRequest, checkoutVerification, formatBillingAmount as formatAmount, formatPrice, intervalUnit, plansForCurrency, type BillingSubscription, type CheckoutMode, type PublicBillingPlan } from "@/lib/billing";
 export { billingPeriodLabel } from "@/lib/billing";
+import { track } from "@/lib/analytics-consent";
+import { beginCheckoutParams, purchaseParams } from "@/lib/analytics-events";
 
 declare global {
   interface Window { Razorpay?: new (options: Record<string, unknown>) => { open: () => void }; }
@@ -61,6 +63,7 @@ export function BillingPanel({ compact = false }: Readonly<{ compact?: boolean }
   });
   async function startCheckout(planId: string) {
     setCheckoutPending(planId);
+    const plan = data?.plans.find(candidate => candidate.id === planId);
     try {
       const mode = checkoutMode;
       const order = await (await apiRequest("POST", `/api/billing/checkout/${mode}`, checkoutRequest(planId, mode, cycles))).json();
@@ -74,6 +77,7 @@ export function BillingPanel({ compact = false }: Readonly<{ compact?: boolean }
         handler: async (response: Parameters<typeof checkoutVerification>[2]) => {
           try {
             await apiRequest("POST", "/api/billing/checkout/verify", checkoutVerification(mode, mode === "subscription" ? order.subscriptionId : order.orderId, response));
+            if (plan) track("purchase", purchaseParams(plan, response.razorpay_payment_id));
             await invalidateBilling();
             toast({ title: "Payment recorded", description: "Check Current plan for effective access. Verification alone does not guarantee an active billing period." });
           } catch (error) {
@@ -82,6 +86,7 @@ export function BillingPanel({ compact = false }: Readonly<{ compact?: boolean }
         },
         modal: { ondismiss: () => setCheckoutPending(null) },
       });
+      if (plan) track("begin_checkout", beginCheckoutParams(plan));
       checkout.open();
     } catch (error) {
       toast({ title: "Checkout unavailable", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" });

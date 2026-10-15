@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useSyncExternalStore } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { Route, useLocation, Router as WouterRouter } from "wouter";
 import { accountCache, queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -24,8 +24,21 @@ import { CookieConsent } from "@/components/cookie-consent";
 import { rememberReturnTo, takeReturnTo } from "@/lib/return-to";
 import { SignInPage, SignUpPage, VerifyEmailPage } from "@/pages/auth";
 import { bootedFromPrerender } from "@/lib/prerender";
+import { schedulePageView } from "@/lib/analytics-consent";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// Analytics page views for in-app navigation. The first page view is sent by the
+// analytics loader itself (on start-up, or when the visitor accepts mid-page).
+function PageViews() {
+  const [location] = useLocation();
+  const initial = useRef(true);
+  useEffect(() => {
+    if (initial.current) { initial.current = false; return; }
+    schedulePageView();
+  }, [location]);
+  return null;
+}
 
 // Signed-in areas load on demand, so public visitors never download dashboard code.
 const SignedInRoutes = lazy(() => import("@/components/signed-in-routes"));
@@ -152,7 +165,7 @@ function App() {
   return (
     <WouterRouter base={basePath}>
       <QueryClientProvider client={queryClient}>
-        <HelmetProvider><TooltipProvider><DecorativeIcons><AccountBoundary><Toaster /><AppRoutes /><CookieConsent /></AccountBoundary></DecorativeIcons></TooltipProvider></HelmetProvider>
+        <HelmetProvider><TooltipProvider><DecorativeIcons><AccountBoundary><Toaster /><AppRoutes /><CookieConsent /><PageViews /></AccountBoundary></DecorativeIcons></TooltipProvider></HelmetProvider>
       </QueryClientProvider>
     </WouterRouter>
   );

@@ -11,6 +11,8 @@ import { SiGoogle } from "react-icons/si";
 import { ArrowRight, Eye, EyeOff, Rss, Sparkles, ShieldCheck, Zap } from "lucide-react";
 import type { ComponentType } from "react";
 import { takeReturnTo } from "@/lib/return-to";
+import { track } from "@/lib/analytics-consent";
+import { rememberAuthMethod } from "@/lib/analytics-events";
 
 type SocialProvider = "google" | "linkedin" | "twitter";
 type ProviderAvailability = Record<SocialProvider, boolean>;
@@ -32,6 +34,7 @@ export function SignInPage() {
   const [resetSent, setResetSent] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault(); setPending(true); setError("");
+    rememberAuthMethod("email"); // the session effect in useAuth records the login
     const result = await authClient.signIn.email({ email, password });
     setPending(false);
     if (result.error) return setError(result.error.message || "Unable to sign in.");
@@ -63,6 +66,7 @@ export function SignUpPage() {
     const result = await authClient.signUp.email({ name, email, password, callbackURL: `${window.location.origin}/complete-registration` });
     setPending(false);
     if (result.error) return setError(result.error.message || "Unable to create your account.");
+    track("sign_up", { method: "email" });
     setLocation("/verify-email");
   }
   return <AuthCard title="Create your account" description="Verify your email to get started with TheSocialPundit"><SocialLogin /><Divider /><form className="space-y-4" onSubmit={submit}><Field id="signup-name" label="Full name" value={name} onChange={setName} autoComplete="name" /><Field id="signup-email" label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" /><Field id="signup-password" label="Password" value={password} onChange={setPassword} type="password" autoComplete="new-password" hint="At least 8 characters" /><Message text={error} /><Button className="w-full" disabled={pending}>{pending ? "Creating account…" : "Create account"}</Button><p className="text-sm text-center text-muted-foreground">Already have an account? <Link className="text-primary underline" href="/sign-in">Sign in</Link></p></form></AuthCard>;
@@ -226,7 +230,7 @@ function SocialLogin() {
     const enabled = providers?.[id] === true;
     const status = getProviderStatus(loaded, enabled);
     const isDisabled = !enabled;
-    return <Button key={id} type="button" className={`w-full ${getButtonStyle(id)} ${isDisabled ? "opacity-60 cursor-not-allowed" : ""}`} disabled={isDisabled} title={enabled ? `Continue with ${label}` : `${label} login is ${status.toLowerCase()}`} aria-label={enabled ? `Continue with ${label}` : `${label} login is ${status.toLowerCase()}`} onClick={() => { if (enabled) authClient.signIn.social({ provider: id, callbackURL: `${window.location.origin}${takeReturnTo() ?? "/dashboard"}` }); }} data-testid={`button-social-${id}`}><Icon className="h-4 w-4" /><span>{label}</span></Button>;
+    return <Button key={id} type="button" className={`w-full ${getButtonStyle(id)} ${isDisabled ? "opacity-60 cursor-not-allowed" : ""}`} disabled={isDisabled} title={enabled ? `Continue with ${label}` : `${label} login is ${status.toLowerCase()}`} aria-label={enabled ? `Continue with ${label}` : `${label} login is ${status.toLowerCase()}`} onClick={() => { if (enabled) { rememberAuthMethod(id); authClient.signIn.social({ provider: id, callbackURL: `${window.location.origin}${takeReturnTo() ?? "/dashboard"}` }); } }} data-testid={`button-social-${id}`}><Icon className="h-4 w-4" /><span>{label}</span></Button>;
   })}</div>{loaded && !anyEnabled && <p className="text-center text-xs text-muted-foreground">Social login will activate when credentials are configured. Email login is ready now.</p>}</div>;
 }
 
