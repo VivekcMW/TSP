@@ -7,15 +7,40 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const root = path.resolve(import.meta.dirname, "../../..");
 // The real banner and consent module; a stand-in footer link opens the settings.
 const fixture = `
-  import React from "react";
+  import React, { lazy, Suspense, useEffect } from "react";
   import { createRoot } from "react-dom/client";
+  import { Router, Route, Switch, Link, useLocation, useSearch } from "wouter";
+  import { HelmetProvider } from "react-helmet-async";
+  import { SEO } from "@/components/seo";
+  import { AnalyticsPage } from "@/components/analytics-page";
+  import { RouteTransition } from "@/components/route-transition";
   import { CookieConsent } from "@/components/cookie-consent";
-  import { openCookieSettings, schedulePageView, startAnalyticsIfConsented, track } from "@/lib/analytics-consent";
-  Object.assign(window, { __track: track, __schedulePageView: schedulePageView });
+  import { openCookieSettings, beginAnalyticsNavigation, startAnalyticsIfConsented, track } from "@/lib/analytics-consent";
+  Object.assign(window, { __track: track });
+  function Content({path, title}) { return <><SEO title={title} canonical={path}/><h1>{title}</h1></>; }
+  const Pricing = lazy(() => new Promise(resolve => setTimeout(() => resolve({ default: () => <Content path="/pricing" title="Pricing"/> }), 1800)));
+  function Routes() {
+    const [location] = useLocation();
+    const search = useSearch();
+    useEffect(beginAnalyticsNavigation, [location, search]);
+    return <>
+      <Link href="/pricing?token=zzz">Pricing route</Link>
+      <Link href="/other">Other route</Link>
+      <Link href="/same-title">Same title route</Link>
+      <RouteTransition transitionKey={path => path}>
+        {path => <Suspense fallback={<p>Loading route</p>}>
+          <Switch location={path}>
+            <Route path="/pricing" component={Pricing}/>
+            <Route><Content path={path} title="Test page"/></Route>
+          </Switch>
+          <AnalyticsPage path={path}/>
+        </Suspense>}
+      </RouteTransition>
+    </>;
+  }
   startAnalyticsIfConsented();
-  createRoot(document.getElementById("root")).render(React.createElement(React.Fragment, null,
-    React.createElement("button", { onClick: openCookieSettings }, "Cookie settings"),
-    React.createElement(CookieConsent)));
+  createRoot(document.getElementById("root")).render(
+    <Router><HelmetProvider><Routes/><button onClick={openCookieSettings}>Cookie settings</button><CookieConsent/></HelmetProvider></Router>);
 `;
 
 let browser: Browser;
@@ -64,7 +89,8 @@ describe("analytics page views and events", () => {
       await expect.poll(() => tagRequests.length).toBe(2);
       // The sanitised URL is set at config level too, so GA's automatic events
       // (scroll, session_start, form_start…) never carry the raw URL either.
-      expect(await gtagCalls(page)).toContainEqual(["config", "G-D5K9DSSFW2", { send_page_view: false, page_location: "https://consent.test/reset-password?utm_source=mail" }]);
+      const config = (await gtagCalls(page)).find(c => c[0] === "config");
+      expect(config?.[2]).toMatchObject({ send_page_view: false, page_location: "https://consent.test/reset-password?utm_source=mail", allow_google_signals: false, allow_ad_personalization_signals: false });
       await expect.poll(() => pageViews(page)).toHaveLength(1);
       const [view] = await pageViews(page);
       expect(view.page_location).toBe("https://consent.test/reset-password?utm_source=mail");
@@ -86,7 +112,7 @@ describe("analytics page views and events", () => {
         track("sign_up", { method: "email" });
         track("newsletter_subscribe", { email: "someone@example.com" });
       });
-      expect(await events()).toEqual([["event", "sign_up", { method: "email" }]]);
+      expect(await events()).toEqual([["event", "sign_up", expect.objectContaining({ method: "email", page_location: "https://consent.test/" })]]);
     } finally { await context.close(); }
   });
 
@@ -96,19 +122,88 @@ describe("analytics page views and events", () => {
       await visit(page, tagRequests);
       await banner(page).getByRole("button", { name: "Accept analytics" }).click();
       await expect.poll(() => pageViews(page)).toHaveLength(1);
-      await page.evaluate(() => {
-        history.pushState(null, "", "/pricing?token=zzz");
-        // A lazy-loaded route sets its title only once its chunk has rendered (~0.5 s
-        // on production); the page view must wait for the title, not a fixed delay.
-        setTimeout(() => { document.title = "Pricing | TheSocialPundit"; }, 700);
-        (window as unknown as { __schedulePageView: () => void }).__schedulePageView();
-      });
+      await page.getByRole("link", { name: "Pricing route", exact: true }).click();
+      await page.waitForTimeout(1600);
+      expect(await pageViews(page)).toHaveLength(1);
       await expect.poll(() => pageViews(page), { timeout: 5000 }).toHaveLength(2);
       const [, view] = await pageViews(page);
       expect(view).toEqual({ page_location: "https://consent.test/pricing", page_title: "Pricing | TheSocialPundit", page_referrer: "https://consent.test/" });
       // Subsequent automatic events must use the new page too.
       const sets = (await gtagCalls(page)).filter(c => c[0] === "set").map(c => c[1] as Record<string, string>);
       expect(sets.at(-1)).toEqual({ page_location: "https://consent.test/pricing", page_title: "Pricing | TheSocialPundit", page_referrer: "https://consent.test/" });
+    } finally { await context.close(); }
+  });
+
+  it("tracks routes with identical titles and ignores superseded lazy navigation", async () => {
+    const { context, page, tagRequests } = await open();
+    try {
+      await visit(page, tagRequests);
+      await banner(page).getByRole("button", { name: "Accept analytics" }).click();
+      await expect.poll(() => pageViews(page)).toHaveLength(1);
+      await page.getByRole("link", { name: "Same title route", exact: true }).click();
+      await expect.poll(() => pageViews(page)).toHaveLength(2);
+      await page.getByRole("link", { name: "Pricing route", exact: true }).click();
+      await page.waitForTimeout(350);
+      await page.getByRole("link", { name: "Other route", exact: true }).click();
+      await expect.poll(() => pageViews(page)).toHaveLength(3);
+      await page.waitForTimeout(2000);
+      expect((await pageViews(page)).map(view => new URL(view.page_location).pathname)).toEqual(["/", "/same-title", "/other"]);
+    } finally { await context.close(); }
+  });
+
+  it("stops tracking on withdrawal and resumes once without reloading scripts", async () => {
+    const { context, page, tagRequests } = await open();
+    try {
+      await visit(page, tagRequests);
+      await banner(page).getByRole("button", { name: "Accept analytics" }).click();
+      await expect.poll(() => pageViews(page)).toHaveLength(1);
+      await page.getByRole("button", { name: "Cookie settings" }).click();
+      await banner(page).getByRole("button", { name: "Reject" }).click();
+      expect(await page.evaluate(() => (window as unknown as Record<string, unknown>)["ga-disable-G-D5K9DSSFW2"])).toBe(true);
+      expect(await gtagCalls(page)).toContainEqual(["consent", "update", { analytics_storage: "denied", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }]);
+      await page.getByRole("link", { name: "Other route", exact: true }).click();
+      await page.waitForTimeout(400);
+      expect(await pageViews(page)).toHaveLength(1);
+      await page.getByRole("button", { name: "Cookie settings" }).click();
+      await banner(page).getByRole("button", { name: "Accept analytics" }).click();
+      await expect.poll(() => pageViews(page)).toHaveLength(2);
+      expect(tagRequests).toHaveLength(2);
+      expect(await page.evaluate(() => (window as unknown as Record<string, unknown>)["ga-disable-G-D5K9DSSFW2"])).toBe(false);
+    } finally { await context.close(); }
+  });
+
+  it("honours the choice when browser storage is blocked", async () => {
+    const { context, page, tagRequests } = await open();
+    try {
+      await context.addInitScript(() => {
+        Storage.prototype.getItem = () => { throw new Error("blocked"); };
+        Storage.prototype.setItem = () => { throw new Error("blocked"); };
+      });
+      await visit(page, tagRequests);
+      await banner(page).getByRole("button", { name: "Accept analytics" }).click();
+      await expect.poll(() => pageViews(page)).toHaveLength(1);
+      await page.getByRole("button", { name: "Cookie settings" }).click();
+      await banner(page).getByRole("button", { name: "Reject" }).click();
+      await page.getByRole("link", { name: "Other route", exact: true }).click();
+      await page.waitForTimeout(400);
+      expect(await pageViews(page)).toHaveLength(1);
+      expect(tagRequests).toHaveLength(2);
+    } finally { await context.close(); }
+  });
+
+  it("applies withdrawal made in another tab", async () => {
+    const { context, page, tagRequests } = await open();
+    try {
+      await visit(page, tagRequests);
+      await banner(page).getByRole("button", { name: "Accept analytics" }).click();
+      await expect.poll(() => pageViews(page)).toHaveLength(1);
+      const other = await context.newPage();
+      await other.goto("https://consent.test/");
+      await other.evaluate(() => localStorage.setItem("tsp-analytics-consent", "denied"));
+      await expect.poll(() => page.evaluate(() => (window as unknown as Record<string, unknown>)["ga-disable-G-D5K9DSSFW2"])).toBe(true);
+      await page.getByRole("link", { name: "Other route", exact: true }).click();
+      await page.waitForTimeout(400);
+      expect(await pageViews(page)).toHaveLength(1);
     } finally { await context.close(); }
   });
 });

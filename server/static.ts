@@ -1,9 +1,11 @@
 import express, { type Express, type Request, type RequestHandler, type Response } from "express";
 import fs from "fs";
 import path from "path";
+import { pathToFileURL } from "node:url";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 import { filesUnder } from "./precompress";
 import { publicSeoForPath, renderInitialSeo } from "./public-seo";
+import { PRICING_DATA_ID, type PublicBillingPlan } from "../shared/public-billing";
 
 const ENCODINGS = [["br", ".br"], ["gzip", ".gz"]] as const;
 const LONG_CACHE = { maxAge: "1y", immutable: true };
@@ -14,6 +16,7 @@ const NOINDEX_PATHS = [
   "/sign-in",
   "/sign-up",
   "/reset-password",
+  "/verify-email",
   "/complete-registration",
   "/accept-invite",
   "/email-preferences",
@@ -57,7 +60,7 @@ type CompressedDocument = { br: Buffer; gzip: Buffer };
 
 /**
  * Sends an HTML document brotli- or gzip-compressed when the client accepts it. Documents are
- * compressed once per key: every route renders the same bytes until the next deploy.
+ * compressed once per key. Dynamic pricing uses a request-scoped cache.
  */
 function sendDocument(req: Request, res: Response, html: string, key: string, cache: Map<string, CompressedDocument>) {
   res.vary("Accept-Encoding");
@@ -89,10 +92,12 @@ function sendDocument(req: Request, res: Response, html: string, key: string, ca
  * Serves the SPA shell with metadata, and the prerendered page where one exists, for the
  * requested route. Mounted last, so it only sees requests that no static file matched.
  */
-export function seoDocumentHandler(indexTemplate: string, prerendered: ReadonlyMap<string, string> = new Map()): RequestHandler {
+export type PricingRenderer = () => Promise<{ markup: string; plans: PublicBillingPlan[] }>;
+
+export function seoDocumentHandler(indexTemplate: string, prerendered: ReadonlyMap<string, string> = new Map(), renderPricing?: PricingRenderer): RequestHandler {
   // Bounded: one entry per public route plus the shared app shell.
   const compressed = new Map<string, CompressedDocument>();
-  return (req, res) => {
+  return async (req, res) => {
     // Inside `app.use("*")` Express strips the mount path, so `req.path` is always "/".
     // The requested route only survives on `originalUrl`.
     const pathname = requestPathname(req.originalUrl);
@@ -106,11 +111,39 @@ export function seoDocumentHandler(indexTemplate: string, prerendered: ReadonlyM
     const rendered = renderInitialSeo(indexTemplate, pathname);
     if (!rendered.indexable) {
       res.setHeader("X-Robots-Tag", "noindex, nofollow");
-      // Every non-public route gets the identical, unmodified shell.
-      sendDocument(req, res, rendered.html, "", compressed);
+      const normalized = pathname.replace(/\/+$/, "");
+      const knownShell = NOINDEX_PATHS.includes(normalized) ||
+        ["/dashboard/", "/admin/", "/sign-in/", "/sign-up/"].some(prefix => pathname.startsWith(prefix));
+      if (knownShell) {
+        sendDocument(req, res, rendered.html, "", compressed);
+      } else {
+        res.status(404);
+        const html = rendered.html
+          .replace(/<title(?:\s[^>]*)?>[\s\S]*?<\/title>/i, '<title data-rh="true">Page not found | TheSocialPundit</title>')
+          .replace(/<link[^>]*rel="canonical"[^>]*>/i, "")
+          .replace(/<meta[^>]*name="robots"[^>]*>/i, '<meta data-rh="true" name="robots" content="noindex, nofollow" />');
+        sendDocument(req, res, withPrerenderedBody(html, prerendered.get("/404") ?? "<main><h1>Page not found</h1><p>This page does not exist.</p><a href=\"/\">Go home</a></main>"), "/404", compressed);
+      }
       return;
     }
     const route = new URL(publicSeoForPath(pathname)!.canonical).pathname;
+    if (route === "/pricing" && renderPricing) {
+      res.setHeader("Cache-Control", "no-store");
+      try {
+        const { markup, plans } = await renderPricing();
+        if (!plans.length) throw new Error("Public plan catalogue is empty");
+        const bootstrap = JSON.stringify({ plans }).replaceAll("<", "\\u003c");
+        const html = withPrerenderedBody(rendered.html, markup)
+          .replace("</head>", `<script id="${PRICING_DATA_ID}" type="application/json">${bootstrap}</script></head>`);
+        sendDocument(req, res, html, route, new Map());
+      } catch (error) {
+        console.error("Public pricing document could not be rendered", error);
+        res.status(503).setHeader("Retry-After", "60");
+        const html = withPrerenderedBody(rendered.html, '<main><h1>Current pricing is temporarily unavailable.</h1><p>We could not confirm the live plan catalogue. No prices are shown.</p><a href="/pricing">Retry pricing</a></main>');
+        sendDocument(req, res, html, route, new Map());
+      }
+      return;
+    }
     const markup = prerendered.get(route);
     sendDocument(req, res, markup ? withPrerenderedBody(rendered.html, markup) : rendered.html, route, compressed);
   };
@@ -169,5 +202,11 @@ export function serveStatic(app: Express) {
   // link unfurlers do not need to execute the React bundle to read the page.
   const indexTemplate = fs.readFileSync(path.resolve(distPath, "index.html"), "utf8");
   const prerendered = loadPrerenderedPages(path.resolve(__dirname, "prerender.json"));
-  app.use("*", seoDocumentHandler(indexTemplate, prerendered));
+  const rendererUrl = pathToFileURL(path.resolve(__dirname, "ssr/entry-server.js")).href;
+  app.use("*", seoDocumentHandler(indexTemplate, prerendered, async () => {
+    const { readPublicBillingPlans } = await import("./services/public-billing");
+    const renderer = await import(rendererUrl) as { render(path: string, pricing: { plans: PublicBillingPlan[] }): Promise<string> };
+    const plans = await readPublicBillingPlans();
+    return { plans, markup: await renderer.render("/pricing", { plans }) };
+  }));
 }

@@ -64,7 +64,7 @@ function PlanCard({ plan, price, unit, eyebrow, detail, badge, highlight, unavai
 
 export default function Pricing() {
   const isSignedIn = useIsSignedIn();
-  const { data, isPending, isError, refetch } = useQuery<{ plans: PublicBillingPlan[] }>({ queryKey: ["/api/public/billing/plans"] });
+  const { data, isPending, isError, refetch } = useQuery<{ plans: PublicBillingPlan[] }>({ queryKey: ["/api/public/billing/plans"], staleTime: 0, refetchOnMount: true });
 
   const free = data?.plans.find(plan => plan.amount === 0);
   const paid = data ? plansForCurrency(data.plans, GLOBAL_CURRENCY) : [];
@@ -190,9 +190,10 @@ export default function Pricing() {
               <StaggerGroup className="grid gap-6 md:grid-cols-3" data-testid="pricing-plans">
                 {free && <StaggerItem><PlanCard plan={free} eyebrow="Start here" price={formatPrice(0, GLOBAL_CURRENCY)} unit="month" detail="No card required" action={startFree} /></StaggerItem>}
                 {monthly && <StaggerItem><PlanCard plan={monthly} eyebrow="Stay flexible" price={formatPrice(monthly.amount, monthly.currency)} unit={intervalUnit(monthly.interval)}
+                  detail={monthly.recurringAvailable ? "One-time or recurring checkout" : "One-time access; no automatic renewal"}
                   unavailableNote={monthly.available === false ? notYet : undefined} action={buy(monthly)} /></StaggerItem>}
                 {yearly && <StaggerItem><PlanCard plan={yearly} eyebrow="Best value" price={formatPrice(yearly.amount, yearly.currency)} unit={intervalUnit(yearly.interval)} highlight
-                  detail={`About ${formatPrice(Math.round(yearly.amount / 1200) * 100, yearly.currency)} a month`}
+                  detail={`About ${formatPrice(Math.round(yearly.amount / 1200) * 100, yearly.currency)} a month. ${yearly.recurringAvailable ? "One-time or recurring checkout." : "No automatic renewal."}`}
                   badge={saving > 0 ? `Save ${saving}%` : undefined}
                   unavailableNote={yearly.available === false ? notYet : undefined} action={buy(yearly)} /></StaggerItem>}
               </StaggerGroup>
@@ -207,7 +208,7 @@ export default function Pricing() {
               <div className="bg-card p-7">
                 <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><Zap className="h-5 w-5" aria-hidden="true" /></span>
                 <h2 className="mt-5 font-semibold text-foreground">No lock-in</h2>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">Pay once for a month or year, or subscribe and cancel whenever you like from Billing.</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">One-time access does not renew automatically. Where recurring checkout is available, request cancellation from Billing.</p>
               </div>
             </Reveal>
 

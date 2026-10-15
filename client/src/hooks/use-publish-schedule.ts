@@ -40,7 +40,7 @@ export function usePublishSchedule() {
       }
 
       const result = await response.json();
-      track('publish_post', { mode: 'scheduled', ...(platforms?.length ? { platform: platforms.join(',') } : {}) });
+      track('post_scheduled', { ...(platforms?.length ? { platform: platforms.join(',') } : {}) });
       toast({
         title: 'Success',
         description: result.message,
@@ -91,6 +91,7 @@ export function usePublishSchedule() {
       }
 
       const result = await response.json();
+      track("posts_scheduled", { count: result.scheduled.length, failed_count: result.failed.length });
       toast({
         title: 'Bulk Schedule Complete',
         description: result.message,

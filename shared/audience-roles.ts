@@ -133,7 +133,7 @@ export const ROLES: readonly AudiencePage[] = [
       { question: "Is this a sales executive LinkedIn post generator?", answer: "It drafts LinkedIn posts for sales professionals and executives from current industry stories and the angle you choose. You edit and approve each one, so it reads as your perspective rather than a template." },
       { question: "Will it promote my product in every post?", answer: "No. The most credible professional posts rarely pitch. Drafts focus on the story and your view, and you decide if and when to mention your company." },
       { question: "Do I need my company's approval to post?", answer: "That depends on your employer's social media policy. Because nothing is published without your action, you can follow any review step your company requires." },
-      { question: "What does it cost?", answer: "You can start free, with no card needed. Paid plans are listed on the pricing page in your currency." },
+      { question: "What does it cost?", answer: "You can start free, with no card needed. Paid plans are listed on the pricing page in US dollars." },
     ],
     related: ["/roles/marketing-professionals", "/roles/executives", "/industries/technology-saas", "/use-cases/professional-content-creation"],
   },

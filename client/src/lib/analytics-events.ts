@@ -18,9 +18,20 @@ export function beginCheckoutParams(plan: PlanSummary) {
   return { currency: plan.currency, value: majorUnits(plan.amount), items: planItems(plan) };
 }
 
-/** GA4 `purchase`: the payment was verified. The payment id is the transaction id. */
-export function purchaseParams(plan: PlanSummary, paymentId: string) {
-  return { transaction_id: paymentId, ...beginCheckoutParams(plan) };
+export interface RecordedPayment {
+  razorpayPaymentId: string;
+  status: string;
+  amount: number;
+  currency: string;
+}
+
+/** Only a captured payment is revenue; use its recorded value, not a mutable catalogue price. */
+export function purchaseParams(plan: PlanSummary, payment: RecordedPayment) {
+  if (payment.status !== "captured") return null;
+  return {
+    transaction_id: payment.razorpayPaymentId, currency: payment.currency, value: majorUnits(payment.amount),
+    items: planItems({ ...plan, amount: payment.amount, currency: payment.currency }),
+  };
 }
 
 const GENERATION_SURFACES: Record<string, string> = {
@@ -62,15 +73,7 @@ export function takeAuthMethod(): string | null {
   } catch { return null; }
 }
 
-const NEW_ACCOUNT_WINDOW_MS = 5 * 60 * 1000;
-
-/**
- * A session appearing after sign-in is a `sign_up` when the account is brand new,
- * otherwise a `login`. Social providers return through the same callback, so the
- * account's age is the only reliable signal.
- */
-export function authReturnEvent(user: { createdAt?: string | Date | null }, method: string, now = Date.now()) {
-  const created = user.createdAt ? new Date(user.createdAt).getTime() : NaN;
-  const isNew = Number.isFinite(created) && now - created <= NEW_ACCOUNT_WINDOW_MS;
-  return { name: isNew ? "sign_up" : "login", params: { method } } as const;
+/** Authentication alone does not prove account creation, including for social providers. */
+export function authReturnEvent(method: string) {
+  return { name: "login", params: { method } } as const;
 }

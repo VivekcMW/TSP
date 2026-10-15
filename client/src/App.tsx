@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
-import { Route, useLocation, Router as WouterRouter } from "wouter";
+import { lazy, Suspense, useEffect, useLayoutEffect, useSyncExternalStore } from "react";
+import { Route, useLocation, useSearch, Router as WouterRouter } from "wouter";
 import { accountCache, queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { HelmetProvider } from "react-helmet-async";
@@ -23,20 +23,18 @@ import { RouteTransition } from "@/components/route-transition";
 import { CookieConsent } from "@/components/cookie-consent";
 import { rememberReturnTo, takeReturnTo } from "@/lib/return-to";
 import { SignInPage, SignUpPage, VerifyEmailPage } from "@/pages/auth";
-import { bootedFromPrerender } from "@/lib/prerender";
-import { schedulePageView } from "@/lib/analytics-consent";
+import { bootedFromPrerender, PrerenderHandoff } from "@/lib/prerender";
+import { beginAnalyticsNavigation } from "@/lib/analytics-consent";
+import { AnalyticsPage } from "@/components/analytics-page";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-// Analytics page views for in-app navigation. The first page view is sent by the
-// analytics loader itself (on start-up, or when the visitor accepts mid-page).
 function PageViews() {
   const [location] = useLocation();
-  const initial = useRef(true);
+  const search = useSearch();
   useEffect(() => {
-    if (initial.current) { initial.current = false; return; }
-    schedulePageView();
-  }, [location]);
+    beginAnalyticsNavigation();
+  }, [location, search]);
   return null;
 }
 
@@ -115,7 +113,7 @@ function AppRoutes() {
       return <LoadingScreen />;
 
     case "auth-error":
-      return <AuthError error={isAuthenticationError(profileError) ? profileError : dbUserError ?? profileError} />;
+      return <><AuthError error={isAuthenticationError(profileError) ? profileError : dbUserError ?? profileError} /><PrerenderHandoff /></>;
 
     case "public":
       return (
@@ -143,11 +141,13 @@ function AppRoutes() {
             existingLastName={dbUser?.lastName}
             existingName={dbUser?.name}
           />
+          <PrerenderHandoff />
+          <AnalyticsPage />
         </Suspense>
       );
 
     case "onboarding":
-      return <Suspense fallback={<LoadingScreen />}><OnboardingPage /></Suspense>;
+      return <Suspense fallback={<LoadingScreen />}><OnboardingPage /><PrerenderHandoff /><AnalyticsPage /></Suspense>;
 
     case "dashboard":
       // A failed background refresh must not destroy Settings or Create state.
@@ -157,7 +157,7 @@ function AppRoutes() {
       </AccountAvailability>;
 
     case "not-found":
-      return <NotFound />;
+      return <><NotFound /><PrerenderHandoff /><AnalyticsPage /></>;
   }
 }
 

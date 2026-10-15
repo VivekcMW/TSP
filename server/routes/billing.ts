@@ -13,6 +13,7 @@ import { getTenantEntitlements, resolveTenantEntitlements } from "../services/en
 import { billingRepository, readBillingState } from "../services/billing-repository";
 import { BillingError } from "../services/billing-lifecycle";
 import { emailTemplates, sendAppEmail } from "../services/email";
+import { readPublicBillingPlans, safePlan } from "../services/public-billing";
 
 const checkoutSchema = z.object({ planId: z.string().min(1).max(64) });
 const id = z.string().min(1).max(128);
@@ -28,19 +29,17 @@ function fail(res: Response, error: unknown, message: string) {
   return res.status(502).json({ message });
 }
 
-function safePlan(plan: typeof billingPlans.$inferSelect) {
-  return { id: plan.id, key: plan.key, name: plan.name, description: plan.description, amount: plan.amount, currency: plan.currency, interval: plan.interval, features: plan.features ?? [], recurringAvailable: Boolean(plan.razorpayPlanId), available: plan.isActive };
-}
-
 export function registerBillingRoutes(app: Express) {
   // Only allowlisted catalog fields; no customer/subscription/provider identifiers. Listed plans that
   // can't be bought yet (US dollars before international payments) come back with available: false.
   app.get("/api/public/billing/plans", async (_req, res) => {
     res.setHeader("Cache-Control", "no-store");
     try {
-      const plans = await db.select().from(billingPlans);
-      res.json({ plans: plans.filter(plan => plan.listed).map(safePlan) });
-    } catch { res.status(503).json({ message: "Plan catalog is unavailable" }); }
+      res.json({ plans: await readPublicBillingPlans() });
+    } catch {
+      console.error("Public billing catalogue could not be loaded");
+      res.status(503).json({ message: "Plan catalog is unavailable" });
+    }
   });
   app.get("/api/billing/plans", requireDbUser, requirePermission("billing:manage:tenant"), async (_req, res) => {
     res.setHeader("Cache-Control", "no-store");
@@ -146,6 +145,5 @@ export function registerBillingRoutes(app: Express) {
     }
   });
 }
-
 
 

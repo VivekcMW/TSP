@@ -78,7 +78,7 @@ describe("rendered billing and public catalog (mocked, no browser/providers)", (
   });
   it("public pricing uses the live catalog contract, with no unlimited-free promotion", () => {
     const html = renderToStaticMarkup(React.createElement(Pricing));
-    expect(state.query).toHaveBeenCalledWith({ queryKey: ["/api/public/billing/plans"] });
+    expect(state.query).toHaveBeenCalledWith({ queryKey: ["/api/public/billing/plans"], staleTime: 0, refetchOnMount: true });
     expect(html).toContain("$73.11"); expect(html).toContain("Actual catalog feature");
     expect(html).not.toMatch(/grandfather|first 1,000|Unlimited.*free/i);
   });

@@ -4,7 +4,7 @@ import path from "node:path";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import express from "express";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { precompressAssets } from "./precompress";
 import { indexingHeaders, loadPrerenderedPages, precompressedAssets, seoDocumentHandler, withPrerenderedBody } from "./static";
 import { BLOG_POSTS, blogPostSeoTitle } from "../client/src/lib/blog-posts";
@@ -160,8 +160,17 @@ describe("seoDocumentHandler", () => {
     expect(res.headers["x-robots-tag"]).toBe("noindex, nofollow");
   });
 
-  it("marks unknown routes noindex", async () => {
-    const res = await request(seoApp).get("/no-such-page");
+  it.each(["/no-such-page", "/blog/missing", "/roles/missing", "/careers/missing", "/dashboard-typo"])("returns a real noindex 404 for %s", async route => {
+    const res = await request(seoApp).get(route);
+    expect(res.status).toBe(404);
+    expect(res.headers["x-robots-tag"]).toBe("noindex, nofollow");
+    expect(res.text).toContain("Page not found");
+    expect(res.text).not.toContain('rel="canonical"');
+    expect(res.text).toContain('<meta data-rh="true" name="robots" content="noindex, nofollow" />');
+  });
+
+  it.each(["/dashboard", "/dashboard/settings", "/admin/users", "/sign-in", "/sign-in/callback", "/verify-email", "/reset-password", "/onboarding", "/complete-registration", "/careers", "/case-studies"])("preserves the application shell for %s", async route => {
+    const res = await request(seoApp).get(route);
     expect(res.status).toBe(200);
     expect(res.headers["x-robots-tag"]).toBe("noindex, nofollow");
   });
@@ -190,12 +199,48 @@ describe("prerendered pages", () => {
     expect((await request(seoApp).get("/pricing?utm_source=x")).text).toContain("<h1>Pricing</h1>");
   });
 
-  it("never prerenders private or unknown routes", async () => {
-    for (const route of ["/dashboard", "/no-such-page"]) {
+  it("never prerenders private application shells", async () => {
+    for (const route of ["/dashboard", "/admin/users"]) {
       const res = await request(seoApp).get(route);
       expect(res.text).toContain('<div id="root"></div>');
       expect(res.text).not.toContain('id="prerendered"');
     }
+  });
+
+  describe("request-time pricing", () => {
+    const template = readFileSync(path.resolve("client/index.html"), "utf8");
+    const plan = { id: "pro", key: "pro", name: "Pro </script>", description: null, amount: 2000, currency: "USD", interval: "monthly", features: ["Real allowance"], recurringAvailable: false, available: true };
+
+    it("serves current prices on every request, compressed, with safe bootstrap data", async () => {
+      const render = vi.fn()
+        .mockResolvedValueOnce({ markup: "<main><h1>Pricing</h1><p>$20</p></main>", plans: [plan] })
+        .mockResolvedValueOnce({ markup: "<main><h1>Pricing</h1><p>$25</p></main>", plans: [{ ...plan, amount: 2500 }] });
+      const app = express().use("*", seoDocumentHandler(template, new Map(), render));
+      const first = await request(app).get("/pricing").set("Accept-Encoding", "br").buffer(true).parse(raw);
+      expect(first.status).toBe(200);
+      expect(first.headers["cache-control"]).toBe("no-store");
+      expect(first.body.toString()).toContain("$20");
+      expect(first.body.toString()).toContain('id="public-pricing-data"');
+      expect(first.body.toString()).not.toContain('Pro </script>');
+      const second = await request(app).get("/pricing/").set("Accept-Encoding", "br").buffer(true).parse(raw);
+      expect(second.body.toString()).toContain("$25");
+      expect(second.body.toString()).not.toContain("$20");
+    });
+
+    it.each(["failure", "empty"])("returns a temporary error instead of loading or stale prices on %s", async kind => {
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const render = kind === "failure" ? vi.fn().mockRejectedValue(new Error("database details")) : vi.fn().mockResolvedValue({ markup: "<p>$20</p>", plans: [] });
+        const app = express().use("*", seoDocumentHandler(template, new Map(), render));
+        const response = await request(app).get("/pricing");
+        expect(response.status).toBe(503);
+        expect(response.headers["retry-after"]).toBe("60");
+        expect(response.headers["cache-control"]).toBe("no-store");
+        expect(response.text).toContain("temporarily unavailable");
+        expect(response.text).not.toMatch(/Loading current plans|database details|\$20/);
+        expect(log).toHaveBeenCalled();
+      } finally { log.mockRestore(); }
+    });
   });
 
   it("compresses HTML with brotli, falling back to gzip, then to plain text", async () => {
@@ -230,4 +275,3 @@ describe("prerendered pages", () => {
     expect(loadPrerenderedPages(path.join(tmpdir(), "missing-prerender.json")).size).toBe(0);
   });
 });
-

@@ -3,10 +3,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { AlertCircle, ArrowLeft, House } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Reveal } from "@/components/motion/reveal";
+import { SEO } from "@/components/seo";
 
 export default function NotFound() {
   return (
     <div className="min-h-[100dvh] w-full bg-background px-4 py-10 sm:px-6">
+      <SEO title="Page not found" canonical={null} robots="noindex, nofollow" description="This page could not be found. Return to TheSocialPundit to continue." />
       <Reveal className="mx-auto flex min-h-[calc(100dvh-5rem)] max-w-xl items-center justify-center">
         <Card className="w-full" data-testid="not-found-page">
           <CardContent className="p-8 text-center sm:p-12">

@@ -17,14 +17,16 @@ describe("sanitizeUrl", () => {
     expect(sanitizeUrl(url)).toBe(url);
   });
 
-  it("cleans sensitive parameters nested inside returnTo", () => {
+  it("removes nested redirects rather than forwarding arbitrary URLs", () => {
     const nested = encodeURIComponent("/dashboard/create?text=secret draft&tab=a");
     expect(sanitizeUrl(`https://x.test/sign-in?returnTo=${nested}`))
-      .toBe(`https://x.test/sign-in?returnTo=${encodeURIComponent("/dashboard/create?tab=a")}`);
+      .toBe("https://x.test/sign-in");
   });
 
-  it("preserves the hash fragment", () => {
-    expect(sanitizeUrl("https://x.test/docs?token=t#section-2")).toBe("https://x.test/docs#section-2");
+  it("removes fragments, unknown parameters and URL credentials", () => {
+    expect(sanitizeUrl("https://name:secret@x.test/docs?access_token=t&custom=private#token=secret")).toBe("https://x.test/docs");
+    expect(sanitizeUrl("https://x.test/?utm_campaign=a%40example.com")).toBe("https://x.test/");
+    expect(sanitizeUrl("javascript:alert(1)")).toBe("");
   });
 
   it("returns an empty string for an empty or unparseable value", () => {

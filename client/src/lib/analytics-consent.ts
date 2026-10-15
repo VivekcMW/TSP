@@ -13,8 +13,11 @@ export const GTM_ID = "GTM-P4Z2QFPV";
 export const GA_MEASUREMENT_ID = "G-D5K9DSSFW2";
 const STORAGE_KEY = "tsp-analytics-consent";
 export const COOKIE_SETTINGS_EVENT = "tsp:cookie-settings";
+const GA_DISABLED_KEY = `ga-disable-${GA_MEASUREMENT_ID}` as const;
+let consentForPage: AnalyticsConsent | null = null;
 
 export function readAnalyticsConsent(): AnalyticsConsent | null {
+  if (consentForPage !== null) return consentForPage;
   try {
     const value = window.localStorage.getItem(STORAGE_KEY);
     return value === "granted" || value === "denied" ? value : null;
@@ -23,35 +26,24 @@ export function readAnalyticsConsent(): AnalyticsConsent | null {
   }
 }
 
-/**
- * Query parameters that must never reach Google Analytics: one-time tokens from reset,
- * verification, invite and preference links, OAuth hand-offs, and user-written draft text.
- * `returnTo` is cleaned recursively because sign-in redirects embed the original URL in it.
- */
-const SENSITIVE_PARAMS = new Set(["token", "code", "state", "email", "text", "draft"]);
-
-function stripSensitiveParams(params: URLSearchParams): void {
-  for (const key of [...params.keys()]) if (SENSITIVE_PARAMS.has(key)) params.delete(key);
-  const returnTo = params.get("returnTo");
-  if (!returnTo) return;
-  const [path, query] = returnTo.split("?", 2);
-  if (!query) return;
-  const inner = new URLSearchParams(query);
-  stripSensitiveParams(inner);
-  const cleaned = inner.toString();
-  params.set("returnTo", cleaned ? `${path}?${cleaned}` : path);
-}
+const ANALYTICS_PARAMS = new Set(["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "utm_id", "gclid", "dclid", "gbraid", "wbraid", "tab", "view"]);
 
 /** The URL as it may be sent to analytics: absolute, with sensitive query parameters removed. */
 export function sanitizeUrl(value: string): string {
   if (!value) return "";
   let url: URL;
   try { url = new URL(value); } catch { return ""; }
-  stripSensitiveParams(url.searchParams);
+  if (!["https:", "http:"].includes(url.protocol)) return "";
+  url.username = "";
+  url.password = "";
+  url.hash = "";
+  for (const [key, value] of [...url.searchParams]) {
+    if (!ANALYTICS_PARAMS.has(key) || !/^[\w .~-]{1,200}$/.test(value)) url.searchParams.delete(key);
+  }
   return url.toString();
 }
 
-type AnalyticsWindow = Window & { dataLayer?: unknown[]; gtag?: (...args: unknown[]) => void };
+type AnalyticsWindow = Window & { dataLayer?: unknown[]; gtag?: (...args: unknown[]) => void; [GA_DISABLED_KEY]?: boolean };
 
 function dataLayer(): unknown[] {
   return ((window as AnalyticsWindow).dataLayer ??= []);
@@ -59,6 +51,7 @@ function dataLayer(): unknown[] {
 
 /** Idempotent: inserts the Tag Manager script once per page. */
 export function loadTagManager(): void {
+  if (readAnalyticsConsent() !== "granted") return;
   if (document.querySelector(`script[data-gtm="${GTM_ID}"]`)) return;
   const layer = dataLayer();
   layer.push({ "gtm.start": Date.now(), event: "gtm.js" });
@@ -78,6 +71,7 @@ export function loadTagManager(): void {
  * data stream settings, or client-side navigations would count twice.
  */
 export function loadGoogleAnalytics(): void {
+  if (readAnalyticsConsent() !== "granted") return;
   if (document.querySelector(`script[data-ga="${GA_MEASUREMENT_ID}"]`)) return;
   const layer = dataLayer();
   // gtag.js reads the arguments object itself, so this must not be an arrow function or array.
@@ -85,16 +79,19 @@ export function loadGoogleAnalytics(): void {
     layer.push(arguments);
   };
   const gtag = (window as AnalyticsWindow).gtag!;
+  gtag("consent", "default", consentSettings("granted"));
   gtag("js", new Date());
   // page_location at config level covers GA's automatic events (scroll, session_start,
   // form_start…), which otherwise carry the raw URL regardless of what page_view says.
-  gtag("config", GA_MEASUREMENT_ID, { send_page_view: false, ...pageParams() });
+  gtag("config", GA_MEASUREMENT_ID, {
+    send_page_view: false, allow_google_signals: false, allow_ad_personalization_signals: false,
+    ...pageParams(), page_title: currentPageTitle(),
+  });
   const script = document.createElement("script");
   script.async = true;
   script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`;
   script.dataset.ga = GA_MEASUREMENT_ID;
   document.head.appendChild(script);
-  schedulePageView(false);
 }
 
 function isAnalyticsActive(): boolean {
@@ -120,54 +117,73 @@ export function track(name: string, params: EventParams = {}): void {
     console.warn(`[analytics] dropped "${name}": parameters must not contain an email address`);
     return;
   }
-  (window as AnalyticsWindow).gtag!("event", name, params);
+  (window as AnalyticsWindow).gtag!("event", name, { ...params, ...pageParams(), page_title: currentPageTitle() });
 }
 
 let lastPageLocation: string | null = null;
+let navigationKey: string | null = null;
+let readyKey: string | null = null;
+let sentKey: string | null = null;
+let navigationReferrer: string | null = null;
 
 /** The sanitised location and referrer of the current page (referrer omitted when empty). */
 function pageParams(): Record<string, string> {
-  const referrer = lastPageLocation ?? sanitizeUrl(document.referrer);
-  return { page_location: sanitizeUrl(window.location.href), ...(referrer ? { page_referrer: referrer } : {}) };
+  const referrer = navigationReferrer ?? sanitizeUrl(document.referrer);
+  return { page_location: sanitizeUrl(window.location.href), page_referrer: referrer };
+}
+
+function currentPageTitle(): string {
+  const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href;
+  if (canonical && new URL(canonical).pathname.replace(/\/$/, "") === window.location.pathname.replace(/\/$/, "")) return document.title;
+  return window.location.pathname.startsWith("/dashboard") ? "Workspace | TheSocialPundit" : "TheSocialPundit";
 }
 
 /** Sends a page_view for the current URL and title, with sensitive query parameters removed. */
 export function trackPageView(): void {
-  if (!isAnalyticsActive()) return;
-  const params: Record<string, string> = { ...pageParams(), page_title: document.title };
+  if (!isAnalyticsActive() || readyKey !== navigationKey || readyKey === null || sentKey === readyKey) return;
+  const params: Record<string, string> = { ...pageParams(), page_title: currentPageTitle() };
   const gtag = (window as AnalyticsWindow).gtag!;
   gtag("set", params); // every later event (scroll, form_start, custom) reports this page
+  gtag("config", GA_MEASUREMENT_ID, { send_page_view: false, ...params });
   gtag("event", "page_view", params);
   lastPageLocation = params.page_location;
+  sentKey = readyKey;
 }
 
-const TITLE_WAIT_MS = 1500;
-let pendingPageView = 0;
+export function beginAnalyticsNavigation(): void {
+  const key = sanitizeUrl(window.location.href);
+  if (navigationKey === key) return;
+  navigationReferrer = lastPageLocation ?? sanitizeUrl(document.referrer);
+  navigationKey = key;
+  readyKey = null;
+  sentKey = null;
+  if (isAnalyticsActive()) {
+    const params = { ...pageParams(), page_title: currentPageTitle() };
+    (window as AnalyticsWindow).gtag!("set", params);
+    (window as AnalyticsWindow).gtag!("config", GA_MEASUREMENT_ID, { send_page_view: false, ...params });
+  }
+}
 
-/**
- * Sends the page view once the document title has caught up with the route. On a full load
- * the server-rendered title is already right, so two frames (react-helmet-async's own delay)
- * suffice. After an in-app navigation (`waitForTitle`), lazily loaded pages set their title
- * only once their code arrives (~0.5 s), and a page view sent before that would name the
- * previous page: wait for the title to change, at most TITLE_WAIT_MS. A newer navigation
- * supersedes a pending one.
- */
-export function schedulePageView(waitForTitle = true): void {
-  const ticket = ++pendingPageView;
-  const startingTitle = document.title;
-  const startedAt = Date.now();
-  const attempt = () => {
-    if (ticket !== pendingPageView) return;
-    if (!waitForTitle || document.title !== startingTitle || Date.now() - startedAt >= TITLE_WAIT_MS) trackPageView();
-    else setTimeout(attempt, 100);
-  };
-  requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(attempt, 0)));
+/** Called inside the route's Suspense boundary, after its content and metadata commit. */
+export function completeAnalyticsNavigation(pathname: string): void {
+  if (pathname.replace(/\/$/, "") !== window.location.pathname.replace(/\/$/, "")) return;
+  beginAnalyticsNavigation();
+  readyKey = navigationKey;
+  trackPageView();
+}
+
+function consentSettings(value: AnalyticsConsent) {
+  return { analytics_storage: value, ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" };
 }
 
 /** Loads every analytics tool. Call only once the visitor has granted consent. */
 export function loadAnalytics(): void {
+  if (readAnalyticsConsent() !== "granted") return;
+  (window as AnalyticsWindow)[GA_DISABLED_KEY] = false;
   loadGoogleAnalytics();
+  (window as AnalyticsWindow).gtag?.("consent", "update", consentSettings("granted"));
   loadTagManager();
+  trackPageView();
 }
 
 function clearAnalyticsCookies(): void {
@@ -183,12 +199,32 @@ function clearAnalyticsCookies(): void {
 }
 
 export function saveAnalyticsConsent(value: AnalyticsConsent): void {
-  try { window.localStorage.setItem(STORAGE_KEY, value); } catch { /* the choice still applies to this page */ }
+  consentForPage = value;
+  try { window.localStorage.setItem(STORAGE_KEY, value); }
+  catch { console.warn("[analytics] consent could not be saved; applying it to this page only"); }
   if (value === "granted") loadAnalytics();
-  else clearAnalyticsCookies();
+  else disableAnalytics();
 }
 
+function disableAnalytics(): void {
+  (window as AnalyticsWindow)[GA_DISABLED_KEY] = true;
+  (window as AnalyticsWindow).gtag?.("consent", "update", consentSettings("denied"));
+  sentKey = null;
+  lastPageLocation = null;
+  clearAnalyticsCookies();
+}
+
+let watchingConsent = false;
 export function startAnalyticsIfConsented(): void {
+  if (!watchingConsent) {
+    watchingConsent = true;
+    window.addEventListener("storage", event => {
+      if (event.key !== STORAGE_KEY && event.key !== null) return;
+      consentForPage = null;
+      if (readAnalyticsConsent() === "granted") loadAnalytics();
+      else disableAnalytics();
+    });
+  }
   if (readAnalyticsConsent() === "granted") loadAnalytics();
 }
 

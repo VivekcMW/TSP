@@ -424,7 +424,7 @@ export default function DraftsPage() {
     setPublishMessage("Submitting direct publication request…");
     try {
       await apiRequest("POST", `/api/drafts/${encodeURIComponent(draft.id)}/publish-now`, { consent });
-      track("publish_post", { platform: draft.platform, mode: "now" });
+      track("publish_requested", { platform: draft.platform });
       setPublishMessage("Request processed. Checking every target; a completed or skipped job is not confirmation of delivery.");
     } catch (error) {
       if (error instanceof ApiError && error.status === 409 && error.code === "publishing_reconfirm_required") {

@@ -1,4 +1,6 @@
-import { useLayoutEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
+
+const useClientLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
  * Public pages are prerendered at build time (entry-server.tsx) and served inside
@@ -19,6 +21,6 @@ export function completePrerenderHandoff() {
 
 /** Rendered alongside a page: swaps the prerendered copy for the live page in the same frame. */
 export function PrerenderHandoff() {
-  useLayoutEffect(completePrerenderHandoff, []);
+  useClientLayoutEffect(completePrerenderHandoff, []);
   return null;
 }

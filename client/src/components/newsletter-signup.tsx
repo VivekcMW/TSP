@@ -25,7 +25,7 @@ export function NewsletterSignup({ source, tone = "light" }: Readonly<{ source: 
       });
       const body = await response.json().catch(() => ({})) as { message?: string };
       if (response.status === 202) {
-        track("newsletter_subscribe", { source });
+        track("newsletter_signup_requested", { source });
         return setStatus({ kind: "sent", message: body.message ?? "Check your inbox and click the link to confirm your subscription." });
       }
       setStatus({ kind: "error", message: response.status === 400 ? "Enter a valid email address." : body.message ?? TRY_AGAIN });

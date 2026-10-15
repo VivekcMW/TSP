@@ -174,11 +174,18 @@ E2E_BASE_URL=https://www.thesocialpundit.com E2E_API_BASE_URL=https://www.thesoc
 ## Analytics (Google Analytics 4 + Tag Manager)
 
 The site loads GA4 (`G-D5K9DSSFW2`) and GTM (`GTM-P4Z2QFPV`) only after cookie
-consent (`client/src/lib/analytics-consent.ts`). The app sends page views itself
-with sanitised URLs — reset/verify/invite tokens and draft text never reach
-Google — and records product events through `track()` (sign-up, newsletter,
-checkout, purchase, generation, publishing, onboarding; see
-`client/src/lib/analytics-events.ts`). Three settings in the GA Admin UI must
+consent (`client/src/lib/analytics-consent.ts`). The app sends page views only
+after the destination has rendered, including lazy routes and transitions.
+URL query parameters are allowlisted (campaign/click attribution and tab/view);
+other parameters, nested redirects, credentials and fragments are discarded.
+Custom events reject email-bearing parameters. Do not put personal data in
+paths, campaign labels, titles or event parameters. Automatic events and
+container tags still require account-side review and payload validation.
+Withdrawal disables GA measurement, updates consent, clears analytics cookies,
+and stops app events without a reload; changes in another tab are also applied.
+Advertising consent and Google advertising signals are disabled.
+
+Required account settings:
 match the code, or data is wrong:
 
 - Data stream → Enhanced measurement → **"Page changes based on browser history
@@ -187,15 +194,59 @@ match the code, or data is wrong:
 - Data stream → Configure tag settings → **Data redaction ON** for email and the
   query parameters `token, text, email, code, state, draft` (belt and braces for
   `link_url` and anything the code does not see).
-- Admin → Events → mark `sign_up`, `purchase`, `newsletter_subscribe` and
-  `publish_post` as **key events**.
+- Audit the published GTM container: the application owns GA4 configuration.
+  Remove/pause any second configuration for `G-D5K9DSSFW2`; do not rely on
+  implicit deduplication. Other tags must also honour consent.
+- Review key-event definitions before using them for acquisition decisions.
+  Retire the old `newsletter_subscribe` and `publish_post` conversion labels;
+  their replacements distinguish requests from outcomes.
 
-GA4 batches hits once a session exists: a page view after an in-app navigation
-can take ~6 s to leave the browser, and `form_start` may only flush on the next
-navigation. When checking by hand, wait at least 10 s before concluding an event
-did not fire. The GTM container also carries a Google tag for the same
-measurement ID; gtag de-duplicates it today, but pause it in GTM rather than rely
-on that.
+| Event | Meaning |
+| --- | --- |
+| `sign_up` | Successful email account creation; social signups are not inferred from account age |
+| `login` | Successful authentication after a recorded sign-in attempt |
+| `registration_complete` | Successful product registration form, for email or social accounts |
+| `onboarding_complete` | Onboarding preferences saved |
+| `generate_post` | Generation result received, not necessarily approved or published |
+| `newsletter_signup_requested` | Confirmation requested, not a confirmed subscriber |
+| `publish_requested` | Direct publication request accepted, not proof of delivery |
+| `post_scheduled` / `posts_scheduled` | Scheduling request succeeded |
+| `content_copied` | Clipboard copy succeeded, not proof of publication |
+| `begin_checkout` | Checkout opened |
+| `purchase` | Verification returned a captured payment; amount/currency come from the recorded payment |
+
+GA4 purchase events use the provider payment ID as `transaction_id` for
+deduplication. Client events may be absent due to consent, blockers, closed tabs
+or later capture; they do not cover renewals/refunds. Use authoritative account,
+publishing and billing records for business totals and retention, not GA alone.
+Social account creation, confirmed newsletter subscriptions and eventual
+publishing outcomes require their own authoritative measurement before being
+reported as conversions. Do not bypass analytics consent to fill those gaps.
+
+Validate events in GA4 DebugView/Realtime and inspect outgoing requests as well
+as the local event queue. Collection may be batched; request observation alone
+does not prove account-side ingestion. Keep developer/test traffic excluded.
+
+## Public pricing and document delivery
+
+Public marketing pages remain prerendered. `/pricing` is the exception: its
+initial HTML is rendered from the same allowlisted billing catalogue as
+`/api/public/billing/plans`, on each request. The build retains `dist/ssr/`
+for this purpose; deploy the entire `dist` directory. No database is needed
+during the build.
+
+Pricing responses use `Cache-Control: no-store`. Safe JSON seeds the browser's
+query cache so handoff does not replace prices with a loading placeholder;
+the client then revalidates the catalogue. Database or rendering failures
+produce HTTP 503 with `Retry-After` and an explicit unavailable page, never
+invented or stale prices. Monitor pricing latency and 503s after deployment.
+The static full-text discovery export does not contain live numeric prices;
+the canonical pricing page is the source for them.
+
+Unknown public routes return HTTP 404 and noindex, using the prerendered
+not-found page. Known account routes and dashboard/admin route trees retain
+their application shell and noindex headers. The internal 404 render is not
+added to the sitemap or discovery export.
 
 ## Roll back
 

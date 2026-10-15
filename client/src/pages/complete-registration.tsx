@@ -13,6 +13,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ArrowRight, Check, ChevronDown, Search, Sparkles, UserRound } from "lucide-react";
 import { Reveal } from "@/components/motion/reveal";
 import { OnboardingProgress } from "@/components/onboarding/onboarding-progress";
+import { track } from "@/lib/analytics-consent";
 
 
 const industries = [
@@ -62,6 +63,7 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
       return await apiRequest("POST", "/api/complete-registration", data);
     },
     onSuccess: async () => {
+      track("registration_complete");
       await queryClient.invalidateQueries({ queryKey: ["/api/me"] });
       await queryClient.refetchQueries({ queryKey: ["/api/me"] });
       toast({

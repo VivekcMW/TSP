@@ -13,6 +13,7 @@ import { useAuth } from "@/lib/auth";
 import { dashboardRedirectTarget } from "@/lib/integration-security";
 import NotFound from "@/pages/not-found";
 import type { UserProfile } from "@shared/schema";
+import { AnalyticsPage } from "@/components/analytics-page";
 
 /**
  * The signed-in app: dashboard and admin routers with their layouts. Loaded lazily from
@@ -96,6 +97,7 @@ function DashboardRouter() {
             <Route path="/dashboard" component={OverviewPage} />
             <Route component={NotFound} />
           </Switch>
+          <AnalyticsPage path={location} />
           </Suspense>
         )}
       </RouteTransition>
@@ -121,6 +123,7 @@ function AdminRouter() {
             <Route path="/admin/monitoring" component={AdminMonitoringPage} />
             <Route component={NotFound} />
           </Switch>
+          <AnalyticsPage path={location} />
           </Suspense>
         )}
       </RouteTransition>

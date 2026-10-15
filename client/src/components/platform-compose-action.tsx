@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { getPlatformMeta } from "@/lib/platforms";
 import { copyAndOpenPlatform, type PlatformHandoffResult } from "@/lib/platform-handoff";
 import { platformTextValidation } from "@shared/editorial";
+import { track } from "@/lib/analytics-consent";
 
 export function PlatformComposeAction({ platform, text, testId, disabled = false, canProceed, onBusyChange }: Readonly<{
   platform: string;
@@ -74,7 +75,10 @@ export function PlatformComposeAction({ platform, text, testId, disabled = false
       // React renders the disabled button or clipboard permission resolves.
       notifyBusy?.(true);
       const result = await copyAndOpenPlatform(text, destination, ownsOperation);
-      if (ownsOperation() && result !== "abandoned") setAttempt({ context: currentContext, result });
+      if (ownsOperation() && result !== "abandoned") {
+        setAttempt({ context: currentContext, result });
+        if (result === "opened" || result === "open-failed") track("content_copied", { platform, surface: "platform_handoff" });
+      }
     } finally {
       operation.finish();
     }

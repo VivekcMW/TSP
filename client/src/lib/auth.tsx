@@ -41,7 +41,7 @@ export function useAuth() {
     if (!sessionUser) return;
     const method = takeAuthMethod();
     if (!method) return;
-    const event = authReturnEvent(sessionUser as { createdAt?: string | Date | null }, method);
+    const event = authReturnEvent(method);
     track(event.name, event.params);
   }, [sessionUser]);
 

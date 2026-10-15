@@ -32,10 +32,19 @@ for (const route of publicRoutes) {
 }
 
 test("shows useful recovery actions for unknown routes", async ({ page }) => {
+  await page.goto("/");
   await page.goto("/route-that-does-not-exist");
+  await expect(page.locator("#prerendered")).toHaveCount(0);
+  await expect(page.locator("#root")).not.toHaveAttribute("hidden", "");
   await expect(page.getByRole("heading", { name: "This page took a wrong turn." })).toBeVisible();
   await expect(page.getByRole("link", { name: "Go home" })).toHaveAttribute("href", "/");
   await expect(page.getByRole("button", { name: "Go back" })).toBeVisible();
+  await expect(page).toHaveTitle("Page not found | TheSocialPundit");
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow");
+  await expect(page.locator('link[rel="canonical"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Go back" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator("h1").first()).toHaveText(/Turn what you know into influence/i);
 });
 
 test("reduced motion renders public content immediately", async ({ page }) => {

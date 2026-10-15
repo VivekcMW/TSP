@@ -27,6 +27,7 @@ describe("auth method hand-off across the sign-in redirect", () => {
 });
 
 const plan = { id: "pro_monthly_inr", key: "pro_monthly_inr", name: "Pro (monthly)", description: null, amount: 99900, currency: "INR", interval: "monthly", features: [], recurringAvailable: true };
+const payment = { razorpayPaymentId: "pay_ABC123", status: "captured", amount: 99900, currency: "INR" };
 
 describe("checkout events", () => {
   it("describes the plan in GA4 ecommerce shape with the price in major units", () => {
@@ -37,14 +38,18 @@ describe("checkout events", () => {
   });
 
   it("adds the payment id as the transaction id on purchase", () => {
-    expect(purchaseParams(plan, "pay_ABC123")).toEqual({
+    expect(purchaseParams(plan, payment)).toEqual({
       transaction_id: "pay_ABC123", currency: "INR", value: 999,
       items: [{ item_id: "pro_monthly_inr", item_name: "Pro (monthly)", item_variant: "monthly", price: 999, quantity: 1 }],
     });
   });
 
   it("keeps cents when the price has them", () => {
-    expect(purchaseParams({ ...plan, amount: 1999, currency: "USD" }, "pay_1").value).toBe(19.99);
+    expect(purchaseParams(plan, { ...payment, amount: 1999, currency: "USD" })?.value).toBe(19.99);
+    expect(purchaseParams(plan, { ...payment, amount: 1999, currency: "USD" })?.items[0].price).toBe(19.99);
+  });
+  it.each(["authorized", "created", "failed", "refunded"])("does not count %s payments as purchases", status => {
+    expect(purchaseParams(plan, { ...payment, status })).toBeNull();
   });
 });
 
@@ -67,14 +72,8 @@ describe("editorialEvent", () => {
 });
 
 describe("authReturnEvent", () => {
-  const now = Date.parse("2026-10-15T12:00:00Z");
-  it("is a sign-up when the account was created moments ago", () => {
-    expect(authReturnEvent({ createdAt: "2026-10-15T11:58:30Z" }, "google", now)).toEqual({ name: "sign_up", params: { method: "google" } });
-  });
-  it("is a login for an older account", () => {
-    expect(authReturnEvent({ createdAt: "2026-10-01T11:58:30Z" }, "google", now)).toEqual({ name: "login", params: { method: "google" } });
-  });
-  it("is a login when the creation time is unknown", () => {
-    expect(authReturnEvent({}, "email", now)).toEqual({ name: "login", params: { method: "email" } });
+  it.each(["email", "google", "linkedin"])("does not infer registration from a %s login", method => {
+    expect(authReturnEvent(method)).toEqual({ name: "login", params: { method } });
+    expect(authReturnEvent(method)).toEqual({ name: "login", params: { method } });
   });
 });

@@ -5,7 +5,7 @@ interface SEOProps {
   /** The title already names the brand, so it is used as-is. */
   rawTitle?: boolean;
   description?: string;
-  canonical?: string;
+  canonical?: string | null;
   type?: string;
   image?: string;
   robots?: string;
@@ -41,7 +41,7 @@ export function SEO({
   jsonLd,
 }: SEOProps) {
   const fullTitle = title ? (rawTitle ? title : `${title} | TheSocialPundit`) : defaultTitle;
-  const canonicalUrl = canonical ? `${siteUrl}${canonical}` : siteUrl;
+  const canonicalUrl = canonical === null ? undefined : canonical ? `${siteUrl}${canonical}` : siteUrl;
   const structuredData = jsonLd ?? (canonical === "/" ? {
     "@context": "https://schema.org",
     "@graph": [
@@ -69,16 +69,16 @@ export function SEO({
   } : undefined);
 
   return (
-    <Helmet>
+    <Helmet defer={false}>
       <title>{fullTitle}</title>
       <meta name="description" content={description} />
       <meta name="robots" content={robots} />
-      <link rel="canonical" href={canonicalUrl} />
+      {canonicalUrl && <link rel="canonical" href={canonicalUrl} />}
       
       <meta property="og:title" content={fullTitle} />
       <meta property="og:description" content={description} />
       <meta property="og:type" content={type} />
-      <meta property="og:url" content={canonicalUrl} />
+      {canonicalUrl && <meta property="og:url" content={canonicalUrl} />}
       <meta property="og:image" content={image} />
       <meta property="og:site_name" content="TheSocialPundit" />
       

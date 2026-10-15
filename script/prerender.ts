@@ -1,4 +1,4 @@
-import { rm, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { sitemapEntries } from "../server/public-seo";
@@ -35,19 +35,17 @@ export async function prerenderPublicPages() {
     ssr: { noExternal: true },
     build: { ssr: "src/entry-server.tsx", outDir: SSR_OUT, emptyOutDir: true, rollupOptions: {} },
   });
-  try {
-    const { render } = await import(pathToFileURL(resolve(SSR_OUT, "entry-server.js")).href) as { render(path: string): Promise<string> };
-    const pages: Record<string, string> = {};
-    for (const path of prerenderPaths()) {
-      const markup = await render(path);
-      assertCrawlable(path, markup);
-      pages[path] = markup;
-    }
-    await writeFile(PRERENDER_MANIFEST, JSON.stringify(pages), "utf8");
-    await writeFile(resolve("dist/public/llms-full.txt"), generateLlmsFullTxt(pages), "utf8");
-    return Object.keys(pages).length;
-  } finally {
-    // Build-time only: the server never runs React.
-    await rm(SSR_OUT, { recursive: true, force: true });
+  const { render } = await import(pathToFileURL(resolve(SSR_OUT, "entry-server.js")).href) as { render(path: string): Promise<string> };
+  const pages: Record<string, string> = {};
+  for (const path of prerenderPaths()) {
+    const markup = await render(path);
+    assertCrawlable(path, markup);
+    pages[path] = markup;
   }
+  await writeFile(resolve("dist/public/llms-full.txt"), generateLlmsFullTxt(pages), "utf8");
+  const count = Object.keys(pages).length;
+  pages["/404"] = await render("/404");
+  await writeFile(PRERENDER_MANIFEST, JSON.stringify(pages), "utf8");
+  // Retain the renderer for request-time pricing; other public pages still use the manifest.
+  return count;
 }

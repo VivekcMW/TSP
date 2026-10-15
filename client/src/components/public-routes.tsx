@@ -6,6 +6,7 @@ import NotFound from "@/pages/not-found";
 import { ResetPasswordPage } from "@/pages/auth";
 import { LoadingScreen } from "@/components/loading-screen";
 import { PrerenderHandoff } from "@/lib/prerender";
+import { AnalyticsPage } from "@/components/analytics-page";
 
 const PricingPage = lazy(() => import("@/pages/pricing"));
 const HowItWorksPage = lazy(() => import("@/pages/how-it-works"));
@@ -79,6 +80,7 @@ export function PublicRoutes({ signInRoutes, location }: { signInRoutes?: ReactN
     </Switch>
     {/* Inside the Suspense boundary: hands off only once the lazy page has actually rendered. */}
     <PrerenderHandoff />
+    <AnalyticsPage path={location} />
     </Suspense>
   );
 }
