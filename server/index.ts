@@ -21,8 +21,11 @@ import { configureProxy } from "./lib/proxy";
 import { redis } from "./lib/redis";
 import { requireDbUser } from "./middlewares/requireDbUser";
 import { requirePermission } from "./middlewares/requirePermission";
+import { canonicalHostRedirect } from "./middlewares/canonicalHost";
 
 export const app = express();
+// Advertises the framework to scanners and serves no client.
+app.disable("x-powered-by");
 const httpServer = createServer(app);
 const sockets = new Set<Socket>();
 httpServer.on("connection", (socket) => {
@@ -41,6 +44,8 @@ app.use((req, res, next) => {
   (req as any).requestId = requestId;
   next();
 });
+
+app.use(canonicalHostRedirect);
 
 app.use((_req, res, next) => {
   if (shuttingDown) {
@@ -99,11 +104,11 @@ app.use((_req, res, next) => {
   // Enumerates fonts (Google Fonts), OAuth/API providers (LinkedIn, Twitter/X, Telegram, etc), and AI services
   const cspDirectives = [
     "default-src 'self'",                                                           // Only same-origin by default
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.googletagmanager.com", // React, Vite HMR in dev, Razorpay Checkout, and Google Tag Manager
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.googletagmanager.com", // React, Vite HMR in dev, Razorpay Checkout, Google Tag Manager and Google Analytics (gtag.js)
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",               // Inline styles + Google Fonts CSS
     "font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com",      // Google Fonts
     "img-src 'self' data: https:",                                                  // Self, data URIs, and HTTPS images
-    "connect-src 'self' https://api.linkedin.com https://www.linkedin.com https://api.twitter.com https://api.x.com https://telegram.org https://api.telegram.org https://news.google.com https://api.openrouter.ai https://api.anthropic.com https://generativelanguage.googleapis.com https://accounts.google.com https://api.razorpay.com https://checkout.razorpay.com https://lumberjack.razorpay.com https://www.googletagmanager.com https://www.google-analytics.com https://analytics.google.com https://region1.google-analytics.com https://*.ingest.us.sentry.io https://*.ingest.sentry.io",
+    "connect-src 'self' https://api.linkedin.com https://www.linkedin.com https://api.twitter.com https://api.x.com https://telegram.org https://api.telegram.org https://news.google.com https://api.openrouter.ai https://api.anthropic.com https://generativelanguage.googleapis.com https://accounts.google.com https://api.razorpay.com https://checkout.razorpay.com https://lumberjack.razorpay.com https://www.googletagmanager.com https://www.google-analytics.com https://analytics.google.com https://*.google-analytics.com https://*.analytics.google.com https://stats.g.doubleclick.net https://*.ingest.us.sentry.io https://*.ingest.sentry.io",
     "frame-src https://api.razorpay.com https://checkout.razorpay.com https://www.googletagmanager.com", // Razorpay's payment modal and GTM frames
     "object-src 'none'",                                                            // No plugins
     "base-uri 'self'",                                                              // Restrict base URL changes

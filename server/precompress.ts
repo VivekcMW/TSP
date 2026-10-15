@@ -2,8 +2,8 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 
-// Text formats only: images and fonts are already compressed.
-const COMPRESSIBLE = /\.(?:js|mjs|css|svg|json|txt|html)$/;
+// Text formats only (including sitemap.xml): images and fonts are already compressed.
+const COMPRESSIBLE = /\.(?:js|mjs|css|svg|json|txt|html|xml|webmanifest)$/;
 // Below this, headers outweigh the saving.
 const MIN_BYTES = 1024;
 

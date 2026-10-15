@@ -23,7 +23,7 @@ export function SiteFooter() {
           </div>
           
           <div>
-            <h4 className="text-info text-xs font-bold uppercase tracking-wider mb-4">Product</h4>
+            <h2 className="text-info text-xs font-bold uppercase tracking-wider mb-4">Product</h2>
             <ul className="space-y-3 text-sm">
               <li>
                 <Link href="/how-it-works" className="hover:text-primary transition-colors" data-testid="link-footer-how-it-works">
@@ -33,6 +33,21 @@ export function SiteFooter() {
               <li>
                 <Link href="/use-cases" className="hover:text-primary transition-colors" data-testid="link-footer-use-cases">
                   Use Cases
+                </Link>
+              </li>
+              <li>
+                <Link href="/roles" className="hover:text-primary transition-colors" data-testid="link-footer-roles">
+                  By Role
+                </Link>
+              </li>
+              <li>
+                <Link href="/industries" className="hover:text-primary transition-colors" data-testid="link-footer-industries">
+                  By Industry
+                </Link>
+              </li>
+              <li>
+                <Link href="/compare" className="hover:text-primary transition-colors" data-testid="link-footer-compare">
+                  Compare
                 </Link>
               </li>
               <li>
@@ -49,7 +64,7 @@ export function SiteFooter() {
           </div>
           
           <div>
-            <h4 className="text-info text-xs font-bold uppercase tracking-wider mb-4">Company</h4>
+            <h2 className="text-info text-xs font-bold uppercase tracking-wider mb-4">Company</h2>
             <ul className="space-y-3 text-sm">
               <li>
                 <Link href="/about" className="hover:text-primary transition-colors" data-testid="link-footer-about">
@@ -70,7 +85,7 @@ export function SiteFooter() {
           </div>
           
           <div>
-            <h4 className="text-info text-xs font-bold uppercase tracking-wider mb-4">Legal</h4>
+            <h2 className="text-info text-xs font-bold uppercase tracking-wider mb-4">Legal</h2>
             <ul className="space-y-3 text-sm">
               <li>
                 <Link href="/privacy" className="hover:text-primary transition-colors" data-testid="link-footer-privacy">

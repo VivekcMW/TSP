@@ -6,8 +6,8 @@ import express from "express";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { precompressAssets } from "./precompress";
-import { indexingHeaders, precompressedAssets, seoDocumentHandler } from "./static";
-import { BLOG_POSTS } from "../client/src/lib/blog-posts";
+import { indexingHeaders, loadPrerenderedPages, precompressedAssets, seoDocumentHandler, withPrerenderedBody } from "./static";
+import { BLOG_POSTS, blogPostSeoTitle } from "../client/src/lib/blog-posts";
 
 // Visitors abroad download the app's scripts over long links; compressed copies cut them to about a third.
 const script = `export const words = ${JSON.stringify(Array.from({ length: 4000 }, (_, i) => `word-${i % 50}`))};\n`;
@@ -132,7 +132,7 @@ describe("seoDocumentHandler", () => {
 
   it("renders metadata for the requested route, not the homepage", async () => {
     const home = await request(seoApp).get("/");
-    expect(home.text).toContain('<title data-rh="true">TheSocialPundit - Build Your Professional Authority on Social Media</title>');
+    expect(home.text).toContain('<title data-rh="true">Professional Authority on Social Media | TheSocialPundit</title>');
 
     const pricing = await request(seoApp).get("/pricing");
     expect(pricing.status).toBe(200);
@@ -149,7 +149,7 @@ describe("seoDocumentHandler", () => {
   it("renders article metadata for a journal post", async () => {
     const post = BLOG_POSTS[0];
     const res = await request(seoApp).get(`/blog/${post.slug}`);
-    expect(res.text).toContain(`<title data-rh="true">${post.title} | TheSocialPundit</title>`);
+    expect(res.text).toContain(`<title data-rh="true">${blogPostSeoTitle(post)}</title>`);
     expect(res.text).toContain(`https://www.thesocialpundit.com/blog/${post.slug}`);
   });
 
@@ -166,3 +166,68 @@ describe("seoDocumentHandler", () => {
     expect(res.headers["x-robots-tag"]).toBe("noindex, nofollow");
   });
 });
+
+describe("prerendered pages", () => {
+  const template = readFileSync(path.resolve("client/index.html"), "utf8");
+  const homeMarkup = `<main><h1>Turn what you know into influence.</h1><p>${"Real homepage copy. ".repeat(300)}</p><a href="/pricing">Pricing</a></main>`;
+  const prerendered = new Map([["/", homeMarkup], ["/pricing", "<main><h1>Pricing</h1></main>"]]);
+  let seoApp: express.Express;
+
+  beforeAll(() => {
+    seoApp = express();
+    seoApp.use(indexingHeaders);
+    seoApp.use("*", seoDocumentHandler(template, prerendered));
+  });
+
+  it("puts the page's real content in the initial HTML and hides the React root until hand-off", async () => {
+    const res = await request(seoApp).get("/");
+    expect(res.text).toContain(`<div id="prerendered">${homeMarkup}</div><div id="root" hidden></div>`);
+    expect(res.text).toContain('<title data-rh="true">Professional Authority on Social Media | TheSocialPundit</title>');
+  });
+
+  it("uses the canonical route, so a trailing slash or query string still gets the page", async () => {
+    expect((await request(seoApp).get("/pricing/")).text).toContain("<h1>Pricing</h1>");
+    expect((await request(seoApp).get("/pricing?utm_source=x")).text).toContain("<h1>Pricing</h1>");
+  });
+
+  it("never prerenders private or unknown routes", async () => {
+    for (const route of ["/dashboard", "/no-such-page"]) {
+      const res = await request(seoApp).get(route);
+      expect(res.text).toContain('<div id="root"></div>');
+      expect(res.text).not.toContain('id="prerendered"');
+    }
+  });
+
+  it("compresses HTML with brotli, falling back to gzip, then to plain text", async () => {
+    const br = await request(seoApp).get("/").set("Accept-Encoding", "gzip, deflate, br").buffer(true).parse(raw);
+    expect(br.headers["content-encoding"]).toBe("br");
+    expect(br.headers["content-type"]).toMatch(/^text\/html/);
+    expect(br.headers.vary).toMatch(/Accept-Encoding/);
+    expect(br.body.toString()).toContain(homeMarkup);
+    expect(sentBytes(br)).toBeLessThan(Buffer.byteLength(br.body) / 5);
+
+    const gzip = await request(seoApp).get("/").set("Accept-Encoding", "gzip").buffer(true).parse(raw);
+    expect(gzip.headers["content-encoding"]).toBe("gzip");
+    expect(gzip.body.toString()).toContain(homeMarkup);
+
+    const plain = await request(seoApp).get("/").set("Accept-Encoding", "identity").buffer(true).parse(raw);
+    expect(plain.headers["content-encoding"]).toBeUndefined();
+    expect(plain.body.toString()).toContain(homeMarkup);
+  });
+
+  it("compresses the app shell served to private routes too", async () => {
+    const res = await request(seoApp).get("/dashboard").set("Accept-Encoding", "br").buffer(true).parse(raw);
+    expect(res.headers["content-encoding"]).toBe("br");
+    expect(res.headers["x-robots-tag"]).toBe("noindex, nofollow");
+    expect(res.body.toString()).toContain('<div id="root"></div>');
+  });
+
+  it("leaves a template without the root placeholder unchanged", () => {
+    expect(withPrerenderedBody("<body></body>", "<h1>x</h1>")).toBe("<body></body>");
+  });
+
+  it("loads nothing when the build produced no manifest", () => {
+    expect(loadPrerenderedPages(path.join(tmpdir(), "missing-prerender.json")).size).toBe(0);
+  });
+});
+

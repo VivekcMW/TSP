@@ -8,6 +8,12 @@ const publicRoutes = [
   { path: "/use-cases/thought-leadership", heading: /Build authority from what is happening now/i },
   { path: "/use-cases/professional-content-creation", heading: /Move from a blank page/i },
   { path: "/use-cases/multi-platform-publishing", heading: /One point of view/i },
+  { path: "/roles", heading: /Personal branding built around the work you do/i },
+  { path: "/roles/executives", heading: /Leadership visibility without a ghostwriting team/i },
+  { path: "/industries", heading: /Thought leadership for the industry you know best/i },
+  { path: "/industries/advertising-media", heading: /Have a point of view on every shift in advertising/i },
+  { path: "/compare", heading: /How TheSocialPundit compares/i },
+  { path: "/compare/taplio", heading: /TheSocialPundit vs Taplio/i },
   { path: "/blog", heading: /Ideas for people/i },
   { path: "/sitemap", heading: /Find your way around/i },
 ];

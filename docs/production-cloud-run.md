@@ -8,9 +8,16 @@ documents, which has been retired.
 - `www.thesocialpundit.com` and `thesocialpundit.com` resolve to a Google Cloud
   HTTPS load balancer (`34.117.52.220`, forwarding rule `tsp-app-https-rule`).
   DNS is hosted at GoDaddy (`domaincontrol.com`); mail is Google Workspace.
+  `www` is canonical: the app answers page requests (GET/HEAD, outside `/api/`,
+  `/healthz` and `/readyz`) on the bare domain with a 301 to the same path on
+  `www` (`server/middlewares/canonicalHost.ts`).
 - The load balancer fronts the Cloud Run service **`tsp-app`**
   (project `tsp-social-pundit`, region `asia-south1`). The same container
-  serves the API and the built frontend.
+  serves the API and the built frontend. `pnpm run build` prerenders every
+  sitemap page into `dist/prerender.json` (`script/prerender.ts`), and the
+  server inlines it into the initial HTML, Brotli/gzip-compressed, so crawlers
+  read real headings, copy and links without running JavaScript. The build
+  fails if a public page renders without exactly one `<h1>`.
 - Configuration comes from Secret Manager and plain service environment
   variables. `DATABASE_URL` points to Neon project `bitter-queen-12361026`
   (endpoint `ep-wandering-haze-b3gbbgun`, pooled). `REDIS_URL` points to the

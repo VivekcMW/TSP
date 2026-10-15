@@ -5,6 +5,7 @@ import LandingPage from "@/pages/landing";
 import NotFound from "@/pages/not-found";
 import { ResetPasswordPage } from "@/pages/auth";
 import { LoadingScreen } from "@/components/loading-screen";
+import { PrerenderHandoff } from "@/lib/prerender";
 
 const PricingPage = lazy(() => import("@/pages/pricing"));
 const HowItWorksPage = lazy(() => import("@/pages/how-it-works"));
@@ -27,6 +28,10 @@ const CareersPage = lazy(() => import("@/pages/careers"));
 const UseCasesPage = lazy(() => import("@/pages/use-cases"));
 const UseCasePage = lazy(() => import("@/pages/use-case"));
 const SitemapPage = lazy(() => import("@/pages/sitemap"));
+const AudienceHubPage = lazy(() => import("@/pages/audience-hub"));
+const AudiencePage = lazy(() => import("@/pages/audience"));
+const CompareHubPage = lazy(() => import("@/pages/compare-hub"));
+const ComparePage = lazy(() => import("@/pages/compare"));
 
 /**
  * The marketing site. Reachable signed in or signed out, so this list lived in
@@ -45,6 +50,12 @@ export function PublicRoutes({ signInRoutes, location }: { signInRoutes?: ReactN
       <Route path="/how-it-works" component={HowItWorksPage} />
       <Route path="/use-cases" component={UseCasesPage} />
       <Route path="/use-cases/:slug" component={UseCasePage} />
+      <Route path="/roles"><AudienceHubPage kind="roles" /></Route>
+      <Route path="/roles/:slug">{params => <AudiencePage kind="roles" slug={params.slug} />}</Route>
+      <Route path="/industries"><AudienceHubPage kind="industries" /></Route>
+      <Route path="/industries/:slug">{params => <AudiencePage kind="industries" slug={params.slug} />}</Route>
+      <Route path="/compare" component={CompareHubPage} />
+      <Route path="/compare/:slug">{params => <ComparePage slug={params.slug} />}</Route>
       <Route path="/blog" component={BlogPage} />
       <Route path="/blog/:slug" component={BlogPostPage} />
       <Route path="/about" component={AboutPage} />
@@ -66,6 +77,8 @@ export function PublicRoutes({ signInRoutes, location }: { signInRoutes?: ReactN
       {signInRoutes}
       <Route component={NotFound} />
     </Switch>
+    {/* Inside the Suspense boundary: hands off only once the lazy page has actually rendered. */}
+    <PrerenderHandoff />
     </Suspense>
   );
 }

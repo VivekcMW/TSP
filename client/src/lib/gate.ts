@@ -46,6 +46,9 @@ export const PUBLIC_PATHS = [
   "/pricing",
   "/how-it-works",
   "/use-cases",
+  "/roles",
+  "/industries",
+  "/compare",
   "/blog",
   "/about",
   "/contact",
@@ -75,6 +78,9 @@ export function isPublicPath(path: string): boolean {
     (PUBLIC_PATHS as readonly string[]).includes(path) ||
     path.startsWith("/blog/") ||
     path.startsWith("/use-cases/") ||
+    path.startsWith("/roles/") ||
+    path.startsWith("/industries/") ||
+    path.startsWith("/compare/") ||
     isAuthGatewayPath(path)
   );
 }

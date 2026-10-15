@@ -3,6 +3,7 @@ import App from "./App";
 import "./index.css";
 import { initSentry, Sentry } from "./lib/sentry";
 import { startAnalyticsIfConsented } from "./lib/analytics-consent";
+import { PrerenderHandoff } from "./lib/prerender";
 
 initSentry();
 startAnalyticsIfConsented();
@@ -16,6 +17,8 @@ createRoot(document.getElementById("root")!).render(
 function ErrorFallback() {
   return (
     <div className="flex min-h-screen items-center justify-center p-6 text-center">
+      {/* Otherwise the prerendered page would stay on screen with nothing behind it working. */}
+      <PrerenderHandoff />
       <div>
         <p className="text-lg font-semibold">Something went wrong.</p>
         <p className="mt-1 text-sm text-muted-foreground">

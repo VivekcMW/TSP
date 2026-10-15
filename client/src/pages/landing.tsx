@@ -8,6 +8,7 @@ import { ProductShowcase } from "@/components/landing/product-showcase";
 import { Markets } from "@/components/landing/markets";
 import { IndustriesShowcase } from "@/components/landing/industries-showcase";
 import { UseCasesPreview } from "@/components/landing/use-cases-preview";
+import { AudienceDirectory } from "@/components/landing/audience-directory";
 import { Trust } from "@/components/landing/trust";
 import { NewsletterBanner } from "@/components/landing/newsletter-banner";
 import { FAQ } from "@/components/landing/faq";
@@ -31,6 +32,7 @@ export default function LandingPage() {
         <ProductShowcase />
         <Markets />
         <UseCasesPreview />
+        <AudienceDirectory />
         <IndustriesShowcase />
         <Trust />
         <NewsletterBanner />

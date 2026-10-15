@@ -405,6 +405,12 @@ jobs:
             echo "- Production URL: $PRODUCTION_URL"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Asks Bing and other IndexNow search engines to recrawl every public page now, instead
+      # of in days. A failure here never affects the release that has already been promoted.
+      - name: Notify search engines (IndexNow)
+        continue-on-error: true
+        run: pnpm run seo:indexnow
+
   rollback:
     if: ${{ inputs.operation == 'rollback' }}
     runs-on: ubuntu-latest

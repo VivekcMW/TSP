@@ -8,6 +8,7 @@ import { SEO } from "@/components/seo";
 import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
 import { useIsSignedIn } from "@/lib/dev-auth";
 import { formatPrice, intervalUnit, plansForCurrency, yearlySaving, type PublicBillingPlan } from "@/lib/billing";
+import { PRICING_FAQS, pricingFaqJsonLd } from "@shared/pricing-faqs";
 
 const GLOBAL_CURRENCY = "USD";
 
@@ -76,7 +77,22 @@ export default function Pricing() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <SEO title="Pricing" canonical="/pricing" description="Simple global pricing for TheSocialPundit, billed in US dollars." />
+      <SEO
+        title="Pricing"
+        canonical="/pricing"
+        description="Start building professional authority for free, then upgrade when you need the complete creation, scheduling, publishing, and performance workflow."
+        jsonLd={[
+          {
+            "@context": "https://schema.org",
+            "@type": "WebPage",
+            name: "Pricing",
+            url: "https://www.thesocialpundit.com/pricing",
+            isPartOf: { "@type": "WebSite", "@id": "https://www.thesocialpundit.com/#website", name: "TheSocialPundit", url: "https://www.thesocialpundit.com/" },
+            inLanguage: "en",
+          },
+          pricingFaqJsonLd(),
+        ]}
+      />
       <SiteHeader />
       <main className="flex-1" data-testid="section-pricing">
         <section className="relative overflow-hidden bg-foreground px-4 py-16 text-background sm:px-6 lg:py-24">
@@ -201,6 +217,26 @@ export default function Pricing() {
               Free plan allowances reset at midnight UTC. Paid access begins only after a successful checkout.
             </p>
             </Reveal>
+          </div>
+        </section>
+
+        <section className="px-4 py-16 sm:px-6 lg:py-24" aria-labelledby="pricing-faq-title">
+          <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[0.75fr_1.25fr]">
+            <Reveal>
+              <h2 id="pricing-faq-title" className="font-heading text-3xl font-semibold tracking-tight text-foreground">Pricing questions</h2>
+              <p className="mt-3 text-muted-foreground">Still unsure? <Link href="/contact" className="text-primary hover:underline">Ask us</Link>.</p>
+            </Reveal>
+            <div className="divide-y border-y">
+              {PRICING_FAQS.map(faq => (
+                <div key={faq.question} className="py-5">
+                  <h3 className="font-semibold text-foreground">{faq.question}</h3>
+                  <p className="mt-2 leading-7 text-muted-foreground">
+                    {faq.answer}
+                    {faq.question === "Can I get a refund?" && <> <Link href="/refund-policy" className="text-primary hover:underline">Read the refund policy</Link>.</>}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
       </main>

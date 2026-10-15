@@ -1,29 +1,104 @@
 # TheSocialPundit
 
-> TheSocialPundit is an AI-assisted professional authority platform. It helps professionals discover relevant industry signals, shape a clear point of view, draft content in their own voice, and review every post before publishing.
+> TheSocialPundit is an AI-assisted professional authority platform. It helps professionals discover relevant industry news, shape a clear point of view, draft posts in their own voice for LinkedIn and 20+ other networks, and approve every post before it is published.
 
-## Primary pages
+Key facts:
 
-- [Home](https://www.thesocialpundit.com/): Product overview and positioning.
-- [How it works](https://www.thesocialpundit.com/how-it-works): The workflow from industry signal to approved post.
-- [Pricing](https://www.thesocialpundit.com/pricing): Current public plans and availability.
-- [Use cases](https://www.thesocialpundit.com/use-cases): Outcome-led workflows for thought leadership, professional content creation, and multi-platform publishing.
-- [Thought leadership](https://www.thesocialpundit.com/use-cases/thought-leadership): Build authority from current industry signals and professional judgment.
-- [Professional content creation](https://www.thesocialpundit.com/use-cases/professional-content-creation): Move from a source, link, or original idea to an approved draft.
-- [Multi-platform publishing](https://www.thesocialpundit.com/use-cases/multi-platform-publishing): Adapt one point of view for the channels an audience uses.
-- [TheSocialPundit Journal](https://www.thesocialpundit.com/blog): Editorial guidance on professional authority, content strategy, AI-assisted writing, and platform craft.
-- [About](https://www.thesocialpundit.com/about): Company purpose and product principles.
-- [AI data processing](https://www.thesocialpundit.com/ai-data-processing): How AI-related data is handled.
-- [Privacy](https://www.thesocialpundit.com/privacy): Privacy practices and user rights.
+- Built for individual professionals: executives, founders, consultants, sales and marketing professionals, recruiters, agency leaders and analysts.
+- Discover follows regional news editions and explains why each story fits the user's brief; Create drafts a post that takes a position, in a tone the user chooses.
+- Nothing is published without the user's action. Direct publishing is available for supported networks; other networks receive copy-ready versions.
+- Users' drafts and topics are not used to train models for other users.
+- There is a free plan with no card required. Current plans and prices are on the pricing page; do not infer them.
+- The app is in English; news editions cover North America, Europe, India, Japan, Australia and Brazil.
 
-## Product principles
+## Product
 
-- The user approves every post.
-- The product supports professional judgment rather than replacing it.
-- Current source material grounds factual claims.
-- A user's editorial voice and data remain isolated from other users.
-- Public pricing and product claims should be taken from the current website, not inferred.
+- [Professional Authority on Social Media](https://www.thesocialpundit.com/): Turn relevant industry signals into professional posts in your voice. TheSocialPundit helps you discover, create, review, schedule, and publish with confidence.
+- [How TheSocialPundit Works](https://www.thesocialpundit.com/how-it-works): See how TheSocialPundit finds relevant industry signals, helps shape your point of view, drafts in your voice, and keeps you in control before publishing.
+- [Pricing](https://www.thesocialpundit.com/pricing): Start building professional authority for free, then upgrade when you need the complete creation, scheduling, publishing, and performance workflow.
+- [Use Cases](https://www.thesocialpundit.com/use-cases): Explore how TheSocialPundit supports thought leadership, professional content creation, and multi-platform publishing—with you in control.
+- [Thought leadership](https://www.thesocialpundit.com/use-cases/thought-leadership): Build credible thought leadership from current industry signals, your expertise, and a point of view you approve before publishing.
+- [Professional content creation](https://www.thesocialpundit.com/use-cases/professional-content-creation): Turn a current story, useful link, or original idea into a professional social post with source context and human approval.
+- [Multi-platform publishing](https://www.thesocialpundit.com/use-cases/multi-platform-publishing): Adapt one professional point of view for the social platforms your audience uses, then review, schedule, publish, or copy each version.
 
-## Contact
+## By role
 
-- [Contact TheSocialPundit](https://www.thesocialpundit.com/contact)
+- [Personal Branding by Role](https://www.thesocialpundit.com/roles): Personal branding and LinkedIn thought leadership for executives, founders, consultants, sales, marketing, recruiters, agency leaders and analysts.
+- [Executives & CEOs](https://www.thesocialpundit.com/roles/executives): Executive personal branding and CEO thought leadership on LinkedIn. Turn industry news into posts in your voice, and approve every word before it goes live.
+- [Founders & entrepreneurs](https://www.thesocialpundit.com/roles/founders): Personal branding for founders and entrepreneurs. Build founder authority on LinkedIn with posts drawn from your market's news, written in your own voice.
+- [Consultants & advisors](https://www.thesocialpundit.com/roles/consultants): Personal branding for consultants, advisors and subject matter experts. Turn your field's news into credible LinkedIn posts that show how you think.
+- [Sales professionals](https://www.thesocialpundit.com/roles/sales-professionals): Personal branding for sales professionals and sales leaders. Share B2B industry insights on LinkedIn that start conversations with buyers, in your voice.
+- [Marketing professionals](https://www.thesocialpundit.com/roles/marketing-professionals): Personal branding for marketing professionals and executives. Turn marketing industry news into sharp LinkedIn posts in your voice, ready for you to approve.
+- [Recruiters & talent acquisition](https://www.thesocialpundit.com/roles/recruiters): Personal branding for recruiters and talent acquisition professionals. Share hiring market insight on LinkedIn that candidates and hiring managers trust.
+- [Agency owners & leaders](https://www.thesocialpundit.com/roles/agency-leaders): Personal branding for agency owners, founders and executives. Publish B2B agency thought leadership on LinkedIn that earns trust before the pitch.
+- [Analysts & investment professionals](https://www.thesocialpundit.com/roles/analysts-investors): Personal branding for industry analysts and investment professionals. Turn market news into clear LinkedIn commentary that builds your reputation.
+
+## By industry
+
+- [Thought Leadership by Industry](https://www.thesocialpundit.com/industries): Industry thought leadership for advertising, technology, finance, healthcare, retail, consulting, legal, real estate, education, manufacturing and HR.
+- [Advertising, media & adtech](https://www.thesocialpundit.com/industries/advertising-media): Adtech and advertising industry thought leadership. Turn programmatic, media and AI-in-advertising news into LinkedIn posts in your own voice.
+- [Technology, AI & SaaS](https://www.thesocialpundit.com/industries/technology-saas): Technology and AI thought leadership for tech executives, SaaS founders and product leaders. Turn tech news into LinkedIn posts you approve.
+- [Fintech & financial services](https://www.thesocialpundit.com/industries/financial-services): Fintech and financial services thought leadership. Turn finance industry news into LinkedIn insight posts, with every draft reviewed before it goes live.
+- [Healthcare & life sciences](https://www.thesocialpundit.com/industries/healthcare-life-sciences): Healthcare executive thought leadership and life sciences professional branding. Turn healthcare news into careful LinkedIn content you approve.
+- [Retail & e-commerce](https://www.thesocialpundit.com/industries/retail-ecommerce): Retail industry thought leadership and e-commerce trends for LinkedIn. Turn consumer and commerce news into posts in your voice, ready to approve.
+- [Marketing technology](https://www.thesocialpundit.com/industries/marketing-technology): Marketing technology thought leadership for martech and product marketing leaders. Turn go-to-market and martech news into LinkedIn posts you approve.
+- [Consulting & professional services](https://www.thesocialpundit.com/industries/consulting-professional-services): Professional services content marketing for consulting firms. Management consultants turn business strategy news into credible LinkedIn insight.
+- [Legal services](https://www.thesocialpundit.com/industries/legal-services): Law firm thought leadership and personal branding for legal professionals. Turn legal and regulatory news into careful LinkedIn commentary you approve.
+- [Hospitality & travel](https://www.thesocialpundit.com/industries/hospitality-travel): Thought leadership for hospitality and travel professionals. Turn tourism, hotel and airline industry news into LinkedIn posts in your own voice.
+- [Real estate & property](https://www.thesocialpundit.com/industries/real-estate): Real estate personal branding and property industry thought leadership. Turn housing and commercial property news into LinkedIn content you approve.
+- [Education & edtech](https://www.thesocialpundit.com/industries/education-edtech): Education leadership and edtech industry content. Educators and edtech leaders turn education news into LinkedIn posts they review and approve.
+- [Manufacturing & supply chain](https://www.thesocialpundit.com/industries/manufacturing-supply-chain): Supply chain thought leadership and manufacturing industry insights. Turn industrial technology and logistics news into LinkedIn posts you approve.
+- [HR & the future of work](https://www.thesocialpundit.com/industries/hr-future-of-work): HR industry thought leadership on the future of work. People leaders turn workforce, hiring and AI-at-work news into LinkedIn posts they approve.
+
+## Comparisons
+
+- [AI LinkedIn Content Tools Compared](https://www.thesocialpundit.com/compare): Compare TheSocialPundit with Taplio, AuthoredUp, Buffer, Hootsuite, Jasper, Copy.ai, Feedly and Authory. Fair, sourced comparisons for professionals.
+- [TheSocialPundit vs Taplio](https://www.thesocialpundit.com/compare/taplio): Compare TheSocialPundit and Taplio: industry news discovery, AI LinkedIn writing, multi-network publishing, lead generation and free plans.
+- [TheSocialPundit vs AuthoredUp](https://www.thesocialpundit.com/compare/authoredup): Compare TheSocialPundit and AuthoredUp for LinkedIn content: news-based drafting versus formatting, preview and analytics. Features and free plans side by side.
+- [TheSocialPundit vs Buffer](https://www.thesocialpundit.com/compare/buffer): Compare TheSocialPundit and Buffer: industry news to posts versus multi-network scheduling. AI writing, networks, analytics and free plans side by side.
+- [TheSocialPundit vs Hootsuite](https://www.thesocialpundit.com/compare/hootsuite): Compare TheSocialPundit and Hootsuite: personal thought leadership versus enterprise social media management. Features, networks and free plans side by side.
+- [TheSocialPundit vs Jasper](https://www.thesocialpundit.com/compare/jasper): Compare TheSocialPundit and Jasper: personal LinkedIn thought leadership versus an enterprise AI marketing platform. Who each is for, side by side.
+- [TheSocialPundit vs Copy.ai](https://www.thesocialpundit.com/compare/copy-ai): Compare TheSocialPundit and Copy.ai: professional social posts from industry news versus a go-to-market AI workflow platform. Who each is for.
+- [TheSocialPundit vs Feedly](https://www.thesocialpundit.com/compare/feedly): Compare TheSocialPundit and Feedly: news discovery that turns into professional posts versus AI-powered news reading and market intelligence.
+- [TheSocialPundit vs Authory](https://www.thesocialpundit.com/compare/authory): Compare TheSocialPundit and Authory: creating new professional posts versus archiving and showcasing work you've already published.
+
+## Guides and articles
+
+- [TheSocialPundit Journal](https://www.thesocialpundit.com/blog): Clear thinking on professional authority, content strategy, AI-assisted writing, and showing up with a point of view people remember.
+- [How to Build a Professional Personal Brand](https://www.thesocialpundit.com/blog/how-to-build-a-personal-brand): A step-by-step personal branding strategy: choose a territory, build a point of view, publish consistently and turn visibility into opportunity.
+- [How to Become an Industry Thought Leader](https://www.thesocialpundit.com/blog/how-to-become-a-thought-leader): Thought leadership isn't a title you claim. It's a track record of useful, original thinking. Here's how to build one, step by step.
+- [How to Use AI to Write LinkedIn Posts](https://www.thesocialpundit.com/blog/how-to-use-ai-to-write-linkedin-posts): A practical workflow for using AI to create LinkedIn posts faster, without losing your voice, your credibility or your readers' trust.
+- [How to Turn News into LinkedIn Posts](https://www.thesocialpundit.com/blog/turn-industry-news-into-linkedin-posts): A repeatable method for turning articles and industry news into insightful LinkedIn posts that build authority, not just reshares.
+- [LinkedIn Content Strategy for Executives](https://www.thesocialpundit.com/blog/linkedin-content-strategy-for-executives): What to post on LinkedIn as a business leader, how often, and how to build executive authority online without it taking over your week.
+- [How Often Should You Post on LinkedIn?](https://www.thesocialpundit.com/blog/how-often-to-post-on-linkedin): The honest answer to how often you should post on LinkedIn, and how to choose a frequency you can actually sustain.
+- [How to Repurpose Articles for Social Media](https://www.thesocialpundit.com/blog/repurpose-articles-into-social-media-posts): Turn one article, report or blog post into several useful social posts across LinkedIn and other networks, each adapted rather than copied.
+- [10 Personal Branding Mistakes to Avoid](https://www.thesocialpundit.com/blog/personal-branding-mistakes-to-avoid): The most common personal branding mistakes on LinkedIn and beyond, why they hold professionals back, and what to do instead.
+- [How to Stay Updated on Industry Trends](https://www.thesocialpundit.com/blog/how-to-stay-updated-on-industry-trends): A practical system for following and curating industry news as a busy professional, and turning what you learn into visible expertise.
+- [Develop a Professional Point of View](https://www.thesocialpundit.com/blog/how-to-develop-a-professional-point-of-view): A point of view is what turns expertise into authority. Here's how to find yours, test it and express it in insightful industry commentary.
+- [Guide to Multi-Platform Social Posting](https://www.thesocialpundit.com/blog/one-voice-ten-platforms): Your audience isn't only on LinkedIn anymore. Here's how to show up consistently on ten platforms without sounding like ten different people.
+- [The 15-Minute Content Calendar](https://www.thesocialpundit.com/blog/15-minute-content-calendar): You don't need a content team to post consistently. You need a repeatable 15-minute weekly ritual — here's exactly what it looks like.
+- [Can AI-Written Posts Still Sound Like You?](https://www.thesocialpundit.com/blog/ai-content-still-sound-like-you): Generic AI content is easy to spot and easy to ignore. Here's the difference between AI that writes for you and AI that writes as you.
+- [LinkedIn Algorithm 2026: What Changed](https://www.thesocialpundit.com/blog/linkedin-algorithm-2026): Dwell time matters more than ever, external links are still quietly penalized, and comments in the first hour remain the single biggest lever.
+- [Why Generic AI Content Fails](https://www.thesocialpundit.com/blog/generic-ai-content-fails): "Write me a post about AI" produces content anyone could have written. The fix isn't a better prompt — it's better source material.
+- [Personal Brand vs Company Brand](https://www.thesocialpundit.com/blog/personal-brand-vs-company-brand): A strong company page builds trust in the business. A strong personal voice builds trust in the people running it. Neither replaces the other.
+- [Beyond LinkedIn: Reddit and Mastodon](https://www.thesocialpundit.com/blog/beyond-linkedin-reddit-mastodon): Different platforms, different unwritten rules. Here's how to tell when a channel is worth your time — and how to not get banned in week one.
+- [Why Consistency Beats Virality](https://www.thesocialpundit.com/blog/why-consistency-beats-virality): One viral post gets you a week of attention. Fifty ordinary posts over a year get you a reputation. Only one of those compounds.
+
+## Company and policies
+
+- [About](https://www.thesocialpundit.com/about): Why we built TheSocialPundit and what we believe about useful AI, professional judgment, personal voice, and human-approved publishing.
+- [Contact](https://www.thesocialpundit.com/contact): Contact TheSocialPundit for product, privacy, billing, partnership, or support questions.
+- [Newsletter](https://www.thesocialpundit.com/newsletter): Join TheSocialPundit for practical ideas on professional authority, useful AI, editorial voice, and sustainable content strategy.
+- [Privacy Policy](https://www.thesocialpundit.com/privacy): How TheSocialPundit collects, uses, protects, and deletes personal information.
+- [Terms of Service](https://www.thesocialpundit.com/terms): The terms that govern use of TheSocialPundit.
+- [AI Data Processing](https://www.thesocialpundit.com/ai-data-processing): How TheSocialPundit uses AI providers, approved voice samples, content-free quality signals, and human review.
+- [Data Retention Policy](https://www.thesocialpundit.com/data-retention): How long TheSocialPundit retains account, content, quality, billing, and audit records.
+- [Cookie Policy](https://www.thesocialpundit.com/cookies): How TheSocialPundit uses essential, preference, and analytics cookies.
+- [Refund Policy](https://www.thesocialpundit.com/refund-policy): TheSocialPundit refund eligibility, process, and contact information.
+- [Subscription Cancellation](https://www.thesocialpundit.com/subscription-cancellation): How to cancel a TheSocialPundit subscription and understand when access ends.
+
+## Optional
+
+- [Full text of public pages](https://www.thesocialpundit.com/llms-full.txt): Plain-text version of every public page.
+- [Sitemap](https://www.thesocialpundit.com/sitemap.xml)
+- [Journal RSS feed](https://www.thesocialpundit.com/rss.xml)

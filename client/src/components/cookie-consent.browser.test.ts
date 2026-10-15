@@ -57,12 +57,18 @@ describe("cookie consent", () => {
       await expect(banner(page).getByRole("link", { name: "Cookie Policy" }).getAttribute("href")).resolves.toBe("/cookies");
       expect(tagRequests).toEqual([]);
       await banner(page).getByRole("button", { name: "Accept analytics" }).click();
-      await expect.poll(() => tagRequests.length).toBe(1);
-      expect(tagRequests[0]).toContain("gtm.js?id=GTM-P4Z2QFPV");
+      await expect.poll(() => tagRequests.length).toBe(2);
+      expect(tagRequests.some(url => url.includes("gtag/js?id=G-D5K9DSSFW2"))).toBe(true);
+      expect(tagRequests.some(url => url.includes("gtm.js?id=GTM-P4Z2QFPV"))).toBe(true);
+      // gtag.js only reads Arguments objects, so the config must be queued as one.
+      const config = await page.evaluate(() => ((window as unknown as { dataLayer: unknown[] }).dataLayer)
+        .filter(entry => Object.prototype.toString.call(entry) === "[object Arguments]")
+        .map(entry => Array.from(entry as ArrayLike<unknown>).filter(value => typeof value === "string")));
+      expect(config).toContainEqual(["config", "G-D5K9DSSFW2"]);
       await expect(banner(page).count()).resolves.toBe(0);
       await page.reload(); await visit(page, tagRequests);
       await expect(banner(page).count()).resolves.toBe(0);
-      await expect.poll(() => tagRequests.length).toBe(2);
+      await expect.poll(() => tagRequests.length).toBe(4);
     } finally { await context.close(); }
   });
 
@@ -88,7 +94,12 @@ describe("cookie consent", () => {
       await page.getByRole("button", { name: "Cookie settings" }).click();
       await expect(banner(page).isVisible()).resolves.toBe(true);
       await banner(page).getByRole("button", { name: "Accept analytics" }).click();
-      await expect.poll(() => tagRequests.length).toBe(1);
+      await expect.poll(() => tagRequests.length).toBe(2);
+      // Accepting again must not load either script a second time.
+      await page.getByRole("button", { name: "Cookie settings" }).click();
+      await banner(page).getByRole("button", { name: "Accept analytics" }).click();
+      await page.waitForTimeout(200);
+      expect(tagRequests).toHaveLength(2);
     } finally { await context.close(); }
   });
 

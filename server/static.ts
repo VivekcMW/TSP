@@ -1,8 +1,9 @@
-import express, { type Express, type RequestHandler } from "express";
+import express, { type Express, type Request, type RequestHandler, type Response } from "express";
 import fs from "fs";
 import path from "path";
+import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 import { filesUnder } from "./precompress";
-import { renderInitialSeo } from "./public-seo";
+import { publicSeoForPath, renderInitialSeo } from "./public-seo";
 
 const ENCODINGS = [["br", ".br"], ["gzip", ".gz"]] as const;
 const LONG_CACHE = { maxAge: "1y", immutable: true };
@@ -37,10 +38,60 @@ export function requestPathname(originalUrl: string): string {
 }
 
 /**
- * Serves the SPA shell with metadata for the requested route. Mounted last, so it only sees
- * requests that no static file matched.
+ * Puts a page's prerendered markup (script/prerender.ts) into the initial HTML. The React root
+ * stays hidden beside it until the app can render the page itself (client/src/lib/prerender.ts).
  */
-export function seoDocumentHandler(indexTemplate: string): RequestHandler {
+export function withPrerenderedBody(html: string, markup: string): string {
+  const root = '<div id="root"></div>';
+  if (!html.includes(root)) return html;
+  return html.replace(root, () => `<div id="prerendered">${markup}</div><div id="root" hidden></div>`);
+}
+
+/** Prerendered markup keyed by route path; empty when the build produced none (e.g. in tests). */
+export function loadPrerenderedPages(file: string): Map<string, string> {
+  if (!fs.existsSync(file)) return new Map();
+  return new Map(Object.entries(JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, string>));
+}
+
+type CompressedDocument = { br: Buffer; gzip: Buffer };
+
+/**
+ * Sends an HTML document brotli- or gzip-compressed when the client accepts it. Documents are
+ * compressed once per key: every route renders the same bytes until the next deploy.
+ */
+function sendDocument(req: Request, res: Response, html: string, key: string, cache: Map<string, CompressedDocument>) {
+  res.vary("Accept-Encoding");
+  res.type("html");
+  // No header means "anything", which would include brotli for clients that can't decode it.
+  // Checked one at a time so brotli wins whenever it's accepted, whatever the header's order.
+  const encoding = !req.headers["accept-encoding"] ? undefined
+    : (["br", "gzip"] as const).find(candidate => req.acceptsEncodings(candidate) === candidate);
+  if (!encoding) {
+    res.send(html);
+    return;
+  }
+  let compressed = cache.get(key);
+  if (!compressed) {
+    const source = Buffer.from(html, "utf8");
+    compressed = {
+      br: brotliCompressSync(source, {
+        params: { [constants.BROTLI_PARAM_QUALITY]: constants.BROTLI_MAX_QUALITY, [constants.BROTLI_PARAM_MODE]: constants.BROTLI_MODE_TEXT, [constants.BROTLI_PARAM_SIZE_HINT]: source.length },
+      }),
+      gzip: gzipSync(source, { level: constants.Z_BEST_COMPRESSION }),
+    };
+    cache.set(key, compressed);
+  }
+  res.setHeader("Content-Encoding", encoding);
+  res.send(encoding === "br" ? compressed.br : compressed.gzip);
+}
+
+/**
+ * Serves the SPA shell with metadata, and the prerendered page where one exists, for the
+ * requested route. Mounted last, so it only sees requests that no static file matched.
+ */
+export function seoDocumentHandler(indexTemplate: string, prerendered: ReadonlyMap<string, string> = new Map()): RequestHandler {
+  // Bounded: one entry per public route plus the shared app shell.
+  const compressed = new Map<string, CompressedDocument>();
   return (req, res) => {
     // Inside `app.use("*")` Express strips the mount path, so `req.path` is always "/".
     // The requested route only survives on `originalUrl`.
@@ -53,8 +104,15 @@ export function seoDocumentHandler(indexTemplate: string): RequestHandler {
       return;
     }
     const rendered = renderInitialSeo(indexTemplate, pathname);
-    if (!rendered.indexable) res.setHeader("X-Robots-Tag", "noindex, nofollow");
-    res.type("html").send(rendered.html);
+    if (!rendered.indexable) {
+      res.setHeader("X-Robots-Tag", "noindex, nofollow");
+      // Every non-public route gets the identical, unmodified shell.
+      sendDocument(req, res, rendered.html, "", compressed);
+      return;
+    }
+    const route = new URL(publicSeoForPath(pathname)!.canonical).pathname;
+    const markup = prerendered.get(route);
+    sendDocument(req, res, markup ? withPrerenderedBody(rendered.html, markup) : rendered.html, route, compressed);
   };
 }
 
@@ -63,7 +121,7 @@ export function seoDocumentHandler(indexTemplate: string): RequestHandler {
  * accept it, and passes everything else on. Only copies found in `dir` at startup are served,
  * so a request path never reaches the filesystem unchecked.
  */
-export function precompressedAssets(dir: string): RequestHandler {
+export function precompressedAssets(dir: string, sendOptions: { maxAge?: string; immutable?: boolean } = LONG_CACHE): RequestHandler {
   const available = new Set(Array.from(filesUnder(dir), file => `/${path.relative(dir, file).split(path.sep).join("/")}`));
   return (req, res, next) => {
     if (req.method !== "GET" && req.method !== "HEAD") return next();
@@ -77,7 +135,7 @@ export function precompressedAssets(dir: string): RequestHandler {
     if (!chosen) return next();
     res.type(path.extname(req.path));
     res.setHeader("Content-Encoding", chosen[0]);
-    res.sendFile(req.path.slice(1) + chosen[1], { root: dir, ...LONG_CACHE }, error => {
+    res.sendFile(req.path.slice(1) + chosen[1], { root: dir, ...sendOptions }, error => {
       if (error) next(error);
     });
   };
@@ -92,6 +150,8 @@ export function serveStatic(app: Express) {
   }
 
   app.use(indexingHeaders);
+  // The raw template would be a second, metadata-less copy of the homepage.
+  app.get("/index.html", (_req, res) => res.redirect(301, "/"));
 
   // Vite emits content-hashed filenames under /assets/ (e.g. index-CEo2F5WN.js)
   // that never change for a given build — cache them for a year so the CDN in
@@ -102,10 +162,12 @@ export function serveStatic(app: Express) {
   // default no-long-cache behavior since those aren't safe to cache long.
   const assets = path.resolve(distPath, "assets");
   app.use("/assets", precompressedAssets(assets), express.static(assets, LONG_CACHE));
-  app.use(express.static(distPath, { index: false }));
+  // Root files such as sitemap.xml: compressed, but without the long cache — they change per deploy.
+  app.use(precompressedAssets(distPath, {}), express.static(distPath, { index: false }));
 
-  // Serve route-specific metadata in the initial HTML so crawlers and link
-  // unfurlers do not need to execute the React bundle to identify the page.
+  // Serve route-specific metadata and the prerendered page in the initial HTML so crawlers and
+  // link unfurlers do not need to execute the React bundle to read the page.
   const indexTemplate = fs.readFileSync(path.resolve(distPath, "index.html"), "utf8");
-  app.use("*", seoDocumentHandler(indexTemplate));
+  const prerendered = loadPrerenderedPages(path.resolve(__dirname, "prerender.json"));
+  app.use("*", seoDocumentHandler(indexTemplate, prerendered));
 }
