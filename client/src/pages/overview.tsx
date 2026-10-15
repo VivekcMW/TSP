@@ -124,12 +124,12 @@ export default function OverviewPage() {
 
   return (
     <main className="flex h-full min-w-0 flex-col overflow-hidden">
-      <PageHeader width="standard" icon={LayoutDashboard} title="Home" help="Your next action and upcoming posts" actions={
+      <PageHeader width="workbench" icon={LayoutDashboard} title="Home" subtitle="Your next action and upcoming posts." actions={
         (hasCreation || readyDrafts.length > 0 || activeItem || isLoading || hasError) ? <Button variant="outline" onClick={startNewCreate} data-testid="button-overview-instant-review">
           <Plus className="h-4 w-4" />New post
         </Button> : undefined
       } />
-      <PageBody as="div" width="standard" contentClassName="space-y-5 pb-10">
+      <PageBody as="div" width="workbench" contentClassName="space-y-5 pb-10">
           <section className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="mt-1 font-heading text-2xl font-semibold tracking-tight sm:text-3xl">Hello, {firstName}</h2>

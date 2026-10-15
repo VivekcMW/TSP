@@ -13,7 +13,7 @@
 Completed:
 
 - Replaced the deleted `ProfileSetupPage` reference with a redirect to existing content Settings; incomplete profiles still go through original onboarding.
-- Restricted sessionless account queries to the explicit, development-only frontend bypass. Logout no longer refetches cleared account data. Local bypass requires both frontend `VITE_DEV_AUTH_BYPASS=true` and backend `DEV_AUTH_BYPASS=true`; it is unavailable in production builds.
+- Restricted sessionless account queries to the explicit, development-only frontend bypass. Logout no longer refetches cleared account data. Local bypass requires both frontend `VITE_DEV_AUTH_BYPASS=true` and backend `DEV_AUTH_BYPASS=true`; it is unavailable in production builds. With the backend bypass enabled, the server listens only on `127.0.0.1`, not the local network.
 - Added shared profile validation. Completion requires trimmed 10–500-character focus. Optional lists accept up to 20 nonblank entries of at most 100 characters, with case-insensitive deduplication. Invalid request types/counts return 400 before persistence rather than silent truncation.
 - Preserved mixed legacy/weighted keywords, explicit zero weights and bounded topical categories (existing categories such as `Infrastructure` remain valid).
 - Settings reconciles label-only changes against stored keyword metadata. Only new terms get the default weight of 0.7.

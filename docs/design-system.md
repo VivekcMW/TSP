@@ -149,11 +149,18 @@ that is not a return to decorative gold branding.
 
 Source: `client/src/components/dashboard/page-header.tsx`.
 
+All six primary workspace routes (Home, Discover, Content, Calendar, Settings
+and Create) use the shared `PageHeader` and `PageBody` with `width="workbench"`.
+Keep their title font, top inset and horizontal edges consistent when navigating.
+Home and Settings guidance is a visible subtitle, matching the other pages.
+Create keeps its save status/actions in the shared header and its editor-view
+controls in a separate row below it; editor content remains independently scrollable.
+
 | `width` | Maximum measure | Appropriate use |
 |---|---|---|
 | `reading` | 48rem (`max-w-3xl`) | Narrow reading/review surfaces |
 | `standard` (default) | 64rem (`max-w-5xl`) | General dashboard content/forms |
-| `workbench` | 80rem (`max-w-7xl`) | Create bento, Content and Calendar |
+| `workbench` | 80rem (`max-w-7xl`) | All primary workspace pages |
 
 Pass the **same width** to header and body. Both use centred, shrinkable
 containers and **16px gutters, 24px from `sm` (640px)**. Do not add a second

@@ -421,7 +421,7 @@ export async function startServer(): Promise<void> {
     httpServer.listen(
       {
         port,
-        host: "0.0.0.0",
+        host: process.env.DEV_AUTH_BYPASS === "true" ? "127.0.0.1" : "0.0.0.0",
       },
       () => {
         log(`serving on port ${port}`);

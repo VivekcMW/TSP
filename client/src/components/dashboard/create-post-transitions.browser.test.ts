@@ -854,9 +854,36 @@ describe("Document and checkbox platform dialog", () => {
 });
 
 describe("UX-11/12 — shared Create frame and preserved toolbar", () => {
-  it.each([320, 375, 390, 768, 1024, 1440])("contains the document, scrollable chat and all formatting controls at %i px", async width => {
+  it.each([320, 375, 390, 768, 1024, 1440, 1920])("contains the document, scrollable chat and all formatting controls at %i px", async width => {
     await mount(); await page.setViewportSize({ width, height: 900 });
     await browserExpect(page.getByRole("main")).toHaveCount(1);
+    const header = page.locator("[data-page-header]");
+    await browserExpect(header).toHaveCSS("padding-left", width < 640 ? "16px" : "24px");
+    await browserExpect(header).toHaveAttribute("data-page-width", "workbench");
+    await browserExpect(header.getByRole("heading", { level: 1 })).toHaveText("Create post");
+    const geometry = await page.evaluate(() => {
+      const header = document.querySelector<HTMLElement>("[data-page-header]")!;
+      const title = header.querySelector("h1")!;
+      const body = document.querySelector<HTMLElement>("[data-page-body] [data-page-container]")!;
+      const container = header.querySelector<HTMLElement>("[data-page-container]")!;
+      return {
+        titleLeft: title.getBoundingClientRect().left,
+        titleTop: title.getBoundingClientRect().top - header.getBoundingClientRect().top,
+        fontSize: getComputedStyle(title).fontSize,
+        leftDifference: Math.abs(container.getBoundingClientRect().left - body.getBoundingClientRect().left),
+        rightDifference: Math.abs(container.getBoundingClientRect().right - body.getBoundingClientRect().right),
+        overflow: document.documentElement.scrollWidth - innerWidth,
+      };
+    });
+    const gutter = width < 640 ? 16 : 24;
+    expect(geometry.titleLeft).toBe(gutter + Math.max(0, (width - 2 * gutter - 1280) / 2));
+    expect(geometry.titleTop).toBe(8);
+    expect(geometry.fontSize).toBe("24px");
+    expect(geometry.leftDifference).toBeLessThanOrEqual(1);
+    expect(geometry.rightDifference).toBeLessThanOrEqual(1);
+    expect(geometry.overflow).toBeLessThanOrEqual(1);
+    await browserExpect(header.getByRole("button", { name: "Save progress", exact: true })).toBeVisible();
+    await browserExpect(header.getByRole("button", { name: "Adapt for platforms", exact: true })).toBeVisible();
     for (const target of [page.getByRole("article", { name: "Editable document" }), page.getByTestId("sticky-chat")]) {
       const bounds = (await target.boundingBox())!;
       expect(bounds.x).toBeGreaterThanOrEqual(0);
