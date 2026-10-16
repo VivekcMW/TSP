@@ -132,10 +132,21 @@ function pageParams(): Record<string, string> {
   return { page_location: sanitizeUrl(window.location.href), page_referrer: referrer };
 }
 
+// Fixed text, so these never echo anything a visitor typed.
+const AUTH_PAGE_TITLES: ReadonlyArray<readonly [string, string]> = [["/sign-in", "Sign in | TheSocialPundit"], ["/sign-up", "Sign up | TheSocialPundit"]];
+
+/** Only a public page (its own canonical) reports its title; private pages could name a draft or a person. */
+export function analyticsPageTitle(pathname: string, title: string, canonicalPathname: string | undefined): string {
+  const path = pathname.replace(/\/$/, "");
+  if (canonicalPathname !== undefined && canonicalPathname.replace(/\/$/, "") === path) return title;
+  const auth = AUTH_PAGE_TITLES.find(([prefix]) => path === prefix || path.startsWith(`${prefix}/`));
+  if (auth) return auth[1];
+  return path.startsWith("/dashboard") ? "Workspace | TheSocialPundit" : "TheSocialPundit";
+}
+
 function currentPageTitle(): string {
   const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href;
-  if (canonical && new URL(canonical).pathname.replace(/\/$/, "") === window.location.pathname.replace(/\/$/, "")) return document.title;
-  return window.location.pathname.startsWith("/dashboard") ? "Workspace | TheSocialPundit" : "TheSocialPundit";
+  return analyticsPageTitle(window.location.pathname, document.title, canonical ? new URL(canonical).pathname : undefined);
 }
 
 /** Sends a page_view for the current URL and title, with sensitive query parameters removed. */

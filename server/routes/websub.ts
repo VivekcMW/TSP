@@ -17,7 +17,9 @@ export function registerWebSubRoutes(app: Express) {
 
   app.post("/api/websub/:id", express.raw({ type: () => true, limit: "2mb" }), async (req, res) => {
     const publication = await publicationById(req.params.id).catch(() => null);
-    if (!publication?.websubSecret || !publication.hubUrl) return res.status(404).end();
+    // 410 lets the hub end a subscription we don't hold (WebSub §7); a 404 only makes it retry.
+    // The secret alone authenticates: a poll may clear hubUrl while the hub's lease still runs.
+    if (!publication?.websubSecret) return res.status(410).end();
     const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
     // An unsigned or wrongly signed delivery is ignored but acknowledged, so the hub doesn't retry it.
     if (!verifyHubSignature(req.header("x-hub-signature"), publication.websubSecret, body)) {

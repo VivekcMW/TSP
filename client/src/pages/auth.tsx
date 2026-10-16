@@ -13,6 +13,7 @@ import type { ComponentType } from "react";
 import { takeReturnTo } from "@/lib/return-to";
 import { track } from "@/lib/analytics-consent";
 import { rememberAuthMethod } from "@/lib/analytics-events";
+import { SEO } from "@/components/seo";
 
 type SocialProvider = "google" | "linkedin" | "twitter";
 type ProviderAvailability = Record<SocialProvider, boolean>;
@@ -55,7 +56,7 @@ export function SignInPage() {
       setResetPending(false);
     }
   }
-  return <AuthCard title="Welcome back" description="Sign in to TheSocialPundit"><SocialLogin /><Divider /><form className="space-y-4" onSubmit={submit}><Field id="signin-email" label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" /><Field id="signin-password" label="Password" value={password} onChange={setPassword} type="password" autoComplete="current-password" /><div className="-mt-2 flex justify-end"><button type="button" className="inline-flex min-h-11 items-center text-xs text-primary underline-offset-4 hover:underline" onClick={requestReset} disabled={resetPending}>{resetPending ? "Sending reset link…" : "Forgot password?"}</button></div><Message text={error} />{resetSent && <p className="text-sm text-success">If an account exists for that email, a reset link is on its way.</p>}<Button className="w-full" disabled={pending}>{pending ? "Signing in…" : "Sign in"}</Button><p className="text-sm text-center text-muted-foreground">New here? <Link className="text-primary underline" href="/sign-up">Create an account</Link></p></form></AuthCard>;
+  return <AuthCard pageTitle="Sign in" title="Welcome back" description="Sign in to TheSocialPundit"><SocialLogin /><Divider /><form className="space-y-4" onSubmit={submit}><Field id="signin-email" label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" /><Field id="signin-password" label="Password" value={password} onChange={setPassword} type="password" autoComplete="current-password" /><div className="-mt-2 flex justify-end"><button type="button" className="inline-flex min-h-11 items-center text-xs text-primary underline-offset-4 hover:underline" onClick={requestReset} disabled={resetPending}>{resetPending ? "Sending reset link…" : "Forgot password?"}</button></div><Message text={error} />{resetSent && <p className="text-sm text-success">If an account exists for that email, a reset link is on its way.</p>}<Button className="w-full" disabled={pending}>{pending ? "Signing in…" : "Sign in"}</Button><p className="text-sm text-center text-muted-foreground">New here? <Link className="text-primary underline" href="/sign-up">Create an account</Link></p></form></AuthCard>;
 }
 
 export function SignUpPage() {
@@ -69,11 +70,11 @@ export function SignUpPage() {
     track("sign_up", { method: "email" });
     setLocation("/verify-email");
   }
-  return <AuthCard title="Create your account" description="Verify your email to get started with TheSocialPundit"><SocialLogin /><Divider /><form className="space-y-4" onSubmit={submit}><Field id="signup-name" label="Full name" value={name} onChange={setName} autoComplete="name" /><Field id="signup-email" label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" /><Field id="signup-password" label="Password" value={password} onChange={setPassword} type="password" autoComplete="new-password" hint="At least 8 characters" /><Message text={error} /><Button className="w-full" disabled={pending}>{pending ? "Creating account…" : "Create account"}</Button><p className="text-sm text-center text-muted-foreground">Already have an account? <Link className="text-primary underline" href="/sign-in">Sign in</Link></p></form></AuthCard>;
+  return <AuthCard pageTitle="Sign up" title="Create your account" description="Verify your email to get started with TheSocialPundit"><SocialLogin /><Divider /><form className="space-y-4" onSubmit={submit}><Field id="signup-name" label="Full name" value={name} onChange={setName} autoComplete="name" /><Field id="signup-email" label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" /><Field id="signup-password" label="Password" value={password} onChange={setPassword} type="password" autoComplete="new-password" hint="At least 8 characters" /><Message text={error} /><Button className="w-full" disabled={pending}>{pending ? "Creating account…" : "Create account"}</Button><p className="text-sm text-center text-muted-foreground">Already have an account? <Link className="text-primary underline" href="/sign-in">Sign in</Link></p></form></AuthCard>;
 }
 
 export function VerifyEmailPage() {
-  return <AuthCard title="Check your inbox" description="We sent a verification link to your email address. Open it to activate your account, then sign in."><Button asChild className="w-full"><Link href="/sign-in">Go to sign in</Link></Button></AuthCard>;
+  return <AuthCard pageTitle="Check your inbox" title="Check your inbox" description="We sent a verification link to your email address. Open it to activate your account, then sign in."><Button asChild className="w-full"><Link href="/sign-in">Go to sign in</Link></Button></AuthCard>;
 }
 
 export function ResetPasswordPage() {
@@ -163,11 +164,12 @@ export function ResetPasswordPage() {
       <Link className="block text-center text-sm text-primary underline" href="/sign-in">Back to sign in</Link>
     </form>;
   }
-  return <AuthCard title="Reset your password" description="Choose a new password for your account.">{content}</AuthCard>;
+  return <AuthCard pageTitle="Reset your password" title="Reset your password" description="Choose a new password for your account.">{content}</AuthCard>;
 }
 
-function AuthCard({ title, description, children }: Readonly<{ title: string; description: string; children: React.ReactNode }>) {
+function AuthCard({ pageTitle, title, description, children }: Readonly<{ pageTitle: string; title: string; description: string; children: React.ReactNode }>) {
   return <div className="grid min-h-[100dvh] bg-background lg:grid-cols-[minmax(0,1fr)_minmax(420px,560px)]">
+    <SEO title={pageTitle} canonical={null} robots="noindex, nofollow" description={description} />
     <BrandPanel />
     <main className="flex items-center justify-center px-4 py-8 sm:px-8 lg:px-12">
       <div className="w-full max-w-md">

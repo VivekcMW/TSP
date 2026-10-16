@@ -34,7 +34,9 @@ documents, which has been retired.
   discovery (`discovered_sites`, `watch_terms`) and WebSub columns. Related settings,
   all optional: `GDELT_ENABLED=false`, `WEBSUB_ENABLED=false`, `INDEX_ONLY_THRESHOLD`
   (default 40; index candidates above which the search engines are skipped). WebSub
-  hubs call back at `${APP_URL}/api/websub/:id`. `GET /api/admin/index` shows counts.
+  hubs call back at `${APP_URL}/api/websub/:id`. A delivery to a subscription the app
+  no longer holds (no row or no secret) gets `410 Gone`, which lets the hub drop it;
+  a 404 made hubs retry it hundreds of times a day. `GET /api/admin/index` shows counts.
 - `PLAN_LIMITS_ENABLED=false` (set 2026-09-24 at the user's request): Free
   accounts get Pro access (unlimited generations, publishing, scheduling and
   analytics). Remove the variable, or set it to `true`, to restore Free-plan

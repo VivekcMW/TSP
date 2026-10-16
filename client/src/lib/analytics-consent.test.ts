@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeUrl } from "./analytics-consent";
+import { analyticsPageTitle, sanitizeUrl } from "./analytics-consent";
+
+describe("analyticsPageTitle", () => {
+  it("reports a public page's own title when the page is its canonical", () => {
+    expect(analyticsPageTitle("/pricing", "Pricing | TheSocialPundit", "/pricing/")).toBe("Pricing | TheSocialPundit");
+  });
+
+  it("names the sign-in and sign-up pages, including their sub-steps", () => {
+    expect(analyticsPageTitle("/sign-in", "Professional Authority on Social Media | TheSocialPundit", "/")).toBe("Sign in | TheSocialPundit");
+    expect(analyticsPageTitle("/sign-in/factor", "", undefined)).toBe("Sign in | TheSocialPundit");
+    expect(analyticsPageTitle("/sign-up/", "", undefined)).toBe("Sign up | TheSocialPundit");
+    expect(analyticsPageTitle("/sign-input", "", undefined)).toBe("TheSocialPundit");
+  });
+
+  it("never reports a private page's own title", () => {
+    expect(analyticsPageTitle("/dashboard/drafts", "My unpublished draft", undefined)).toBe("Workspace | TheSocialPundit");
+    expect(analyticsPageTitle("/complete-registration", "Jane Doe", undefined)).toBe("TheSocialPundit");
+  });
+});
 
 describe("sanitizeUrl", () => {
   it("removes a reset token from the query", () => {
