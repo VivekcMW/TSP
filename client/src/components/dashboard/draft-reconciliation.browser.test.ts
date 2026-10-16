@@ -39,7 +39,8 @@ beforeAll(async () => {
           status = w.failSnapshot || (w.row ? 200 : 404);
           result = w.snapshotBody === undefined ? w.row : w.snapshotBody;
         } else if (method === "GET" && url.startsWith("/api/drafts/scheduled")) result = { items: [], total: 0 };
-        else if (method === "GET" && url === "/api/drafts") result = w.hideList ? [] : w.row ? [w.row] : [];
+        // Content loads the list page by page (?limit=200&offset=N); the single row is on the first page.
+        else if (method === "GET" && /^\\/api\\/drafts\\?limit=200&offset=\\d+$/.test(url)) result = w.hideList || !url.endsWith("offset=0") ? [] : w.row ? [w.row] : [];
         else if (method === "POST" && url === "/api/drafts") {
           w.row = { id: "saved-a", ...body, tenantId: "tenant-a", userId: "user-a", status: "draft", publishStatus: "draft", publishedAt: null, publishApprovedAt: null, createdAt: "2030-01-01T00:00:00.000Z" };
           w.advance(body.content.trim()); result = w.row;

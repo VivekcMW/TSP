@@ -13,6 +13,9 @@ export const LONG_TEXT = "A long source paragraph explains the decision and its 
 // Saved focus obeys the real 500-character limit; article/post text is longer.
 export const LONG_FOCUS = LONG_TEXT.slice(0, 480);
 const revision = "2026-10-01T08:00:00.000Z";
+/** Writes the App makes on its own: Create's autosave and Discover's visit record. */
+export const isAutomaticWrite = (call: { method: string; pathname: string }) =>
+  (call.method === "PUT" && call.pathname === "/api/creation-session") || (call.method === "POST" && call.pathname === "/api/inbox/visit");
 export function fixtureDraft(id = "loaded-ready", content = LONG_TEXT, platform = "linkedin") {
   return { id, tenantId: "tenant-a", userId: "a", inboxItemId: null as string | null, platform, tone: "professional", content,
     media: [], platformPublishRules: {}, status: "draft", publishStatus: "draft", createdAt: revision, updatedAt: revision,
@@ -143,6 +146,8 @@ export async function installActualAppApi(page: Page, origin: string, errors: st
         creations.set(key, saved);
         return await reply(saved);
       }
+      // Discover records each visit (to mark what's new): automatic and idempotent, like an autosave.
+      if (call.method === "POST" && call.pathname === "/api/inbox/visit") return await reply({ previousVisitAt: null, currentVisitAt: new Date().toISOString() });
       const next = state.writes.shift();
       expect(next, `Unplanned ${call.method} ${call.pathname}`).toBeDefined();
       expect([call.method, call.pathname]).toEqual([next!.method, next!.pathname]);
@@ -175,8 +180,8 @@ export async function installActualAppApi(page: Page, origin: string, errors: st
     } }),
     count: (method: string, pathname: string) => state.calls.filter(call => call.method === method && call.pathname === pathname).length,
     assertWrites: (expected: [string, string][]) => {
-      // Autosaves are separately validated for schema, tenant and revision above.
-      expect(state.calls.filter(call => call.method !== "GET" && !(call.method === "PUT" && call.pathname === "/api/creation-session"))
+      // Autosaves are separately validated for schema, tenant and revision above; visits are automatic.
+      expect(state.calls.filter(call => call.method !== "GET" && !isAutomaticWrite(call))
         .map(call => [call.method, call.pathname])).toEqual(expected);
       expect(state.writes, "Every planned action must actually have occurred").toEqual([]);
     },

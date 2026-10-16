@@ -633,9 +633,14 @@ describe("calendar planner redesign", () => {
     await page.getByLabel("Search posts", { exact: true }).fill("not-a-matching-post");
     await browserExpect(day("2026-09-20")).toHaveAttribute("aria-label", /, 0 posts$/);
     await browserExpect(page.getByRole("region", { name: "Draft queue", exact: true })).toContainText("No matching drafts");
+    // The filter panel is a popover over the toolbar; close it as a person would to reach "Clear filters".
+    await page.keyboard.press("Escape");
+    await browserExpect(page.getByRole("dialog", { name: "Filter calendar posts" })).toHaveCount(0);
     await page.getByRole("button", { name: "Clear filters", exact: true }).click();
     await browserExpect(day("2026-09-20")).toHaveAttribute("aria-label", /, 2 posts$/);
+    await page.getByRole("button", { name: "Filter", exact: true }).click();
     await browserExpect(page.getByLabel("Search posts", { exact: true })).toHaveValue("");
+    await browserExpect(page.getByLabel("Platform", { exact: true })).toHaveValue("all");
   });
   it.each([
     ["published", "published", "Published"],
@@ -1770,6 +1775,9 @@ describe("audited publishing UX (isolated browser)", () => {
     await mount("drafts", {}, 375);
     await page.getByRole("button", { name: "Filter", exact: true }).click();
     await browserExpect(page.getByLabel("Search drafts", { exact: true })).toBeVisible();
+    // On a phone the filter popover opens over the first card; close it before using the card.
+    await page.keyboard.press("Escape");
+    await browserExpect(page.getByRole("dialog", { name: "Filter content" })).toHaveCount(0);
     await page.getByTestId("button-preview-d").click();
     await browserExpect(page.getByRole("button", { name: "Actions for LinkedIn draft" })).toBeVisible();
     await browserExpect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

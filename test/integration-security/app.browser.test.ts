@@ -9,7 +9,7 @@ import tailwindcss from "tailwindcss";
 import tailwindConfig from "../../tailwind.config";
 import { saveCreationSessionSchema, type CreationSession } from "../../shared/creation-session";
 import { installActualAppApi, expectActualAppGeometry, expectReachableAction, expectReadableControls,
-  doubleTextSize, expectDoubledText, captureActualApp, deferredResponse, fixtureDraft, LONG_TITLE, LONG_TEXT, LONG_FOCUS,
+  doubleTextSize, expectDoubledText, captureActualApp, deferredResponse, fixtureDraft, isAutomaticWrite, LONG_TITLE, LONG_TEXT, LONG_FOCUS,
   type ActualAppApi } from "./actual-app.fixture";
 
 let browser: Browser;
@@ -39,7 +39,8 @@ beforeAll(async () => {
       plugin.onResolve({ filter: /auth-client$/ }, () => ({ path: path.join(import.meta.dirname, "auth-fixture.ts") }));
       plugin.onResolve({ filter: /^@\/(pages\/|components\/(app-sidebar|dashboard\/navbar|admin\/admin-layout|public-routes))/ }, args => {
         // Keep real Settings, its child pages, Create provider, motion and router.
-        if (!args.importer.endsWith("/App.tsx")) return;
+        // Signed-in routes (shell and pages) load from components/signed-in-routes since 8bbcb51.
+        if (!/\/(App|components\/signed-in-routes)\.tsx$/.test(args.importer)) return;
         if (realWorkspace && (workspacePages.has(args.path) || args.path === "@/components/app-sidebar" || args.path === "@/components/dashboard/navbar")) return;
         if (args.path === "@/pages/settings" || args.path === "@/pages/create-post") return;
         return { path: args.path, namespace: "app-mock" };
@@ -116,6 +117,7 @@ beforeEach(async () => {
         return route.fulfill({ status: 400, json: { message: "Invalid fixture creation write" } });
       }
     }
+    if (method === "POST" && url.pathname === "/api/inbox/visit") return route.fulfill({ json: { previousVisitAt: null, currentVisitAt: new Date().toISOString() } });
     if (method !== "GET") { errors.push(`Unexpected API write: ${method} ${url.pathname}`); return route.abort(); }
     const reply = (data: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) });
     const failure = failures.get(url.pathname);
@@ -335,7 +337,8 @@ async function actualRouteActions(surface: ActualRoute) {
     : surface.key === "calendar" ? main.getByRole("button", { name: "Schedule draft", exact: true })
     : page.getByTestId("button-global-create");
   await expectReachableAction(headerAction);
-  if (surface.key === "home") await expectReachableAction(main.getByRole("link", { name: "Open calendar", exact: true }));
+  // Home links the calendar from the pipeline and from Upcoming publishing; check the card's.
+  if (surface.key === "home") await expectReachableAction(main.getByTestId("card-upcoming-publishing").getByRole("link", { name: "Open calendar", exact: true }));
   if (surface.key === "discover") await expectReachableAction(main.getByTestId("row-inbox-loaded-story"));
   if (surface.key === "content") await expectReachableAction(main.getByTestId("button-preview-loaded-ready"));
   if (surface.key === "calendar") await expectReachableAction(main.getByRole("button", { name: "Today", exact: true }));
@@ -550,12 +553,14 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
 
   it.each([375, 1440])("long Discover detail at %s px keeps Create/Save/Dismiss vertically reachable", async width => {
     await openLoadedActualApp(api, actualAppRoutes[1], width);
+    // Opening a story is the one explicit action that marks it read.
+    api.plan("POST", "/api/inbox/loaded-story/read", {}, () => ({ body: { id: "loaded-story", readAt: new Date().toISOString() } }));
     await page.getByTestId("row-inbox-loaded-story").click();
     const detail = width < 1024 ? page.getByRole("dialog", { name: "Story details", exact: true }) : page.getByRole("main");
     await browserExpect(detail.getByTestId("text-headline-loaded-story")).toHaveText(LONG_TITLE);
     for (const action of ["generate", "save", "dismiss"]) await expectReachableAction(detail.getByTestId(`button-${action}-loaded-story`));
     await expectReadableControls(detail);
-    api.assertWrites([]);
+    api.assertWrites([["POST", "/api/inbox/loaded-story/read"]]);
     await captureActualApp(page, `loaded-discover-detail-${width}`);
   });
 
@@ -1334,7 +1339,7 @@ function recordDialogs() {
 }
 
 function expectNoCreationRequests() {
-  expect(apiCalls.filter(call => call.method !== "GET" && !(call.method === "PUT" && call.pathname === "/api/creation-session"))).toEqual([]);
+  expect(apiCalls.filter(call => call.method !== "GET" && !isAutomaticWrite(call))).toEqual([]);
   expect(apiCalls.filter(call => /generation|instant-review|editorial\/jobs|media\/upload/.test(call.pathname))).toEqual([]);
 }
 
@@ -1557,6 +1562,13 @@ describe("UX-03 real App semantics and Create entry (actual CSS, mocked boundari
       apiCalls.push({ method: "GET", pathname: "/api/inbox" });
       await route.fulfill({ json: [story] });
     });
+    // Opening the story marks it read; that is not a creation request, so it is recorded apart.
+    const reads: string[] = [];
+    await page.route(url => url.origin === origin && url.pathname === `/api/inbox/${story.id}/read`, async route => {
+      if (route.request().method() !== "POST") return route.fallback();
+      reads.push(story.id);
+      await route.fulfill({ json: { id: story.id, readAt: new Date().toISOString() } });
+    });
     await openWorkspace("/dashboard", width);
     const explore = page.getByRole("main").getByRole("link", { name: "Explore story", exact: true });
     await expectSingleNavigationLink(explore, "/dashboard/discover");
@@ -1567,6 +1579,7 @@ describe("UX-03 real App semantics and Create entry (actual CSS, mocked boundari
     await discover.getByTestId(`row-inbox-${story.id}`).click();
     const detail = width < 1024 ? page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: story.headline, exact: true }) }) : discover;
     await browserExpect(detail.getByRole("heading", { name: story.headline, exact: true })).toBeVisible();
+    await browserExpect.poll(() => reads).toEqual([story.id]);
     await expectNoNestedInteractive(page.locator("body"));
     await detail.getByRole("button", { name: "Create draft", exact: true }).click();
     await browserExpect(page).toHaveURL(origin + "/dashboard/create");
@@ -1610,9 +1623,11 @@ describe("UX-03 real App semantics and Create entry (actual CSS, mocked boundari
     const link = main.getByRole("link", { name: "Manage all drafts", exact: true });
     await expectSingleNavigationLink(link, "/dashboard/content");
     await browserExpect(main.getByRole("button", { name: "Manage all drafts", exact: true })).toHaveCount(0);
-    await main.getByRole("combobox", { name: "Status", exact: true }).focus();
+    // Status and timezone live in the Filter popover.
+    await main.getByRole("button", { name: "Filter", exact: true }).click();
+    await page.getByRole("combobox", { name: "Status", exact: true }).focus();
     await page.keyboard.press("Tab");
-    await browserExpect(main.getByRole("combobox", { name: "Display & scheduling timezone", exact: true })).toBeFocused();
+    await browserExpect(page.getByRole("combobox", { name: "Display & scheduling timezone", exact: true })).toBeFocused();
     await link.focus();
     await browserExpect(link).toBeFocused();
     await expectOnScreen(link);
@@ -1648,7 +1663,7 @@ describe("UX-03 real App semantics and Create entry (actual CSS, mocked boundari
     await expectWorkspaceLandmarks("Settings");
     await browserExpect(page.getByRole("tab", { name: "content", exact: true })).toHaveAttribute("aria-selected", "true");
     await browserExpect(page.getByRole("group", { name: "Create from", exact: true })).toHaveCount(0);
-    expect(apiCalls.filter(call => call.method !== "GET")).toEqual([{ method: "POST", pathname: "/api/inbox/refresh" }]);
+    expect(apiCalls.filter(call => call.method !== "GET" && !isAutomaticWrite(call))).toEqual([{ method: "POST", pathname: "/api/inbox/refresh" }]);
     expect(apiCalls.filter(call => /generation|instant-review|editorial\/jobs|media\/upload/.test(call.pathname))).toEqual([]);
   });
 });
