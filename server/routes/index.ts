@@ -4,10 +4,13 @@ import { requireDbUser } from "../middlewares/requireDbUser";
 import { registerLinkedInAnalyticsAuth } from "../services/linkedinAnalyticsAuth";
 import { registerRedditAuth } from "../services/redditAuth";
 import { registerTwitterAuth } from "../services/twitterAuth";
+import { registerFacebookAuth } from "../services/facebookAuth";
+import { registerThreadsAuth } from "../services/threadsAuth";
 
 import { registerAuthRoutes } from "./auth";
 import { registerProfileRoutes } from "./profile";
 import { registerAiRoutes } from "./ai";
+import { registerOnboardingSuggestionRoutes } from "./onboarding-suggestions";
 import { registerInboxRoutes } from "./inbox";
 import { registerSourcesRoutes } from "./sources";
 import { registerDraftsRoutes } from "./drafts";
@@ -19,7 +22,13 @@ import { registerJobsRoutes } from "./jobs";
 import { registerMediaRoutes } from "./media";
 import { registerBillingRoutes } from "./billing";
 import { registerEmailPreferenceRoutes } from "./email-preferences";
+import { registerNewsletterRoutes } from "./newsletter";
+import { registerInvitationRoutes } from "./invitations";
+import { registerWebSubRoutes } from "./websub";
 import { registerProfileSocialLinksRoutes } from "./profile-social-links";
+import { registerEditorialVoiceRoutes } from "./editorial-voice";
+import { registerTeamRoutes } from "./team";
+import { registerCreationSessionRoutes } from "./creation-session";
 
 /**
  * Mounts the HTTP API.
@@ -34,13 +43,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerLinkedInAnalyticsAuth(app, requireDbUser);
   registerRedditAuth(app, requireDbUser);
   registerTwitterAuth(app, requireDbUser);
+  registerFacebookAuth(app, requireDbUser);
+  registerThreadsAuth(app, requireDbUser);
 
   registerAuthRoutes(app);
   registerProfileRoutes(app);
   registerAiRoutes(app);
+  registerOnboardingSuggestionRoutes(app);
   registerInboxRoutes(app);
   registerSourcesRoutes(app);
   registerDraftsRoutes(app);
+  registerCreationSessionRoutes(app);
   registerSocialRoutes(app);
   registerAnalyticsRoutes(app);
   registerAdminRoutes(app);
@@ -49,7 +62,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerMediaRoutes(app);
   registerBillingRoutes(app);
   registerEmailPreferenceRoutes(app);
+  registerNewsletterRoutes(app);
+  registerInvitationRoutes(app);
+  registerWebSubRoutes(app);
   registerProfileSocialLinksRoutes(app);
+  registerEditorialVoiceRoutes(app);
+  registerTeamRoutes(app);
 
   return httpServer;
 }

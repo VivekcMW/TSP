@@ -1,16 +1,16 @@
 import { betterAuth } from "better-auth";
+import { createEmailVerificationToken } from "better-auth/api";
 import { pool } from "./db";
-import { sendPasswordResetEmail, sendVerificationEmail } from "./services/email";
+import { sendExistingAccountEmail, sendPasswordChangedEmail, sendPasswordResetEmail, sendVerificationEmail } from "./services/email";
 import { redis } from "./lib/redis";
 import { CLIENT_IP_HEADER } from "./lib/proxy";
 import { createAuthRateLimitStorage } from "./lib/proxy-rate-limit";
 
 const baseURL = process.env.BETTER_AUTH_URL ?? process.env.APP_URL ?? "http://localhost:4300";
 const trustedOrigins = [baseURL];
-// baseURL is the backend's own origin (e.g. the Render URL), but in a split
-// frontend/backend deployment the browser's Origin header is the FRONTEND's
-// origin (e.g. the Vercel domain) — better-auth rejects requests from any
-// origin not in this list with a 403 "Invalid origin", independent of the
+// baseURL is the backend's own origin, but when the frontend is served from another
+// origin the browser's Origin header is the FRONTEND's origin — better-auth rejects
+// requests from any origin not in this list with a 403 "Invalid origin", independent of the
 // separate CORS allowlist in index.ts. Mirror that same allowlist here.
 if (process.env.APP_URL) {
   trustedOrigins.push(process.env.APP_URL.replace(/\/$/, ""));
@@ -41,6 +41,28 @@ if (!process.env.BETTER_AUTH_SECRET || process.env.BETTER_AUTH_SECRET.trim().len
 
 if (process.env.NODE_ENV === "production" && !redis) {
   throw new Error("REDIS_URL is required for shared authentication rate limiting in production");
+}
+
+const appOrigin = new URL(process.env.APP_URL ?? baseURL).origin;
+// Anyone can type another person's address into sign-up, so notify at most hourly.
+const EXISTING_SIGNUP_NOTICE_SECONDS = 3600;
+
+async function claimExistingSignUpNotice(userId: string): Promise<boolean> {
+  if (!redis) return true;
+  return await redis.set(`auth:existing-signup-notice:${userId}`, "1", "EX", EXISTING_SIGNUP_NOTICE_SECONDS, "NX") === "OK";
+}
+
+/** A verified owner is told to sign in; an unverified one gets a fresh verification link. */
+async function notifyExistingUserSignUp(user: { id: string; email: string; name: string; emailVerified: boolean }) {
+  if (!(await claimExistingSignUpNotice(user.id))) return;
+  if (user.emailVerified) {
+    await sendExistingAccountEmail(user.email, user.name, `${appOrigin}/sign-in`);
+    return;
+  }
+  const url = new URL("/api/auth/verify-email", baseURL);
+  url.searchParams.set("token", await createEmailVerificationToken(process.env.BETTER_AUTH_SECRET!, user.email));
+  url.searchParams.set("callbackURL", `${appOrigin}/complete-registration`);
+  await sendVerificationEmail(user.email, user.name, url.toString());
 }
 
 export const auth = betterAuth({
@@ -90,6 +112,24 @@ export const auth = betterAuth({
     autoSignIn: false,
     async sendResetPassword({ user, url }) {
       await sendPasswordResetEmail(user.email, user.name, url);
+    },
+    // Tell the owner their password changed; never fail the reset over the notice.
+    async onPasswordReset({ user }) {
+      try {
+        await sendPasswordChangedEmail(user.email, user.name, user.id);
+      } catch {
+        console.error("[auth] Could not send the password-changed notice.");
+      }
+    },
+    // Better Auth answers a duplicate sign-up exactly like a new one (no account
+    // enumeration); without this hook the real owner would receive nothing.
+    async onExistingUserSignUp({ user }) {
+      try {
+        await notifyExistingUserSignUp(user);
+      } catch {
+        // Never fail or delay the generic response; do not log the address.
+        console.error("[auth] Could not send the existing-account notice.");
+      }
     },
   },
   emailVerification: {

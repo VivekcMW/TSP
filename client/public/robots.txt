@@ -1,14 +1,34 @@
 # Robots.txt for TheSocialPundit
 # https://www.robotstxt.org/
+#
+# Every crawler, including search engines, AI search and answer engines, and AI training
+# crawlers, may read the public site. Private app areas are excluded for all of them.
+# AI crawlers are named explicitly so the policy is unambiguous; they follow the same rules.
 
 User-agent: *
+User-agent: Googlebot
+User-agent: Bingbot
+User-agent: Google-Extended
+User-agent: GPTBot
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: ClaudeBot
+User-agent: Claude-SearchBot
+User-agent: Claude-User
+User-agent: PerplexityBot
+User-agent: Perplexity-User
+User-agent: Applebot
+User-agent: Applebot-Extended
+User-agent: Meta-ExternalAgent
+User-agent: CCBot
+User-agent: DuckAssistBot
+User-agent: MistralAI-User
+User-agent: Amazonbot
 Allow: /
 Disallow: /dashboard
+Disallow: /admin
 Disallow: /onboarding
 Disallow: /api/
 
 # Sitemap location
 Sitemap: https://www.thesocialpundit.com/sitemap.xml
-
-# Crawl delay (optional - be polite to servers)
-Crawl-delay: 1

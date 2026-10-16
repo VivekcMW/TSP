@@ -22,8 +22,8 @@ function StatTile({ label, value, icon: Icon }: { label: string; value: number; 
           <p className="text-sm text-muted-foreground">{label}</p>
           <p className="text-3xl font-semibold heading-dashboard mt-1">{value.toLocaleString()}</p>
         </div>
-        <div className="w-10 h-10 rounded-md bg-secondary/15 flex items-center justify-center">
-          <Icon className="w-5 h-5 text-secondary" />
+        <div className="w-10 h-10 rounded-md bg-info-subtle flex items-center justify-center">
+          <Icon className="w-5 h-5 text-info" />
         </div>
       </CardContent>
     </Card>

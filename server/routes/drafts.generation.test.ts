@@ -6,10 +6,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   scope: { tenantId: "tenant-a", userId: "user-a" },
-  profile: vi.fn(), fetchArticle: vi.fn(), instant: vi.fn(), selected: vi.fn(), media: vi.fn(), publish: vi.fn(), save: vi.fn(),
+  profile: vi.fn(), fetchArticle: vi.fn(), instant: vi.fn(), selected: vi.fn(), media: vi.fn(), publish: vi.fn(), save: vi.fn(), resolveGoogleNews: vi.fn(),
   pass: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 vi.mock("../db", () => ({ db: {} }));
+vi.mock("../services/generation-quota", async original => ({ ...await original<typeof import("../services/generation-quota")>(), runGeneration: vi.fn(async (_scope, _id, _kind, _input, _signal, work) => work()) }));
 vi.mock("../lib/redis", () => ({ redis: undefined }));
 vi.mock("../storage", () => ({ storage: { getUserProfile: mocks.profile, getMediaAsset: mocks.media, createDraft: mocks.save }, ScheduleConflictError: class extends Error {} }));
 vi.mock("../jobs/queue", () => ({ enqueuePublishDraft: mocks.publish, QueueUnavailableError: class extends Error {} }));
@@ -19,10 +20,12 @@ vi.mock("../middlewares/requirePermission", () => ({ requirePermission: () => mo
 vi.mock("../middlewares/rateLimit", () => ({ instantReviewRateLimit: mocks.pass }));
 vi.mock("../services/punditBrain", () => ({ generateInstantReviewDetailed: mocks.instant, generatePlatformReviewsDetailed: mocks.selected }));
 vi.mock("../services/urlFetcher", () => ({ fetchArticleFromUrl: mocks.fetchArticle }));
+vi.mock("../services/keywordSearch", async original => ({ ...await original<typeof import("../services/keywordSearch")>(), resolveGoogleNewsArticleUrl: mocks.resolveGoogleNews }));
 import { registerDraftsRoutes } from "./drafts";
 import { editorialCancellation } from "./editorial-context";
 import { CrawlError } from "../services/crawlerFetch";
 import { buildEvidenceBrief } from "../services/editorialEvidence";
+import { GenerationQuotaError, runGeneration } from "../services/generation-quota";
 
 const article = { title: "Pilot", content: "The publisher reports a pilot result. ".repeat(30), source: "Desk", url: "https://news.test/a", domain: "news.test" };
 const metadata = { extractionMethod: "article" as const, originalLength: article.content.length, retainedLength: article.content.length, truncated: false };
@@ -34,10 +37,22 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.profile.mockResolvedValue(undefined);
   mocks.fetchArticle.mockResolvedValue({ ...article, contentMetadata: metadata });
+  mocks.resolveGoogleNews.mockImplementation(async (url: string) => url);
   mocks.instant.mockResolvedValue(result); mocks.selected.mockResolvedValue(result);
 });
 
 describe("detailed review routes", () => {
+  it.each(["/api/instant-review", "/api/instant-review/selected", "/api/instant-review/manual"])("fails closed on usage outage at %s before provider work", async endpoint => {
+    vi.mocked(runGeneration).mockRejectedValueOnce(new GenerationQuotaError(503, "generation_usage_unavailable", "Usage unavailable"));
+    const response = await request(app).post(endpoint).send({ title: "Pilot", content: article.content, url: article.url, selectedPlatforms: ["linkedin"], tenantId: "evil" });
+    expect(response.status).toBe(503); expect(response.body.code).toBe("generation_usage_unavailable");
+    expect(runGeneration).toHaveBeenCalledWith(mocks.scope, expect.any(String), expect.any(String), expect.any(Object), expect.any(AbortSignal), expect.any(Function));
+    expect(mocks.fetchArticle).not.toHaveBeenCalled(); expect(mocks.instant).not.toHaveBeenCalled(); expect(mocks.selected).not.toHaveBeenCalled();
+  });
+  it("rejects invalid retry intent without provider work", async () => {
+    const response = await request(app).post("/api/instant-review").send({ url: article.url, requestIntent: "invalid" });
+    expect(response.status).toBe(400); expect(mocks.instant).not.toHaveBeenCalled();
+  });
   it.each(["/api/instant-review", "/api/instant-review/selected"])("preserves string posts and returns full source metadata at %s", async endpoint => {
     const response = await request(app).post(endpoint).send({ url: article.url, selectedPlatforms: ["linkedin"], tenantId: "evil", scope: { tenantId: "evil" }, voice: "evil" });
     expect(response.status).toBe(200);
@@ -61,6 +76,17 @@ describe("detailed review routes", () => {
     expect(response.status).toBe(200);
     expect(mocks.selected).toHaveBeenCalledWith(expect.objectContaining({ contentMetadata: metadata }), ["medium"], expect.objectContaining({ format: "article", userContext: "Concise", voice: JSON.stringify({ defaultTone: "contrarian", professionalFocus: "Supply chains" }) }));
     expect(mocks.instant).not.toHaveBeenCalled();
+  });
+
+  it.each(["selected", "manual"])("passes the requested tones to %s generation", async kind => {
+    const response = await request(app).post(`/api/instant-review/${kind}`).send({ url: article.url, title: "Pilot", content: article.content, selectedPlatforms: ["twitter"], tones: ["provocateur"] });
+    expect(response.status).toBe(200);
+    expect(mocks.selected).toHaveBeenCalledWith(expect.any(Object), ["twitter"], expect.objectContaining({ tones: ["provocateur"] }));
+  });
+
+  it("rejects unknown tones without provider work", async () => {
+    expect((await request(app).post("/api/instant-review/selected").send({ url: article.url, selectedPlatforms: ["twitter"], tones: ["shouty"] })).status).toBe(400);
+    expect(mocks.fetchArticle).not.toHaveBeenCalled(); expect(mocks.selected).not.toHaveBeenCalled();
   });
 
   it("manual input is marked manual and media names are not evidence", async () => {
@@ -90,10 +116,26 @@ describe("detailed review routes", () => {
     expect(mocks.instant).not.toHaveBeenCalled();
   });
 
+  const googleNews = "https://news.google.com/rss/articles/CBMiWkFVX3lxTE9fake?oc=5";
+  it("resolves a Google News link to the publisher before reading the article", async () => {
+    mocks.resolveGoogleNews.mockResolvedValue("https://publisher.test/story");
+    const response = await request(app).post("/api/instant-review/selected").send({ url: googleNews, selectedPlatforms: ["linkedin"] });
+    expect(response.status).toBe(200);
+    expect(mocks.resolveGoogleNews).toHaveBeenCalledWith(googleNews, expect.any(AbortSignal), expect.any(Number));
+    expect(mocks.fetchArticle).toHaveBeenCalledWith("https://publisher.test/story", expect.any(AbortSignal));
+  });
+
+  it("explains an unresolvable Google News link without reading it or calling the AI", async () => {
+    const response = await request(app).post("/api/instant-review/selected").send({ url: googleNews, selectedPlatforms: ["linkedin"] });
+    expect(response.status).toBe(422);
+    expect(response.body.message).toContain("Google News hides the original link for this story");
+    expect(mocks.fetchArticle).not.toHaveBeenCalled(); expect(mocks.selected).not.toHaveBeenCalled();
+  });
+
   it("returns actionable crawl failures without successful posts", async () => {
     mocks.fetchArticle.mockRejectedValue(new CrawlError("content", "No readable article content was found."));
     const response = await request(app).post("/api/instant-review/selected").send({ url: article.url, selectedPlatforms: ["linkedin"] });
-    expect(response.status).toBe(422); expect(response.body.message).toContain("Write article");
+    expect(response.status).toBe(422); expect(response.body.message).toContain("supply the text yourself");
     expect(response.body).not.toHaveProperty("posts"); expect(mocks.selected).not.toHaveBeenCalled();
   });
 

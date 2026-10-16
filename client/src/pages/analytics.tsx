@@ -7,25 +7,18 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent as BaseDialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Input as BaseInput } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
 import { formatDistanceToNow } from "date-fns";
-import { useEffect, useState, useId } from "react";
-import type { ComponentType, ComponentProps } from "react";
+import { useEffect, useState } from "react";
+import type { ComponentType } from "react";
 import { useLocation, useSearch } from "wouter";
 import { PageHeader } from "@/components/dashboard/page-header";
 import type { SettingsPageProps } from "@/components/settings/settings-page-props";
 import { getPlatformMeta, PLATFORMS } from "@/lib/platforms";
-
-function Input(props: Readonly<ComponentProps<typeof BaseInput>>) {
-  const id = useId();
-  return <label htmlFor={id} className="space-y-2 text-sm font-medium"><span className="block">{props["aria-label"] ?? props.placeholder}</span><BaseInput {...props} id={id} className={`min-h-11 ${props.className ?? ""}`} /></label>;
-}
-
-function DialogContent(props: Readonly<ComponentProps<typeof BaseDialogContent>>) {
-  return <BaseDialogContent {...props} className={`[&_button]:min-h-11 [&_button]:min-w-11 ${props.className ?? ""}`} />;
-}
+import { DIRECT_PUBLISH_PLATFORMS, publishingCapability } from "@shared/publishing-capabilities";
 
 interface AnalyticsSummary {
   connected: {
@@ -163,8 +156,12 @@ const PLATFORM_GUIDES: Record<string, PlatformGuide> = {
     links: [{ label: "Reddit", url: "https://www.reddit.com/" }],
   },
   threads: {
-    description: "Threads doesn't support automated posting yet — open it to paste your draft manually.",
-    steps: ["Copy the draft generated for Threads in TheSocialPundit.", "Click Open to launch Threads.", "Paste and post it there directly."],
+    description: "Connect Threads via Meta's Threads API to publish text posts directly. Images/video aren't supported yet (Threads requires publicly hosted media).",
+    steps: [
+      "Click Connect on the Threads card.",
+      "Sign in to Threads when prompted and approve the requested permissions.",
+      "You'll be redirected back here, connected and ready to publish text posts.",
+    ],
     links: [{ label: "Threads", url: "https://www.threads.net/" }],
   },
   substack: {
@@ -173,9 +170,13 @@ const PLATFORM_GUIDES: Record<string, PlatformGuide> = {
     links: [{ label: "Substack", url: "https://substack.com/" }],
   },
   medium: {
-    description: "Paste your draft into a new Medium story.",
-    steps: ["Copy the draft generated for Medium in TheSocialPundit.", "Click Open to start a new Medium story.", "Paste, format, and publish it there."],
-    links: [{ label: "Medium", url: "https://medium.com/" }],
+    description: "Generate a self-issued integration token from your Medium account settings. Medium no longer accepts new OAuth app connections, so this is the only working path for a new integration.",
+    steps: [
+      "Go to Medium → Settings → Integration tokens.",
+      "Generate a new integration token (name it \"TheSocialPundit\" or similar) and copy it.",
+      "Click Connect on the Medium card and paste it — no OAuth sign-in needed.",
+    ],
+    links: [{ label: "Medium", url: "https://medium.com/me/settings" }],
   },
   hashnode: {
     description: "Generate a personal access token from your Hashnode account settings to publish directly to your default publication. Note: Hashnode now requires your publication to be on a paid Pro plan for any API access.",
@@ -193,8 +194,12 @@ const PLATFORM_GUIDES: Record<string, PlatformGuide> = {
     links: [{ label: "Quora", url: "https://www.quora.com/" }],
   },
   facebook: {
-    description: "Paste your draft into a new Facebook post.",
-    steps: ["Copy the draft generated for Facebook in TheSocialPundit.", "Click Open to go to Facebook.", "Paste and publish it there directly."],
+    description: "Connect a Facebook Page you manage via OAuth to publish directly.",
+    steps: [
+      "Click Connect on the Facebook card.",
+      "Sign in to Facebook when prompted and approve the requested Page permissions.",
+      "We connect the first Page you manage. You'll be redirected back here, connected and ready to publish.",
+    ],
     links: [{ label: "Facebook", url: "https://www.facebook.com/" }],
   },
   telegram: {
@@ -269,7 +274,7 @@ function PlatformGuideSheet({ platformKey, label, onOpenChange }: { platformKey:
             <ol className="space-y-2">
               {guide?.steps.map((step, index) => (
                 <li key={step} className="flex gap-3 text-sm">
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-secondary/15 text-xs font-medium text-secondary">{index + 1}</span>
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-info-subtle text-xs font-medium text-info">{index + 1}</span>
                   <span className="text-muted-foreground">{step}</span>
                 </li>
               ))}
@@ -279,7 +284,7 @@ function PlatformGuideSheet({ platformKey, label, onOpenChange }: { platformKey:
             <p className="mb-2 text-sm font-medium">Helpful links</p>
             <div className="space-y-2">
               {guide?.links.map((link) => (
-                <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between gap-2 rounded-md border border-border/70 bg-card px-3 py-2 text-sm hover-elevate">
+                <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" className="control-touch-target flex min-h-9 items-center justify-between gap-1.5 rounded-md border border-border/70 bg-card px-3 py-1.5 text-sm hover-elevate">
                   <span>{link.label}</span>
                   <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 </a>
@@ -326,22 +331,23 @@ function PlatformRow({
   return (
     <Card className="border-border/70 shadow-sm hover-elevate" data-testid={`card-connection-${testId}`}>
       <CardContent className="flex flex-wrap items-center gap-4 p-4">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary/15">
-          <Icon className="h-5 w-5 text-secondary" />
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-info-subtle">
+          <Icon className="h-5 w-5 text-info" />
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-56 [overflow-wrap:anywhere]">
           <div className="flex items-center gap-2">
-            <p className="font-medium">{label}</p>
+            <p className="min-w-0 font-medium">{label}</p>
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${needsAttention ? "bg-destructive" : connected ? "bg-success" : "bg-muted-foreground/40"}`} />
           </div>
           <p className="break-words text-sm text-muted-foreground">{statusKnown ? description : "Connection status unavailable"}</p>
+          <p className="text-xs text-muted-foreground">{publishingCapability(testId)?.maxMedia ? `Media: up to ${publishingCapability(testId)!.maxMedia} attachments; type and size limits checked before delivery.` : "Text-only publishing; attachments are not supported."} {publishingCapability(testId)?.receipt === "unavailable" ? "Delivery receipt unavailable; acceptance is not verified publication." : "Live publication requires a provider post ID."}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2 [&_button]:min-h-11 [&_button]:min-w-11">
-          <Button variant="ghost" size="icon" className="h-11 w-11" onClick={onGuide} aria-label={`${label} guide`} title={`${label} guide`}>
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={onGuide} aria-label={`${label} guide`} title={`${label} guide`}>
             <HelpCircle className="h-4 w-4" />
           </Button>
           {connected && onSync && (
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onSync} disabled={isSyncing} aria-label={`Sync ${label}`} title={`Sync ${label}`}>
+            <Button variant="ghost" size="icon" onClick={onSync} disabled={isSyncing} aria-label={`Sync ${label}`} title={`Sync ${label}`}>
               <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
             </Button>
           )}
@@ -363,8 +369,8 @@ function PlatformRow({
 }
 
 const MANUAL_PLATFORM_CATEGORIES: Array<{ label: string; platforms: string[] }> = [
-  { label: "Blogging & long-form", platforms: ["substack", "medium", "quora"] },
-  { label: "Social", platforms: ["threads", "facebook", "farcaster", "xiaohongshu", "weibo"] },
+  { label: "Blogging & long-form", platforms: ["substack", "quora"] },
+  { label: "Social", platforms: ["farcaster", "xiaohongshu", "weibo"] },
   { label: "Messaging", platforms: ["wechat", "line"] },
   { label: "Professional & regional", platforms: ["maimai", "vk", "naver", "xing"] },
 ];
@@ -374,15 +380,15 @@ function ManualPlatformRow({ platform, onGuide }: { platform: ReturnType<typeof 
 
   return (
     <Card className="border-border/70 shadow-sm hover-elevate" data-testid={`card-connection-${platform.value}`}>
-      <CardContent className="flex flex-wrap items-center gap-4 p-4 [&_button]:min-h-11 [&_button]:min-w-11">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary/15">
-          <Icon className="h-5 w-5 text-secondary" />
+      <CardContent className="flex flex-wrap items-center gap-4 p-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-info-subtle">
+          <Icon className="h-5 w-5 text-info" />
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-56 [overflow-wrap:anywhere]">
           <p className="font-medium">{platform.label}</p>
           <p className="truncate text-sm text-muted-foreground">Opens in a new tab to paste a draft manually</p>
         </div>
-        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onGuide} aria-label={`${platform.label} guide`} title={`${platform.label} guide`}>
+        <Button variant="ghost" size="icon" onClick={onGuide} aria-label={`${platform.label} guide`} title={`${platform.label} guide`}>
           <HelpCircle className="h-4 w-4" />
         </Button>
         <Button size="sm" variant="outline" onClick={() => window.open(platform.composeUrl(""), "_blank", "noopener,noreferrer")} data-testid={`button-connect-${platform.value}`}>
@@ -417,21 +423,24 @@ export default function AnalyticsPage({ embedded = false }: SettingsPageProps = 
   const [telegramChatId, setTelegramChatId] = useState("");
   const [redditOpen, setRedditOpen] = useState(false);
   const [subreddit, setSubreddit] = useState("");
+  const [mediumOpen, setMediumOpen] = useState(false);
+  const [mediumToken, setMediumToken] = useState("");
   const [showManualPlatforms, setShowManualPlatforms] = useState(false);
   const [guideKey, setGuideKey] = useState<string | null>(null);
 
   const { data: summary, isLoading, isError, refetch } = useQuery<AnalyticsSummary>({
     queryKey: ['/api/analytics/summary'],
   });
-  const providers = ["linkedin", "discord", "slack", "devto", "hashnode", "bluesky", "mastodon", "telegram", "reddit"];
+  const providers = ["linkedin", "discord", "slack", "devto", "hashnode", "bluesky", "mastodon", "telegram", "reddit", "facebook", "threads", "medium"];
   const statusQueries = useQueries({ queries: providers.map((provider) => ({ queryKey: [`/api/integrations/${provider}/status`], queryFn: async (): Promise<IntegrationStatus> => (await apiRequest("GET", `/api/integrations/${provider}/status`)).json() })) });
-  const [linkedinStatus, discordStatus, slackStatus, devToStatus, hashnodeStatus, blueskyStatus, mastodonStatus, telegramStatus, redditStatus] = statusQueries.map((query) => query.data);
+  const [linkedinStatus, discordStatus, slackStatus, devToStatus, hashnodeStatus, blueskyStatus, mastodonStatus, telegramStatus, redditStatus, facebookStatus, threadsStatus, mediumStatus] = statusQueries.map((query) => query.data);
   const refetchProvider = (provider: string) => queryClient.invalidateQueries({ queryKey: [`/api/integrations/${provider}/status`] });
   const refetchDevTo = () => refetchProvider("devto");
   const refetchHashnode = () => refetchProvider("hashnode");
   const refetchBluesky = () => refetchProvider("bluesky");
   const refetchMastodon = () => refetchProvider("mastodon");
   const refetchTelegram = () => refetchProvider("telegram");
+  const refetchMedium = () => refetchProvider("medium");
 
   // Handle OAuth callback URL parameters
   useEffect(() => {
@@ -470,6 +479,14 @@ export default function AnalyticsPage({ embedded = false }: SettingsPageProps = 
   // Connect X via real OAuth 2.0 + PKCE redirect
   const handleTwitterConnect = () => {
     window.location.href = '/auth/twitter/connect';
+  };
+
+  const handleFacebookConnect = () => {
+    window.location.href = '/auth/facebook/connect';
+  };
+
+  const handleThreadsConnect = () => {
+    window.location.href = '/auth/threads/connect';
   };
 
   const disconnectMutation = useMutation({
@@ -558,12 +575,21 @@ export default function AnalyticsPage({ embedded = false }: SettingsPageProps = 
     onSuccess: () => { setTelegramBotToken(""); setTelegramChatId(""); setTelegramOpen(false); refetchTelegram(); toast({ title: "Telegram connected", description: "A test message was delivered to your chat." }); },
     onError: (error: Error) => toast({ title: "Telegram connection failed", description: error.message, variant: "destructive" }),
   });
+  const mediumMutation = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/integrations/medium/integration-token", { integrationToken: mediumToken })).json(),
+    onSuccess: () => {
+      setMediumToken("");
+      setMediumOpen(false);
+      refetchMedium();
+      toast({ title: "Medium connected", description: "Your integration token is encrypted and ready for publishing." });
+    },
+    onError: (error: Error) => toast({ title: "Medium connection failed", description: error.message, variant: "destructive" }),
+  });
 
-  // Platforms with a real, fully-configured connect + publish flow in this environment.
-  // Reddit's OAuth code is real but REDDIT_CLIENT_ID/SECRET aren't configured yet, so it
-  // stays hidden here (not deleted) until those credentials are added.
-  const READY_FOR_STAGING = new Set(["linkedin", "twitter", "bluesky", "mastodon", "telegram", "slack", "discord", "devto", "hashnode"]);
-  const connectedAccountPlatforms = new Set(["linkedin", "twitter", "bluesky", "mastodon", "telegram", "slack", "discord", "devto", "hashnode", "reddit"]);
+  // Implemented adapters are visible; connection/global readiness remains a
+  // separate check, not a hardcoded assumption about deployment secrets.
+  const READY_FOR_STAGING = new Set<string>(DIRECT_PUBLISH_PLATFORMS);
+  const connectedAccountPlatforms = new Set<string>(DIRECT_PUBLISH_PLATFORMS);
   const manualPublishingPlatforms = PLATFORMS.filter((platform) => !connectedAccountPlatforms.has(platform.value));
   const manualPlatformCategories = MANUAL_PLATFORM_CATEGORIES.map((category) => ({
     label: category.label,
@@ -686,6 +712,39 @@ export default function AnalyticsPage({ embedded = false }: SettingsPageProps = 
       onDisconnect: () => disconnectMutation.mutate("reddit"),
       isDisconnecting: disconnectMutation.isPending && disconnectMutation.variables === "reddit",
     }] : []),
+    {
+      key: "facebook",
+      label: "Facebook",
+      icon: getPlatformMeta("facebook").icon,
+      connected: Boolean(facebookStatus?.connected),
+      needsAttention: needsAttention(facebookStatus),
+      description: facebookStatus?.connected ? `Connected to ${facebookStatus.instance?.accountName || "your Page"}` : "Connect a Facebook Page",
+      onConnect: handleFacebookConnect,
+      onDisconnect: () => disconnectMutation.mutate("facebook"),
+      isDisconnecting: disconnectMutation.isPending && disconnectMutation.variables === "facebook",
+    },
+    {
+      key: "threads",
+      label: "Threads",
+      icon: getPlatformMeta("threads").icon,
+      connected: Boolean(threadsStatus?.connected),
+      needsAttention: needsAttention(threadsStatus),
+      description: threadsStatus?.connected ? `Connected to ${threadsStatus.instance?.accountHandle || "your account"}` : "OAuth connection for direct publishing",
+      onConnect: handleThreadsConnect,
+      onDisconnect: () => disconnectMutation.mutate("threads"),
+      isDisconnecting: disconnectMutation.isPending && disconnectMutation.variables === "threads",
+    },
+    {
+      key: "medium",
+      label: "Medium",
+      icon: getPlatformMeta("medium").icon,
+      connected: Boolean(mediumStatus?.connected),
+      needsAttention: needsAttention(mediumStatus),
+      description: mediumStatus?.connected ? "Integration token connected" : "Connect your integration token",
+      onConnect: () => setMediumOpen(true),
+      onDisconnect: () => disconnectMutation.mutate("medium"),
+      isDisconnecting: disconnectMutation.isPending && disconnectMutation.variables === "medium",
+    },
   ];
   const rows = platformRows.map((row) => ({ ...row, statusKnown: row.key === "twitter" ? Boolean(summary) && !isError : Boolean(statusQueries[providers.indexOf(row.key)]?.data) && !statusQueries[providers.indexOf(row.key)]?.isError }));
   const connectedRows = rows.filter((row) => row.connected && row.statusKnown);
@@ -722,8 +781,8 @@ export default function AnalyticsPage({ embedded = false }: SettingsPageProps = 
           </div>
         ) : (
           <div className="mx-auto w-full max-w-5xl space-y-6">
-            {statusesUnavailable && <div role="status" className="rounded-md border p-4"><p>Some connection statuses are still loading or unavailable. They are not assumed to be disconnected.</p><Button variant="outline" className="mt-3 min-h-11" onClick={() => { void refetch(); statusQueries.forEach((query) => { void query.refetch(); }); }}>Retry connection statuses</Button></div>}
-            {!statusesUnavailable && connectedRows.length === 0 && <div className="rounded-lg border border-secondary/30 bg-secondary/5 p-4"><p className="font-medium">Start with LinkedIn</p><p className="mt-1 text-sm text-muted-foreground">Connect LinkedIn to publish directly, then connect any others you use.</p></div>}
+            {statusesUnavailable && <div role="status" className="rounded-md border p-4"><p>Some connection statuses are still loading or unavailable. They are not assumed to be disconnected.</p><Button variant="outline" className="mt-3" onClick={() => { void refetch(); statusQueries.forEach((query) => { void query.refetch(); }); }}>Retry connection statuses</Button></div>}
+            {!statusesUnavailable && connectedRows.length === 0 && <div className="rounded-lg border border-info/30 bg-info-subtle p-4"><p className="font-medium">Start with LinkedIn</p><p className="mt-1 text-sm text-muted-foreground">Connect LinkedIn to publish directly, then connect any others you use.</p></div>}
 
             {connectedRows.length > 0 && <section>
               <h2 className="mb-3 text-sm font-medium text-muted-foreground">Connected</h2>
@@ -740,7 +799,7 @@ export default function AnalyticsPage({ embedded = false }: SettingsPageProps = 
             </section>
 
             <section className="border-t pt-4">
-              <button type="button" aria-expanded={showManualPlatforms} className="min-h-11 text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground" onClick={() => setShowManualPlatforms((value) => !value)}>
+              <button type="button" aria-expanded={showManualPlatforms} className="control-touch-target min-h-8 text-[0.8125rem] text-muted-foreground underline underline-offset-4 hover:text-foreground" onClick={() => setShowManualPlatforms((value) => !value)}>
                 {showManualPlatforms ? "Hide manual platforms" : `Show ${manualPublishingPlatforms.length} more platforms (manual copy & paste)`}
               </button>
               {showManualPlatforms && <div className="mt-4 space-y-6">
@@ -756,18 +815,19 @@ export default function AnalyticsPage({ embedded = false }: SettingsPageProps = 
         )}
       </Body>
       <Dialog open={discordOpen} onOpenChange={setDiscordOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Connect {webhookProvider[0].toUpperCase() + webhookProvider.slice(1)}</DialogTitle><DialogDescription>Paste your {webhookProvider === "slack" ? "Slack incoming" : "incoming"} webhook URL. It is encrypted at rest, and a test message validates it before saving.</DialogDescription></DialogHeader><div className="rounded-md border bg-muted/30 px-3 py-2 text-sm font-medium" data-testid="text-selected-webhook-provider">{webhookProvider[0].toUpperCase() + webhookProvider.slice(1)}</div><Input type="url" value={webhookUrl} onChange={(event) => setWebhookUrl(event.target.value)} placeholder="Paste incoming webhook URL" data-testid="input-discord-webhook" /><DialogFooter><Button variant="outline" onClick={() => setDiscordOpen(false)}>Cancel</Button><Button disabled={!webhookUrl || discordMutation.isPending} onClick={() => discordMutation.mutate()} data-testid="button-test-connect-discord">{discordMutation.isPending ? "Testing…" : "Test & connect"}</Button></DialogFooter></DialogContent>
+        <DialogContent><DialogHeader><DialogTitle>Connect {webhookProvider[0].toUpperCase() + webhookProvider.slice(1)}</DialogTitle><DialogDescription>Paste your {webhookProvider === "slack" ? "Slack incoming" : "incoming"} webhook URL. It is encrypted at rest, and a test message validates it before saving.</DialogDescription></DialogHeader><div className="rounded-md border bg-muted/30 px-3 py-2 text-sm font-medium" data-testid="text-selected-webhook-provider">{webhookProvider[0].toUpperCase() + webhookProvider.slice(1)}</div><Field id="connections-webhook-url" label="Incoming webhook URL" render={(controlProps) => <BaseInput {...controlProps} type="url" value={webhookUrl} onChange={(event) => setWebhookUrl(event.target.value)} placeholder="Paste incoming webhook URL" className="font-medium" data-testid="input-discord-webhook" />} /><DialogFooter><Button variant="outline" onClick={() => setDiscordOpen(false)}>Cancel</Button><Button disabled={!webhookUrl || discordMutation.isPending} onClick={() => discordMutation.mutate()} data-testid="button-test-connect-discord">{discordMutation.isPending ? "Testing…" : "Test & connect"}</Button></DialogFooter></DialogContent>
       </Dialog>
       <Dialog open={devToOpen} onOpenChange={setDevToOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Connect Dev.to</DialogTitle><DialogDescription>Paste your personal Dev.to API key. It is encrypted at rest and is never returned to the browser.</DialogDescription></DialogHeader><Input type="password" value={devToKey} onChange={(event) => setDevToKey(event.target.value)} placeholder="Dev.to API key" autoComplete="off" data-testid="input-devto-api-key" /><DialogFooter><Button variant="outline" onClick={() => setDevToOpen(false)}>Cancel</Button><Button disabled={!devToKey || devToMutation.isPending} onClick={() => devToMutation.mutate()} data-testid="button-connect-devto-key">{devToMutation.isPending ? "Connecting…" : "Connect API key"}</Button></DialogFooter></DialogContent>
+        <DialogContent><DialogHeader><DialogTitle>Connect Dev.to</DialogTitle><DialogDescription>Paste your personal Dev.to API key. It is encrypted at rest and is never returned to the browser.</DialogDescription></DialogHeader><Field id="connections-devto-api-key" label="Dev.to API key" render={(controlProps) => <BaseInput {...controlProps} type="password" value={devToKey} onChange={(event) => setDevToKey(event.target.value)} placeholder="Dev.to API key" autoComplete="off" className="font-medium" data-testid="input-devto-api-key" />} /><DialogFooter><Button variant="outline" onClick={() => setDevToOpen(false)}>Cancel</Button><Button disabled={!devToKey || devToMutation.isPending} onClick={() => devToMutation.mutate()} data-testid="button-connect-devto-key">{devToMutation.isPending ? "Connecting…" : "Connect API key"}</Button></DialogFooter></DialogContent>
       </Dialog>
       <Dialog open={hashnodeOpen} onOpenChange={setHashnodeOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Connect Hashnode</DialogTitle><DialogDescription>Generate a personal access token in Hashnode account settings → Developer. It is encrypted at rest and is never returned to the browser.</DialogDescription></DialogHeader><Input type="password" value={hashnodeToken} onChange={(event) => setHashnodeToken(event.target.value)} placeholder="Hashnode personal access token" autoComplete="off" data-testid="input-hashnode-token" /><DialogFooter><Button variant="outline" onClick={() => setHashnodeOpen(false)}>Cancel</Button><Button disabled={!hashnodeToken || hashnodeMutation.isPending} onClick={() => hashnodeMutation.mutate()} data-testid="button-connect-hashnode-token">{hashnodeMutation.isPending ? "Connecting…" : "Connect token"}</Button></DialogFooter></DialogContent>
+        <DialogContent><DialogHeader><DialogTitle>Connect Hashnode</DialogTitle><DialogDescription>Your personal access token is encrypted at rest and is never returned to the browser.</DialogDescription></DialogHeader><Field id="connections-hashnode-token" label="Hashnode personal access token" help="Generate a personal access token in Hashnode account settings → Developer." render={props => <BaseInput {...props} type="password" value={hashnodeToken} onChange={(event) => setHashnodeToken(event.target.value)} placeholder="Hashnode personal access token" autoComplete="off" className="min-h-11 font-medium" data-testid="input-hashnode-token" />} /><DialogFooter><Button variant="outline" onClick={() => setHashnodeOpen(false)}>Cancel</Button><Button disabled={!hashnodeToken || hashnodeMutation.isPending} onClick={() => hashnodeMutation.mutate()} data-testid="button-connect-hashnode-token">{hashnodeMutation.isPending ? "Connecting…" : "Connect token"}</Button></DialogFooter></DialogContent>
       </Dialog>
-      <Dialog open={blueskyOpen} onOpenChange={setBlueskyOpen}><DialogContent><DialogHeader><DialogTitle>Connect Bluesky</DialogTitle><DialogDescription>Create an app password in Bluesky Settings → Privacy and Security → App Passwords. Never use your normal Bluesky password.</DialogDescription></DialogHeader><Input value={blueskyHandle} onChange={(event) => setBlueskyHandle(event.target.value.trim())} placeholder="handle.bsky.social" autoComplete="username" /><Input type="password" value={blueskyAppPassword} onChange={(event) => setBlueskyAppPassword(event.target.value)} placeholder="Bluesky app password" autoComplete="off" /><DialogFooter><Button variant="outline" onClick={() => setBlueskyOpen(false)}>Cancel</Button><Button disabled={!blueskyHandle || !blueskyAppPassword || blueskyMutation.isPending} onClick={() => blueskyMutation.mutate()}>{blueskyMutation.isPending ? "Connecting…" : "Connect Bluesky"}</Button></DialogFooter></DialogContent></Dialog>
-      <Dialog open={mastodonOpen} onOpenChange={setMastodonOpen}><DialogContent><DialogHeader><DialogTitle>Connect Mastodon</DialogTitle><DialogDescription>Create a personal access token with the write:statuses permission in your Mastodon instance preferences. Your token is encrypted at rest.</DialogDescription></DialogHeader><Input type="url" value={mastodonInstanceUrl} onChange={(event) => setMastodonInstanceUrl(event.target.value)} placeholder="https://mastodon.social" /><Input type="password" value={mastodonAccessToken} onChange={(event) => setMastodonAccessToken(event.target.value)} placeholder="Mastodon access token" autoComplete="off" /><DialogFooter><Button variant="outline" onClick={() => setMastodonOpen(false)}>Cancel</Button><Button disabled={!mastodonInstanceUrl || !mastodonAccessToken || mastodonMutation.isPending} onClick={() => mastodonMutation.mutate()}>{mastodonMutation.isPending ? "Connecting…" : "Connect Mastodon"}</Button></DialogFooter></DialogContent></Dialog>
-      <Dialog open={telegramOpen} onOpenChange={setTelegramOpen}><DialogContent><DialogHeader><DialogTitle>Connect Telegram</DialogTitle><DialogDescription>Create a bot with @BotFather, add it as an admin of your channel or group, then paste its token and the chat ID here. We send a real test message to confirm it works.</DialogDescription></DialogHeader><Input type="password" value={telegramBotToken} onChange={(event) => setTelegramBotToken(event.target.value.trim())} placeholder="Bot token from @BotFather" autoComplete="off" data-testid="input-telegram-bot-token" /><Input value={telegramChatId} onChange={(event) => setTelegramChatId(event.target.value.trim())} placeholder="@yourchannel or numeric chat ID" data-testid="input-telegram-chat-id" /><DialogFooter><Button variant="outline" onClick={() => setTelegramOpen(false)}>Cancel</Button><Button disabled={!telegramBotToken || !telegramChatId || telegramMutation.isPending} onClick={() => telegramMutation.mutate()} data-testid="button-connect-telegram">{telegramMutation.isPending ? "Testing…" : "Test & connect"}</Button></DialogFooter></DialogContent></Dialog>
-      <Dialog open={redditOpen} onOpenChange={setRedditOpen}><DialogContent><DialogHeader><DialogTitle>Connect Reddit</DialogTitle><DialogDescription>Choose the subreddit where you are authorized to post. Reddit will ask you to approve identity and submission permissions.</DialogDescription></DialogHeader><Input value={subreddit} onChange={(event) => setSubreddit(event.target.value.replace(/^r\//, ""))} placeholder="subreddit name, e.g. yourcommunity" data-testid="input-reddit-subreddit" /><DialogFooter><Button variant="outline" onClick={() => setRedditOpen(false)}>Cancel</Button><Button disabled={!/^[A-Za-z0-9_]{3,21}$/.test(subreddit)} onClick={() => { window.location.assign(`/auth/reddit?subreddit=${encodeURIComponent(subreddit)}`); }} data-testid="button-connect-reddit-oauth">Continue to Reddit</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={blueskyOpen} onOpenChange={setBlueskyOpen}><DialogContent><DialogHeader><DialogTitle>Connect Bluesky</DialogTitle><DialogDescription>Never use your normal Bluesky password.</DialogDescription></DialogHeader><Field id="connections-bluesky-handle" label="Bluesky handle" render={(controlProps) => <BaseInput {...controlProps} value={blueskyHandle} onChange={(event) => setBlueskyHandle(event.target.value.trim())} placeholder="handle.bsky.social" autoComplete="username" className="font-medium" />} /><Field id="connections-bluesky-app-password" label="Bluesky app password" help="Create an app password in Bluesky Settings → Privacy and Security → App Passwords." render={props => <BaseInput {...props} type="password" value={blueskyAppPassword} onChange={(event) => setBlueskyAppPassword(event.target.value)} placeholder="Bluesky app password" autoComplete="off" className="min-h-11 font-medium" />} /><DialogFooter><Button variant="outline" onClick={() => setBlueskyOpen(false)}>Cancel</Button><Button disabled={!blueskyHandle || !blueskyAppPassword || blueskyMutation.isPending} onClick={() => blueskyMutation.mutate()}>{blueskyMutation.isPending ? "Connecting…" : "Connect Bluesky"}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={mastodonOpen} onOpenChange={setMastodonOpen}><DialogContent><DialogHeader><DialogTitle>Connect Mastodon</DialogTitle><DialogDescription>Create a personal access token with the write:statuses permission in your Mastodon instance preferences. Your token is encrypted at rest.</DialogDescription></DialogHeader><Field id="connections-mastodon-instance-url" label="Mastodon instance URL" render={(controlProps) => <BaseInput {...controlProps} type="url" value={mastodonInstanceUrl} onChange={(event) => setMastodonInstanceUrl(event.target.value)} placeholder="https://mastodon.social" className="font-medium" />} /><Field id="connections-mastodon-access-token" label="Mastodon access token" render={(controlProps) => <BaseInput {...controlProps} type="password" value={mastodonAccessToken} onChange={(event) => setMastodonAccessToken(event.target.value)} placeholder="Mastodon access token" autoComplete="off" className="font-medium" />} /><DialogFooter><Button variant="outline" onClick={() => setMastodonOpen(false)}>Cancel</Button><Button disabled={!mastodonInstanceUrl || !mastodonAccessToken || mastodonMutation.isPending} onClick={() => mastodonMutation.mutate()}>{mastodonMutation.isPending ? "Connecting…" : "Connect Mastodon"}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={telegramOpen} onOpenChange={setTelegramOpen}><DialogContent><DialogHeader><DialogTitle>Connect Telegram</DialogTitle><DialogDescription>Create a bot with @BotFather, add it as an admin of your channel or group, then paste its token and the chat ID here. We send a real test message to confirm it works.</DialogDescription></DialogHeader><Field id="connections-telegram-bot-token" label="Telegram bot token" render={(controlProps) => <BaseInput {...controlProps} type="password" value={telegramBotToken} onChange={(event) => setTelegramBotToken(event.target.value.trim())} placeholder="Bot token from @BotFather" autoComplete="off" className="font-medium" data-testid="input-telegram-bot-token" />} /><Field id="connections-telegram-chat-id" label="Telegram chat ID" render={(controlProps) => <BaseInput {...controlProps} value={telegramChatId} onChange={(event) => setTelegramChatId(event.target.value.trim())} placeholder="@yourchannel or numeric chat ID" className="font-medium" data-testid="input-telegram-chat-id" />} /><DialogFooter><Button variant="outline" onClick={() => setTelegramOpen(false)}>Cancel</Button><Button disabled={!telegramBotToken || !telegramChatId || telegramMutation.isPending} onClick={() => telegramMutation.mutate()} data-testid="button-connect-telegram">{telegramMutation.isPending ? "Testing…" : "Test & connect"}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={redditOpen} onOpenChange={setRedditOpen}><DialogContent><DialogHeader><DialogTitle>Connect Reddit</DialogTitle><DialogDescription>Choose the subreddit where you are authorized to post. Reddit will ask you to approve identity and submission permissions.</DialogDescription></DialogHeader><Field id="connections-reddit-subreddit" label="Subreddit" render={(controlProps) => <BaseInput {...controlProps} value={subreddit} onChange={(event) => setSubreddit(event.target.value.replace(/^r\//, ""))} placeholder="subreddit name, e.g. yourcommunity" className="font-medium" data-testid="input-reddit-subreddit" />} /><DialogFooter><Button variant="outline" onClick={() => setRedditOpen(false)}>Cancel</Button><Button disabled={!/^[A-Za-z0-9_]{3,21}$/.test(subreddit)} onClick={() => { window.location.assign(`/auth/reddit?subreddit=${encodeURIComponent(subreddit)}`); }} data-testid="button-connect-reddit-oauth">Continue to Reddit</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={mediumOpen} onOpenChange={setMediumOpen}><DialogContent><DialogHeader><DialogTitle>Connect Medium</DialogTitle><DialogDescription>Paste a self-issued Medium integration token. It is encrypted at rest and is never returned to the browser.</DialogDescription></DialogHeader><Field id="connections-medium-token" label="Medium integration token" help="Generate one in Medium → Settings → Integration tokens." render={props => <BaseInput {...props} type="password" value={mediumToken} onChange={(event) => setMediumToken(event.target.value)} placeholder="Medium integration token" autoComplete="off" className="min-h-11 font-medium" data-testid="input-medium-token" />} /><DialogFooter><Button variant="outline" onClick={() => setMediumOpen(false)}>Cancel</Button><Button disabled={!mediumToken || mediumMutation.isPending} onClick={() => mediumMutation.mutate()} data-testid="button-connect-medium-token">{mediumMutation.isPending ? "Connecting…" : "Connect token"}</Button></DialogFooter></DialogContent></Dialog>
       <PlatformGuideSheet platformKey={guideKey} label={(platformRows.find((row) => row.key === guideKey)?.label) || getPlatformMeta(guideKey || "").label} onOpenChange={(open) => !open && setGuideKey(null)} />
     </div>
   );

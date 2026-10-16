@@ -1,5 +1,6 @@
 import type { ReviewResponse } from "@/lib/editorial";
 import type { ArticleMedia } from "./rich-article-editor";
+import type { DraftEditingState } from "@shared/draft-revision";
 
 export const CREATE_TONES = [
   { key: "thoughtLeader", value: "professional", label: "Thought Leader" },
@@ -10,22 +11,39 @@ export const CREATE_TONES = [
 export type CreateTone = typeof CREATE_TONES[number]["key"];
 export interface ManualArticle { title: string; content: string; media: ArticleMedia[] }
 export const emptyArticle = (): ManualArticle => ({ title: "", content: "", media: [] });
-export interface PostVersion {
+export interface PostVersion extends DraftEditingState {
+  mainRevision?: number;
   platform: string;
   tone: CreateTone;
   content: string;
   original: string;
   review: ReviewResponse;
   inboxItemId?: string;
-  savedId?: string;
-  savedContent?: string;
-  status: "unsaved" | "saving" | "saved" | "failed";
-  error?: string;
+}
+export interface MainDraft {
+  title: string;
+  content: string;
+  original: string;
+  revision: number;
+  formatJson?: string;
+  review?: ReviewResponse;
 }
 export type PostVersions = Record<string, PostVersion>;
 export const versionKey = (platform: string, tone: CreateTone) => `${platform}:${tone}`;
 export const isEdited = (version: PostVersion) => version.content !== version.original;
-export const isUnsaved = (version: PostVersion) => version.content !== (version.savedContent ?? "");
+export const isSaved = (version: PostVersion) => Boolean(version.savedId) && version.status === "saved" && version.content === version.savedContent;
+export function saveLabel(version: PostVersion): string {
+  if (version.status === "saving") return "Saving…";
+  if (isSaved(version)) return "Saved";
+  return version.savedId ? "Save changes" : "Save draft";
+}
+export function versionCounts(versions: PostVersions) {
+  const all = Object.values(versions);
+  const saved = all.filter(isSaved).length;
+  return { total: all.length, saved, unsaved: all.length - saved };
+}
+export const isUnsaved = (version: PostVersion) => version.content !== (version.savedContent ?? "") ||
+  ["conflict", "refresh-failed", "failed"].includes(version.status);
 export function publicSourceUrl(value: string): string | undefined {
   try {
     const url = new URL(value);
@@ -42,19 +60,29 @@ export function sameDraftSource(a: ReviewResponse, b: ReviewResponse): boolean {
 }
 
 /** Only called after successful generation and explicit overwrite approval. */
+function regeneratedStatus(saved: PostVersion | undefined, content: string): PostVersion["status"] {
+  if (!saved?.savedId) return "unsaved";
+  if (saved.savedUpdatedAt === undefined || saved.status === "checking") return "refresh-failed";
+  if (["conflict", "refresh-failed", "immutable", "failed"].includes(saved.status)) return saved.status;
+  return content === saved.savedContent ? "saved" : "unsaved";
+}
+
 export function applyReview(previous: PostVersions, review: ReviewResponse, inboxItemId?: string): PostVersions {
   const next = { ...previous };
   for (const [platform, posts] of Object.entries(review.posts)) {
     for (const tone of CREATE_TONES) {
+      // Requests may ask for a single tone; tones that were not returned stay as they were.
+      const content = posts[tone.key];
+      if (typeof content !== "string") continue;
       const key = versionKey(platform, tone.key);
       const old = previous[key];
-      const content = typeof posts[tone.key] === "string" ? posts[tone.key] : "";
       // A malformed/empty replacement must not erase useful work.
       if (!content.trim() && old?.content.trim()) continue;
       const saved = old && sameDraftSource(old.review, review) && old.inboxItemId === inboxItemId ? old : undefined;
       next[key] = { platform, tone: tone.key, content, original: content, review, inboxItemId,
-        savedId: saved?.savedId, savedContent: saved?.savedContent,
-        status: saved?.savedId && content === saved.savedContent ? "saved" : "unsaved" };
+        savedId: saved?.savedId, savedContent: saved?.savedContent, savedUpdatedAt: saved?.savedUpdatedAt,
+        latestRevision: saved?.latestRevision, error: saved?.error,
+        status: regeneratedStatus(saved, content) };
     }
   }
   return next;

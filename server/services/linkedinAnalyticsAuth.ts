@@ -1,73 +1,19 @@
-import crypto from "crypto";
 import type { Express as ExpressApp, NextFunction, Request, Response } from "express";
 import passport from "passport";
 import { Strategy as OAuth2Strategy } from "passport-oauth2";
 import { storage } from "../storage";
 import { encryptWebhookUrl } from "./webhookSecrets";
+import { linkedInProfileOnlySnapshot, parseLinkedInAnalyticsProfile } from "./linkedinAnalyticsProfile";
+import { startSocialOAuth, consumeSocialOAuth, type SocialOAuthState } from "./socialOAuthState";
 
 /**
  * LinkedIn "Connect account" flow used by the Analytics page. This is a
  * separate feature from login/signup — it lets an already-authenticated
- * user link their LinkedIn account to pull analytics data. Kept alive as
- * its own module during the Clerk migration since Clerk only replaces
- * login/session auth, not this app-specific OAuth "connect" feature.
- *
- * Replit Auth stored the CSRF `state` / return context in the server
- * session (express-session). Since express-session is removed as part of
- * the Clerk migration, this uses a stateless, HMAC-signed `state`
- * parameter instead, so no session middleware is required.
+ * user link their LinkedIn account to pull analytics data. State is bound to
+ * the initiating Better Auth session and a durable single-use tenant nonce.
  */
 
-const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const LINKEDIN_SCOPES = ["openid", "profile", "email", "w_member_social"];
-
-interface LinkedInAnalyticsStatePayload {
-  userId: string;
-  /**
-   * The tenant the user was acting in when the flow started. Carried through
-   * the signed state so the resulting connection lands in the right tenant
-   * rather than defaulting to the personal one.
-   */
-  tenantId: string;
-  returnTo: string;
-  nonce: string;
-  exp: number;
-}
-
-function getStateSecret(): string {
-  const secret = process.env.OAUTH_STATE_SECRET;
-  if (!secret) {
-    throw new Error("OAUTH_STATE_SECRET must be set to sign LinkedIn Analytics OAuth state");
-  }
-  return secret;
-}
-
-function signState(payload: LinkedInAnalyticsStatePayload): string {
-  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const signature = crypto.createHmac("sha256", getStateSecret()).update(body).digest("base64url");
-  return `${body}.${signature}`;
-}
-
-function verifyState(state: string): LinkedInAnalyticsStatePayload | null {
-  const [body, signature] = state.split(".");
-  if (!body || !signature) return null;
-
-  const expectedSignature = crypto.createHmac("sha256", getStateSecret()).update(body).digest("base64url");
-  const signatureBuf = Buffer.from(signature);
-  const expectedBuf = Buffer.from(expectedSignature);
-  if (signatureBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(signatureBuf, expectedBuf)) {
-    return null;
-  }
-
-  try {
-    const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as LinkedInAnalyticsStatePayload;
-    if (typeof payload.exp !== "number" || Date.now() > payload.exp) return null;
-    if (typeof payload.userId !== "string" || typeof payload.returnTo !== "string") return null;
-    return payload;
-  } catch {
-    return null;
-  }
-}
 
 // Prioritises: 1) explicit env override, 2) APP_URL, 3) localhost on the
 // configured port. Previously fell back to CANONICAL_HOST and REPLIT_DOMAINS,
@@ -122,12 +68,11 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
         });
 
         if (!userInfoResponse.ok) {
-          const errorText = await userInfoResponse.text();
-          console.error("LinkedIn Analytics userinfo error:", userInfoResponse.status, errorText);
+          console.error("LinkedIn Analytics userinfo failed");
           return done(new Error(`Failed to fetch LinkedIn userinfo: ${userInfoResponse.status}`));
         }
 
-        const userInfo = await userInfoResponse.json();
+        const userInfo = parseLinkedInAnalyticsProfile(await userInfoResponse.json());
 
         const profileData = {
           id: userInfo.sub,
@@ -151,8 +96,7 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
   passport.use(linkedinAnalyticsStrategy);
   console.log("LinkedIn Analytics OAuth strategy configured (OIDC)");
 
-  app.get("/auth/linkedin/analytics", requireAuth, (req: any, res: Response) => {
-    const userId = req.dbUser.id;
+  app.get("/auth/linkedin/analytics", requireAuth, async (req: Request, res: Response) => {
     // Analytics is an authenticated dashboard route. The former /analytics
     // target falls through to the dashboard overview after Clerk's route gate.
     const returnTo = "/dashboard/connections";
@@ -168,13 +112,8 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
       process.env.LINKEDIN_ANALYTICS_CALLBACK_URL,
     );
 
-    const state = signState({
-      userId,
-      tenantId: req.tenant.tenantId,
-      returnTo,
-      nonce: crypto.randomUUID(),
-      exp: Date.now() + STATE_TTL_MS,
-    });
+    const state = await startSocialOAuth(req, "linkedin");
+    if (!state) return res.redirect(`${returnTo}?error=linkedin_connect_failed&reason=sign_in_and_restart_connection`);
 
     const authUrl =
       "https://www.linkedin.com/oauth/v2/authorization" +
@@ -189,42 +128,30 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
 
   app.get(
     "/auth/linkedin/analytics/callback",
-    (req: Request, res: Response, next: NextFunction) => {
-      if (req.query.error) {
-        console.error("LinkedIn Analytics Callback: Error from LinkedIn:", {
-          error: req.query.error,
-          error_description: req.query.error_description,
-        });
-        return res.redirect(
-          `/dashboard/connections?error=linkedin_connect_failed&reason=${encodeURIComponent(
-            (req.query.error_description as string) || (req.query.error as string),
-          )}`,
-        );
-      }
-
-      const incomingState = req.query.state as string | undefined;
-      const statePayload = incomingState ? verifyState(incomingState) : null;
+    async (req: Request, res: Response, next: NextFunction) => {
+      const statePayload = await consumeSocialOAuth(req, "linkedin");
 
       if (!statePayload) {
         console.error("LinkedIn Analytics Callback: invalid or expired state");
-        return res.redirect("/dashboard/connections?error=linkedin_connect_failed&reason=state_mismatch");
+        return res.redirect("/dashboard/connections?error=linkedin_connect_failed&reason=state_mismatch_sign_in_and_restart_connection");
       }
 
       (req as any).linkedInAnalyticsState = statePayload;
 
       passport.authenticate("linkedin-analytics", {
-        failureRedirect: `${statePayload.returnTo}?error=linkedin_connect_failed`,
+        failureRedirect: "/dashboard/connections?error=linkedin_connect_failed",
         session: false,
       })(req, res, next);
     },
     async (req: Request, res: Response) => {
-      const statePayload = (req as any).linkedInAnalyticsState as LinkedInAnalyticsStatePayload | undefined;
+      const statePayload = (req as any).linkedInAnalyticsState as SocialOAuthState | undefined;
       const userId = statePayload?.userId;
       const tenantId = statePayload?.tenantId;
-      const returnTo = statePayload?.returnTo || "/dashboard/connections";
+      const returnTo = "/dashboard/connections";
       const oauthData = (req as any).user;
 
-      if (!userId || !tenantId || !oauthData?.profile) {
+        if (!userId || !tenantId || typeof oauthData?.profile?.id !== "string" || !oauthData.profile.id.trim() ||
+          typeof oauthData.accessToken !== "string" || !oauthData.accessToken) {
         return res.redirect(`${returnTo}?error=linkedin_connect_failed`);
       }
 
@@ -232,8 +159,12 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
 
       try {
         const existing = await storage.getSocialAccountByProvider(scope, "linkedin");
+        let socialAccountId: string;
         if (existing) {
+          socialAccountId = existing.id;
           await storage.updateSocialAccount(scope, existing.id, {
+            providerAccountId: oauthData.profile.id,
+            isActive: true,
             accessToken: encryptWebhookUrl(oauthData.accessToken),
             refreshToken: oauthData.refreshToken ? encryptWebhookUrl(oauthData.refreshToken) : null,
             scopes: LINKEDIN_SCOPES,
@@ -257,23 +188,14 @@ export function registerLinkedInAnalyticsAuth(app: ExpressApp, requireAuth: Requ
             lastSyncAt: new Date(),
           });
 
-          // LinkedIn's basic OIDC profile doesn't provide audience/engagement
-          // metrics. Store a truthful zeroed snapshot (same pattern as
-          // syncLinkedInAnalytics) rather than fabricated numbers; a real sync
-          // is available via the Sync button once organization/member
-          // analytics API products are approved.
-          await storage.createSocialAnalytics(scope, {
-            socialAccountId: account.id,
-            provider: "linkedin",
-            snapshotDate: new Date(),
-            metrics: { followers: 0, following: 0, posts: 0, impressions: 0, engagements: 0, engagementRate: 0, likes: 0, comments: 0, shares: 0, clicks: 0 },
-            topPosts: [],
-          });
+          socialAccountId = account.id;
         }
 
+        await storage.createSocialAnalytics(scope, linkedInProfileOnlySnapshot(socialAccountId));
+
         res.redirect(`${returnTo}?connected=linkedin`);
-      } catch (error) {
-        console.error("LinkedIn analytics connection error", error);
+      } catch {
+        console.error("LinkedIn analytics connection error");
         res.redirect(`${returnTo}?error=linkedin_connect_failed`);
       }
     },

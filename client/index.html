@@ -1,46 +1,79 @@
 <!DOCTYPE html>
-<html lang="en" class="light">
+<html lang="en" class="light" style="color-scheme: only light;">
   <head>
+    <!-- Google Tag Manager loads only after analytics consent: client/src/lib/analytics-consent.ts -->
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5" />
-    <meta name="description" content="TheSocialPundit helps professionals build authority across 23 platforms — LinkedIn, Twitter/X, Threads, Bluesky, Reddit, Mastodon, Weibo, WeChat, Quora, Facebook, Telegram, and more — by curating relevant industry content and turning news into opinionated posts written in your voice." />
+    <meta name="description" content="Turn relevant industry signals into professional posts in your voice. TheSocialPundit helps you discover, create, review, schedule, and publish with confidence." data-rh="true" />
     <meta name="keywords" content="LinkedIn, Twitter, Threads, Bluesky, Reddit, Mastodon, Substack, Medium, Dev.to, Hashnode, Quora, Facebook, Telegram, Discord, Farcaster, Weibo, WeChat, VK, LINE, Xing, social media, content creation, thought leadership, professional branding, AI content" />
     <meta name="author" content="TheSocialPundit" />
-    <meta name="robots" content="index, follow" />
-    <meta name="theme-color" content="#1B2A4A" />
+    <meta name="robots" content="index, follow" data-rh="true" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#FFFFFF" />
     
-    <meta property="og:title" content="TheSocialPundit - Build Your Professional Authority" />
-    <meta property="og:description" content="Turn industry news into opinionated posts that establish you as a thought leader. AI-powered content curation for 23 platforms, from LinkedIn and Twitter/X to Reddit, Weibo, and developer blogs." />
-    <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://www.thesocialpundit.com" />
-    <meta property="og:site_name" content="TheSocialPundit" />
+    <meta property="og:title" content="Professional Authority on Social Media | TheSocialPundit" data-rh="true" />
+    <meta property="og:description" content="Turn relevant industry signals into professional posts in your voice. TheSocialPundit helps you discover, create, review, schedule, and publish with confidence." data-rh="true" />
+    <meta property="og:type" content="website" data-rh="true" />
+    <meta property="og:url" content="https://www.thesocialpundit.com/" data-rh="true" />
+    <meta property="og:site_name" content="TheSocialPundit" data-rh="true" />
     <meta property="og:locale" content="en_US" />
+    <meta property="og:image" content="https://www.thesocialpundit.com/og-image.jpg" data-rh="true" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="TheSocialPundit: turn what you know into professional influence with AI-assisted research, drafting, and human approval." />
     
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="TheSocialPundit - Build Your Professional Authority" />
-    <meta name="twitter:description" content="Turn industry news into opinionated social posts that establish you as a thought leader." />
+    <meta name="twitter:card" content="summary_large_image" data-rh="true" />
+    <meta name="twitter:title" content="Professional Authority on Social Media | TheSocialPundit" data-rh="true" />
+    <meta name="twitter:description" content="Turn relevant industry signals into professional posts in your voice. Discover, create, review, schedule, and publish with confidence." data-rh="true" />
+    <meta name="twitter:image" content="https://www.thesocialpundit.com/og-image.jpg" data-rh="true" />
     
-    <link rel="canonical" href="https://www.thesocialpundit.com" />
+    <link rel="canonical" href="https://www.thesocialpundit.com/" data-rh="true" />
     <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="alternate" type="application/rss+xml" title="TheSocialPundit Journal" href="https://www.thesocialpundit.com/rss.xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+    <title data-rh="true">Professional Authority on Social Media | TheSocialPundit</title>
     
-    <title>TheSocialPundit - Build Your Professional Authority on Social Media</title>
-    
-    <script type="application/ld+json">
+    <script type="application/ld+json" data-rh="true">
     {
       "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "TheSocialPundit",
-      "applicationCategory": "BusinessApplication",
-      "operatingSystem": "Web",
-      "description": "AI-powered social media content creation platform for professionals",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD"
-      }
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://www.thesocialpundit.com/#organization",
+          "name": "TheSocialPundit",
+          "alternateName": "The Social Pundit",
+          "url": "https://www.thesocialpundit.com/",
+          "logo": { "@type": "ImageObject", "url": "https://www.thesocialpundit.com/favicon.png", "width": 1024, "height": 1024 },
+          "description": "AI-assisted professional authority platform that turns relevant industry news into posts in the user's own voice, with human approval before publishing.",
+          "email": "hello@thesocialpundit.com",
+          "contactPoint": { "@type": "ContactPoint", "contactType": "customer support", "email": "hello@thesocialpundit.com", "availableLanguage": "English" }
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://www.thesocialpundit.com/#website",
+          "name": "TheSocialPundit",
+          "url": "https://www.thesocialpundit.com/",
+          "publisher": { "@id": "https://www.thesocialpundit.com/#organization" },
+          "inLanguage": "en"
+        },
+        {
+          "@type": "SoftwareApplication",
+          "name": "TheSocialPundit",
+          "url": "https://www.thesocialpundit.com/",
+          "applicationCategory": "BusinessApplication",
+          "operatingSystem": "Web",
+          "description": "AI-assisted professional authority platform that turns relevant industry signals into posts in the user's voice, with human approval before publishing.",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          },
+          "publisher": { "@id": "https://www.thesocialpundit.com/#organization" }
+        }
+      ]
     }
     </script>
   </head>

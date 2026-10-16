@@ -6,12 +6,13 @@ import { queueOptions } from "./queue";
 import type { TenantScope } from "../storage";
 import { executeEditorialRequest, type PreparedEditorialRequest } from "../services/editorial-request";
 import { AIGenerationError, getAIErrorResponse, getEditorialModelIdentity } from "../services/openRouter";
-import { CrawlError } from "../services/crawlerFetch";
+import { CrawlError, sourceFailureBody } from "../services/crawlerFetch";
 import { resolveTenantContext } from "../services/tenancy";
 import { can } from "../services/permissions";
+import { assertGenerationAdmission, generationAccessFailure, generationOperationId, runGeneration } from "../services/generation-quota";
 
 // Bump whenever prompts, evidence selection, or response semantics change.
-export const EDITORIAL_VERSION = "grounded-editorial-v1";
+export const EDITORIAL_VERSION = "grounded-editorial-v6-gemini-pro";
 export const EDITORIAL_INPUT_TTL = 600;
 export const EDITORIAL_RESULT_TTL = 300;
 export const EDITORIAL_DEADLINE_MS = 300_000;
@@ -38,6 +39,14 @@ function stable(value: unknown): string {
     return "{" + entries.map(([k, v]) => `${JSON.stringify(k)}:${stable(v)}`).join(",") + "}";
   }
   return JSON.stringify(value) ?? "null";
+}
+
+export function editorialQueueName(environment: string | undefined, model: unknown): string {
+  if (environment !== "development" && environment !== "production") return "editorial_generation";
+  // Local servers and overlapping production revisions must not consume jobs
+  // for another model/pipeline. Keep shared status/result keys for polling.
+  const digest = createHash("sha256").update(stable({ model, version: EDITORIAL_VERSION })).digest("hex").slice(0, 12);
+  return `editorial_generation-${environment}-${digest}`;
 }
 
 export function editorialInputHash(scope: TenantScope, prepared: PreparedEditorialRequest, identity: unknown = getEditorialModelIdentity()) {
@@ -108,6 +117,7 @@ export class EditorialJobs {
   async enqueue(scope: TenantScope, prepared: PreparedEditorialRequest): Promise<string> {
     const input = JSON.stringify(prepared);
     if (Buffer.byteLength(input) > 100_000) throw new AIGenerationError("ai_invalid_input");
+    await assertGenerationAdmission(scope.tenantId);
     const id = randomUUID();
     const identity = stable({ model: getEditorialModelIdentity(), version: EDITORIAL_VERSION });
     const dedupe = `${prefix}dedupe:${editorialInputHash(scope, prepared)}`;
@@ -162,8 +172,8 @@ export class EditorialJobs {
 
   private async fail(id: string, error: unknown) {
     const failure = error instanceof CrawlError
-      ? { status: 422, body: { code: "source_unreadable", message: `${error.message} Try another public URL or use Write article.` } }
-      : getAIErrorResponse(error);
+      ? { status: 422, body: sourceFailureBody(error) }
+      : generationAccessFailure(error) ?? getAIErrorResponse(error);
     await this.store.eval(editorialScripts.finish, 2, recordKey(id), cancelKey(id), id, "failed", "error", JSON.stringify(failure), EDITORIAL_RESULT_TTL);
   }
 
@@ -174,8 +184,14 @@ export class EditorialJobs {
     if (!await this.store.eval(editorialScripts.claim, 2, recordKey(id), cancelKey(id))) return;
     const controller = new AbortController();
     this.controllers.add(controller);
-    const remaining = Number(record.createdAt) + EDITORIAL_DEADLINE_MS - Date.now();
-    const timer = setTimeout(() => controller.abort(new AIGenerationError("ai_timeout")), Math.max(0, remaining));
+    const deadlineAt = Number(record.createdAt) + EDITORIAL_DEADLINE_MS;
+    const remainingBudget = () => {
+      controller.signal.throwIfAborted();
+      const remaining = deadlineAt - Date.now();
+      if (!Number.isSafeInteger(deadlineAt) || remaining <= 0) throw new AIGenerationError("ai_timeout");
+      return remaining;
+    };
+    const timer = setTimeout(() => controller.abort(new AIGenerationError("ai_timeout")), Math.max(0, deadlineAt - Date.now()));
     let checking = false;
     const check = async () => {
       if (checking || controller.signal.aborted) return;
@@ -189,24 +205,39 @@ export class EditorialJobs {
     };
     const poller = setInterval(() => { void check(); }, 250);
     try {
-      if (remaining <= 0) throw new AIGenerationError("ai_timeout");
+      remainingBudget();
       if (record.identity !== stable({ model: getEditorialModelIdentity(), version: EDITORIAL_VERSION })) throw new AIGenerationError("ai_configuration");
       if (!await this.allowed({ tenantId: record.tenantId, userId: record.userId })) throw new AIGenerationError("ai_cancelled");
       await check();
-      controller.signal.throwIfAborted();
+      remainingBudget();
       const prepared = JSON.parse(record.input) as PreparedEditorialRequest;
+      const scope = { tenantId: record.tenantId, userId: record.userId };
+      // Trusted persisted owner, never a payload-supplied scope.
+      prepared.options = { voice: prepared.options.voice, format: prepared.options.format, userContext: prepared.options.userContext,
+        scope: { tenantId: scope.tenantId }, voiceScope: scope };
       const completed = new Set<string>();
-      const result = await this.execute(prepared, controller.signal, async platform => {
-        controller.signal.throwIfAborted();
-        completed.add(platform);
-        await this.store.eval(editorialScripts.progress, 1, recordKey(id), JSON.stringify({
-          platformsCompleted: completed.size, platformsTotal: prepared.input.selectedPlatforms.length,
-        }));
-      }, Math.min(remaining, 240_000));
-      controller.signal.throwIfAborted();
-      const serialized = JSON.stringify(result);
-      if (Buffer.byteLength(serialized) > 512_000) throw new AIGenerationError("ai_invalid_output");
-      await this.store.eval(editorialScripts.finish, 2, recordKey(id), cancelKey(id), id, "completed", "result", serialized, EDITORIAL_RESULT_TTL);
+      const serialized = await runGeneration(scope, generationOperationId(prepared.input.requestIntent ?? id),
+        "url" in prepared.input ? "selected" : "manual", prepared.input, controller.signal, async () => {
+          // Authorization and quota admission can wait; never reuse the pre-wait remainder.
+          const remaining = remainingBudget();
+          const result = await this.execute(prepared, controller.signal, async platform => {
+            controller.signal.throwIfAborted();
+            completed.add(platform);
+            await this.store.eval(editorialScripts.progress, 1, recordKey(id), JSON.stringify({
+              platformsCompleted: completed.size, platformsTotal: prepared.input.selectedPlatforms.length,
+            }));
+          }, Math.min(remaining, 240_000), { deadlineAt, jobId: id });
+          await check();
+          remainingBudget();
+          const output = JSON.stringify(result);
+          if (Buffer.byteLength(output) > 512_000) throw new AIGenerationError("ai_invalid_output");
+          return output;
+        });
+      // Only expose a completed result AFTER durable generation success commits.
+      // A later Redis failure affects delivery, not the recorded provider outcome.
+      remainingBudget();
+      const saved = await this.store.eval(editorialScripts.finish, 2, recordKey(id), cancelKey(id), id, "completed", "result", serialized, EDITORIAL_RESULT_TTL);
+      if (!saved) { controller.abort(new AIGenerationError("ai_cancelled")); controller.signal.throwIfAborted(); }
     } catch (error) {
       controller.abort();
       await this.fail(id, error);
@@ -226,7 +257,19 @@ export function getEditorialJobs() { return jobs; }
 export function initializeEditorialJobs() {
   if (jobs || !redis || !process.env.REDIS_URL) return jobs;
   const options = queueOptions(process.env.REDIS_URL);
-  queue = new Bull("editorial_generation", { ...options,
+  const environment = process.env.NODE_ENV;
+  let identity: ReturnType<typeof getEditorialModelIdentity> | undefined;
+  if (environment === "development" || environment === "production") {
+    try { identity = getEditorialModelIdentity(); }
+    catch (error) {
+      if (environment === "production" || !(error instanceof AIGenerationError) || error.code !== "ai_configuration") throw error;
+      // Keep the app available without joining a queue with an unverified identity.
+      console.warn("[editorial] Development queue disabled: invalid AI configuration");
+      return undefined;
+    }
+  }
+  const name = editorialQueueName(environment, identity);
+  queue = new Bull(name, { ...options,
     createClient: (type, config) => {
       const client = options.createClient!(type, config);
       clients.add(client as unknown as Redis);
@@ -239,10 +282,14 @@ export function initializeEditorialJobs() {
   const worker = jobs;
   queue.on("error", () => console.error("[editorial] Queue connection failure"));
   queue.on("failed", () => console.error("[editorial] Worker failed; automatic retry disabled"));
-  queue.process(2, async job => {
-    try { await worker.process(job.data.id); }
-    catch { throw new EditorialQueueUnavailableError(); }
-  });
+  if (process.env.BACKGROUND_JOBS_ENABLED === "false") {
+    console.log("[editorial] Queue worker explicitly disabled; producer remains available");
+  } else {
+    queue.process(2, async job => {
+      try { await worker.process(job.data.id); }
+      catch { throw new EditorialQueueUnavailableError(); }
+    });
+  }
   return jobs;
 }
 

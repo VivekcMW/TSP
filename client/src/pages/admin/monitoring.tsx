@@ -15,7 +15,7 @@ function HealthBadge({ healthy, children }: Readonly<{ healthy: boolean; childre
 }
 
 function StatCard({ label, value, icon: Icon, tone = "default" }: Readonly<{ label: string; value: string | number; icon: typeof Activity; tone?: "default" | "danger" }>) {
-  return <Card className={tone === "danger" ? "border-destructive/30 bg-destructive/[0.03]" : ""}><CardContent className="flex items-center justify-between p-5"><div><p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-semibold">{value}</p></div><Icon className={`h-5 w-5 ${tone === "danger" ? "text-destructive" : "text-secondary"}`} /></CardContent></Card>;
+  return <Card className={tone === "danger" ? "border-destructive/30 bg-destructive/[0.03]" : ""}><CardContent className="flex items-center justify-between p-5"><div><p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-semibold">{value}</p></div><Icon className={`h-5 w-5 ${tone === "danger" ? "text-destructive" : "text-info"}`} /></CardContent></Card>;
 }
 
 export default function AdminMonitoringPage() {
@@ -31,8 +31,8 @@ export default function AdminMonitoringPage() {
       <div className="mx-auto max-w-6xl space-y-6">
         {isError ? <Card><CardContent className="p-0"><AdminQueryError onRetry={() => refetch()} message="Platform monitoring could not be loaded." /></CardContent></Card> : isLoading ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{["queue", "scheduler", "scheduled", "failures"].map((key) => <Card key={key}><CardContent className="h-24 animate-pulse p-5" /></Card>)}</div> : <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Card><CardContent className="flex items-center justify-between p-5"><div><p className="text-xs uppercase tracking-wide text-muted-foreground">Redis queue</p><div className="mt-2"><HealthBadge healthy={queueHealthy}>{queueHealthy ? "Healthy" : data?.queue.configured ? "Unavailable" : "Not configured"}</HealthBadge></div></div><Server className="h-5 w-5 text-secondary" /></CardContent></Card>
-            <Card><CardContent className="flex items-center justify-between p-5"><div><p className="text-xs uppercase tracking-wide text-muted-foreground">Scheduler</p><div className="mt-2"><HealthBadge healthy={schedulerHealthy}>{schedulerHealthy ? "Active" : data?.scheduler.enabled ? "Not designated" : "Disabled"}</HealthBadge></div></div><Clock3 className="h-5 w-5 text-secondary" /></CardContent></Card>
+            <Card><CardContent className="flex items-center justify-between p-5"><div><p className="text-xs uppercase tracking-wide text-muted-foreground">Redis queue</p><div className="mt-2"><HealthBadge healthy={queueHealthy}>{queueHealthy ? "Healthy" : data?.queue.configured ? "Unavailable" : "Not configured"}</HealthBadge></div></div><Server className="h-5 w-5 text-info" /></CardContent></Card>
+            <Card><CardContent className="flex items-center justify-between p-5"><div><p className="text-xs uppercase tracking-wide text-muted-foreground">Scheduler</p><div className="mt-2"><HealthBadge healthy={schedulerHealthy}>{schedulerHealthy ? "Active" : data?.scheduler.enabled ? "Not designated" : "Disabled"}</HealthBadge></div></div><Clock3 className="h-5 w-5 text-info" /></CardContent></Card>
             <StatCard label="Tenants monitored" value={data?.tenantCount ?? 0} icon={Database} />
             <StatCard label="Needs attention" value={attentionCount} icon={AlertTriangle} tone={attentionCount > 0 ? "danger" : "default"} />
           </div>

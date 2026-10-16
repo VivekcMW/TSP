@@ -3,6 +3,7 @@ import { cleanPageHtml, isSingleArticle, requireReadableHtml } from "./crawlerHt
 import { extractArticleFromHtml, fetchArticleFromUrl, type FetchedArticle } from "./urlFetcher.js";
 import type { ParsedFeedItem } from "./universalFeedParser.js";
 import { stripHtml } from "./universalFeedParser.js";
+import { sourceOrigin } from "./inboxDiversity";
 
 /**
  * Fallback content source for any public webpage that has no discoverable
@@ -79,7 +80,8 @@ export async function scrapeWebpageArticles(url: string, parentSignal?: AbortSig
   const signal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal;
   const toItem = (article: FetchedArticle): ParsedFeedItem => ({
     title: article.title, link: article.url, content: article.content,
-    pubDate: new Date().toISOString(), categories: [],
+    pubDate: article.publishedAt ?? null, publishedAt: article.publishedAt ?? null,
+    publicationDate: article.publicationDate, inputKind: "page_body", sourceOrigin: sourceOrigin(article.url), categories: [],
   });
   try {
     const page = await fetchPublicText(url, { signal, timeoutMs: 6000 });

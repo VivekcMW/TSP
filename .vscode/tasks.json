@@ -1,0 +1,26 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run TheSocialPundit locally",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"dev"
+			],
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Sign in to Google Cloud",
+			"type": "shell",
+			"command": "gcloud",
+			"args": [
+				"auth",
+				"login"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}

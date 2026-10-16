@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -79,7 +80,7 @@ export default function AdminFeatureFlagsPage() {
       <PageHeader
         icon={Flag}
         title="Feature Flags"
-        subtitle="Platform-wide toggles. Not yet wired into any code path that reads them"
+        subtitle="Operator kill-switches for shipped features. A key with no row here defaults to enabled; create one to disable that feature without a deploy."
         actions={
           <Button onClick={() => setIsCreateOpen(true)} data-testid="button-new-flag">
             <Plus className="w-4 h-4 mr-2" />
@@ -142,18 +143,20 @@ export default function AdminFeatureFlagsPage() {
             <DialogTitle>New Feature Flag</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <Input
+            <Field label="Flag key" render={controlProps => <Input
+              {...controlProps}
               placeholder="flag_key_like_this"
               value={newKey}
               onChange={(e) => setNewKey(e.target.value)}
               data-testid="input-flag-key"
-            />
-            <Input
+            />} />
+            <Field label="Description (optional)" render={controlProps => <Input
+              {...controlProps}
               placeholder="Description (optional)"
               value={newDescription}
               onChange={(e) => setNewDescription(e.target.value)}
               data-testid="input-flag-description"
-            />
+            />} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>

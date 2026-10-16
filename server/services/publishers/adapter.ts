@@ -23,11 +23,9 @@ class MockPublisherAdapter implements PublisherAdapter {
   }
 
   async publish(content: string, context?: Record<string, unknown>): Promise<PublisherAdapterResult> {
-    const postId = `mock_${this.key}_${Date.now()}`;
     return {
       success: true,
-      postId,
-      status: "published",
+      status: "simulated",
       response: {
         provider: this.key,
         draftId: context?.draftId ?? "unknown",

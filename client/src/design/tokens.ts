@@ -26,9 +26,28 @@ export const invariant = {
   "font-mono": "JetBrains Mono, monospace",
   "page-gutter": "1rem",
   "page-gutter-wide": "1.5rem",
-  "page-content-width": "72rem",
+  "page-content-width": "64rem",
+  "page-width-reading": "48rem",
+  "page-width-standard": "64rem",
+  "page-width-workbench": "80rem",
   "touch-target": "2.75rem",
-  "radius": ".25rem",
+  "radius": "6px",
+  "radius-control": "6px",
+  "radius-card": "6px",
+  "radius-small": "4px",
+  // Avatars, pills, switch/slider thumbs and progress tracks are intentional exceptions.
+  "radius-pill": "9999px",
+  "space-1": "4px",
+  "space-2": "8px",
+  "space-3": "12px",
+  "space-4": "16px",
+  "space-6": "24px",
+  "space-8": "32px",
+  "surface-padding-compact": "12px",
+  "surface-padding-standard": "16px",
+  "surface-padding-relaxed": "24px",
+  "motion-fast": "120ms",
+  "motion-normal": "180ms",
   "spacing": "0.25rem",
   "tracking-normal": "0em",
 } as const;
@@ -40,42 +59,54 @@ export const invariant = {
  * `hsl(var(--token) / <alpha-value>)` so opacity utilities work.
  */
 export const lightColors = {
-  "surface-ink": "220 55% 13%",
-  "surface-ink-foreground": "0 0% 100%",
-  "background": "60 9% 98%",
-  "foreground": "240 6% 10%",
-  "border": "240 5% 88%",
+  // Deprecated aliases, retained for static/theme helper compatibility. Owned
+  // panels migrate as whole foreground/background pairs, not via these aliases.
+  "surface-ink": "0 0% 100%",
+  "surface-ink-foreground": "222.222222 47.368421% 11.176471%",
+  "background": "210 40% 98.039216%",
+  "foreground": "222.222222 47.368421% 11.176471%",
+  "border": "214.285714 31.818182% 91.372549%",
   "card": "0 0% 100%",
-  "card-foreground": "240 6% 10%",
-  "card-border": "240 5% 92%",
-  "sidebar": "240 6% 10%",
-  "sidebar-foreground": "60 9% 96%",
-  "sidebar-border": "240 5% 16%",
-  "sidebar-primary": "221 47% 20%",
+  "card-foreground": "222.222222 47.368421% 11.176471%",
+  "card-border": "214.285714 31.818182% 91.372549%",
+  "sidebar": "0 0% 100%",
+  "sidebar-foreground": "222.222222 47.368421% 11.176471%",
+  "sidebar-border": "214.285714 31.818182% 91.372549%",
+  "sidebar-primary": "224.278075 76.326531% 48.039216%",
   "sidebar-primary-foreground": "0 0% 100%",
-  "sidebar-accent": "240 5% 16%",
-  "sidebar-accent-foreground": "60 9% 96%",
-  "sidebar-ring": "38 92% 50%",
+  "sidebar-accent": "213.75 100% 96.862745%",
+  "sidebar-accent-foreground": "224.278075 76.326531% 48.039216%",
+  "sidebar-ring": "224.278075 76.326531% 48.039216%",
   "popover": "0 0% 100%",
-  "popover-foreground": "240 6% 10%",
-  "popover-border": "240 5% 88%",
-  "primary": "221 47% 20%",
+  "popover-foreground": "222.222222 47.368421% 11.176471%",
+  "popover-border": "214.285714 31.818182% 91.372549%",
+  "primary": "224.278075 76.326531% 48.039216%",
   "primary-foreground": "0 0% 100%",
-  "secondary": "38 92% 50%",
-  // Gold fill stays vivid; small text needs a deeper gold on light surfaces.
-  "secondary-text": "32 85% 28%",
-  "secondary-on-dark": "38 92% 50%",
-  "secondary-foreground": "240 6% 10%",
-  "muted": "240 5% 92%",
-  "muted-foreground": "240 4% 40%",
-  "accent": "221 40% 95%",
-  "accent-foreground": "221 47% 20%",
-  "destructive": "0 84% 45%",
-  "destructive-foreground": "0 5% 98%",
-  "success": "152 60% 32%",
+  "primary-hover": "225.931034 70.731707% 40.196078%",
+  "primary-active": "224.444444 64.285714% 32.941176%",
+  "secondary": "210 40% 96.078431%",
+  "secondary-text": "215.294118 19.318182% 34.509804%",
+  "secondary-on-dark": "215.294118 19.318182% 34.509804%",
+  "secondary-foreground": "222.222222 47.368421% 11.176471%",
+  "secondary-hover": "214.285714 31.818182% 91.372549%",
+  "muted": "210 40% 96.078431%",
+  "muted-foreground": "215.294118 19.318182% 34.509804%",
+  "accent": "213.75 100% 96.862745%",
+  "accent-foreground": "224.278075 76.326531% 48.039216%",
+  "destructive": "0 73.70892% 41.764706%",
+  "destructive-foreground": "0 0% 100%",
+  "destructive-text": "0 73.70892% 41.764706%",
+  "destructive-subtle": "0 85.714286% 97.254902%",
+  "success": "142.78481 64.227642% 24.117647%",
   "success-foreground": "0 0% 100%",
-  "input": "240 5% 82%",
-  "ring": "221 47% 20%",
+  "success-subtle": "138.461538 76.470588% 96.666667%",
+  "warning": "31.764706 80.952381% 28.823529%",
+  "warning-subtle": "54.545455 91.666667% 95.294118%",
+  "info": "225.931034 70.731707% 40.196078%",
+  "info-subtle": "213.75 100% 96.862745%",
+  "input": "216.428571 11.965812% 54.117647%",
+  "ring": "224.278075 76.326531% 48.039216%",
+  // Categorical data colors are not application action/status colors.
   "chart-1": "221 47% 20%",
   "chart-2": "38 92% 50%",
   "chart-3": "252 52% 46%",
@@ -83,54 +114,14 @@ export const lightColors = {
   "chart-5": "150 65% 35%",
 } as const;
 
-export const darkColors = {
-  "surface-ink": "220 60% 10%",
-  "surface-ink-foreground": "0 0% 100%",
-  "background": "30 6% 7%",
-  "foreground": "251 40% 95%",
-  "border": "240 6% 18%",
-  "card": "240 7% 10%",
-  "card-foreground": "251 40% 95%",
-  "card-border": "240 6% 15%",
-  "sidebar": "240 8% 5%",
-  "sidebar-foreground": "251 40% 92%",
-  "sidebar-border": "240 6% 14%",
-  "sidebar-primary": "222 49% 57%",
-  "sidebar-primary-foreground": "0 0% 100%",
-  "sidebar-accent": "240 6% 14%",
-  "sidebar-accent-foreground": "251 40% 92%",
-  "sidebar-ring": "38 80% 85%",
-  "popover": "240 7% 12%",
-  "popover-foreground": "251 40% 95%",
-  "popover-border": "240 6% 18%",
-  "primary": "222 49% 57%",
-  "primary-foreground": "0 0% 100%",
-  "secondary": "38 80% 55%",
-  "secondary-text": "38 80% 60%",
-  "secondary-on-dark": "38 80% 55%",
-  "secondary-foreground": "240 6% 10%",
-  "muted": "240 6% 16%",
-  "muted-foreground": "240 5% 65%",
-  "accent": "222 35% 22%",
-  "accent-foreground": "222 40% 92%",
-  "destructive": "0 84% 40%",
-  "destructive-foreground": "0 5% 98%",
-  "success": "152 55% 55%",
-  "success-foreground": "240 8% 7%",
-  "input": "240 6% 20%",
-  "ring": "222 49% 57%",
-  "chart-1": "222 49% 57%",
-  "chart-2": "38 80% 55%",
-  "chart-3": "252 78% 72%",
-  "chart-4": "25 88% 65%",
-  "chart-5": "150 65% 65%",
-} as const;
+/** Legacy light-only compatibility; every ColorToken remains safe to index. */
+export const darkColors = lightColors;
 
 /** Shadows, outlines and elevation overlays — full CSS values. */
 export const lightEffects = {
-  "button-outline": "rgba(0,0,0, .10)",
-  "badge-outline": "rgba(0,0,0, .05)",
-  "opaque-button-border-intensity": "-8",
+  "button-outline": "hsl(var(--input))",
+  "badge-outline": "hsl(var(--border))",
+  "opaque-button-border-intensity": "0",
   "elevate-1": "rgba(0,0,0, .03)",
   "elevate-2": "rgba(0,0,0, .08)",
   "shadow-2xs": "0px 2px 0px 0px hsl(210 6% 12% / 0.02)",
@@ -143,25 +134,12 @@ export const lightEffects = {
   "shadow-2xl": "0px 2px 0px 0px hsl(210 6% 12% / 0.10)",
 } as const;
 
-export const darkEffects = {
-  "button-outline": "rgba(255,255,255, .10)",
-  "badge-outline": "rgba(255,255,255, .05)",
-  "opaque-button-border-intensity": "9",
-  "elevate-1": "rgba(255,255,255, .04)",
-  "elevate-2": "rgba(255,255,255, .09)",
-  "shadow-2xs": "0px 2px 0px 0px hsl(210 6% 2% / 0.15)",
-  "shadow-xs": "0px 2px 0px 0px hsl(210 6% 2% / 0.20)",
-  "shadow-sm": "0px 2px 0px 0px hsl(210 6% 2% / 0.25), 0px 1px 2px -1px hsl(210 6% 2% / 0.30)",
-  "shadow": "0px 2px 0px 0px hsl(210 6% 2% / 0.25), 0px 1px 2px -1px hsl(210 6% 2% / 0.35)",
-  "shadow-md": "0px 2px 0px 0px hsl(210 6% 2% / 0.30), 0px 2px 4px -1px hsl(210 6% 2% / 0.40)",
-  "shadow-lg": "0px 2px 0px 0px hsl(210 6% 2% / 0.35), 0px 4px 6px -1px hsl(210 6% 2% / 0.45)",
-  "shadow-xl": "0px 2px 0px 0px hsl(210 6% 2% / 0.40), 0px 8px 10px -1px hsl(210 6% 2% / 0.50)",
-  "shadow-2xl": "0px 2px 0px 0px hsl(210 6% 2% / 0.45)",
-} as const;
+/** Legacy compatibility, not an alternate dark elevation palette. */
+export const darkEffects = lightEffects;
 
 /**
- * Tokens whose border colour is derived from their own fill by shifting
- * lightness, so a button's border tracks its background automatically.
+ * Stable border-token names. Their explicit semantic sources below distinguish
+ * decorative dividers, essential outlines and selected/action boundaries.
  */
 export const derivedBorderTokens = [
   "sidebar-primary",
@@ -172,6 +150,17 @@ export const derivedBorderTokens = [
   "accent",
   "destructive",
 ] as const;
+
+/** Explicit boundaries, not gold-era lightness shifts. */
+export const borderSources = {
+  "sidebar-primary": "sidebar-primary",
+  "sidebar-accent": "sidebar-primary",
+  primary: "primary",
+  secondary: "input",
+  muted: "border",
+  accent: "primary",
+  destructive: "destructive",
+} as const satisfies Record<typeof derivedBorderTokens[number], keyof typeof lightColors>;
 
 export type ColorToken = keyof typeof lightColors;
 export type EffectToken = keyof typeof lightEffects;
@@ -210,8 +199,8 @@ export function cssVar(token: ColorToken, alpha?: number): string {
  * A literal colour string for consumers that cannot resolve CSS variables:
  * Clerk's appearance API, canvas-based charts, HTML email.
  *
- * Because it resolves at call time it does not follow a runtime theme switch —
- * pass the theme explicitly for anything that must react to one.
+ * The legacy theme argument is accepted but both branches resolve light.
+ * It never reads browser storage or OS preferences.
  */
 export function color(token: ColorToken, theme: Theme = "light", alpha?: number): string {
   const triplet = theme === "dark" ? darkColors[token] : lightColors[token];

@@ -7,6 +7,7 @@ const { generatePostContent, where, select, pass, getUserProfile, fetchArticle }
   pass: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 vi.mock("../db", () => ({ db: { select } }));
+vi.mock("../services/generation-quota", async original => ({ ...await original<typeof import("../services/generation-quota")>(), runGeneration: vi.fn(async (_scope, _id, _kind, _input, _signal, work) => work()) }));
 vi.mock("../middlewares/requireDbUser", () => ({ requireDbUser: pass, authedOf: () => ({ tenant: { tenantId: "tenant-a", userId: "user-a" } }) }));
 vi.mock("../storage", () => ({ storage: { getUserProfile } }));
 vi.mock("../lib/redis", () => ({ redis: undefined }));
@@ -17,6 +18,7 @@ vi.mock("../services/metaEngine", () => ({ getAvailableVerticals: vi.fn(), norma
 vi.mock("../services/punditBrain", async importOriginal => ({ ...await importOriginal<typeof import("../services/punditBrain")>(), generatePostContentDetailed: generatePostContent }));
 import { AIGenerationError } from "../services/openRouter";
 import { registerAiRoutes } from "./ai";
+import { GenerationQuotaError, runGeneration } from "../services/generation-quota";
 
 const body = { headline: "Pilot result", summary: "The pilot reduced latency by 12%.", source: "Research Desk", articleUrl: "https://news.test/pilot", platform: "twitter", tone: "professional" };
 const app = express();
@@ -24,6 +26,7 @@ app.use(express.json());
 registerAiRoutes(app);
 
 beforeEach(() => {
+  vi.mocked(runGeneration).mockClear();
   select.mockReset().mockReturnValue({ from: () => ({ where }) });
   where.mockReset().mockResolvedValue([]);
   generatePostContent.mockReset().mockResolvedValue({ content: "A real generated post", evidence: { excerpts: [] }, generation: { provider: "anthropic", model: "test", fallbackUsed: false }, validation: { factualVerification: "not-performed", requiresHumanReview: true } });
@@ -32,6 +35,14 @@ beforeEach(() => {
 });
 
 describe("POST /api/ai/generate-post", () => {
+  it("reserves using authenticated tenant, returns an operation ID and blocks providers on quota denial", async () => {
+    vi.mocked(runGeneration).mockRejectedValueOnce(new GenerationQuotaError(429, "generation_quota_exceeded", "Limit reached", 60));
+    const response = await request(app).post("/api/ai/generate-post").send({ ...body, tenantId: "evil" });
+    expect(response.status).toBe(429); expect(response.headers["retry-after"]).toBe("60");
+    expect(response.headers["x-generation-operation-id"]).toMatch(/^[a-f0-9-]{36}$/);
+    expect(runGeneration).toHaveBeenCalledWith({ tenantId: "tenant-a", userId: "user-a" }, expect.any(String), "generate-post", expect.any(Object), expect.any(AbortSignal), expect.any(Function));
+    expect(generatePostContent).not.toHaveBeenCalled(); expect(fetchArticle).not.toHaveBeenCalled();
+  });
   it.each([
     {}, { ...body, headline: 12 }, { ...body, headline: " " },
     { ...body, summary: "" }, { ...body, summary: {} }, { ...body, summary: "x".repeat(50_001) },

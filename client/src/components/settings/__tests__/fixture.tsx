@@ -30,6 +30,6 @@ function Fixture() {
     <Link href="/dashboard">Leave Settings</Link>
     <Link href="/dashboard/settings?tab=account">Open Settings</Link>
     <button onClick={() => navigate("/dashboard", { replace: true })}>Replace route</button>
-  </nav><button id="fixture-refetch" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/profile"] })}>Fixture refetch</button><Page key={location} /><Toaster /></>;
+  </nav><button id="fixture-refetch" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/profile"] })}>Fixture refetch</button><button id="fixture-refetch-notifications" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/email-preferences"] })}>Fixture notification refetch</button><Page key={location} /><Toaster /></>;
 }
 createRoot(document.getElementById("root")!).render(<StrictMode><QueryClientProvider client={queryClient}><Fixture /></QueryClientProvider></StrictMode>);

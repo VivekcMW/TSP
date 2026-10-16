@@ -1,5 +1,7 @@
 import type { TenantScope } from "../../storage.js";
 import type { IndustrySlug, UserProfile } from "@shared/schema";
+import type { InboxRefreshOptions, InboxRefreshResult } from "@shared/inbox-refresh";
+import type { ArticleInputKind, PersonalTrend, PublicationDate, TextEvidence } from "@shared/article-quality";
 
 export interface RSSFeedConfig {
   name: string;
@@ -11,27 +13,27 @@ export interface RSSFeedConfig {
 export interface FetchedArticle {
   title: string;
   link: string;
-  pubDate: string;
+  pubDate: string | null;
+  publishedAt?: string | null;
+  publicationDate?: PublicationDate;
+  inputKind?: ArticleInputKind;
+  sourceOrigin?: string | null;
   source: string;
   content: string;
   categories: string[];
+  /** Trusted server metadata: set ONLY by fetchUserSources after fetching an active row. Never infer from source/category text. */
+  userSourceProvenance?: { kind: "active-user-source"; sourceId: string };
 }
 
 export interface ScoredArticle extends FetchedArticle {
   relevanceScore: number;
+  rankingScore?: number;
+  evidence?: TextEvidence[];
   matchedKeywords: string[];
+  relevanceReason: string;
 }
 
-export interface EngineRunResult {
-  success: boolean;
-  articlesProcessed: number;
-  articlesMatched: number;
-  newInboxItems: number;
-  durationMs: number;
-  /** Set when the user has no keywords/companies/influencers and no active sources yet, so the caller can prompt setup instead of treating this as a failure. */
-  needsSetup?: boolean;
-  errors?: string[];
-}
+export interface EngineRunResult extends InboxRefreshResult {}
 
 /**
  * Per-engine identity/voice only. There is no feed list or trend keyword list
@@ -50,12 +52,9 @@ export interface IIndustryEngine {
 
   processForUser(
     scope: TenantScope,
-    userProfile: UserProfile
+    userProfile: UserProfile,
+    options?: InboxRefreshOptions
   ): Promise<EngineRunResult>;
 
-  getHotTrends(scope: TenantScope, maxTrends?: number): Promise<Array<{
-    topic: string;
-    count: number;
-    articles: Array<{ title: string; source: string; link: string }>;
-  }>>;
+  getHotTrends(scope: TenantScope, maxTrends?: number): Promise<PersonalTrend[]>;
 }

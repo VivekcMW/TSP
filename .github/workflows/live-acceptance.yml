@@ -1,0 +1,73 @@
+name: Live acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: Exact HTTPS candidate origin
+        required: true
+        type: string
+      run_content_workflow:
+        description: Run authenticated draft, media, scheduling, and cancellation checks
+        required: true
+        default: false
+        type: boolean
+      run_paid_ai:
+        description: Run billed live AI article generation
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: live-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    environment: live-acceptance
+    env:
+      E2E_BASE_URL: ${{ inputs.target_url }}
+      E2E_API_BASE_URL: ${{ inputs.target_url }}
+      E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+      E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+      E2E_BLUESKY_HANDLE: ${{ secrets.E2E_BLUESKY_HANDLE }}
+      E2E_BLUESKY_APP_PASSWORD: ${{ secrets.E2E_BLUESKY_APP_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - name: Validate required account secrets
+        run: test -n "$E2E_TEST_EMAIL" && test -n "$E2E_TEST_PASSWORD"
+
+      - name: Authenticated route acceptance
+        run: pnpm exec playwright test e2e/route-smoke.spec.ts --config=playwright.live.config.ts
+
+      - name: Content and publishing acceptance
+        if: ${{ inputs.run_content_workflow }}
+        run: pnpm exec playwright test e2e/content-workflow.spec.ts --config=playwright.live.config.ts
+
+      - name: Paid AI acceptance
+        if: ${{ inputs.run_paid_ai }}
+        env:
+          E2E_TEST_ARTICLE_GENERATION: "1"
+        run: pnpm exec playwright test e2e/article-generation.spec.ts --config=playwright.live.config.ts
+
+      - name: Upload live acceptance report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-acceptance-report
+          path: playwright-report/live-acceptance
+          if-no-files-found: warn
+          retention-days: 14

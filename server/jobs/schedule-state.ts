@@ -6,6 +6,10 @@ export function aggregateScheduleStatus(statuses: string[]): string {
   if (statuses.includes("queued")) return "queued";
   if (statuses.includes("unknown")) return "unknown";
   if (statuses.includes("failed")) return "failed";
+  if (statuses.every(status => status === "simulated")) return "simulated";
+  if (statuses.includes("accepted_unverified")) return "accepted_unverified";
+  if (statuses.includes("manual_published")) return "manual_published";
+  if (statuses.includes("simulated")) return "partial";
   if (statuses.every((status) => status === "published")) return "published";
   if (statuses.includes("published")) return "partial";
   return "cancelled";

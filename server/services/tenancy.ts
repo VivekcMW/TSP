@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { users } from "@shared/models/auth";
 import {
@@ -35,9 +35,10 @@ export interface TenantContext {
 /**
  * Creates a user's personal tenant, or returns the existing one.
  *
- * Idempotent, and safe under concurrent first requests: the membership insert
- * is the serialisation point, so a duplicate call re-reads rather than
- * creating a second tenant.
+ * A user's first requests arrive in parallel (e.g. /api/me and /api/profile), and
+ * nothing in the schema makes "one personal tenant per user" unique. Creation
+ * therefore holds a per-user transaction-scoped advisory lock and re-checks under
+ * it, so concurrent first calls create exactly one tenant.
  */
 export async function ensurePersonalTenant(
   userId: string,
@@ -47,36 +48,29 @@ export async function ensurePersonalTenant(
   if (existing) return existing;
 
   const name = displayName?.trim() || "Personal workspace";
-
-  const [tenant] = await db
-    .insert(tenants)
-    .values({ kind: "personal", name, status: "active" })
-    .returning();
-
-  const [membership] = await db
-    .insert(tenantMembers)
-    .values({ tenantId: tenant.id, userId, role: "owner" })
-    .onConflictDoNothing()
-    .returning();
-
-  if (membership) return tenant.id;
-
-  // A concurrent call won. Drop the tenant we just created rather than leaving
-  // an orphan, and use theirs.
-  await db.delete(tenants).where(eq(tenants.id, tenant.id));
-  const winner = await findPersonalTenant(userId);
-  if (!winner) {
-    throw new Error(`Could not resolve a personal tenant for user ${userId}`);
-  }
-  return winner;
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`personal-tenant:${userId}`}, 0))`);
+    const created = await findPersonalTenant(userId, tx);
+    if (created) return created;
+    const [tenant] = await tx
+      .insert(tenants)
+      .values({ kind: "personal", name, status: "active" })
+      .returning();
+    await tx.insert(tenantMembers).values({ tenantId: tenant.id, userId, role: "owner" });
+    return tenant.id;
+  });
 }
 
-async function findPersonalTenant(userId: string): Promise<string | undefined> {
-  const [row] = await db
+type Executor = Pick<typeof db, "select">;
+
+/** Deterministic: the earliest membership wins if duplicates ever exist (0041 removed them). */
+async function findPersonalTenant(userId: string, executor: Executor = db): Promise<string | undefined> {
+  const [row] = await executor
     .select({ tenantId: tenants.id })
     .from(tenantMembers)
     .innerJoin(tenants, eq(tenants.id, tenantMembers.tenantId))
     .where(and(eq(tenantMembers.userId, userId), eq(tenants.kind, "personal")))
+    .orderBy(asc(tenantMembers.createdAt), asc(tenants.id))
     .limit(1);
   return row?.tenantId;
 }

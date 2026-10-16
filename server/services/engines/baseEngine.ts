@@ -1,10 +1,19 @@
 import { validateUrlSync } from "../urlValidator.js";
-import { discoverFeed, normalizeToUrl } from "../feedDiscovery.js";
+import { resolvePublicationSources } from "../publicationSources.js";
 import { CrawlError, crawlErrorMessage, fetchPublicText, mapCrawlSettled } from "../crawlerFetch.js";
-import { fetchArticlesForQuery } from "../keywordSearch.js";
-import { parseFeedContent, normalizeTitleForDedup } from "../universalFeedParser.js";
+import { fetchArticlesForQuery, isGoogleNewsArticleUrl, resolveGoogleNewsArticleUrl } from "../keywordSearch.js";
+import { fetchBingArticlesForQuery } from "../bingNewsSearch.js";
+import { knownUnreadableLinks, prefetchPooledBodies, queryArticlePool, registerPublications } from "../articlePool.js";
+import { noteDiscoveredSites, noteWatchTerms } from "../indexDiscovery.js";
+import { parseFeedContent } from "../universalFeedParser.js";
 import { scrapeWebpageArticles } from "../webpageScraper.js";
 import { getCachedArticles } from "./articleCache.js";
+import { scoreArticleRelevance } from "../articleRelevance.js";
+import { freshnessMultiplier, type ArticleQuality, type PersonalTrend } from "@shared/article-quality";
+import { publicationDate } from "../articleDates";
+import { summarizeArticle } from "../articleSummary";
+import { diversityFeatures, sourceOrigin } from "../inboxDiversity";
+import { personalTrends } from "../personalTrends";
 import type {
   IIndustryEngine,
   EngineConfig,
@@ -14,10 +23,27 @@ import type {
   RSSFeedConfig,
 } from "./types.js";
 import type { UserProfile } from "@shared/schema";
+import { getSearchEdition } from "@shared/search-editions";
 import { storage, type TenantScope } from "../../storage.js";
+import { randomUUID } from "node:crypto";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
+import { canonicalHttpUrl, isVideoPageUrl } from "@shared/canonical-url";
+import { INBOX_CAPACITY, INBOX_CANDIDATE_LIMIT, InboxOperationConflictError, inboxRefreshMessage, type InboxRefreshOptions } from "@shared/inbox-refresh";
 
-/** Cap on how many keyword/company/influencer queries we live-search per refresh, to bound latency and outbound requests. */
-const MAX_KEYWORD_QUERIES = 8;
+const KEYWORD_SEARCH_BUDGET_MS = 20000;
+// The shared article index: how far back to look, how many candidates to take, and how many
+// accepted stories to read right after a commit so "Write a post" needs no live fetch.
+const INDEX_WINDOW_DAYS = 30;
+const INDEX_CANDIDATE_LIMIT = 150;
+const INDEX_PREFETCH_LIMIT = 10;
+const INDEX_PREFETCH_BUDGET_MS = 15000;
+// Before offering stories, read the top ones not read yet, so Discover offers what can be written from.
+const READ_CHECK_LIMIT = 24;
+const READ_CHECK_CONCURRENCY = 6;
+const READ_CHECK_BUDGET_MS = 12000;
+// With this many index candidates the search engines are not asked at all (0 disables).
+const INDEX_ONLY_THRESHOLD = Number(process.env.INDEX_ONLY_THRESHOLD ?? "40");
+type SearchReservation = { queries: string[]; searchEdition: string; profile: UserProfile };
 
 export abstract class BaseIndustryEngine implements IIndustryEngine {
   abstract readonly config: EngineConfig;
@@ -29,10 +55,12 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       if (!parsedItems) throw new CrawlError("feed", "The source did not return a readable RSS, Atom, or JSON feed.");
 
       const items = parsedItems.slice(0, 15).map((item) => ({
+        ...item,
         title: item.title,
         link: item.link,
         pubDate: item.pubDate,
         source: feed.name,
+        sourceOrigin: sourceOrigin(item.link),
         content: item.content,
         categories: item.categories.length ? item.categories : [feed.category],
       }));
@@ -49,6 +77,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
   protected async fetchWebpage(source: RSSFeedConfig, signal?: AbortSignal): Promise<FetchedArticle[]> {
       const items = await scrapeWebpageArticles(source.url, signal);
       const withCategories = items.slice(0, 15).map((item) => ({
+        ...item,
         title: item.title,
         link: item.link,
         pubDate: item.pubDate,
@@ -57,53 +86,6 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
         categories: item.categories.length ? item.categories : [source.category],
       }));
       return withCategories.filter((item) => item.link && validateUrlSync(item.link)).slice(0, 10);
-  }
-
-  /**
-  * Only explicit publication URLs can be materialized. Plain names remain
-  * interest signals until the user adds their correct URL in Manage Sources.
-  * Cancellation stops probes AND prevents late writes after the budget expires.
-   */
-  private async materializePublicationsAsSources(
-    scope: TenantScope,
-    userProfile: UserProfile,
-    existing: Array<{ name: string }>,
-  ): Promise<void> {
-    const publications = userProfile.publications || [];
-    if (!publications.length) return;
-
-    const existingNames = new Set(existing.map((s) => s.name.toLowerCase()));
-    const unresolved = [...new Set(publications.map((name) => name.trim()))]
-      .filter((name) => normalizeToUrl(name) && !existingNames.has(name.toLowerCase())).slice(0, 4);
-    if (!unresolved.length) return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6000);
-
-    const materializeOne = async (name: string): Promise<void> => {
-      if (controller.signal.aborted) return;
-      const result = await discoverFeed(name, controller.signal);
-      if ("feedUrl" in result && !controller.signal.aborted) {
-        try {
-          await storage.createUserSource(scope, {
-            // Keep the explicit input as the idempotency name; don't relabel a guessed brand.
-            name,
-            feedUrl: result.feedUrl,
-            sourceType: result.sourceType,
-            addedVia: "publication",
-            isActive: true,
-          });
-        } catch {
-          // Likely a unique-constraint hit from a concurrent request resolving the same feed URL — safe to ignore.
-        }
-      }
-    };
-
-    try {
-      await mapCrawlSettled(unresolved, 2, materializeOne);
-    } finally {
-      clearTimeout(timer);
-      controller.abort();
-    }
   }
 
   protected async fetchUserSources(scope: TenantScope): Promise<FetchedArticle[]> {
@@ -117,7 +99,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
     const articles: FetchedArticle[] = [];
     let succeeded = 0;
     try {
-      await mapCrawlSettled(sources, 3, async (source) => {
+      const outcomes = await mapCrawlSettled(sources, 3, async (source) => {
         // Leave unattempted sources untouched so the next refresh picks them first.
         if (controller.signal.aborted) return;
         let errorMessage: string | null = null;
@@ -126,7 +108,10 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
           const items = source.sourceType === "webpage"
             ? await this.fetchWebpage(config, controller.signal)
             : await this.fetchFeed(config, controller.signal);
-          articles.push(...items);
+          articles.push(...items.map((item): FetchedArticle => ({
+            ...item,
+            userSourceProvenance: { kind: "active-user-source", sourceId: source.id },
+          })));
           succeeded++;
         } catch (error) {
           errorMessage = crawlErrorMessage(error);
@@ -135,6 +120,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
           lastFetchedAt: new Date(), lastFetchStatus: errorMessage ? "error" : "ok", lastFetchError: errorMessage,
         }).catch(() => { /* Best-effort status tracking, but never detached work. */ });
       });
+      if (controller.signal.aborted) throw new CrawlError("sources", "Article sources could not complete. Please try again.");
     } finally {
       clearTimeout(timer);
       controller.abort();
@@ -143,197 +129,262 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
     return articles;
   }
 
-  /** Live keyword-driven search — the query IS the user's own text, so there is nothing to hardcode here. */
-  protected async fetchKeywordSearchArticles(userProfile: UserProfile): Promise<FetchedArticle[]> {
-    const queries = [
-      ...(userProfile.keywords || []),
-      ...(userProfile.companies || []),
-      ...(userProfile.influencers || []),
-    ]
-      .map((q) => {
-        // Handle both string and weighted keyword formats
-        return typeof q === 'string' ? q : q.keyword;
-      })
-      .map((q) => q.trim())
-      .filter(Boolean)
-      .slice(0, MAX_KEYWORD_QUERIES);
+  /**
+   * Reserve from the current persisted profile under its storage lock, never a
+   * caller's stale snapshot. All allocated queries count as consumed, including
+   * cache hits, failures and cancellation before starting. Advancing first keeps
+   * failing/slow queries from starving later selections across refreshes.
+   */
+  protected async reserveSearch(scope: TenantScope): Promise<SearchReservation> {
+    const reservation = await storage.reserveSearchQueryPlan(scope).catch(() => {
+      // Storage/driver errors can contain profile values; never surface them.
+      throw new CrawlError("search-plan", "The search query plan could not be reserved. Please try again.");
+    });
+    if (!reservation?.profile) {
+      throw new CrawlError("search-plan", "Your saved profile could not be loaded. Please try again.");
+    }
+    return reservation;
+  }
 
+  protected async fetchKeywordSearchArticles({ queries, searchEdition }: SearchReservation): Promise<FetchedArticle[]> {
     if (!queries.length) return [];
 
-    const cacheKey = `keywords:${queries.slice().sort((a, b) => a.localeCompare(b)).join("|").toLowerCase()}`;
+    const edition = getSearchEdition(searchEdition);
+    // Preserve query order/case and boundaries; delimiters in labels cannot collide.
+    const cacheKey = `keywords:${JSON.stringify([edition.id, queries])}`;
+    let partialFailure = false;
     return getCachedArticles(cacheKey, async () => {
-      const results = await mapCrawlSettled(queries, 2, (q) => fetchArticlesForQuery(q));
-      const articles: FetchedArticle[] = [];
-      results.forEach((result) => {
-        if (result.status === "fulfilled") articles.push(...result.value);
-      });
-      return articles;
-    });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), KEYWORD_SEARCH_BUDGET_MS);
+      try {
+        const searchWith = (provider: typeof fetchArticlesForQuery) => mapCrawlSettled(queries, 2, async (query) => {
+          // Unstarted allocations are failures too, not successful empty results.
+          if (controller.signal.aborted) throw new CrawlError("search-timeout", "The search time budget expired.");
+          return provider(query, 8, edition.id, controller.signal);
+        });
+        // Separate pools under one budget: Google's slow link decoding can't hold back Bing,
+        // whose results carry publisher links already (see bingNewsSearch.ts).
+        const results = (await Promise.all([searchWith(fetchBingArticlesForQuery), searchWith(fetchArticlesForQuery)])).flat();
+        const failed = results.filter((result) => result.status === "rejected").length;
+        // A deadline keeps what finished (uncached), so slow queries cannot discard fast ones;
+        // the next refresh reaches the rest. Only a batch with nothing finished fails.
+        partialFailure = failed > 0 || controller.signal.aborted;
+        if (failed === results.length && results.length > 0) {
+          // Never include provider/query details.
+          throw new CrawlError("search-batch", "Article search could not complete. Please try again.");
+        }
+        const articles: FetchedArticle[] = [];
+        results.forEach((result) => {
+          if (result.status === "fulfilled") articles.push(...result.value);
+        });
+        return articles;
+      } finally {
+        // All started fetches settle before returning; no detached race losers.
+        clearTimeout(timer);
+        controller.abort();
+      }
+    }, () => !partialFailure);
+  }
+
+  /**
+   * Reads the top-ranked stories not read yet (bounded) and drops the ones that turn out to be
+   * blocked, paywalled or empty, so every story offered can be written from. Pages whose read is
+   * cut off stay in; a failed check keeps everything.
+   */
+  protected async offerOnlyReadable<T extends FetchedArticle>(ranked: T[]): Promise<T[]> {
+    const top = ranked.slice(0, READ_CHECK_LIMIT);
+    if (!top.length) return ranked;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), READ_CHECK_BUDGET_MS);
+    try {
+      await prefetchPooledBodies(top.map(article => ({ link: article.link, title: article.title, source: article.source, content: article.content,
+        publishedAt: article.publishedAt ?? article.pubDate, sourceOrigin: article.sourceOrigin })),
+        { limit: READ_CHECK_LIMIT, concurrency: READ_CHECK_CONCURRENCY, signal: controller.signal }).catch(() => undefined);
+    } finally {
+      clearTimeout(timer);
+    }
+    const unreadable = new Set(await knownUnreadableLinks(top.map(article => article.link)).catch(() => [] as string[]));
+    return unreadable.size ? ranked.filter(article => !unreadable.has(canonicalHttpUrl(article.link) ?? "")) : ranked;
+  }
+
+  /** Reads the accepted stories' pages into the shared index now, bounded and best effort. */
+  protected async prefetchAcceptedBodies(result: EngineRunResult): Promise<void> {
+    const stories = (result.items ?? []).filter(item => typeof item.articleUrl === "string" && item.articleUrl).slice(0, INDEX_PREFETCH_LIMIT)
+      .map(item => ({ link: item.articleUrl, title: item.headline, source: item.source, content: item.summary ?? "", publishedAt: item.publishedAt }));
+    if (!result.success || !stories.length) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), INDEX_PREFETCH_BUDGET_MS);
+    try {
+      await prefetchPooledBodies(stories, { limit: INDEX_PREFETCH_LIMIT, signal: controller.signal });
+    } catch {
+      // The crawl cycle picks up whatever wasn't read here.
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async scoreArticles(
     articles: FetchedArticle[],
-    userProfile: UserProfile
+    userProfile: UserProfile,
+    now = Date.now(),
   ): Promise<ScoredArticle[]> {
-    const userKeywords = [
-      ...(userProfile.keywords || []),
-      ...(userProfile.companies || []),
-      ...(userProfile.influencers || []),
-    ];
-
-    const scored = articles.map((article) => {
-      const text = `${article.title} ${article.content}`.toLowerCase();
-      let score = 0;
-      const matchedKeywords: string[] = [];
-
-      userKeywords.forEach((kw) => {
-        // Handle both string and weighted keyword formats
-        const keyword = typeof kw === 'string' ? kw : kw.keyword;
-        const keywordLower = keyword.toLowerCase();
-        if (text.includes(keywordLower)) {
-          score += 2;
-          matchedKeywords.push(keyword);
-        }
-        const words = keywordLower.split(/\s+/);
-        words.forEach((word: string) => {
-          if (word.length > 3 && text.includes(word)) {
-            score += 0.5;
-          }
-        });
-      });
-
-      const publications = userProfile.publications || [];
-      if (publications.some(pub =>
-        pub.toLowerCase().includes(article.source.toLowerCase()) ||
-        article.source.toLowerCase().includes(pub.toLowerCase())
-      )) {
-        score += 3;
-      }
-
-      return {
-        ...article,
-        relevanceScore: score,
-        matchedKeywords,
-      };
-    });
+    const scored: Array<ScoredArticle & { rankingScore: number }> = [];
+    for (const article of articles) {
+      const relevance = scoreArticleRelevance(article, userProfile);
+      scored.push({ ...article, ...relevance, rankingScore: relevance.relevanceScore * freshnessMultiplier(article.publicationDate?.publishedAt, now) });
+      await yieldToEventLoop();
+    }
 
     return scored
       .filter((item) => item.relevanceScore > 0)
-      .sort((a, b) => b.relevanceScore - a.relevanceScore);
+      .sort((a, b) => b.rankingScore - a.rankingScore || (a.link < b.link ? -1 : a.link > b.link ? 1 : 0));
   }
 
   async processForUser(
     scope: TenantScope,
-    userProfile: UserProfile
+    _userProfile: UserProfile,
+    options: InboxRefreshOptions = {},
   ): Promise<EngineRunResult> {
     const startTime = Date.now();
-    const errors: string[] = [];
+    const operationId = options.operationId ?? randomUUID();
+    const autoRefresh = options.autoRefresh ?? false;
+    let activeCount = 0;
+    let discoveryWarnings: string[] = [];
 
     try {
+      const begin = await storage.beginInboxRefresh(scope, operationId, autoRefresh);
+      if (begin.receipt) return begin.receipt;
+      activeCount = begin.activeCount;
+      if (autoRefresh && activeCount > INBOX_CAPACITY) {
+        return await storage.commitInboxRefresh(scope, operationId, autoRefresh, begin.snapshot, [], {
+          articlesProcessed: 0, articlesMatched: 0, durationMs: Date.now() - startTime,
+        });
+      }
+      // Reserve ONCE before any discovery/crawl starts. Every stage uses the
+      // same locked persisted snapshot, not a potentially stale caller profile.
+      const reservation = await this.reserveSearch(scope);
+      const userProfile = reservation.profile;
       const existingSources = await storage.getUserSources(scope);
-      await this.materializePublicationsAsSources(scope, userProfile, existingSources);
+      // The shared index learns every feed anyone picks. Never a reason to fail a refresh.
+      await registerPublications(existingSources.filter(source => source.isActive)
+        .map(source => ({ name: source.name, feedUrl: source.feedUrl, sourceType: source.sourceType })))
+        .catch(error => console.warn(`[shared-index] could not register sources: ${error instanceof Error ? error.message : "unknown error"}`));
+      discoveryWarnings = await resolvePublicationSources(scope, userProfile);
+      if (activeCount > 0) await this.repairStoredGoogleNewsUrls(scope);
 
-      const [userSourceArticles, keywordArticles] = await Promise.all([
-        this.fetchUserSources(scope).catch((error) => { errors.push(crawlErrorMessage(error)); return []; }),
-        this.fetchKeywordSearchArticles(userProfile),
+      // The shared index first: it is a database read, and with enough candidates the search
+      // engines are not asked at all. Its failure never decides a refresh.
+      const indexArticles = await queryArticlePool(userProfile, { days: INDEX_WINDOW_DAYS, limit: INDEX_CANDIDATE_LIMIT })
+        .catch(() => { console.warn("[shared-index] candidates unavailable for this refresh"); return [] as FetchedArticle[]; });
+      const searchSkipped = INDEX_ONLY_THRESHOLD > 0 && indexArticles.length >= INDEX_ONLY_THRESHOLD;
+      console.log(`[shared-index] ${indexArticles.length} candidates for ${scope.userId}${searchSkipped ? " (search engines skipped)" : ""}`);
+      const [sourceOutcome, searchOutcome] = await Promise.allSettled([
+        this.fetchUserSources(scope),
+        searchSkipped ? Promise.resolve([] as FetchedArticle[]) : this.fetchKeywordSearchArticles(reservation),
       ]);
+      const stageWarnings: string[] = [];
+      if (sourceOutcome.status === "rejected") stageWarnings.push("Some saved sources could not be fetched. Check Manage Sources for details.");
+      if (searchOutcome.status === "rejected") stageWarnings.push("Keyword search could not complete. Your saved-source results are still available.");
+      const sourceArticles = sourceOutcome.status === "fulfilled" ? sourceOutcome.value : [];
+      const searchArticles = searchOutcome.status === "fulfilled" ? searchOutcome.value : [];
+      if (!searchSkipped && ((sourceOutcome.status === "rejected" && searchOutcome.status === "rejected")
+        || (sourceOutcome.status === "rejected" && searchArticles.length === 0)
+        || (searchOutcome.status === "rejected" && sourceArticles.length === 0))) {
+        throw new CrawlError("refresh-incomplete", inboxRefreshMessage("failure"));
+      }
+      // Discovery: the publishers behind search results, and this person's terms, without the person.
+      if (searchArticles.length) await noteDiscoveredSites(searchArticles.map(article => article.sourceOrigin ?? article.link), "search").catch(() => undefined);
+      await noteWatchTerms(userProfile).catch(() => undefined);
+      const userSourceArticles = sourceArticles;
+      const keywordArticles = searchArticles;
 
       const hasAnyInterestSignal =
-        existingSources.length > 0 ||
+        existingSources.some(source => source.isActive) ||
         (userProfile.keywords?.length ?? 0) > 0 ||
         (userProfile.companies?.length ?? 0) > 0 ||
         (userProfile.influencers?.length ?? 0) > 0 ||
         (userProfile.publications?.length ?? 0) > 0;
 
       const seen = new Set<string>();
-      const seenTitles = new Set<string>();
       const articles: FetchedArticle[] = [];
-      for (const article of [...userSourceArticles, ...keywordArticles]) {
-        if (!article.link || seen.has(article.link)) continue;
-        // Catches syndicated re-headlines of the same story across different
-        // outlets (common with keyword search) that a strict URL match would
-        // let through as if they were distinct articles.
-        const titleKey = normalizeTitleForDedup(article.title);
-        if (titleKey && seenTitles.has(titleKey)) continue;
-        seen.add(article.link);
-        if (titleKey) seenTitles.add(titleKey);
+      // Completion timing must not choose the representative. Prefer source body,
+      // then longer text, with a stable full-record tie break. Story grouping is
+      // deferred until AFTER history exclusion inside commit.
+      // Pages the crawler already found unreadable (paywalls, blocks) are not offered again.
+      const unreadable = new Set(await knownUnreadableLinks([...userSourceArticles, ...keywordArticles, ...indexArticles].map(article => article.link)).catch(() => []));
+      // Video pages have no text to write from, however they label themselves.
+      const fetched = [...userSourceArticles, ...keywordArticles, ...indexArticles]
+        .filter(article => !unreadable.has(canonicalHttpUrl(article.link) ?? "") && !isVideoPageUrl(article.link)).sort((a, b) =>
+        Number(b.inputKind === "page_body") - Number(a.inputKind === "page_body") || b.content.length - a.content.length ||
+        (JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0));
+      for (const article of fetched) {
+        const canonical = canonicalHttpUrl(article.link);
+        if (!canonical || seen.has(canonical)) continue;
+        seen.add(canonical);
         articles.push(article);
+        if (articles.length >= INBOX_CANDIDATE_LIMIT) break;
       }
 
-      if (articles.length === 0) {
-        return {
-          success: errors.length === 0,
-          articlesProcessed: 0,
-          articlesMatched: 0,
-          newInboxItems: 0,
-          durationMs: Date.now() - startTime,
-          needsSetup: !hasAnyInterestSignal,
-          ...(errors.length ? { errors } : {}),
-        };
-      }
-
-      const scoredArticles = await this.scoreArticles(articles, userProfile);
-      // Keyword-search results already matched their query; if scoring found
-      // nothing (e.g. no keywords set, only user_sources configured) still
-      // rank the raw fetched articles rather than dropping them.
-      const rankedArticles = scoredArticles.length > 0
-        ? scoredArticles
-        : articles.map((a) => ({ ...a, relevanceScore: 1, matchedKeywords: [] as string[] }));
-      const topArticles = rankedArticles.slice(0, 10);
-
-      let newItems = 0;
-      for (const article of topArticles) {
-        const existing = await storage.getInboxItemByUrl(scope, article.link);
-        if (!existing) {
-          // Import is at the top of the file; use the relevance scoring
-          const { calculateArticleRelevance, normalizeKeywords } = await import("../punditBrain.js");
-          
-          // Get normalized keywords (weighted)
-          const normalizedKeywords = normalizeKeywords(userProfile.keywords || []);
-          
-          // Calculate relevance score
-          const relevance = calculateArticleRelevance(
-            `${article.title} ${article.content.slice(0, 500)}`,
-            normalizedKeywords,
-          );
-
-          const inboxItem: any = {
+      const evaluatedAt = Date.now();
+      const scoredArticles = await this.offerOnlyReadable(await this.scoreArticles(articles, userProfile, evaluatedAt));
+      // Pass the bounded RANKED pool, not its top ten: historical matches must
+      // not consume quota or hide fresh candidates further down the ranking.
+      const result = await storage.commitInboxRefresh(scope, operationId, autoRefresh, begin.snapshot,
+        scoredArticles.map(article => {
+          const date = article.publicationDate ?? publicationDate(null, "unknown");
+          const extracted = summarizeArticle(article.content, article.inputKind);
+          const qualityMetadata: ArticleQuality = { version: "quality-v1", date,
+            freshness: { policy: "balanced-v1", multiplier: freshnessMultiplier(date.publishedAt, evaluatedAt), evaluatedAt: new Date(evaluatedAt).toISOString() },
+            relevance: { version: "concept-v1", evidence: article.evidence ?? [] },
+            diversity: diversityFeatures(article.title, article.sourceOrigin === undefined ? sourceOrigin(article.link) : article.sourceOrigin, article.matchedKeywords, article.content),
+            summary: extracted.provenance };
+          return ({
             headline: article.title,
             source: article.source,
             articleUrl: article.link,
-            summary: article.content.slice(0, 500),
+            summary: extracted.summary,
+            publishedAt: date.publishedAt ? new Date(date.publishedAt) : null,
+            rankingScore: String(article.relevanceScore * qualityMetadata.freshness.multiplier),
+            qualityMetadata,
             matchedKeywords: article.matchedKeywords,
-            relevanceScore: String(relevance.relevanceScore),
-            relevanceReason: relevance.reasoning,
+            relevanceScore: String(article.relevanceScore),
+            relevanceReason: article.relevanceReason,
             status: "active",
-          };
-          await storage.createInboxItem(scope, inboxItem);
-          newItems++;
-        }
-      }
-
-      return {
-        success: true,
+        }); }), {
         articlesProcessed: articles.length,
-        articlesMatched: rankedArticles.length,
-        newInboxItems: newItems,
+        articlesMatched: scoredArticles.length,
         durationMs: Date.now() - startTime,
-        ...(errors.length ? { errors } : {}),
-      };
+        needsSetup: !hasAnyInterestSignal,
+        discoveryWarnings: [...discoveryWarnings, ...stageWarnings],
+      });
+      await this.prefetchAcceptedBodies(result);
+      return result;
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      errors.push(errorMsg);
-      console.error(`[${this.config.industry}] Engine error for user ${scope.userId}:`, error);
-
+      if (error instanceof InboxOperationConflictError) throw error;
       return {
         success: false,
+        outcome: "failure",
+        count: 0, articlesCreated: 0, items: [], activeCount, replacedCount: 0,
         articlesProcessed: 0,
         articlesMatched: 0,
         newInboxItems: 0,
         durationMs: Date.now() - startTime,
-        errors,
+        errors: [inboxRefreshMessage("failure")],
+        discoveryWarnings,
+        message: inboxRefreshMessage("failure"),
       };
     }
+  }
+
+  private async repairStoredGoogleNewsUrls(scope: TenantScope): Promise<void> {
+    const existing = await storage.getInboxItems(scope, { status: "active", limit: 100 });
+    if (!Array.isArray(existing)) return;
+    const wrappers = existing.filter(item => isGoogleNewsArticleUrl(item.articleUrl));
+    if (!wrappers.length) return;
+    await mapCrawlSettled(wrappers, 2, async item => {
+      const direct = await resolveGoogleNewsArticleUrl(item.articleUrl);
+      if (direct !== item.articleUrl && !isGoogleNewsArticleUrl(direct)) await storage.updateInboxArticleUrl(scope, item.id, direct);
+    });
   }
 
   /**
@@ -341,33 +392,8 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
    * inbox history (matchedKeywords already recorded per item), never a
    * shared static per-industry keyword list.
    */
-  async getHotTrends(scope: TenantScope, maxTrends: number = 5): Promise<Array<{
-    topic: string;
-    count: number;
-    articles: Array<{ title: string; source: string; link: string }>;
-  }>> {
-    const recentItems = await storage.getInboxItems(scope, { limit: 200 });
-
-    const trendMap = new Map<string, {
-      count: number;
-      articles: Array<{ title: string; source: string; link: string }>;
-    }>();
-
-    for (const item of recentItems) {
-      for (const keyword of item.matchedKeywords || []) {
-        const existing = trendMap.get(keyword) || { count: 0, articles: [] };
-        existing.count++;
-        if (existing.articles.length < 3) {
-          existing.articles.push({ title: item.headline, source: item.source, link: item.articleUrl });
-        }
-        trendMap.set(keyword, existing);
-      }
-    }
-
-    return Array.from(trendMap.entries())
-      .map(([topic, data]) => ({ topic, count: data.count, articles: data.articles }))
-      .filter((t) => t.count >= 2)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, maxTrends);
+  async getHotTrends(scope: TenantScope, maxTrends: number = 5): Promise<PersonalTrend[]> {
+    const now = new Date();
+    return personalTrends(await storage.getInboxDiscoveryWindow(scope, now), now, maxTrends);
   }
 }

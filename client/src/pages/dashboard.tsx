@@ -1,24 +1,36 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Inbox, RefreshCw, Link2, AlertTriangle, Rss } from "lucide-react";
-import { useIsSignedIn } from "@/lib/auth";
+import { Bookmark, Inbox, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
+import { useIsSignedIn } from "@/lib/dev-auth";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { isUsableInboxArticle } from "@/lib/inbox-quality";
+import { apiRequest, fetchAllPages, queryClient } from "@/lib/queryClient";
 import { useInboxRefreshJob, refreshJobMessage } from "@/hooks/use-inbox-refresh-job";
 import { InboxListRow } from "@/components/dashboard/inbox-list-row";
 import { InboxDetail } from "@/components/dashboard/inbox-detail";
+import { PersonalTrends } from "@/components/dashboard/personal-trends";
 import { useCreatePost } from "@/components/dashboard/create-post-provider";
-import { ignoreDiscoverShortcut } from "@/components/dashboard/create-post-state";
-import { SourcesManagerContent } from "@/components/dashboard/sources-manager";
-import { PageHeader } from "@/components/dashboard/page-header";
+import { PageBody, PageHeader, PageToolbar } from "@/components/dashboard/page-header";
+import { WorkflowStatus } from "@/components/dashboard/workflow-status";
 import { DashboardEmptyState } from "@/components/dashboard/empty-state";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Field } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import type { InboxItem } from "@shared/schema";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useIsMobile } from "@/hooks/use-mobile";
+import type { InboxListItem } from "@shared/schema";
+import {
+  DEFAULT_DISCOVER_FILTERS, DEFAULT_DISCOVER_SORT, discoverFacets, filterDiscoverRows, hasActiveDiscoverFilters, isNew, sortDiscoverRows,
+  type DiscoverAddedWindow, type DiscoverFilters, type DiscoverReading, type DiscoverSort,
+} from "@shared/discover";
+
+// readAt is optional so detail callbacks typed on the base row still fit.
+type InboxItem = Omit<InboxListItem, "readAt"> & Partial<Pick<InboxListItem, "readAt">>;
+interface DiscoverVisit { previousVisitAt: string | null; currentVisitAt: string }
+const DISCOVER_VISIT_KEY = ["discover-visit"] as const;
 
 type FilterType = "all" | "saved" | "dismissed";
 
@@ -26,30 +38,81 @@ export default function DashboardPage() {
   const isSignedIn = useIsSignedIn();
   const { toast } = useToast();
   const [filter, setFilter] = useState<FilterType>("all");
-  const { openCreate, isOpen: isCreateOpen } = useCreatePost();
+  const { openCreate } = useCreatePost();
   const triageLock = useRef(false);
-  const [isSourcesOpen, setIsSourcesOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isDetailSheetOpen, setIsDetailSheetOpen] = useState(false);
 
-  const { data: inboxItems, isLoading, isError, error, refetch } = useQuery<InboxItem[]>({
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const isMobile = useIsMobile();
+  const [filters, setFilters] = useState<DiscoverFilters>(DEFAULT_DISCOVER_FILTERS);
+  const [sort, setSort] = useState<DiscoverSort>(DEFAULT_DISCOVER_SORT);
+  // Explicit opens this session; survives refetches that race the read POST.
+  const [locallyRead, setLocallyRead] = useState<ReadonlySet<string>>(() => new Set());
+  const updateFilters = (patch: Partial<DiscoverFilters>) => setFilters(current => ({ ...current, ...patch }));
+
+  // Saved/Dismissed need the complete history so filtering and sorting are not first-page only.
+  const history = useQuery<InboxItem[]>({
     queryKey: ["/api/inbox"],
+    queryFn: ({ signal }) => fetchAllPages<InboxItem>("/api/inbox", signal),
     enabled: !!isSignedIn,
   });
-  
+  // Server-side marker so New is consistent across devices. Never refetched while mounted.
+  const visit = useQuery<DiscoverVisit>({
+    queryKey: DISCOVER_VISIT_KEY,
+    queryFn: async () => (await apiRequest("POST", "/api/inbox/visit")).json(),
+    enabled: !!isSignedIn,
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+  // First visit has no previous marker: only stories added during this visit are New.
+  const newSince = visit.data ? visit.data.previousVisitAt ?? visit.data.currentVisitAt : null;
+  const active = useQuery<InboxItem[]>({
+    queryKey: ["/api/inbox", "active"],
+    queryFn: async ({ signal }) => (await apiRequest("GET", "/api/inbox?status=active", undefined, { signal })).json(),
+    enabled: !!isSignedIn,
+  });
+  const { isLoading, isError, error, refetch } = filter === "all" ? active : history;
+
   const refreshInbox = useInboxRefreshJob();
   const needsSetup = refreshInbox.progress.needsSetup;
 
-  const items = inboxItems || [];
-  const activeCandidates = items.filter(item => item.status === "active" && isUsableInboxArticle(item));
-  const hiddenCount = items.filter(item => item.status === "active").length - activeCandidates.length;
-  const filteredItems = items.filter(item => {
-    if (filter === "all") return item.status === "active" && isUsableInboxArticle(item);
-    if (filter === "saved") return item.status === "saved";
-    if (filter === "dismissed") return item.status === "dismissed";
-    return true;
-  });
+  // Keep the current tab, filters and reading selection; just load the new rows quietly.
+  useEffect(() => {
+    if (refreshInbox.status !== "completed") return;
+    void active.refetch();
+    void history.refetch();
+  }, [refreshInbox.status]);
+  const addedCount = refreshInbox.status === "completed" ? refreshInbox.progress.articlesCreated : 0;
+  const showNewArticles = () => {
+    setFilter("all");
+    setFilters(DEFAULT_DISCOVER_FILTERS);
+    setSort("added");
+  };
+
+  const items = history.data || [];
+  // Legacy active rows still occupy capacity: keep them visible and actionable.
+  const activeCandidates = (active.data || []).filter(item => item.status === "active");
+  const tabItems = useMemo(() => filter === "all" ? activeCandidates : items.filter(item => item.status === filter), [filter, active.data, history.data]);
+  const facets = useMemo(() => discoverFacets(tabItems), [tabItems]);
+  const filteredItems = useMemo(() => {
+    const matching = filterDiscoverRows(tabItems, filters, { locallyRead });
+    // Opening a story under "Unread" must not yank the story being read out of view.
+    const reading = activeId && locallyRead.has(activeId) && !matching.some(item => item.id === activeId)
+      ? filterDiscoverRows(tabItems.filter(item => item.id === activeId), { ...filters, reading: "all" })
+      : [];
+    return sortDiscoverRows([...matching, ...reading], sort);
+  }, [tabItems, filters, locallyRead, sort, activeId]);
+  const filtersActive = hasActiveDiscoverFilters(filters);
+  const activeFilterCount = [filters.search.trim() !== "", filters.added !== "any", filters.topic !== "", filters.source !== "", filters.reading !== "all"].filter(Boolean).length;
+  const newIds = useMemo(() => new Set(filteredItems.filter(item => isNew(item, newSince, locallyRead)).map(item => item.id)), [filteredItems, newSince, locallyRead]);
   const activeItem = filteredItems.find((i) => i.id === activeId) ?? null;
+  let paneState = filteredItems.length > 0 ? "ready" : "empty";
+  if (isLoading) paneState = "loading";
+  else if (isError) paneState = "error";
 
   useEffect(() => {
     if (!activeItem && filteredItems.length > 0) {
@@ -68,15 +131,22 @@ export default function DashboardPage() {
     setActiveId(remaining[nextIndex].id);
   };
 
-  const selectRelative = (delta: number) => {
-    if (!activeItem) return;
-    const index = filteredItems.findIndex((i) => i.id === activeItem.id);
-    const nextIndex = Math.min(Math.max(index + delta, 0), filteredItems.length - 1);
-    setActiveId(filteredItems[nextIndex].id);
-  };
+  const markRead = useMutation({
+    mutationFn: async (id: string) => (await apiRequest("POST", `/api/inbox/${id}/read`)).json() as Promise<{ id: string; readAt: string }>,
+    onSuccess: ({ id, readAt }) => {
+      const stamp = (current?: InboxItem[]) => current?.map(item => item.id === id && !item.readAt ? { ...item, readAt: readAt as unknown as Date } : item);
+      queryClient.setQueryData<InboxItem[]>(["/api/inbox"], stamp);
+      queryClient.setQueryData<InboxItem[]>(["/api/inbox", "active"], stamp);
+    },
+  });
 
+  // Only an explicit open marks a story read; automatic selection never does.
   const handleSelectRow = (item: InboxItem) => {
     setActiveId(item.id);
+    if (!item.readAt && !locallyRead.has(item.id)) {
+      setLocallyRead(current => new Set(current).add(item.id));
+      markRead.mutate(item.id);
+    }
     if (window.innerWidth < 1024) setIsDetailSheetOpen(true);
   };
 
@@ -88,6 +158,7 @@ export default function DashboardPage() {
     onSuccess: (_data, { id, status }) => {
       // Only commit triage and advance after the API acknowledges the change.
       queryClient.setQueryData<InboxItem[]>(["/api/inbox"], current => current?.map(item => item.id === id ? { ...item, status } : item));
+      queryClient.setQueryData<InboxItem[]>(["/api/inbox", "active"], current => current?.filter(item => item.id !== id));
       if (activeId === id) advanceSelectionPast(id);
       setIsDetailSheetOpen(false);
       void queryClient.invalidateQueries({ queryKey: ["/api/inbox"] });
@@ -112,77 +183,15 @@ export default function DashboardPage() {
   const handleSave = (item: InboxItem) => triage(item, "saved");
   const handleDismiss = (item: InboxItem) => triage(item, "dismissed");
 
-  const activeCount = activeCandidates.length;
-  const savedCount = items.filter((i) => i.status === "saved").length;
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (ignoreDiscoverShortcut(event)) return;
-      if (isCreateOpen || isSourcesOpen || isDetailSheetOpen || triageLock.current) return;
-      if (!activeItem) return;
-
-      switch (event.key.toLowerCase()) {
-        case "j":
-        case "arrowdown":
-          event.preventDefault();
-          selectRelative(1);
-          break;
-        case "k":
-        case "arrowup":
-          event.preventDefault();
-          selectRelative(-1);
-          break;
-        case "s":
-          event.preventDefault();
-          handleSave(activeItem);
-          break;
-        case "d":
-          event.preventDefault();
-          handleDismiss(activeItem);
-          break;
-        case "g":
-        case "enter":
-          event.preventDefault();
-          handleGeneratePost(activeItem);
-          break;
-        default:
-          break;
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeItem, filteredItems, isCreateOpen, isSourcesOpen, isDetailSheetOpen, openCreate]);
-
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <main className="flex min-w-0 flex-col h-full overflow-y-auto">
       <PageHeader
+        width="workbench"
+        className="[@media(max-height:500px)]:static"
         icon={Inbox}
         title="Discover"
         subtitle={`${filteredItems.length} articles curated from your own sources and interests`}
-        stats={
-          <>
-            <Badge variant="outline" className="text-xs font-normal">{activeCount} active</Badge>
-            <Badge variant="outline" className="text-xs font-normal">{savedCount} saved</Badge>
-          </>
-        }
         actions={
-          <>
-            <Button
-              variant="outline"
-              onClick={() => setIsSourcesOpen(true)}
-              data-testid="button-manage-sources"
-            >
-              <Rss className="w-4 h-4 mr-2" />
-              Manage Sources
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => openCreate()}
-              data-testid="button-instant-review"
-            >
-              <Link2 className="w-4 h-4 mr-2" />
-              Create draft
-            </Button>
             <Button
               variant="default"
               onClick={() => void refreshInbox.startRefresh()}
@@ -192,72 +201,121 @@ export default function DashboardPage() {
               <RefreshCw className={`w-4 h-4 mr-2 ${refreshInbox.isLoading ? "animate-spin" : ""}`} />
               {refreshInbox.isLoading ? "Searching..." : "Refresh Articles"}
             </Button>
-            <div className="flex bg-muted rounded-md p-1">
-              {(["all", "saved", "dismissed"] as FilterType[]).map((f) => (
-                <Button
-                  key={f}
-                  variant={filter === f ? "secondary" : "ghost"}
-                  size="sm"
-                  onClick={() => setFilter(f)}
-                  className="capitalize"
-                  data-testid={`button-filter-${f}`}
-                >
-                  {f}
-                </Button>
-              ))}
-            </div>
-          </>
         }
       />
 
-      {!isLoading && !isError && filter === "all" && hiddenCount > 0 && (
-        <output className="shrink-0 border-b px-4 py-3 text-sm text-muted-foreground">
-          {hiddenCount} unavailable or low-quality {hiddenCount === 1 ? "story" : "stories"} hidden from active recommendations. No records were changed. Saved stories are still accessible in Saved.
-        </output>
-      )}
+      <PageBody as="div" width="workbench" scrollable={false} className="overflow-y-auto [@media(max-height:500px)]:min-h-[24rem]" contentClassName="flex h-full min-h-0 flex-col gap-5">
+        <PageToolbar aria-label="Discover filters" className="shrink-0 rounded-xl border bg-card/80 p-2 shadow-sm">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <span className="px-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Library</span>
+            <fieldset className="flex min-w-0 flex-wrap gap-1.5" aria-label="Article status">
+              {(["all", "saved", "dismissed"] as FilterType[]).map((f) => (
+                <Button
+                  key={f}
+                  variant={filter === f ? "selected" : "ghost"}
+                  size="sm"
+                  onClick={() => setFilter(f)}
+                  aria-pressed={filter === f}
+                  className="capitalize"
+                  data-testid={`button-filter-${f}`}
+                >
+                  {f === "saved" && <Bookmark className="mr-1.5 h-3.5 w-3.5" />}
+                  {f}
+                </Button>
+              ))}
+            </fieldset>
+            <PersonalTrends />
+            <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
+              <PopoverTrigger asChild>
+                <Button size="sm" variant={filtersOpen ? "selected" : "outline"} aria-controls="discover-filter-controls" data-testid="button-discover-filters">
+                  <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />Filter
+                  {activeFilterCount > 0 && <span className="ml-1 rounded-full bg-primary px-1.5 text-[0.6875rem] font-semibold leading-4 text-primary-foreground" aria-label={`${activeFilterCount} active`} data-testid="badge-discover-filter-count">{activeFilterCount}</span>}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                id="discover-filter-controls"
+                role="dialog"
+                aria-label="Filter articles"
+                side={isMobile ? "bottom" : "right"}
+                align="start"
+                sideOffset={8}
+                collisionPadding={16}
+                className="w-[min(22rem,calc(100vw-2rem))] max-h-[min(36rem,var(--radix-popover-content-available-height))] overflow-y-auto p-4"
+                data-testid="popover-discover-filters"
+              >
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h2 className="text-sm font-semibold">Filter articles</h2>
+                  {filtersActive && <Button variant="ghost" size="sm" onClick={() => setFilters(DEFAULT_DISCOVER_FILTERS)}>Clear all</Button>}
+                </div>
+                <div className="grid min-w-0 gap-3">
+                  <Field label="Search articles" className="min-w-0" render={props => <div className="relative"><Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" /><Input {...props} type="search" className="pl-9" value={filters.search} onChange={event => updateFilters({ search: event.target.value })} placeholder="Headline, source or keyword" data-testid="input-discover-search" /></div>} />
+                  <Field label="Added to Discover" className="min-w-0" render={props => <NativeSelect {...props} value={filters.added} onChange={event => updateFilters({ added: event.target.value as DiscoverAddedWindow })} data-testid="select-discover-added"><option value="any">Any time</option><option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option></NativeSelect>} />
+                  <Field label="Topic" className="min-w-0" render={props => <NativeSelect {...props} value={filters.topic} onChange={event => updateFilters({ topic: event.target.value })} data-testid="select-discover-topic"><option value="">All topics</option>{facets.topics.map(topic => <option key={topic} value={topic}>{topic}</option>)}</NativeSelect>} />
+                  <Field label="Source" className="min-w-0" render={props => <NativeSelect {...props} value={filters.source} onChange={event => updateFilters({ source: event.target.value })} data-testid="select-discover-source"><option value="">All sources</option>{facets.sources.map(source => <option key={source} value={source}>{source}</option>)}</NativeSelect>} />
+                  <Field label="Reading" className="min-w-0" render={props => <NativeSelect {...props} value={filters.reading} onChange={event => updateFilters({ reading: event.target.value as DiscoverReading })} data-testid="select-discover-reading"><option value="all">All articles</option><option value="unread">Unread</option><option value="read">Read</option></NativeSelect>} />
+                </div>
+              </PopoverContent>
+            </Popover>
+            <NativeSelect aria-label="Sort articles" className="control-touch-target min-h-8 w-auto max-w-full py-1 pl-2.5 text-[0.8125rem] font-medium leading-5 md:text-[0.8125rem]" value={sort} onChange={event => setSort(event.target.value as DiscoverSort)} data-testid="select-discover-sort">
+              <option value="added">Recently added</option>
+              <option value="relevance">Relevance</option>
+              <option value="published">Newest published</option>
+            </NativeSelect>
+          </div>
+          <span className="hidden text-xs text-muted-foreground sm:block">{filteredItems.length} {filteredItems.length === 1 ? "story" : "stories"} in view</span>
+          {filtersActive && <div className="flex w-full flex-wrap items-center justify-between gap-2 px-2 text-sm text-muted-foreground"><span data-testid="text-discover-matching">{filteredItems.length} matching {filteredItems.length === 1 ? "article" : "articles"}</span><Button variant="ghost" size="sm" onClick={() => setFilters(DEFAULT_DISCOVER_FILTERS)} data-testid="button-clear-discover-filters">Clear filters</Button></div>}
+        </PageToolbar>
 
-      <main className="flex-1 overflow-hidden">
+      <div
+        className={`min-h-[16rem] min-w-0 flex-1 rounded-xl border bg-card shadow-sm ${paneState === "ready" ? "overflow-hidden" : "overflow-y-auto"}`}
+        data-discover-panes=""
+        data-discover-state={paneState}
+      >
         {isLoading ? (
-          <div className="grid gap-4 p-6">
+          <div className="grid gap-4 p-4 sm:p-6">
             {[1, 2, 3, 4].map((i) => (
-              <Skeleton key={i} className="h-16 w-full max-w-3xl rounded-lg" />
+              <Skeleton key={i} className="h-16 w-full rounded-md" />
             ))}
           </div>
         ) : isError ? (
-          <div className="p-6">
-            <DashboardEmptyState
-              icon={AlertTriangle}
-              title="Discover is taking a breather"
-              description={error instanceof Error ? error.message : "We couldn't load your articles right now."}
-              action={<Button onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" />Try again</Button>}
-            />
+          <div className="p-1">
+            <WorkflowStatus tone="error" title="Discover could not be loaded" actions={<Button variant="outline" size="sm" onClick={() => refetch()}>Try again</Button>}>
+              {error instanceof Error ? error.message : "We couldn't load your articles right now."}
+            </WorkflowStatus>
           </div>
+        ) : filteredItems.length === 0 && filtersActive && tabItems.length > 0 ? (
+          <div className="p-1"><WorkflowStatus tone="neutral" title="No matching articles" actions={<Button variant="outline" size="sm" onClick={() => setFilters(DEFAULT_DISCOVER_FILTERS)}>Clear filters</Button>}>No {filter === "all" ? "active" : filter} articles match these filters.</WorkflowStatus></div>
+        ) : filteredItems.length === 0 && filter !== "all" ? (
+          <div className="p-1"><WorkflowStatus tone="neutral" title={`No ${filter} articles found.`} actions={<Button variant="outline" size="sm" onClick={() => setFilter("all")}>Show active articles</Button>} /></div>
         ) : filteredItems.length === 0 ? (
-          <div className="p-6">
+          <div className="min-w-0">
             <DashboardEmptyState
               icon={Inbox}
-              title={filter === "all" && needsSetup ? "Tell us what you're interested in" : "No articles yet"}
+              title={filter === "all" && needsSetup ? "Tell us what you're interested in"
+                : filter === "all" && refreshInbox.isLoading ? "Finding your stories" : "No articles yet"}
               description={
                 filter === "all"
                   ? needsSetup
                     ? "Discover is 100% driven by your own interests — add keywords, companies, influencers, or a custom source in your profile, then refresh."
-                    : "Click 'Refresh Articles' to search for content based on your keywords, companies, influencers, and sources."
+                    : refreshInbox.isLoading
+                      ? "Searching your sources and topics now. New stories appear here in about a minute."
+                      : "Click 'Refresh Articles' to search for content based on your keywords, companies, influencers, and sources."
                   : `No ${filter} articles found.`
               }
               action={
                 filter === "all" && (
                   <div className="flex flex-wrap items-center justify-center gap-2">
                     {needsSetup && (
-                      <Link href="/dashboard/settings?tab=content">
-                        <Button variant="outline">Set up your interests</Button>
-                      </Link>
+                      <Button asChild variant="outline">
+                        <Link href="/dashboard/settings?tab=content">Set up your interests</Link>
+                      </Button>
                     )}
                     <Button
+                      size="sm"
                       onClick={() => void refreshInbox.startRefresh()}
                       disabled={refreshInbox.isLoading || refreshInbox.status === "unavailable"}
                       data-testid="button-refresh-empty"
                     >
-                      <RefreshCw className={`w-4 h-4 mr-2 ${refreshInbox.isLoading ? "animate-spin" : ""}`} />
                       {refreshInbox.isLoading ? "Searching..." : "Refresh Articles"}
                     </Button>
                   </div>
@@ -267,17 +325,18 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="flex h-full">
-            <div className="w-full overflow-y-auto lg:w-[380px] lg:shrink-0 lg:border-r">
+            <div className="w-full overflow-y-auto bg-muted/10 lg:w-[390px] lg:shrink-0 lg:border-r">
               {filteredItems.map((item) => (
                 <InboxListRow
                   key={item.id}
                   item={item}
                   isActive={item.id === activeItem?.id}
+                  isNew={newIds.has(item.id)}
                   onSelect={() => handleSelectRow(item)}
                 />
               ))}
             </div>
-            <div className="hidden flex-1 lg:block">
+            <div className="hidden min-w-0 flex-1 lg:block">
               {activeItem && (
                 <InboxDetail
                   item={activeItem}
@@ -289,20 +348,10 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
-      </main>
+      </div>
+      {refreshInbox.status !== "idle" && <WorkflowStatus tone={refreshInbox.status === "failed" ? "error" : refreshInbox.status === "unavailable" ? "warning" : refreshInbox.status === "completed" ? "success" : "info"} actions={refreshInbox.status === "unavailable" ? <Button variant="outline" onClick={refreshInbox.checkAgain}>Check refresh status</Button> : addedCount > 0 && <Button variant="outline" size="sm" onClick={showNewArticles} data-testid="button-show-new-articles">Show new articles</Button>}>{refreshJobMessage(refreshInbox)}</WorkflowStatus>}
+      </PageBody>
       
-      <Sheet open={isSourcesOpen} onOpenChange={setIsSourcesOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-[500px] overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>Manage Sources</SheetTitle>
-            <SheetDescription>Add as many blogs, publications, or sites as you want — Discover fetches only from what you add here plus live search on your own keywords, companies, and influencers. No pre-configured sources.</SheetDescription>
-          </SheetHeader>
-          <div className="mt-6">
-            <SourcesManagerContent />
-          </div>
-        </SheetContent>
-      </Sheet>
-
       <Sheet open={isDetailSheetOpen} onOpenChange={setIsDetailSheetOpen}>
         <SheetContent side="right" className="w-full p-0 sm:max-w-lg">
           <SheetHeader className="sr-only"><SheetTitle>Story details</SheetTitle><SheetDescription>Review a story, save it, dismiss it, or create a draft.</SheetDescription></SheetHeader>
@@ -317,7 +366,6 @@ export default function DashboardPage() {
         </SheetContent>
       </Sheet>
 
-      {refreshInbox.status !== "idle" && <div className="flex flex-wrap items-center gap-2 border-t p-3 text-sm"><output>{refreshJobMessage(refreshInbox)}</output>{refreshInbox.status === "unavailable" && <Button variant="outline" onClick={refreshInbox.checkAgain}>Check refresh status</Button>}</div>}
-    </div>
+    </main>
   );
 }

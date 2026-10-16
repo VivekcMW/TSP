@@ -13,7 +13,7 @@ function keyByUser(req: Request): string {
 
 // Without REDIS_URL, each rateLimit() falls back to express-rate-limit's own
 // in-memory MemoryStore — fine for single-process local dev, but on a
-// multi-instance deploy (e.g. Vercel) each instance counts independently, so
+// multi-instance deploy (e.g. several Cloud Run instances) each instance counts independently, so
 // the real limit becomes (configured limit) x (instance count). A shared
 // Redis store is what makes these budgets actually enforceable in production.
 function makeStore(prefix: string): Store | undefined {
@@ -40,7 +40,42 @@ function recoverableRateLimit(options: Partial<Options>): RateLimitRequestHandle
   return Object.assign(middleware, { getKey: limiter.getKey, resetKey: limiter.resetKey });
 }
 
+// Request throttles supplement the atomic cross-instance invitation budgets.
+export const invitationRequestRateLimit = recoverableRateLimit({
+  windowMs: 60 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: keyByUser, store: makeStore("friend-invitation-requests"),
+  message: { message: "Too many invitation requests. Please try again later." },
+});
+
+export const invitationOptOutRateLimit = recoverableRateLimit({
+  windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false,
+  store: makeStore("friend-invitation-optout"),
+  message: { message: "Too many requests. Please try again later." },
+});
+
+// Public newsletter sign-ups: each can send a confirmation email, so keep it tight per address.
+export const newsletterSignupRateLimit = recoverableRateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: keyByUser,
+  store: makeStore("newsletter-signup"),
+  message: { message: "Too many sign-ups from here. Please try again later." },
+});
+
 // Gemini-backed endpoints: generation is the most expensive/abusable path.
+// Onboarding suggestions are small and cached; separate from post generation.
+export const onboardingSuggestionRateLimit = recoverableRateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: keyByUser,
+  store: makeStore("onboarding-suggestions"),
+  message: { message: "Too many suggestion requests. Please wait a few minutes and try again." },
+});
+
 export const aiGenerationRateLimit = recoverableRateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 30,
@@ -54,7 +89,8 @@ export const aiGenerationRateLimit = recoverableRateLimit({
 // Instant Review fans out to 8 Gemini calls per request — tighter budget.
 export const instantReviewRateLimit = recoverableRateLimit({
   windowMs: 60 * 60 * 1000,
-  limit: 10,
+  // One post per request (one platform, one tone), so 30 still costs less than 10 four-tone requests.
+  limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: keyByUser,

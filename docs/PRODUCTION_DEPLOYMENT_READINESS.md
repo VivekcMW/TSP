@@ -1,5 +1,7 @@
 # Production Deployment Checklist — Status Update
 
+> **Retired hosting (2026-09-23):** production now runs on Cloud Run. Vercel and Render references below describe the retired setup. See [production-cloud-run.md](production-cloud-run.md).
+
 **Session Date**: 2026-09-18  
 **Status**: PRODUCTION READY (7/7 core tasks completed)  
 **Tests Passing**: 26/26 (0 failures)  
@@ -31,6 +33,7 @@
 
 #### Production Diagnostics Endpoint
 - **File**: `server/index.ts` (`/api/diagnostics`)
+- **Access**: Requires either `Authorization: Bearer $DIAGNOSTICS_TOKEN` or an authenticated platform-support/admin session.
 - **Returns**:
   - Timestamp, environment config (NODE_ENV, BACKGROUND_JOBS_ENABLED, CRON_SCHEDULER, PUBLISHING_MODE)
   - Process uptime and memory usage (heap used/total, external)
@@ -98,9 +101,9 @@
 #### Pre-Deployment Checklist
 ```bash
 # Run before deployment to Render/Vercel
-npm run check:production   # Validates all env vars (scripts/verify-production-env.ts)
-npm run build              # Compile TypeScript, build frontend
-npm run test               # Run all tests (26 passing)
+pnpm run check:production  # Validates all env vars (scripts/verify-production-env.ts)
+pnpm run build             # Compile TypeScript, build frontend
+pnpm run test              # Run all tests
 ```
 
 #### Post-Deployment Verification
@@ -111,7 +114,7 @@ npx playwright test e2e/deployment-smoke.spec.ts --env E2E_BACKEND_ENABLED=1
 # Or manually check endpoints
 curl https://api.thesocialpundit.com/healthz
 curl https://api.thesocialpundit.com/readyz
-curl https://api.thesocialpundit.com/api/diagnostics
+curl -H "Authorization: Bearer $DIAGNOSTICS_TOKEN" https://api.thesocialpundit.com/api/diagnostics
 ```
 
 ## Known Issues & Follow-Up Items
@@ -174,7 +177,7 @@ Breakdown:
 
 ### Queue & Scheduler ✅
 - [ ] Managed Redis provisioned with TLS (Render Key Value or Upstash)
-- [ ] `REDIS_URL` set (or `TSP_REDIS_REDIS_URL` aliased to `REDIS_URL`)
+- [ ] `REDIS_URL` set
 - [ ] `BACKGROUND_JOBS_ENABLED=true`
 - [ ] One scheduler worker with `CRON_SCHEDULER=true`
 - [ ] One or more API instances with `CRON_SCHEDULER` unset
@@ -235,7 +238,7 @@ Breakdown:
 
 ```bash
 # Pre-deployment
-npm run check:production
+pnpm run check:production
 
 # Post-deployment (from CI)
 npx playwright test e2e/deployment-smoke.spec.ts --env E2E_BACKEND_ENABLED=1
@@ -244,7 +247,7 @@ npx playwright test e2e/deployment-smoke.spec.ts --env E2E_BACKEND_ENABLED=1
 curl https://api.thesocialpundit.com/readyz | jq .
 
 # Manual diagnostics
-curl https://api.thesocialpundit.com/api/diagnostics | jq .
+curl -H "Authorization: Bearer $DIAGNOSTICS_TOKEN" https://api.thesocialpundit.com/api/diagnostics | jq .
 
 # Test CSP headers
 curl -I https://api.thesocialpundit.com/ | grep -i content-security-policy

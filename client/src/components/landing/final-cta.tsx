@@ -1,45 +1,37 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Sparkles } from "lucide-react";
+import { useIsSignedIn } from "@/lib/dev-auth";
 import { Reveal } from "@/components/motion/reveal";
 import { fadeUp } from "@/lib/motion";
-import { useIsSignedIn } from "@/lib/dev-auth";
 
 export function FinalCTA() {
   const isSignedIn = useIsSignedIn();
-
   return (
-    <section
-      className="py-20 lg:py-24 bg-surface-ink text-surface-ink-foreground relative overflow-hidden"
-      data-testid="section-final-cta"
-    >
-      <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-secondary to-transparent" />
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-        <Reveal variants={fadeUp}>
-          <h2 className="heading-section mb-4 text-surface-ink-foreground">
-            Free for the first 1,000 subscribers.
-          </h2>
-          <p className="text-lg text-surface-ink-foreground/70 mb-8 max-w-xl mx-auto">
-            Start posting like the go-to voice in your industry — across 23 platforms, in your
-            voice, in minutes a week.
-          </p>
+    <section className="relative overflow-hidden bg-foreground py-20 text-background lg:py-28" data-testid="section-final-cta">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_100%,hsl(var(--primary)/0.45),transparent_45%)]" aria-hidden="true" />
+      <Reveal variants={fadeUp} className="relative mx-auto max-w-4xl space-y-6 px-4 text-center sm:px-6 lg:px-8">
+        <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-300">Your next post starts here</p>
+        <h2 className="heading-section text-balance text-white">The next voice your industry remembers should be yours.</h2>
+        <p className="mx-auto max-w-2xl text-balance text-lg text-white/60">
+          Set up Pundit in about a minute. Get a feed built around your expertise. Approve every word.
+        </p>
+        <div className="flex flex-wrap justify-center gap-3 pt-3">
           {isSignedIn ? (
-            <Link href="/dashboard" data-testid="link-final-cta-dashboard">
-              <Button size="lg" className="bg-secondary text-secondary-foreground hover:opacity-90">
-                <Sparkles className="w-4 h-4 mr-2" />
-                Go to Dashboard
-              </Button>
-            </Link>
+            <Button asChild size="lg" className="h-12 px-6" data-testid="link-final-cta-dashboard">
+              <Link href="/dashboard">Go to Dashboard</Link>
+            </Button>
           ) : (
-            <Link href="/sign-up" data-testid="link-final-cta-signup">
-              <Button size="lg" className="bg-secondary text-secondary-foreground hover:opacity-90">
-                <Sparkles className="w-4 h-4 mr-2" />
-                Start Free Today
+            <>
+              <Button asChild size="lg" className="h-12 bg-white px-6 text-foreground hover:bg-white/90" data-testid="link-final-cta-signup">
+                <Link href="/sign-up">Build my authority</Link>
               </Button>
-            </Link>
+              <Button asChild size="lg" variant="outline" className="h-12 border-white/20 bg-white/5 px-6 text-white hover:bg-white/10 hover:text-white">
+                <Link href="/contact">Talk to us</Link>
+              </Button>
+            </>
           )}
-        </Reveal>
-      </div>
+        </div>
+      </Reveal>
     </section>
   );
 }
