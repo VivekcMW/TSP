@@ -57,11 +57,11 @@ beforeAll(async () => {
 
 afterAll(async () => { await browser?.close(); });
 
-async function newVisitor(timezoneId: string, locale: string, width = 1280, failCatalog = false): Promise<BrowserContext> {
+async function newVisitor(timezoneId: string, locale: string, width = 1280, failCatalog = false, plansOnSale = catalog): Promise<BrowserContext> {
   const context = await browser.newContext({ timezoneId, locale, viewport: { width, height: 900 }, reducedMotion: "reduce" });
   await context.route("https://pricing.test/api/public/billing/plans", route => failCatalog
     ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Plan catalog is unavailable" }) })
-    : route.fulfill({ contentType: "application/json", body: JSON.stringify({ plans: catalog }) }));
+    : route.fulfill({ contentType: "application/json", body: JSON.stringify({ plans: plansOnSale }) }));
   await context.route("https://pricing.test/", route => route.fulfill({ contentType: "text/html", body: '<div id="root"></div>' }));
   await context.route("**/*", route => route.request().url().startsWith("https://pricing.test/") ? route.fallback() : route.abort());
   return context;
@@ -105,6 +105,18 @@ describe("global pricing", () => {
       const starts = await plans(page).getByRole("link", { name: "Start free" }).evaluateAll(links => links.map(link => link.getAttribute("href")));
       expect(starts.length).toBeGreaterThanOrEqual(3);
       expect(new Set(starts)).toEqual(new Set(["/sign-up"]));
+    } finally { await context.close(); }
+  });
+
+  it("sends signed-out visitors choosing Pro to sign-up, not the signed-in billing page", async () => {
+    const onSale = catalog.map(entry => ({ ...entry, available: true }));
+    const context = await newVisitor("Europe/Berlin", "en-US", 1280, false, onSale);
+    try {
+      const page = await open(context);
+      await plans(page).getByText("$200").waitFor();
+      const choices = await page.getByRole("link", { name: /^Choose Pro/ }).evaluateAll(links => links.map(link => link.getAttribute("href")));
+      expect(choices).toHaveLength(2);
+      expect(new Set(choices)).toEqual(new Set(["/sign-up"]));
     } finally { await context.close(); }
   });
 

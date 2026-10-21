@@ -12,8 +12,8 @@ interface SEOProps {
   jsonLd?: Record<string, unknown> | Array<Record<string, unknown>>;
 }
 
-const defaultTitle = "Professional Authority on Social Media | TheSocialPundit";
-const defaultDescription = "TheSocialPundit helps professionals discover relevant industry signals, shape a useful point of view, and approve social posts written in their own voice.";
+const defaultTitle = "AI LinkedIn Posts From Your Industry News | TheSocialPundit";
+const defaultDescription = "TheSocialPundit turns current news in your industry into LinkedIn and social posts written in your voice. You review and approve every post before it publishes.";
 const siteUrl = "https://www.thesocialpundit.com";
 const shareImage = `${siteUrl}/og-image.jpg`;
 
@@ -24,7 +24,7 @@ const ORGANIZATION = {
   name: "TheSocialPundit",
   alternateName: "The Social Pundit",
   url: `${siteUrl}/`,
-  logo: { "@type": "ImageObject", url: `${siteUrl}/favicon.png`, width: 1024, height: 1024 },
+  logo: { "@type": "ImageObject", url: `${siteUrl}/logo.png`, width: 512, height: 512 },
   description: "AI-assisted professional authority platform that turns relevant industry news into posts in the user's own voice, with human approval before publishing.",
   email: "hello@thesocialpundit.com",
   contactPoint: { "@type": "ContactPoint", contactType: "customer support", email: "hello@thesocialpundit.com", availableLanguage: "English" },

@@ -4,8 +4,8 @@ import path from "path";
 import { pathToFileURL } from "node:url";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 import { filesUnder } from "./precompress";
-import { publicSeoForPath, renderInitialSeo } from "./public-seo";
-import { PRICING_DATA_ID, type PublicBillingPlan } from "../shared/public-billing";
+import { publicSeoForPath, renderInitialSeo, replaceJsonLd } from "./public-seo";
+import { PRICING_DATA_ID, pricingOffersJsonLd, type PublicBillingPlan } from "../shared/public-billing";
 
 const ENCODINGS = [["br", ".br"], ["gzip", ".gz"]] as const;
 const LONG_CACHE = { maxAge: "1y", immutable: true };
@@ -34,6 +34,16 @@ export const indexingHeaders: RequestHandler = (req, res, next) => {
   }
   next();
 };
+
+/**
+ * Makes the HTML agree with the X-Robots-Tag header: the template carries the homepage's
+ * "index, follow" and canonical, and conflicting signals leave crawlers to guess.
+ */
+export function asNoindexDocument(html: string): string {
+  return html
+    .replace(/<link[^>]*rel="canonical"[^>]*>/i, "")
+    .replace(/<meta[^>]*name="robots"[^>]*>/i, '<meta data-rh="true" name="robots" content="noindex, nofollow" />');
+}
 
 /** Strips the query string and hash from a raw request URL, leaving the route path. */
 export function requestPathname(originalUrl: string): string {
@@ -115,13 +125,11 @@ export function seoDocumentHandler(indexTemplate: string, prerendered: ReadonlyM
       const knownShell = NOINDEX_PATHS.includes(normalized) ||
         ["/dashboard/", "/admin/", "/sign-in/", "/sign-up/"].some(prefix => pathname.startsWith(prefix));
       if (knownShell) {
-        sendDocument(req, res, rendered.html, "", compressed);
+        sendDocument(req, res, asNoindexDocument(rendered.html), "", compressed);
       } else {
         res.status(404);
-        const html = rendered.html
-          .replace(/<title(?:\s[^>]*)?>[\s\S]*?<\/title>/i, '<title data-rh="true">Page not found | TheSocialPundit</title>')
-          .replace(/<link[^>]*rel="canonical"[^>]*>/i, "")
-          .replace(/<meta[^>]*name="robots"[^>]*>/i, '<meta data-rh="true" name="robots" content="noindex, nofollow" />');
+        const html = asNoindexDocument(rendered.html)
+          .replace(/<title(?:\s[^>]*)?>[\s\S]*?<\/title>/i, '<title data-rh="true">Page not found | TheSocialPundit</title>');
         sendDocument(req, res, withPrerenderedBody(html, prerendered.get("/404") ?? "<main><h1>Page not found</h1><p>This page does not exist.</p><a href=\"/\">Go home</a></main>"), "/404", compressed);
       }
       return;
@@ -133,7 +141,9 @@ export function seoDocumentHandler(indexTemplate: string, prerendered: ReadonlyM
         const { markup, plans } = await renderPricing();
         if (!plans.length) throw new Error("Public plan catalogue is empty");
         const bootstrap = JSON.stringify({ plans }).replaceAll("<", "\\u003c");
-        const html = withPrerenderedBody(rendered.html, markup)
+        const pageJsonLd = publicSeoForPath(pathname)?.jsonLd;
+        const jsonLd = [...(pageJsonLd ? [pageJsonLd].flat() : []), pricingOffersJsonLd(plans)];
+        const html = withPrerenderedBody(replaceJsonLd(rendered.html, jsonLd), markup)
           .replace("</head>", `<script id="${PRICING_DATA_ID}" type="application/json">${bootstrap}</script></head>`);
         sendDocument(req, res, html, route, new Map());
       } catch (error) {

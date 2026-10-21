@@ -14,9 +14,10 @@ export default function HowItWorks() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <SEO 
-        title="How It Works"
+        title="How It Works: AI Posts From Industry News | TheSocialPundit"
+        rawTitle
         canonical="/how-it-works"
-        description="How TheSocialPundit works: Pundit finds current news in your field, drafts posts in your voice, and prepares each version for your review before publishing."
+        description="See how TheSocialPundit finds current news in your field, drafts LinkedIn and social posts in your voice, and waits for your approval before anything publishes."
       />
       <SiteHeader />
       

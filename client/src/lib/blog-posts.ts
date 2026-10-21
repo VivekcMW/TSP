@@ -66,7 +66,7 @@ export function blogPostJsonLd(post: BlogPost): Array<Record<string, unknown>> {
         "@id": `${SITE_URL}/#organization`,
         name: "TheSocialPundit",
         url: SITE_URL,
-        logo: { "@type": "ImageObject", url: `${SITE_URL}/favicon.png` },
+        logo: { "@type": "ImageObject", url: `${SITE_URL}/logo.png` },
       },
     },
     {

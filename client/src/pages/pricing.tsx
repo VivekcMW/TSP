@@ -9,6 +9,7 @@ import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
 import { useIsSignedIn } from "@/lib/dev-auth";
 import { formatPrice, intervalUnit, plansForCurrency, yearlySaving, type PublicBillingPlan } from "@/lib/billing";
 import { PRICING_FAQS, pricingFaqJsonLd } from "@shared/pricing-faqs";
+import { pricingOffersJsonLd } from "@shared/public-billing";
 
 const GLOBAL_CURRENCY = "USD";
 
@@ -73,7 +74,9 @@ export default function Pricing() {
   const saving = monthly && yearly ? yearlySaving(monthly.amount, yearly.amount) : 0;
   const startFree = { label: isSignedIn ? "Go to Dashboard" : "Start free", href: isSignedIn ? "/dashboard" : "/sign-up" };
   const notYet = "Global checkout opens soon.";
-  const buy = (plan: PublicBillingPlan) => plan.available === false ? startFree : { label: `Choose ${plan.name}`, href: "/dashboard/settings?tab=billing" };
+  // Signed-out visitors would hit a sign-in wall at the billing page; account creation comes first.
+  const buy = (plan: PublicBillingPlan) => plan.available === false ? startFree
+    : { label: `Choose ${plan.name}`, href: isSignedIn ? "/dashboard/settings?tab=billing" : "/sign-up" };
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -91,6 +94,7 @@ export default function Pricing() {
             inLanguage: "en",
           },
           pricingFaqJsonLd(),
+          ...(data ? [pricingOffersJsonLd(data.plans, GLOBAL_CURRENCY)] : []),
         ]}
       />
       <SiteHeader />

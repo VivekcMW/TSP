@@ -7,7 +7,7 @@ describe("analyticsPageTitle", () => {
   });
 
   it("names the sign-in and sign-up pages, including their sub-steps", () => {
-    expect(analyticsPageTitle("/sign-in", "Professional Authority on Social Media | TheSocialPundit", "/")).toBe("Sign in | TheSocialPundit");
+    expect(analyticsPageTitle("/sign-in", "AI LinkedIn Posts From Your Industry News | TheSocialPundit", "/")).toBe("Sign in | TheSocialPundit");
     expect(analyticsPageTitle("/sign-in/factor", "", undefined)).toBe("Sign in | TheSocialPundit");
     expect(analyticsPageTitle("/sign-up/", "", undefined)).toBe("Sign up | TheSocialPundit");
     expect(analyticsPageTitle("/sign-input", "", undefined)).toBe("TheSocialPundit");

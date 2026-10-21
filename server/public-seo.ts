@@ -37,14 +37,14 @@ interface PublicPage {
 
 const pages: Record<string, PublicPage> = {
   "/": {
-    title: "Professional Authority on Social Media | TheSocialPundit",
-    description: "Turn relevant industry signals into professional posts in your voice. TheSocialPundit helps you discover, create, review, schedule, and publish with confidence.",
-    lastmod: "2026-10-15",
+    title: "AI LinkedIn Posts From Your Industry News | TheSocialPundit",
+    description: "TheSocialPundit turns current news in your industry into LinkedIn and social posts written in your voice. You review and approve every post before it publishes.",
+    lastmod: "2026-10-21",
   },
   "/how-it-works": {
-    title: "How It Works | TheSocialPundit",
-    description: "See how TheSocialPundit finds relevant industry signals, helps shape your point of view, drafts in your voice, and keeps you in control before publishing.",
-    lastmod: "2026-10-11",
+    title: "How It Works: AI Posts From Industry News | TheSocialPundit",
+    description: "See how TheSocialPundit finds current news in your field, drafts LinkedIn and social posts in your voice, and waits for your approval before anything publishes.",
+    lastmod: "2026-10-21",
   },
   "/use-cases": {
     title: "Use Cases | TheSocialPundit",
@@ -54,7 +54,7 @@ const pages: Record<string, PublicPage> = {
   "/pricing": {
     title: "Pricing | TheSocialPundit",
     description: "Start building professional authority for free, then upgrade when you need the complete creation, scheduling, publishing, and performance workflow.",
-    lastmod: "2026-10-15",
+    lastmod: "2026-10-21",
     schema: pricingFaqJsonLd(),
   },
   "/blog": {
@@ -249,9 +249,12 @@ export function renderInitialSeo(html: string, pathname: string): { html: string
   rendered = replaceMeta(rendered, "name", "twitter:title", metadata.title);
   rendered = replaceMeta(rendered, "name", "twitter:description", metadata.description);
   rendered = replaceMeta(rendered, "name", "twitter:image", metadata.image);
-  if (metadata.jsonLd) {
-    const json = JSON.stringify(metadata.jsonLd).replaceAll("<", "\\u003c");
-    rendered = rendered.replace(/<script(?=[^>]*\btype="application\/ld\+json")[^>]*>[\s\S]*?<\/script>/i, `<script type="application/ld+json" data-rh="true">${json}</script>`);
-  }
+  if (metadata.jsonLd) rendered = replaceJsonLd(rendered, metadata.jsonLd);
   return { html: rendered, indexable: true };
+}
+
+/** Replaces the document's JSON-LD block. */
+export function replaceJsonLd(html: string, jsonLd: NonNullable<PublicSeoMetadata["jsonLd"]>): string {
+  const json = JSON.stringify(jsonLd).replaceAll("<", "\\u003c");
+  return html.replace(/<script(?=[^>]*\btype="application\/ld\+json")[^>]*>[\s\S]*?<\/script>/i, () => `<script type="application/ld+json" data-rh="true">${json}</script>`);
 }

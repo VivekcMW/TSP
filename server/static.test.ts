@@ -132,7 +132,7 @@ describe("seoDocumentHandler", () => {
 
   it("renders metadata for the requested route, not the homepage", async () => {
     const home = await request(seoApp).get("/");
-    expect(home.text).toContain('<title data-rh="true">Professional Authority on Social Media | TheSocialPundit</title>');
+    expect(home.text).toContain('<title data-rh="true">AI LinkedIn Posts From Your Industry News | TheSocialPundit</title>');
 
     const pricing = await request(seoApp).get("/pricing");
     expect(pricing.status).toBe(200);
@@ -169,10 +169,14 @@ describe("seoDocumentHandler", () => {
     expect(res.text).toContain('<meta data-rh="true" name="robots" content="noindex, nofollow" />');
   });
 
-  it.each(["/dashboard", "/dashboard/settings", "/admin/users", "/sign-in", "/sign-in/callback", "/verify-email", "/reset-password", "/onboarding", "/complete-registration", "/careers", "/case-studies"])("preserves the application shell for %s", async route => {
+  it.each(["/dashboard", "/dashboard/settings", "/admin/users", "/sign-in", "/sign-up", "/sign-in/callback", "/verify-email", "/reset-password", "/onboarding", "/complete-registration", "/careers", "/case-studies"])("preserves the application shell for %s", async route => {
     const res = await request(seoApp).get(route);
     expect(res.status).toBe(200);
     expect(res.headers["x-robots-tag"]).toBe("noindex, nofollow");
+    // The HTML must agree with the header: no "index" meta and no canonical pointing at the homepage.
+    expect(res.text).toContain('<meta data-rh="true" name="robots" content="noindex, nofollow" />');
+    expect(res.text).not.toContain('content="index, follow"');
+    expect(res.text).not.toContain('rel="canonical"');
   });
 });
 
@@ -191,7 +195,7 @@ describe("prerendered pages", () => {
   it("puts the page's real content in the initial HTML and hides the React root until hand-off", async () => {
     const res = await request(seoApp).get("/");
     expect(res.text).toContain(`<div id="prerendered">${homeMarkup}</div><div id="root" hidden></div>`);
-    expect(res.text).toContain('<title data-rh="true">Professional Authority on Social Media | TheSocialPundit</title>');
+    expect(res.text).toContain('<title data-rh="true">AI LinkedIn Posts From Your Industry News | TheSocialPundit</title>');
   });
 
   it("uses the canonical route, so a trailing slash or query string still gets the page", async () => {
@@ -225,6 +229,21 @@ describe("prerendered pages", () => {
       const second = await request(app).get("/pricing/").set("Accept-Encoding", "br").buffer(true).parse(raw);
       expect(second.body.toString()).toContain("$25");
       expect(second.body.toString()).not.toContain("$20");
+    });
+
+    it("offers the live plans in the pricing structured data", async () => {
+      const free = { ...plan, id: "free", key: "free", name: "Free", amount: 0, currency: "INR" };
+      const render = vi.fn().mockResolvedValue({ markup: "<main><h1>Pricing</h1></main>", plans: [free, plan] });
+      const app = express().use("*", seoDocumentHandler(template, new Map(), render));
+      const res = await request(app).get("/pricing");
+      const blocks = [...res.text.matchAll(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)];
+      expect(blocks).toHaveLength(1);
+      const graph = JSON.parse(blocks[0][1]) as Array<Record<string, unknown>>;
+      expect(graph.map(node => node["@type"])).toEqual(["WebPage", "FAQPage", "SoftwareApplication"]);
+      expect(graph[2].offers).toEqual([
+        expect.objectContaining({ name: "Free", price: "0", priceCurrency: "USD" }),
+        expect.objectContaining({ name: "Pro </script>", price: "20.00", priceCurrency: "USD", priceSpecification: expect.objectContaining({ billingDuration: "P1M" }) }),
+      ]);
     });
 
     it.each(["failure", "empty"])("returns a temporary error instead of loading or stale prices on %s", async kind => {
