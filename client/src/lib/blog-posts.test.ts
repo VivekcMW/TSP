@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { relatedPageLabel } from "@shared/audience-pages";
 import { BLOG_GUIDES } from "./blog-guides";
-import { BLOG_POSTS, blogPostJsonLd, blogPostSeoTitle, headingAnchor, isHeading } from "./blog-posts";
+import { FREE_TOOLS } from "@shared/free-tools";
+import { FREE_TOOL_LINKS } from "./free-tool-links";
+import { BLOG_POSTS, blogPostJsonLd, blogPostSeoTitle, blogPostTools, getBlogPost, headingAnchor, isHeading } from "./blog-posts";
 
 describe("journal", () => {
   it("has unique slugs, newest first", () => {
@@ -18,8 +20,21 @@ describe("journal", () => {
 });
 
 describe("how-to guides", () => {
-  it("cover the ten highest-value questions", () => {
-    expect(BLOG_GUIDES).toHaveLength(10);
+  it("cover the highest-value questions", () => {
+    expect(BLOG_GUIDES).toHaveLength(12);
+  });
+
+  it("only suggest free tools that exist", () => {
+    const tools = new Set(FREE_TOOLS.map(tool => tool.path));
+    for (const post of BLOG_POSTS) {
+      for (const path of post.relatedTools ?? []) expect(tools.has(path), `${post.slug}: ${path}`).toBe(true);
+      expect(blogPostTools(post)).toHaveLength(2);
+    }
+    expect(blogPostTools(getBlogPost("how-to-write-a-linkedin-hook")!)[0].path).toBe("/tools/linkedin-hook-generator");
+  });
+
+  it("homepage links cover every free tool", () => {
+    expect(FREE_TOOL_LINKS.map(link => link.href)).toEqual(FREE_TOOLS.map(tool => tool.path));
   });
 
   it.each(BLOG_GUIDES.map(guide => [guide.slug, guide] as const))("%s answers first and is structured for search and AI", (_slug, guide) => {

@@ -1,3 +1,4 @@
+import { FREE_TOOLS, type FreeTool } from "../../../shared/free-tools";
 import { BLOG_GUIDES } from "./blog-guides";
 
 export interface BlogPost {
@@ -24,6 +25,8 @@ export interface BlogPost {
   faqs?: ReadonlyArray<{ question: string; answer: string }>;
   /** Product pages (role, industry, use case) the article should link to. */
   relatedPages?: readonly string[];
+  /** Free tools (paths from shared/free-tools.ts) most useful alongside the article, shown first. */
+  relatedTools?: readonly string[];
 }
 
 const SITE_URL = "https://www.thesocialpundit.com";
@@ -252,6 +255,12 @@ export const BLOG_POSTS: BlogPost[] = [...BLOG_GUIDES, ...ARTICLES]
 
 export function getBlogPost(slug: string): BlogPost | undefined {
   return BLOG_POSTS.find((post) => post.slug === slug);
+}
+
+/** Two free tools to suggest under an article: its own picks first, then the rest in hub order. */
+export function blogPostTools(post: BlogPost, count = 2): FreeTool[] {
+  const paths = [...new Set([...(post.relatedTools ?? []), ...FREE_TOOLS.map(tool => tool.path)])];
+  return paths.flatMap(path => FREE_TOOLS.filter(tool => tool.path === path)).slice(0, count);
 }
 
 export function getRelatedPosts(slug: string, count = 3): BlogPost[] {

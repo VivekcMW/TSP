@@ -70,7 +70,7 @@ const pages: Record<string, PublicPage> = {
   "/blog": {
     title: "TheSocialPundit Journal | TheSocialPundit",
     description: "Clear thinking on professional authority, content strategy, AI-assisted writing, and showing up with a point of view people remember.",
-    lastmod: "2026-10-15",
+    lastmod: "2026-10-22",
   },
   "/about": {
     title: "About | TheSocialPundit",
