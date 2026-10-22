@@ -33,6 +33,7 @@ const AudienceHubPage = lazy(() => import("@/pages/audience-hub"));
 const AudiencePage = lazy(() => import("@/pages/audience"));
 const CompareHubPage = lazy(() => import("@/pages/compare-hub"));
 const ComparePage = lazy(() => import("@/pages/compare"));
+const LinkedInPostToolPage = lazy(() => import("@/pages/linkedin-post-generator"));
 
 /**
  * The marketing site. Reachable signed in or signed out, so this list lived in
@@ -57,6 +58,7 @@ export function PublicRoutes({ signInRoutes, location }: { signInRoutes?: ReactN
       <Route path="/industries/:slug">{params => <AudiencePage kind="industries" slug={params.slug} />}</Route>
       <Route path="/compare" component={CompareHubPage} />
       <Route path="/compare/:slug">{params => <ComparePage slug={params.slug} />}</Route>
+      <Route path="/tools/linkedin-post-generator" component={LinkedInPostToolPage} />
       <Route path="/blog" component={BlogPage} />
       <Route path="/blog/:slug" component={BlogPostPage} />
       <Route path="/about" component={AboutPage} />

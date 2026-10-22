@@ -65,6 +65,7 @@ export const PUBLIC_PATHS = [
   "/case-studies",
   "/careers",
   "/sitemap",
+  "/tools/linkedin-post-generator",
   "/verify-email",
   "/reset-password",
 ] as const;

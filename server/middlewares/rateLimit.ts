@@ -2,6 +2,7 @@ import rateLimit, { ipKeyGenerator, type Options, type RateLimitRequestHandler, 
 import type { Request, RequestHandler } from "express";
 import { redis } from "../lib/redis";
 import { RateLimitStoreUnavailableError, RecoverableRateLimitRedisStore } from "./rateLimitRedisStore";
+import { LINKEDIN_POST_TOOL_DAILY_LIMIT } from "@shared/linkedin-post-tool";
 
 // Keyed by authenticated user (falls back to IP pre-auth) so one abusive
 // account can't be worked around by rotating IPs, and legitimate shared
@@ -62,6 +63,31 @@ export const newsletterSignupRateLimit = recoverableRateLimit({
   keyGenerator: keyByUser,
   store: makeStore("newsletter-signup"),
   message: { message: "Too many sign-ups from here. Please try again later." },
+});
+
+// The free public LinkedIn post tool: no account, so each visitor (IP) gets a daily allowance...
+export const publicPostToolRateLimit = recoverableRateLimit({
+  windowMs: 24 * 60 * 60 * 1000,
+  limit: LINKEDIN_POST_TOOL_DAILY_LIMIT,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: keyByUser,
+  // Bad input and unreadable links shouldn't use up a visitor's allowance.
+  skipFailedRequests: true,
+  store: makeStore("public-post-tool"),
+  message: { code: "tool_daily_limit", message: `You've used today's ${LINKEDIN_POST_TOOL_DAILY_LIMIT} free posts. Create a free account to keep going, or come back tomorrow.` },
+});
+
+// ...and the whole site shares one daily ceiling, so rotating IPs can't run up an unbounded AI bill.
+export const publicPostToolGlobalRateLimit = recoverableRateLimit({
+  windowMs: 24 * 60 * 60 * 1000,
+  limit: Number(process.env.PUBLIC_POST_TOOL_DAILY_CAP) || 500,
+  standardHeaders: false,
+  legacyHeaders: false,
+  keyGenerator: () => "all",
+  skipFailedRequests: true,
+  store: makeStore("public-post-tool-global"),
+  message: { code: "tool_busy", message: "The free tool is very busy today. Create a free account to keep writing posts, or try again tomorrow." },
 });
 
 // Gemini-backed endpoints: generation is the most expensive/abusable path.

@@ -47,7 +47,7 @@ describe("sitemap and page metadata stay in sync", () => {
   it("covers every public page and article exactly once", () => {
     const locs = sitemapEntries().map(entry => entry.loc);
     expect(new Set(locs).size).toBe(locs.length);
-    expect(locs).toHaveLength(16 + USE_CASES.length + 2 + allAudiencePages().length + 1 + COMPARISONS.length + BLOG_POSTS.length);
+    expect(locs).toHaveLength(17 + USE_CASES.length + 2 + allAudiencePages().length + 1 + COMPARISONS.length + BLOG_POSTS.length);
   });
 
   it("emits a well-formed urlset with a single root", () => {
