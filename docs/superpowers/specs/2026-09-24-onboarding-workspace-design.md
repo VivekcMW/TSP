@@ -79,3 +79,52 @@ understanding card, build with streaming checklist, steering with the section
 pill and with chips, "Why?", add-your-own, manual path, finish with "Write a
 post" opening Create, busy/failed steps, phone tabs at 390 px and no overflow
 at 320 px. Server tests cover `followUps` and publication headlines.
+
+## Guided app tour (2026-10-22)
+
+The first-run tour begins after registration, at the **Message Pundit** input
+on the setup screen. Each instruction is anchored to a real visible control,
+with an arrow and a spotlight; it is not a centered slideshow.
+
+- The 13-stage interactive walkthrough waits for real actions and acknowledged
+  results: submit a meaningful focus in Pundit, choose agent/manual setup,
+  save setup, optionally connect an account, select a Discover story (or use
+  your own idea), prepare a document, open platform adaptation, generate usable
+  versions, save a version, open that exact draft, review publishing options,
+  confirm a publishing choice, and inspect its result.
+- Every step has an always-enabled **Next** button, so users can click through
+  the whole tour without entering data. Completing the highlighted action shows
+  "Done" but never advances automatically. Setup-save, generation, draft-save
+  and publishing failures do not mark a step done. Skipping past setup closes
+  the guide on the setup page; it resumes at the connection stage once setup is
+  saved. Skipped draft and result steps resume normally, without a draft ID or
+  outcome. **Continue without connecting** marks the optional connection done.
+- Publishing actions are tied to the saved draft ID. The result distinguishes
+  a confirmed future schedule, live delivery status, manual copy/open handoff,
+  demo simulation, and delivery needing attention. A successful publish-now
+  request alone is not evidence of publication. Persisted schedule/target
+  status can reconcile a resumed confirmation step without sending again.
+- Callouts reposition around their targets, track scrolling and resizing, and
+  wait for controls loaded asynchronously. Missing controls show an explicit
+  waiting message with the option to skip. The non-modal guide leaves inputs,
+  buttons and the actual publishing dialogs operable. It supports Escape and
+  Skip; an off-route guide offers a return link. **Minimize guide** frees screen
+  space without pausing progress or removing the spotlight; **Show guide**
+  restores instructions. A completed action expands the current instruction
+  and marks it done. Readiness is retained across pause/resume and reloads,
+  including the setup-to-workspace handoff.
+- Progress is stored only in this browser, scoped to the user and workspace.
+  The setup header and dashboard account menu offer **App tour** to resume;
+  completed workspace tours replay from the optional connection stage without
+  repeating account setup. Storage contains progress, draft ID and outcome,
+  never draft text or account credentials.
+  Browser-storage failures are logged and do not block setup or publishing.
+- The tour only explains the workflow. It does not generate, connect accounts,
+  save drafts, schedule or publish on the user's behalf.
+
+The [tour browser tests](../../../client/src/components/app-tour.browser.test.ts)
+check action gating, exact-draft identity, modal interaction, distinct outcomes,
+spotlight geometry, desktop/mobile targets, persistence and workspace isolation.
+The [onboarding browser tests](../../../client/src/pages/onboarding.browser.test.ts)
+also run the real chat/setup with the guide enabled, including a failed save.
+All tests use isolated fixtures, without real AI, OAuth or publishing requests.

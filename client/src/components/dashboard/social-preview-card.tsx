@@ -141,7 +141,7 @@ function GeneratedPreview({ composer: c, platform, version }: Readonly<{ compose
       <Button type="button" size="sm" variant="outline" disabled={!usable} onClick={() => void c.copyVersion(platform, c.tone)}>
         <Copy className="h-3.5 w-3.5" />Copy
       </Button>
-      <Button type="button" size="sm" disabled={!usable || saved || draftSaveBlocked(version)} onClick={() => void c.saveVersion(platform, c.tone)}>
+      <Button type="button" size="sm" data-app-tour="save-version" disabled={!usable || saved || draftSaveBlocked(version)} onClick={() => void c.saveVersion(platform, c.tone)}>
         <Save className="h-3.5 w-3.5" />{saveLabel(version)}
       </Button>
       <Button type="button" size="sm" variant="ghost" disabled={!c.canGeneratePlatform(platform)} onClick={() => void c.generatePlatform(platform)}>
@@ -159,7 +159,7 @@ export function SavedDraftLinks({ version, onNavigate }: Readonly<{ version: Pos
   if (!isSaved(version) || !version.savedId) return null;
   const query = `?draft=${encodeURIComponent(version.savedId)}`;
   return <WorkflowStatus title="Draft saved" tone="success" actions={<>
-    <Button variant="outline" asChild><Link href={`/dashboard/content${query}`} onClick={event => { if (onNavigate && !onNavigate()) event.preventDefault(); }}>Go to Content</Link></Button>
+    <Button variant="outline" asChild><Link data-app-tour="saved-content-link" href={`/dashboard/content${query}`} onClick={event => { if (onNavigate && !onNavigate()) event.preventDefault(); }}>Go to Content</Link></Button>
     <Button variant="outline" asChild><Link href={`/dashboard/calendar${query}`} onClick={event => { if (onNavigate && !onNavigate()) event.preventDefault(); }}>Go to Calendar</Link></Button>
   </>}>Review publishing readiness in Content or choose a time in Calendar. This draft has not been scheduled or published by saving.</WorkflowStatus>;
 }

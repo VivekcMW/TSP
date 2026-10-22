@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useInboxRefreshJob } from "@/hooks/use-inbox-refresh-job";
 import type { OnboardingData } from "@/lib/onboarding-choices";
 import { track } from "@/lib/analytics-consent";
+import { useAppTourReporter } from "@/components/app-tour";
 
 interface User {
   id: string;
@@ -18,6 +19,7 @@ interface User {
 }
 
 export default function OnboardingPage() {
+  const reportTour = useAppTourReporter();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [saved, setSaved] = useState<OnboardingData | null>(null);
@@ -34,6 +36,7 @@ export default function OnboardingPage() {
     onSuccess: (_response, data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       setSaved(data);
+      reportTour?.("setup-saved");
       track("onboarding_complete");
       // Fill Discover while the finished view is read, so it isn't empty on arrival.
       // The refresh runs server-side; Discover shows its progress. Nothing to search: skip.

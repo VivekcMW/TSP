@@ -26,6 +26,8 @@ import { SignInPage, SignUpPage, VerifyEmailPage } from "@/pages/auth";
 import { bootedFromPrerender, PrerenderHandoff } from "@/lib/prerender";
 import { beginAnalyticsNavigation } from "@/lib/analytics-consent";
 import { AnalyticsPage } from "@/components/analytics-page";
+import { AppTourProvider } from "@/components/app-tour";
+import { HelpProvider } from "@/components/help-panel";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -147,7 +149,12 @@ function AppRoutes() {
       );
 
     case "onboarding":
-      return <Suspense fallback={<LoadingScreen />}><OnboardingPage /><PrerenderHandoff /><AnalyticsPage /></Suspense>;
+      return <AppTourProvider
+        key={JSON.stringify([dbUser?.id, tenantId])}
+        scope={dbUser?.id && tenantId ? `${dbUser.id}:${tenantId}` : null}
+        enabled={Boolean(dbUser?.registrationCompleted && tenantId)}
+        phase="setup"
+      ><HelpProvider phase="setup"><Suspense fallback={<LoadingScreen />}><OnboardingPage /><PrerenderHandoff /><AnalyticsPage /></Suspense></HelpProvider></AppTourProvider>;
 
     case "dashboard":
       // A failed background refresh must not destroy Settings or Create state.

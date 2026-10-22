@@ -5,6 +5,7 @@ import { SiX } from "react-icons/si";
 import { FaLinkedin } from "react-icons/fa";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAppTourSignal } from "@/components/app-tour";
 import { apiRequest } from "@/lib/queryClient";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -19,6 +20,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import type { SettingsPageProps } from "@/components/settings/settings-page-props";
 import { getPlatformMeta, PLATFORMS } from "@/lib/platforms";
 import { DIRECT_PUBLISH_PLATFORMS, publishingCapability } from "@shared/publishing-capabilities";
+import { HelpLink } from "@/components/help-panel";
 
 interface AnalyticsSummary {
   connected: {
@@ -434,6 +436,8 @@ export default function AnalyticsPage({ embedded = false }: SettingsPageProps = 
   const providers = ["linkedin", "discord", "slack", "devto", "hashnode", "bluesky", "mastodon", "telegram", "reddit", "facebook", "threads", "medium"];
   const statusQueries = useQueries({ queries: providers.map((provider) => ({ queryKey: [`/api/integrations/${provider}/status`], queryFn: async (): Promise<IntegrationStatus> => (await apiRequest("GET", `/api/integrations/${provider}/status`)).json() })) });
   const [linkedinStatus, discordStatus, slackStatus, devToStatus, hashnodeStatus, blueskyStatus, mastodonStatus, telegramStatus, redditStatus, facebookStatus, threadsStatus, mediumStatus] = statusQueries.map((query) => query.data);
+  useAppTourSignal("connected", statusQueries.some(query => !query.isError && query.data?.connected === true)
+    || !isError && summary?.connected.twitter === true);
   const refetchProvider = (provider: string) => queryClient.invalidateQueries({ queryKey: [`/api/integrations/${provider}/status`] });
   const refetchDevTo = () => refetchProvider("devto");
   const refetchHashnode = () => refetchProvider("hashnode");
@@ -781,6 +785,7 @@ export default function AnalyticsPage({ embedded = false }: SettingsPageProps = 
           </div>
         ) : (
           <div className="mx-auto w-full max-w-5xl space-y-6">
+            <div className="-mb-4 flex justify-end"><HelpLink section="connections" label="Connecting accounts" text="How connecting works" /></div>
             {statusesUnavailable && <div role="status" className="rounded-md border p-4"><p>Some connection statuses are still loading or unavailable. They are not assumed to be disconnected.</p><Button variant="outline" className="mt-3" onClick={() => { void refetch(); statusQueries.forEach((query) => { void query.refetch(); }); }}>Retry connection statuses</Button></div>}
             {!statusesUnavailable && connectedRows.length === 0 && <div className="rounded-lg border border-info/30 bg-info-subtle p-4"><p className="font-medium">Start with LinkedIn</p><p className="mt-1 text-sm text-muted-foreground">Connect LinkedIn to publish directly, then connect any others you use.</p></div>}
 

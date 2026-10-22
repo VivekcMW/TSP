@@ -3,6 +3,9 @@ import { chromium, expect as browserExpect, type Browser, type BrowserContext, t
 import { build } from "esbuild";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
+import { readFileSync } from "node:fs";
+import postcss from "postcss";
+import tailwindcss from "tailwindcss";
 
 // Render the real page/wizard and API client. All persistence and AI responses
 // are fixtures; no app server, database, .env loader, or external traffic.
@@ -53,6 +56,8 @@ const sent = (path: Path) => calls.filter(call => call.path === path).map(call =
 
 beforeAll(async () => {
   const root = path.resolve(import.meta.dirname, "../../..");
+  const css = await postcss([tailwindcss({ config: path.join(root, "tailwind.config.ts") })])
+    .process(readFileSync(path.join(root, "client/src/index.css"), "utf8"), { from: path.join(root, "client/src/index.css") });
   const result = await build({
     absWorkingDir: root, bundle: true, write: false, format: "esm", platform: "browser", jsx: "automatic",
     define: { "import.meta.env.DEV": "false", "import.meta.env.PROD": "false", "import.meta.env.BASE_URL": '"/"' },
@@ -65,9 +70,13 @@ beforeAll(async () => {
       import { queryClient } from "@/lib/queryClient";
       import OnboardingPage from "@/pages/onboarding";
       import { Toaster } from "@/components/ui/toaster";
+      import { AppTourProvider } from "@/components/app-tour";
       function Fixture() {
         const [location] = useLocation();
-        return <>{location === "/onboarding" ? <OnboardingPage /> : <h1>Dashboard fixture</h1>}<Toaster /></>;
+        const onboarding = window.location.search.includes("tour=1")
+          ? <AppTourProvider scope="fixture-user:workspace" phase="setup" enabled><OnboardingPage /></AppTourProvider>
+          : <OnboardingPage />;
+        return <>{location === "/onboarding" ? onboarding : <h1>Dashboard fixture</h1>}<Toaster /></>;
       }
       createRoot(document.getElementById("root")!).render(<StrictMode><QueryClientProvider client={queryClient}><Fixture /></QueryClientProvider></StrictMode>);
     ` },
@@ -79,7 +88,9 @@ beforeAll(async () => {
       return;
     }
     res.setHeader("Content-Type", "text/html");
-    res.end('<html><body><div id="root"></div><script type="module" src="/fixture.js"></script></body></html>');
+    res.end('<html><head><meta name="viewport" content="width=device-width,initial-scale=1">' +
+      (req.url?.includes("tour=1") ? '<style>' + css.css + '</style>' : '') +
+      '</head><body><div id="root"></div><script type="module" src="/fixture.js"></script></body></html>');
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
@@ -322,6 +333,33 @@ describe("setting up manually", () => {
 });
 
 describe("finishing", () => {
+  it("guides the real chat and setup, and does not advance when saving fails", async () => {
+    await page.goto(`${origin}/onboarding?tour=1`);
+    const tour = page.getByTestId("dialog-app-tour");
+    await browserExpect(tour).toContainText("Start by talking to Pundit");
+    await say(focus);
+    await browserExpect(tour).toContainText("Done. Select Next to continue.");
+    await tour.getByRole("button", { name: "Next", exact: true }).click();
+    await browserExpect(tour).toContainText("Check what Pundit understood");
+    await buildSetup();
+    await browserExpect(tour).toContainText("Done. Select Next to continue.");
+    await tour.getByRole("button", { name: "Next", exact: true }).click();
+    await browserExpect(tour).toContainText("Review your curated setup");
+    await browserExpect(tour).not.toContainText("Done. Select Next to continue.");
+    completionStatus = 500;
+    await chip("Finish setup").click();
+    await browserExpect(page.getByText("Something went wrong", { exact: true })).toBeVisible();
+    await browserExpect(tour).toContainText("Review your curated setup");
+    completionStatus = 200;
+    await chip("Finish setup").click();
+    await browserExpect(page.getByRole("heading", { name: "Your Discover is ready" })).toBeVisible();
+    await browserExpect(tour).toContainText("Done. Select Next to continue.");
+    const progress = await page.evaluate(() => JSON.parse(localStorage.getItem("tsp-app-tour:v3:fixture-user:workspace")!));
+    expect(progress).toMatchObject({ step: 2, ready: true, completed: false, dismissed: false });
+    await tour.getByRole("button", { name: "Next", exact: true }).click();
+    await browserExpect(page).toHaveURL(`${origin}/dashboard/settings?tab=integrations`);
+  });
+
   it("starts the first Discover refresh once the setup is saved, not before", async () => {
     await start(); await buildSetup();
     completionStatus = 500;

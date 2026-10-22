@@ -18,6 +18,8 @@ import { SetupSection, type SectionKind } from "@/components/onboarding/setup-se
 import { UnderstandingCard } from "@/components/onboarding/understanding-card";
 import { OnboardingProgress } from "@/components/onboarding/onboarding-progress";
 import { RefineScope } from "@/components/onboarding/refine-scope";
+import { AppTourButton, useAppTourSignal } from "@/components/app-tour";
+import { HelpButton } from "@/components/help-panel";
 
 interface OnboardingWorkspaceProps {
   onComplete: (data: OnboardingData) => void;
@@ -175,6 +177,8 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
 
   // Discover searches for topics, companies and people, so a setup needs at least one of them.
   const focusReady = focus.trim().length >= 10;
+  useAppTourSignal("focus-submitted", focusReady);
+  useAppTourSignal("setup-started", mode !== "none");
   const canFinish = focusReady && topics.length + leaders.length + companies.length > 0;
   const finish = () => {
     if (!canFinish || locked) return;
@@ -278,9 +282,13 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
         <Link href="/"><span className="flex cursor-pointer items-center gap-2" data-testid="link-logo-onboarding">
           <Zap className="h-6 w-6 fill-primary text-primary" /><span className="font-heading text-lg font-bold text-primary">TheSocialPundit</span>
         </span></Link>
+          <div className="flex items-center gap-2">
           <div className="hidden items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground sm:flex">
             <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
             Personalizing your workspace
+          </div>
+          <HelpButton />
+          <AppTourButton />
           </div>
         </div>
       </header>
@@ -297,7 +305,7 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
       </div>
       <div role="tablist" aria-label="Onboarding" className="flex shrink-0 gap-1 border-b bg-muted p-1 lg:hidden">
         {(["pundit", "setup"] as const).map(value => (
-          <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}
+          <button key={value} type="button" role="tab" data-app-tour={value === "setup" ? "setup-tab" : undefined} aria-selected={tab === value} onClick={() => setTab(value)}
             className={cn("control-touch-target min-h-8 flex-1 rounded-md px-2.5 py-1 text-[0.8125rem]", tab === value ? "bg-card font-semibold text-primary shadow-sm" : "text-muted-foreground")}>
             {value === "pundit" ? "Pundit" : `Your setup · ${selections.count}`}
           </button>

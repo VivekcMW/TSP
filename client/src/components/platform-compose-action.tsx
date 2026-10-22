@@ -7,7 +7,7 @@ import { copyAndOpenPlatform, type PlatformHandoffResult } from "@/lib/platform-
 import { platformTextValidation } from "@shared/editorial";
 import { track } from "@/lib/analytics-consent";
 
-export function PlatformComposeAction({ platform, text, testId, disabled = false, canProceed, onBusyChange }: Readonly<{
+export function PlatformComposeAction({ platform, text, testId, disabled = false, canProceed, onBusyChange, onOpened }: Readonly<{
   platform: string;
   text: string;
   testId?: string;
@@ -16,6 +16,7 @@ export function PlatformComposeAction({ platform, text, testId, disabled = false
   canProceed?: () => boolean;
   /** Synchronous admission; one matching release on settlement or invalidation. */
   onBusyChange?: (busy: boolean) => void;
+  onOpened?: () => void;
 }>) {
   const meta = getPlatformMeta(platform);
   const descriptionId = useId();
@@ -77,6 +78,7 @@ export function PlatformComposeAction({ platform, text, testId, disabled = false
       const result = await copyAndOpenPlatform(text, destination, ownsOperation);
       if (ownsOperation() && result !== "abandoned") {
         setAttempt({ context: currentContext, result });
+        if (result === "opened") onOpened?.();
         if (result === "opened" || result === "open-failed") track("content_copied", { platform, surface: "platform_handoff" });
       }
     } finally {

@@ -1,9 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
-import { ChevronDown, CreditCard, LogOut, Plus, Settings, Zap } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ChevronDown, CircleHelp, CreditCard, LogOut, Settings, Zap } from "lucide-react";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
-import { useCreatePost } from "./create-post-provider";
 import { useQuery } from "@tanstack/react-query";
 import { signOut, useAuth } from "@/lib/auth";
 import { useIsSignedIn } from "@/lib/dev-auth";
@@ -16,6 +14,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useAppTour } from "@/components/app-tour";
+import { HelpButton } from "@/components/help-panel";
 
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard": "Home",
@@ -38,7 +38,7 @@ const PAGE_TITLES: Record<string, string> = {
 // location-derived breadcrumb, and account actions that were previously only
 // reachable by opening the sidebar (useful once it's collapsed on mobile).
 export function DashboardNavbar() {
-  const { openCreate, hasCreation, startNewCreate, composer } = useCreatePost();
+  const { openTour } = useAppTour();
   const [location] = useLocation();
   const { setOpenMobile, isMobile } = useSidebar();
   useEffect(() => { setOpenMobile(false); }, [location, setOpenMobile]);
@@ -58,7 +58,6 @@ export function DashboardNavbar() {
     : primaryEmail?.[0]?.toUpperCase() || "U";
 
   const pageTitle = PAGE_TITLES[location] ?? "Workspace";
-  const onCreateRoute = location === "/dashboard/create";
   const headerRef = useRef<HTMLElement>(null);
 
   // Publish the navbar height so overlays (toasts) can clear the persistent navigation.
@@ -87,7 +86,7 @@ export function DashboardNavbar() {
       </div>
 
       <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
-      <Button variant={onCreateRoute ? "outline" : "default"} disabled={onCreateRoute && Boolean(composer?.busy || composer?.generation.recoverable)} onClick={() => onCreateRoute ? startNewCreate() : openCreate()} data-testid="button-global-create"><Plus className="h-4 w-4" />{hasCreation && !onCreateRoute ? "Resume creation" : "New post"}</Button>
+      <HelpButton />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -119,6 +118,10 @@ export function DashboardNavbar() {
               <CreditCard className="w-4 h-4 mr-2" />
               Billing
             </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={openTour} data-testid="button-navbar-app-tour">
+            <CircleHelp className="w-4 h-4 mr-2" />
+            App tour
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => signOut("/")} data-testid="button-navbar-logout">

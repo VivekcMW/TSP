@@ -4,6 +4,8 @@ import type { InboxItem } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useCreatePostComposer, type CreatePostComposer } from "./use-create-post-composer";
 import { STORY_LINK_KEY, storyLinkFromSearch, storyLinkFromState, withoutArticleParam, withoutStoryLink } from "@/lib/create-story-link";
+import { useAppTourSignal } from "@/components/app-tour";
+import { isSaved } from "./create-post-state";
 
 export interface CreatePostContextValue {
   openCreate: (item?: InboxItem) => void;
@@ -23,6 +25,13 @@ export function CreatePostProvider({ children }: Readonly<{ children: ReactNode 
   const [isOpen, setOpen] = useState(false);
   const onCreateRoute = location === "/dashboard/create";
   const composer = useCreatePostComposer(isOpen, onCreateRoute);
+  const versions = Object.values(composer.versions);
+  const usableVersions = versions.filter(version => composer.canUseVersion(version.platform, version.tone, version));
+  const savedVersion = usableVersions.find(version => isSaved(version) && version.savedId);
+  useAppTourSignal("create-opened", onCreateRoute);
+  useAppTourSignal("document-ready", onCreateRoute && composer.mainReady);
+  useAppTourSignal("versions-ready", onCreateRoute && usableVersions.length > 0);
+  useAppTourSignal("draft-saved", onCreateRoute && Boolean(savedVersion), savedVersion?.savedId);
   const pendingEntry = useRef<{ item: InboxItem } | { startNew: true }>();
   useEffect(() => { if (onCreateRoute) setOpen(true); }, [onCreateRoute]);
   // Onboarding's "Write a post" (navigation state) and reminder emails (?article=) arrive with a story link;

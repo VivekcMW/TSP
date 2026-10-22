@@ -14,6 +14,9 @@ import { dashboardRedirectTarget } from "@/lib/integration-security";
 import NotFound from "@/pages/not-found";
 import type { UserProfile } from "@shared/schema";
 import { AnalyticsPage } from "@/components/analytics-page";
+import { AppTourProvider } from "@/components/app-tour";
+import { HelpProvider } from "@/components/help-panel";
+import { devAuthEnabled } from "@/lib/dev-auth";
 
 /**
  * The signed-in app: dashboard and admin routers with their layouts. Loaded lazily from
@@ -38,13 +41,20 @@ const AdminMonitoringPage = lazy(() => import("@/pages/admin/monitoring"));
 function AuthenticatedLayout({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   // /api/me.id is a user ID. The resolved tenant comes from /api/profile.
-  const { data: profile } = useQuery<UserProfile>({ queryKey: ["/api/profile"], enabled: !!user });
+  const { data: profile } = useQuery<UserProfile>({ queryKey: ["/api/profile"], enabled: !!user || devAuthEnabled });
+  const tourUserId = user?.id ?? profile?.userId;
   const style = {
     "--sidebar-width": "14rem",
     "--sidebar-width-icon": "3.5rem",
   };
 
   return (
+    <AppTourProvider
+      key={JSON.stringify([user?.id, profile?.tenantId])}
+      scope={tourUserId && profile?.tenantId ? `${tourUserId}:${profile.tenantId}` : null}
+      enabled={Boolean(tourUserId && profile?.onboardingStatus === "completed")}
+    >
+    <HelpProvider>
     <CreatePostProvider key={JSON.stringify([user?.id, profile?.tenantId])}>
     <SidebarProvider style={style as React.CSSProperties} className="h-full min-h-0">
       <div className="flex h-full w-full">
@@ -57,6 +67,8 @@ function AuthenticatedLayout({ children }: { children: ReactNode }) {
       </div>
     </SidebarProvider>
     </CreatePostProvider>
+    </HelpProvider>
+    </AppTourProvider>
   );
 }
 

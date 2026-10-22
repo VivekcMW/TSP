@@ -32,19 +32,21 @@ import { WorkflowStatus } from "@/components/dashboard/workflow-status";
 import { PlatformComposeAction } from "@/components/platform-compose-action";
 import { DashboardEmptyState } from "@/components/dashboard/empty-state";
 import { ScheduleArticleModal } from "@/components/schedule-article-modal";
+import { useAppTourReporter, useAppTourSignal } from "@/components/app-tour";
 import { DraftCard, DraftListItem, canEditDraft, type DraftScheduleInfo } from "@/components/dashboard/draft-card";
 import { usePublishSchedule } from "@/hooks/use-publish-schedule";
 import { useDraftPublishStatus } from "@/hooks/use-publish-status";
 import { usePublishingReadiness } from "@/hooks/use-publishing-readiness";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ScheduleTargetActions } from "@/components/publishing-target-actions";
-import { canChangeSchedule, contentStatusGroup, draftStatusGroup, fetchDraftDetails, fetchPublishingSchedules, invalidatePublishingQueries, publishingTextValidation, scheduleConfirmationKey, selectionBlockers } from "@/lib/publishing";
+import { canChangeSchedule, contentStatusGroup, draftStatusGroup, fetchDraftDetails, fetchPublishingSchedules, invalidatePublishingQueries, publicationOutcome, publishingTextValidation, scheduleConfirmationKey, selectionBlockers } from "@/lib/publishing";
 import { capturePublishingConsent, type PublishingConsent } from "@shared/publishing-consent";
 import { track } from "@/lib/analytics-consent";
 import { dateKeyInTimeZone, publishingDefaults, scheduleTimeValidation } from "@/lib/calendar";
 import { distinctDaySendSlots } from "@/lib/send-time";
 import type { Draft } from "@shared/schema";
 import { MAX_DRAFT_CHARACTERS, platformTextValidation } from "@shared/editorial";
+import { HelpLink } from "@/components/help-panel";
 
 // Query cache is scoped/cleared with the authenticated app session. Keep only
 // IDs, not content, across Content remounts; hiding a monitor is not resolution.
@@ -88,6 +90,8 @@ export default function DraftsPage() {
   useEffect(() => () => { editSession.current?.abort(); editRead.current?.abort(); }, []);
   const [postingDraft, setPostingDraft] = useState<Draft | null>(null);
   const [schedulingDraft, setSchedulingDraft] = useState<Draft | null>(null);
+  const reportTour = useAppTourReporter();
+  useAppTourSignal("publishing-opened", Boolean(postingDraft || schedulingDraft), postingDraft?.id ?? schedulingDraft?.id);
   const [deletingDraft, setDeletingDraft] = useState<Draft | null>(null);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
@@ -128,6 +132,8 @@ export default function DraftsPage() {
   const { bulkSchedule, isLoading: isBulkScheduling } = usePublishSchedule();
   const { cancelSchedule } = usePublishSchedule();
   const publishStatus = useDraftPublishStatus(trackedDraftId);
+  const tourOutcome = publishStatus.outcome === "unknown" || publishStatus.outcome === "pending" ? undefined : publishStatus.outcome;
+  useAppTourSignal("publishing-result", Boolean(trackedDraftId && publishStatus.schedule && tourOutcome), trackedDraftId ?? undefined, tourOutcome);
 
   const { data: drafts, isLoading, isError: draftsError, isFetching: draftsFetching, refetch: refetchDrafts } = useQuery<Draft[]>({
     queryKey: ["/api/drafts"],
@@ -483,6 +489,14 @@ export default function DraftsPage() {
   const previewDraft = requestedDraftId !== null
     ? visibleDrafts.find(draft => draft.id === requestedDraftId)
     : visibleDrafts.find(draft => draft.id === previewDraftId) ?? visibleDrafts[0];
+  useAppTourSignal("draft-opened", Boolean(previewDraft && !linkedQuery.isFetching), previewDraft?.id);
+  const previewSchedule = previewDraft ? scheduleFor(previewDraft) : undefined;
+  const previewOutcome = publicationOutcome(previewSchedule);
+  const restoredTourOutcome = previewOutcome === "pending"
+    ? previewSchedule?.status === "scheduled" && new Date(previewSchedule.scheduledPublishAt).getTime() > Date.now() ? "scheduled" : undefined
+    : previewOutcome === "unknown" ? undefined : previewOutcome;
+  useAppTourSignal("publishing-result", Boolean(!trackedDraftId && !isPublishing && previewSchedule && !schedulesFetching && !scheduleError && restoredTourOutcome),
+    previewDraft?.id, restoredTourOutcome);
   const firstVisibleId = visibleDrafts[0]?.id;
   useEffect(() => {
     if (requestedDraftId === null && previewDraftId === null && firstVisibleId) setPreviewDraftId(firstVisibleId);
@@ -787,6 +801,7 @@ export default function DraftsPage() {
       <Dialog open={!!postingDraft} onOpenChange={(open) => !open && setPostingDraft(null)}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto max-w-lg">
           <DialogHeader>
+            <div className="flex items-center gap-1 pr-10">
             <DialogTitle className="flex items-center gap-2">
               {postingDraft && (() => {
                 const Icon = getPlatformMeta(postingDraft.platform).icon;
@@ -794,11 +809,13 @@ export default function DraftsPage() {
               })()}
               Publishing options
             </DialogTitle>
+            <HelpLink section="publishing" label="Publishing a post" />
+            </div>
             <DialogDescription>
               Publish directly sends to connected target accounts. Copy & Open only copies text and opens {postingDraft ? getPlatformMeta(postingDraft.platform).label : "the platform"}; you must publish there yourself. It does not mark this draft as published.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div className="py-4" data-app-tour="publishing-confirmation">
             <div className="bg-muted p-4 rounded-md text-sm whitespace-pre-wrap break-words">
               {currentPostingDraft?.content}
             </div>
@@ -810,7 +827,7 @@ export default function DraftsPage() {
             {repetitionCheck.data.matches[0].publishedAt ? `You posted something very similar on ${new Date(repetitionCheck.data.matches[0].publishedAt).toLocaleDateString()}.` : "You wrote something very similar in another draft."} Make sure that's intentional before publishing again.
           </WorkflowStatus>}
           {postingWarnings.length > 0 && <ul className="list-disc pl-4 text-sm text-muted-foreground">{postingWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
-          {trackedDraftId === postingDraft?.id && <div className="space-y-2 text-sm"><WorkflowStatus tone={deliveryTone}>{publishStatus.error || publishMessage || "Delivery is unconfirmed. Check status before retrying."}</WorkflowStatus>{publishStatus.schedule && <ScheduleTargetActions item={publishStatus.schedule} />}<Button variant="outline" size="sm" disabled={publishStatus.checking || isPublishing} onClick={publishStatus.recheck}>Check delivery status</Button><Button variant="ghost" size="sm" disabled={isPublishing} onClick={() => { setTrackedDraftId(null); setPostingDraft(null); }}>Dismiss monitor</Button><p>Dismissing does not resolve uncertainty or permit another publication of this draft.</p></div>}
+          {trackedDraftId === postingDraft?.id && <div data-app-tour="publishing-result" className="space-y-2 text-sm"><WorkflowStatus tone={deliveryTone}>{publishStatus.error || publishMessage || "Delivery is unconfirmed. Check status before retrying."}</WorkflowStatus>{publishStatus.schedule && <ScheduleTargetActions item={publishStatus.schedule} />}<Button variant="outline" size="sm" disabled={publishStatus.checking || isPublishing} onClick={publishStatus.recheck}>Check delivery status</Button><Button variant="ghost" size="sm" disabled={isPublishing} onClick={() => { setTrackedDraftId(null); setPostingDraft(null); }}>Dismiss monitor</Button><p>Dismissing does not resolve uncertainty or permit another publication of this draft.</p></div>}
           {manualUnsafe && <WorkflowStatus tone="warning">Manual handoff is disabled while this draft is scheduled, already submitted, unavailable or has uncertain delivery. Check its target status before sending another copy.</WorkflowStatus>}
           {reconfirmDraftId === currentPostingDraft?.id && currentPostingDraft && <WorkflowStatus tone="warning" title="Confirm the latest draft again">The previous request was rejected before admission. Review the refreshed text and targets; this does not send a request.<Button variant="outline" disabled={draftsError || postingDraftMissing || !scheduleData || scheduleError || isPublishing || draftsFetching || schedulesFetching || linkedQuery.isFetching} onClick={() => {
             const remaining = new Set(attemptedDraftIds); remaining.delete(currentPostingDraft.id);
@@ -832,6 +849,7 @@ export default function DraftsPage() {
               {isPublishing ? "Submitting…" : "Publish directly now"}
             </Button>
             {currentPostingDraft && <PlatformComposeAction key={currentPostingDraft.id} platform={currentPostingDraft.platform} text={currentPostingDraft.content}
+              onOpened={() => reportTour?.("publishing-result", currentPostingDraft.id, "manual")}
               disabled={isPublishing || trackedDraftId === postingDraft?.id || manualUnsafe || manualContext.unsafe}
               canProceed={() => manualContextRef.current === manualContext && manualReadEpoch.current === manualReadGeneration && !manualContext.unsafe && !publishLock.current && !attemptedDraftIdsRef.current.has(currentPostingDraft.id)}
               onBusyChange={busy => { manualPendingRef.current = busy; setManualPending(busy); }} testId="button-copy-and-post" />}
