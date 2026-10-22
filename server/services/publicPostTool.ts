@@ -4,17 +4,7 @@ import {
   LINKEDIN_POST_TOOL_TONES, MAX_ARTICLE_TEXT, MIN_ARTICLE_TEXT,
   type LinkedInPostToolRequest, type LinkedInPostToolResponse, type LinkedInPostToolTone,
 } from "@shared/linkedin-post-tool";
-
-/** Per instance, so anonymous traffic can never hold every shared AI slot paying users rely on. */
-const MAX_CONCURRENT = Math.max(1, Number(process.env.PUBLIC_POST_TOOL_MAX_CONCURRENT) || 2);
-let active = 0;
-
-export class PublicPostToolBusyError extends Error {
-  constructor() {
-    super("The free tool is busy right now. Please try again in a few seconds.");
-    this.name = "PublicPostToolBusyError";
-  }
-}
+import { withPublicToolSlot } from "./publicToolSlots";
 
 const SYSTEM_PROMPT = [
   "You write LinkedIn posts for professionals who want to share a point of view on a news story.",
@@ -59,10 +49,8 @@ export function buildPrompt(article: { title: string | null; content: string }, 
   ].filter(line => line !== "").join("\n");
 }
 
-export async function generatePublicLinkedInPost(input: LinkedInPostToolRequest, signal?: AbortSignal): Promise<LinkedInPostToolResponse> {
-  if (active >= MAX_CONCURRENT) throw new PublicPostToolBusyError();
-  active++;
-  try {
+export function generatePublicLinkedInPost(input: LinkedInPostToolRequest, signal?: AbortSignal): Promise<LinkedInPostToolResponse> {
+  return withPublicToolSlot(async () => {
     let article: { title: string | null; content: string; url: string | null };
     if ("url" in input) {
       const fetched = await fetchArticleFromUrl(input.url, signal);
@@ -79,7 +67,5 @@ export async function generatePublicLinkedInPost(input: LinkedInPostToolRequest,
     const post = cleanPost(result.text);
     if (post.length < 80) throw new AIGenerationError("ai_invalid_output");
     return { post, sourceTitle: article.title, sourceUrl: article.url };
-  } finally {
-    active--;
-  }
+  });
 }

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
 import { fadeUp } from "@/lib/motion";
 import { BLOG_POSTS } from "@/lib/blog-posts";
+import { FREE_TOOLS } from "@shared/free-tools";
 import { ArrowRight, ArrowUpRight, CalendarDays, Clock3 } from "lucide-react";
 
 function formatDate(iso: string) {
@@ -153,6 +154,28 @@ export default function BlogPage() {
             ))}
           </StaggerGroup>
           {archive.length === 0 && <p className="rounded-2xl border border-dashed p-10 text-center text-muted-foreground">No stories in this category yet.</p>}
+        </section>
+
+        <section className="border-t" aria-labelledby="blog-free-tools" data-testid="section-blog-tools">
+          <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
+            <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Free · No sign-up</p>
+                <h2 id="blog-free-tools" className="mt-2 font-heading text-3xl font-semibold tracking-tight text-foreground">Free LinkedIn tools</h2>
+              </div>
+              <Link href="/tools" className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">See all tools<ArrowRight className="h-4 w-4" aria-hidden="true" /></Link>
+            </div>
+            <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {FREE_TOOLS.map(tool => (
+                <li key={tool.path}>
+                  <Link href={tool.path} className="flex h-full flex-col rounded-card border bg-card p-5 transition-colors hover:border-primary/40">
+                    <span className="font-semibold text-foreground">{tool.name}</span>
+                    <span className="mt-2 text-sm text-muted-foreground">{tool.summary}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
         </section>
 
         <Reveal variants={fadeUp}>

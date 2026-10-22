@@ -103,12 +103,12 @@ app.use((_req, res, next) => {
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   
   // Content-Security-Policy: restrict resource loading to trusted sources
-  // Enumerates fonts (Google Fonts), OAuth/API providers (LinkedIn, Twitter/X, Telegram, etc), and AI services
+  // Enumerates OAuth/API providers (LinkedIn, Twitter/X, Telegram, etc), and AI services
   const cspDirectives = [
     "default-src 'self'",                                                           // Only same-origin by default
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.googletagmanager.com", // React, Vite HMR in dev, Razorpay Checkout, Google Tag Manager and Google Analytics (gtag.js)
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",               // Inline styles + Google Fonts CSS
-    "font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com",      // Google Fonts
+    "style-src 'self' 'unsafe-inline'",                                              // Inline styles
+    "font-src 'self'",                                                              // Self-hosted fonts
     "img-src 'self' data: https:",                                                  // Self, data URIs, and HTTPS images
     "connect-src 'self' https://api.linkedin.com https://www.linkedin.com https://api.twitter.com https://api.x.com https://telegram.org https://api.telegram.org https://news.google.com https://api.openrouter.ai https://api.anthropic.com https://generativelanguage.googleapis.com https://accounts.google.com https://api.razorpay.com https://checkout.razorpay.com https://lumberjack.razorpay.com https://www.googletagmanager.com https://www.google-analytics.com https://analytics.google.com https://*.google-analytics.com https://*.analytics.google.com https://stats.g.doubleclick.net https://*.ingest.us.sentry.io https://*.ingest.sentry.io",
     "frame-src https://api.razorpay.com https://checkout.razorpay.com https://www.googletagmanager.com", // Razorpay's payment modal and GTM frames

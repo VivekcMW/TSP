@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import "./fonts";
 import "./index.css";
 import { initSentry, Sentry } from "./lib/sentry";
 import { startAnalyticsIfConsented } from "./lib/analytics-consent";

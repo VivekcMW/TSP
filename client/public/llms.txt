@@ -52,7 +52,11 @@ Key facts:
 
 ## Free tools
 
+- [Free LinkedIn Tools: Posts, Hooks, Hashtags](https://www.thesocialpundit.com/tools): Free LinkedIn writing tools with no sign-up: turn news into a post, generate hooks and hashtags, format text in bold and count characters.
 - [Free LinkedIn Post Generator From News](https://www.thesocialpundit.com/tools/linkedin-post-generator): Paste a news article link or text and get a ready-to-edit LinkedIn post with a hook, your take and a question. Free, no sign-up, 10 posts a day.
+- [Free LinkedIn Hook Generator: 5 Opening Lines](https://www.thesocialpundit.com/tools/linkedin-hook-generator): Describe your post or paste a draft and get five LinkedIn opening lines in different styles: question, bold claim, number, story and contrarian. Free, no sign-up.
+- [Free LinkedIn Hashtag Generator for Posts](https://www.thesocialpundit.com/tools/linkedin-hashtag-generator): Paste your LinkedIn post or topic and get relevant hashtags, split into broad tags for reach and niche tags where you can stand out. Free, no sign-up.
+- [Free LinkedIn Post Formatter & Character Counter](https://www.thesocialpundit.com/tools/linkedin-post-formatter): Format LinkedIn posts with bold and italic text, bullet lists and clean spacing, count characters against the 3,000 limit, and preview the "see more" cut. Free.
 
 ## Comparisons
 
@@ -69,6 +73,8 @@ Key facts:
 ## Guides and articles
 
 - [TheSocialPundit Journal](https://www.thesocialpundit.com/blog): Clear thinking on professional authority, content strategy, AI-assisted writing, and showing up with a point of view people remember.
+- [How to Write a LinkedIn Hook: 7 Examples](https://www.thesocialpundit.com/blog/how-to-write-a-linkedin-hook): LinkedIn shows only the first two or three lines of a post. Here is how to write an opening line that makes the right people click "see more".
+- [How Many Hashtags to Use on LinkedIn](https://www.thesocialpundit.com/blog/how-many-hashtags-on-linkedin): Use three to five relevant hashtags on a LinkedIn post. Here is how to choose them, where to put them and the mistakes that make posts look spammy.
 - [How to Build a Professional Personal Brand](https://www.thesocialpundit.com/blog/how-to-build-a-personal-brand): A step-by-step personal branding strategy: choose a territory, build a point of view, publish consistently and turn visibility into opportunity.
 - [How to Become an Industry Thought Leader](https://www.thesocialpundit.com/blog/how-to-become-a-thought-leader): Thought leadership isn't a title you claim. It's a track record of useful, original thinking. Here's how to build one, step by step.
 - [How to Use AI to Write LinkedIn Posts](https://www.thesocialpundit.com/blog/how-to-use-ai-to-write-linkedin-posts): A practical workflow for using AI to create LinkedIn posts faster, without losing your voice, your credibility or your readers' trust.

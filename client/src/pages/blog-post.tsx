@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Reveal } from "@/components/motion/reveal";
 import { LoadingScreen } from "@/components/loading-screen";
-import { blogPostJsonLd, getBlogPost, getRelatedPosts, headingAnchor, HEADING_PREFIX, isHeading } from "@/lib/blog-posts";
+import { blogPostJsonLd, blogPostTools, getBlogPost, getRelatedPosts, headingAnchor, HEADING_PREFIX, isHeading } from "@/lib/blog-posts";
 import { relatedPageLabel } from "@shared/audience-pages";
 import { ArrowLeft, ArrowRight, CalendarDays, Clock, Sparkles } from "lucide-react";
 
@@ -142,6 +142,20 @@ export default function BlogPostPage() {
                   </ul>
                 </section>
               )}
+              <section aria-labelledby="post-free-tools" className="mt-14 max-w-2xl" data-testid="blog-post-tools">
+                <h2 id="post-free-tools" className="font-heading text-2xl font-semibold">Free tools for your next post</h2>
+                <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {blogPostTools(post).map(tool => (
+                    <li key={tool.path}>
+                      <Link href={tool.path} className="flex h-full flex-col rounded-card border bg-card p-4 transition-colors hover:border-primary/40">
+                        <span className="font-semibold text-foreground">{tool.name}</span>
+                        <span className="mt-1 text-sm text-muted-foreground">{tool.summary}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/tools" className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">All free tools<ArrowRight className="h-4 w-4" aria-hidden="true" /></Link>
+              </section>
             </div>
             <aside className="hidden self-start border-l pl-6 text-sm text-muted-foreground lg:block">
               <p className="font-semibold text-foreground">In this story</p>
