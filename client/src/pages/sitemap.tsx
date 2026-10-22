@@ -15,6 +15,7 @@ const groups = [
       { href: "/how-it-works", label: "How it works" },
       { href: "/pricing", label: "Pricing" },
       { href: "/use-cases", label: "Use cases" },
+      { href: "/tools/linkedin-post-generator", label: "Free LinkedIn post generator" },
       ...USE_CASES.map(useCase => ({ href: `/use-cases/${useCase.slug}`, label: useCase.label })),
     ],
   },

@@ -4,6 +4,7 @@ import { AUDIENCE_PAGES_UPDATED, AUDIENCE_SECTIONS, allAudiencePages, audienceHu
 
 import { pricingFaqJsonLd } from "../shared/pricing-faqs";
 import { COMPARE_HUB, COMPARISONS, COMPARISONS_CHECKED, compareHubJsonLd, comparisonJsonLd, comparisonPath } from "../shared/comparisons";
+import { LINKEDIN_POST_TOOL_PATH, LINKEDIN_POST_TOOL_SEO, linkedInPostToolJsonLd } from "../shared/linkedin-post-tool";
 
 /** Last content change of the use-case pages (shared/use-cases.ts). */
 const USE_CASES_UPDATED = "2026-10-11";
@@ -57,6 +58,7 @@ const pages: Record<string, PublicPage> = {
     lastmod: "2026-10-21",
     schema: pricingFaqJsonLd(),
   },
+  [LINKEDIN_POST_TOOL_PATH]: { ...LINKEDIN_POST_TOOL_SEO, jsonLd: linkedInPostToolJsonLd() },
   "/blog": {
     title: "TheSocialPundit Journal | TheSocialPundit",
     description: "Clear thinking on professional authority, content strategy, AI-assisted writing, and showing up with a point of view people remember.",

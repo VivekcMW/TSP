@@ -5,7 +5,7 @@ const publicRoutes = [
   "/blog/one-voice-ten-platforms", "/about", "/contact",
   "/privacy", "/terms", "/refund-policy", "/subscription-cancellation",
   "/data-retention", "/ai-data-processing", "/cookies", "/email-preferences",
-  "/invitation-preferences", "/newsletter", "/case-studies", "/careers",
+  "/invitation-preferences", "/newsletter", "/case-studies", "/careers", "/tools/linkedin-post-generator",
   "/sign-in", "/sign-up", "/verify-email", "/reset-password",
 ];
 

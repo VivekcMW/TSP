@@ -23,6 +23,7 @@ import { registerMediaRoutes } from "./media";
 import { registerBillingRoutes } from "./billing";
 import { registerEmailPreferenceRoutes } from "./email-preferences";
 import { registerNewsletterRoutes } from "./newsletter";
+import { registerPublicToolRoutes } from "./public-tools";
 import { registerInvitationRoutes } from "./invitations";
 import { registerWebSubRoutes } from "./websub";
 import { registerProfileSocialLinksRoutes } from "./profile-social-links";
@@ -63,6 +64,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerBillingRoutes(app);
   registerEmailPreferenceRoutes(app);
   registerNewsletterRoutes(app);
+  registerPublicToolRoutes(app);
   registerInvitationRoutes(app);
   registerWebSubRoutes(app);
   registerProfileSocialLinksRoutes(app);
