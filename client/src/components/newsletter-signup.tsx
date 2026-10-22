@@ -3,6 +3,7 @@ import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { newsletterSignup, type NEWSLETTER_SOURCES } from "@shared/newsletter";
+import { track } from "@/lib/analytics-consent";
 
 type Status = { kind: "idle" } | { kind: "sending" } | { kind: "sent"; message: string } | { kind: "error"; message: string };
 const TRY_AGAIN = "We couldn't sign you up just now. Please try again in a few minutes.";
@@ -23,7 +24,10 @@ export function NewsletterSignup({ source, tone = "light" }: Readonly<{ source: 
         method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(parsed.data),
       });
       const body = await response.json().catch(() => ({})) as { message?: string };
-      if (response.status === 202) return setStatus({ kind: "sent", message: body.message ?? "Check your inbox and click the link to confirm your subscription." });
+      if (response.status === 202) {
+        track("newsletter_signup_requested", { source });
+        return setStatus({ kind: "sent", message: body.message ?? "Check your inbox and click the link to confirm your subscription." });
+      }
       setStatus({ kind: "error", message: response.status === 400 ? "Enter a valid email address." : body.message ?? TRY_AGAIN });
     } catch {
       setStatus({ kind: "error", message: TRY_AGAIN });

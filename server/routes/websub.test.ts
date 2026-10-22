@@ -34,7 +34,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (validated) {
     await ownerDb.delete(pooledArticles).where(like(pooledArticles.canonicalUrl, `${host}/%`));
-    await ownerDb.delete(publications).where(eq(publications.feedUrl, feed));
+    await ownerDb.delete(publications).where(like(publications.feedUrl, `${host}/%`));
   }
   await pool.end(); await ownerPool.end();
   vi.restoreAllMocks();
@@ -68,7 +68,27 @@ describe("WebSub callback", () => {
     expect((await request(app).post(`/api/websub/${id}`).set("Content-Type", "application/rss+xml").send(body)).status).toBe(202);
     expect((await request(app).post(`/api/websub/${id}`).set("Content-Type", "application/rss+xml").set("X-Hub-Signature", "sha256=deadbeef").send(body)).status).toBe(202);
     expect(await findPooledArticle(`${host}/forged`)).toBeNull();
-    expect((await request(app).post(`/api/websub/${randomUUID()}`).set("Content-Type", "application/rss+xml").send(body)).status).toBe(404);
+  });
+
+  // WebSub §7: 410 lets the hub end a subscription we no longer hold; a 404 is only retried.
+  it("answers 410 Gone for deliveries to a subscription it does not hold", async () => {
+    const body = `<rss version="2.0"><channel><title>Daily</title></channel></rss>`;
+    expect((await request(app).post(`/api/websub/${randomUUID()}`).set("Content-Type", "application/rss+xml").send(body)).status).toBe(410);
+    expect((await request(app).post("/api/websub/pub-1").set("Content-Type", "application/rss+xml").send(body)).status).toBe(410);
+    await registerPublications([{ name: "Quiet", feedUrl: `${host}/quiet`, sourceType: "feed" }]);
+    const [unsubscribed] = await ownerDb.select({ id: publications.id }).from(publications).where(eq(publications.feedUrl, `${host}/quiet`));
+    expect((await request(app).post(`/api/websub/${unsubscribed.id}`).set("Content-Type", "application/rss+xml").send(body)).status).toBe(410);
+  });
+
+  // The secret authenticates the hub; a later poll that no longer sees the feed's hub link must not drop pushed stories.
+  it("still ingests signed deliveries after a poll cleared the feed's hub", async () => {
+    await ownerDb.update(publications).set({ hubUrl: null }).where(eq(publications.id, id));
+    const body = `<rss version="2.0"><channel><title>Daily</title><item><title>Hub moved</title><link>${host}/hub-moved</link></item></channel></rss>`;
+    const res = await request(app).post(`/api/websub/${id}`).set("Content-Type", "application/rss+xml")
+      .set("X-Hub-Signature", `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`).send(body);
+    await ownerDb.update(publications).set({ hubUrl: "https://hub.test/" }).where(eq(publications.id, id));
+    expect(res.status).toBe(202);
+    expect(await findPooledArticle(`${host}/hub-moved`)).toMatchObject({ title: "Hub moved", source: "Daily" });
   });
 
   it("settles rootless signed XML and still ingests the next delivery", async () => {

@@ -1,9 +1,5 @@
-export interface PublicBillingPlan {
-  id: string; key: string; name: string; description: string | null;
-  amount: number; currency: string; interval: string; features: string[]; recurringAvailable: boolean;
-  /** False for a listed plan that can't be bought yet (e.g. US dollars before international payments). */
-  available?: boolean;
-}
+import type { PublicBillingPlan } from "@shared/public-billing";
+export type { PublicBillingPlan } from "@shared/public-billing";
 export interface BillingSubscription {
   status: string; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean; razorpaySubscriptionId?: string | null;
 }

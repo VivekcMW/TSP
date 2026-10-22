@@ -58,7 +58,7 @@ export const FAQS = [
   { question: "Is my data used to train AI models?",
     answer: "No. We use your industry and preferences to pick relevant news and draft posts for you. That information isn't used to train models for other users." },
   { question: "Is there a free plan?",
-    answer: "Yes. Start free, with no card needed. When you want more, the paid plans are on the pricing page, shown in your currency." },
+    answer: "Yes. Start free, with no card needed. Paid plans are listed on the pricing page in US dollars." },
   { question: "What if I don't like a draft?",
     answer: "Edit it, regenerate it in a different tone, or skip it. You're never required to publish anything TheSocialPundit drafts." },
 ];

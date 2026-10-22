@@ -3,6 +3,7 @@ import { rm, readFile } from "fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { precompressAssets } from "../server/precompress";
+import { prerenderPublicPages } from "./prerender";
 import { writeSearchFiles } from "./generate-search-files";
 
 // server deps to bundle to reduce openat(2) syscalls
@@ -60,7 +61,11 @@ async function buildAll() {
   console.log("building client...");
   const { build: viteBuild } = await import("vite");
   await viteBuild();
-  const compressed = precompressAssets(resolve("dist/public/assets"));
+  console.log("prerendering public pages...");
+  const prerendered = await prerenderPublicPages();
+  console.log(`prerendered ${prerendered} public pages`);
+  // The whole public folder: hashed assets plus root files such as sitemap.xml.
+  const compressed = precompressAssets(resolve("dist/public"));
   console.log(`compressed ${compressed} client files (brotli + gzip)`);
   console.log("building server...");
   await esbuild(await serverBuildOptions());

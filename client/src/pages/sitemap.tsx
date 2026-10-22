@@ -5,6 +5,8 @@ import { SEO } from "@/components/seo";
 import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
 import { BLOG_POSTS } from "@/lib/blog-posts";
 import { USE_CASES } from "@shared/use-cases";
+import { AUDIENCE_SECTIONS, audiencePagePath } from "@shared/audience-pages";
+import { COMPARE_HUB, COMPARISONS, comparisonPath } from "@shared/comparisons";
 
 const groups = [
   {
@@ -14,6 +16,20 @@ const groups = [
       { href: "/pricing", label: "Pricing" },
       { href: "/use-cases", label: "Use cases" },
       ...USE_CASES.map(useCase => ({ href: `/use-cases/${useCase.slug}`, label: useCase.label })),
+    ],
+  },
+  ...Object.values(AUDIENCE_SECTIONS).map(section => ({
+    title: section.label,
+    links: [
+      { href: section.path, label: `All ${section.plural}` },
+      ...section.pages.map(page => ({ href: audiencePagePath(section.kind, page), label: page.label })),
+    ],
+  })),
+  {
+    title: "Compare",
+    links: [
+      { href: COMPARE_HUB.path, label: "All comparisons" },
+      ...COMPARISONS.map(page => ({ href: comparisonPath(page), label: page.headline })),
     ],
   },
   {
@@ -41,7 +57,7 @@ const groups = [
 export default function SitemapPage() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <SEO title="Sitemap" canonical="/sitemap" description="Browse every public product, company, policy, use-case, and journal page on TheSocialPundit." />
+      <SEO title="Sitemap" canonical="/sitemap" description="Browse every public product, role, industry, comparison, company, policy, use-case, and journal page on TheSocialPundit." />
       <SiteHeader />
       <main className="flex-1">
         <section className="border-b bg-card py-16 lg:py-20">

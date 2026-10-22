@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import type { PublishingConsent } from '@shared/publishing-consent';
+import { track } from '@/lib/analytics-consent';
 
 export interface ScheduleResult {
   id: string;
@@ -39,6 +40,7 @@ export function usePublishSchedule() {
       }
 
       const result = await response.json();
+      track('post_scheduled', { ...(platforms?.length ? { platform: platforms.join(',') } : {}) });
       toast({
         title: 'Success',
         description: result.message,
@@ -89,6 +91,7 @@ export function usePublishSchedule() {
       }
 
       const result = await response.json();
+      track("posts_scheduled", { count: result.scheduled.length, failed_count: result.failed.length });
       toast({
         title: 'Bulk Schedule Complete',
         description: result.message,

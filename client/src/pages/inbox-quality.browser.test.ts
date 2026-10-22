@@ -42,8 +42,11 @@ beforeAll(async () => {
           if (options.method === "PUT") window.__creation = { revision: window.__creation.revision + 1, state: JSON.parse(options.body).state };
           body = window.__creation;
         }
+        else if (url === "/api/inbox/visit") body = { previousVisitAt: null, currentVisitAt: new Date().toISOString() };
         else if (url === "/api/inbox?status=active") body = window.__records.filter(item => item.status === "active").slice(0, 500);
         else if (url === "/api/inbox") body = window.__records.slice(0, 500);
+        else if (String(url).startsWith("/api/drafts?limit=200&offset=")) body = [];
+        else if (String(url).startsWith("/api/drafts/scheduled?limit=200&offset=")) body = { items: [] };
         else if (window.__refreshJob && String(url) === "/api/inbox/refresh/" + window.__refreshJob.jobId) body = window.__refreshJob;
         else if (url === "/api/trends") {
           if (window.__trendError) return new Response("Unavailable", { status: 503 });
@@ -104,7 +107,9 @@ const storyRows = () => page.locator('[data-testid^="row-inbox-"]');
 async function expectUnchanged(items = records) {
   expect(await page.evaluate(() => (window as any).__cachedInbox())).toEqual(items.slice(0, 500));
   expect(await page.evaluate(() => (window as any).__calls.filter((call: { url: string }) => call.url !== "/api/creation-session"))).toEqual(
-    await page.evaluate(() => (window as any).__surface) === "home" ? [] : [{ url: "/api/inbox?status=active", method: "GET" }]);
+    await page.evaluate(() => (window as any).__surface) === "home"
+      ? [{ url: "/api/drafts?limit=200&offset=0", method: "GET" }, { url: "/api/drafts/scheduled?limit=200&offset=0", method: "GET" }]
+      : [{ url: "/api/inbox/visit", method: "POST" }, { url: "/api/inbox?status=active", method: "GET" }]);
 }
 
 describe("legacy inbox quality UI", () => {
@@ -123,10 +128,47 @@ describe("legacy inbox quality UI", () => {
     await browserExpect(storyRows()).toHaveCount(3);
     await expectUnchanged();
     await page.getByRole("button", { name: "Topics in your recent articles" }).click();
-    await browserExpect(page.getByText(/New in this window/)).toBeVisible();
+    await browserExpect(page.getByText(/New topic compared with the previous 7 days/)).toBeVisible();
     await browserExpect(page.getByText(/Partial coverage: first 5000/)).toBeVisible();
     await browserExpect(page.getByText(/not market trends/)).toBeVisible();
     await browserExpect(page.getByText(/2 unknown origins/)).toBeVisible();
+  });
+
+  it("shows a clear single-column topic dropdown on desktop and mobile with keyboard dismissal", async () => {
+    const topics = [
+      { topic: "AI", count: 4, velocityPercent: 100, sourceCount: 2, unknownSourceCount: 0,
+        articles: [{ title: "AI research explained", link: "https://news.test/ai" }], coverage: { partial: false, rowLimit: 5000 } },
+      { topic: "Design", count: 2, velocityPercent: -50, sourceCount: 1, unknownSourceCount: 0,
+        articles: [], coverage: { partial: false, rowLimit: 5000 } },
+      { topic: "Technology", count: 2, velocityPercent: 0, sourceCount: 1, unknownSourceCount: 0,
+        articles: [], coverage: { partial: false, rowLimit: 5000 } },
+    ];
+    await mount("discover", records, { __trends: topics });
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 1000 });
+      const trigger = page.getByRole("button", { name: "Topics in your recent articles" });
+      await trigger.focus();
+      await page.keyboard.press("Enter");
+      await browserExpect(trigger).toHaveAttribute("aria-expanded", "true");
+      await browserExpect(page.getByText(/help choose your next post topic/)).toBeVisible();
+      await browserExpect(page.getByText("4 articles in the last 7 days")).toBeVisible();
+      await browserExpect(page.getByText("100% more articles than the previous 7 days")).toBeVisible();
+      await browserExpect(page.getByText("50% fewer articles than the previous 7 days")).toBeVisible();
+      await browserExpect(page.getByText("Same article count as the previous 7 days")).toBeVisible();
+      const rows = page.getByRole("list", { name: "Recent article topics" }).locator(":scope > li");
+      await browserExpect(rows).toHaveCount(3);
+      const first = await rows.nth(0).boundingBox();
+      const second = await rows.nth(1).boundingBox();
+      expect(second!.x).toBe(first!.x);
+      expect(second!.y).toBeGreaterThanOrEqual(first!.y + first!.height);
+      const panel = await page.locator("#personal-trends").boundingBox();
+      expect(panel!.x).toBeGreaterThanOrEqual(0);
+      expect(panel!.x + panel!.width).toBeLessThanOrEqual(width);
+      await browserExpect(page.getByRole("link", { name: /AI research explained/ })).toHaveAttribute("href", "https://news.test/ai");
+      await page.keyboard.press("Escape");
+      await browserExpect(trigger).toHaveAttribute("aria-expanded", "false");
+      await browserExpect(trigger).toBeFocused();
+    }
   });
 
   it("shows empty and signed-out trend states without automatic fetch", async () => {

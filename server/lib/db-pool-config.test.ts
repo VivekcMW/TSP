@@ -1,5 +1,19 @@
-import { describe, expect, it } from "vitest";
-import { databasePoolConfig } from "./db-pool-config";
+import { EventEmitter } from "node:events";
+import { describe, expect, it, vi } from "vitest";
+import { databasePoolConfig, watchIdleClientErrors } from "./db-pool-config";
+
+// Production exited twice (2026-10-14/15) when Neon dropped an idle connection:
+// pg re-emits that on the pool, and an 'error' event without a listener throws.
+describe("idle client errors", () => {
+  it("logs a dropped idle connection instead of crashing the process", () => {
+    const pool = new EventEmitter();
+    const log = vi.fn();
+    watchIdleClientErrors(pool, log);
+    expect(() => pool.emit("error", new Error("Connection terminated unexpectedly"))).not.toThrow();
+    expect(log).toHaveBeenCalledWith("[db] idle connection dropped: Connection terminated unexpectedly");
+  });
+});
+
 describe("bounded database pool configuration", () => {
   it("has finite pool, acquisition, idle, statement and idle-transaction defaults", () => {
     expect(databasePoolConfig({})).toEqual({ max: 10, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000, statement_timeout: 30000, idle_in_transaction_session_timeout: 30000 });

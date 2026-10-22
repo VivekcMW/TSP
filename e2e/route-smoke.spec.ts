@@ -8,6 +8,12 @@ const publicRoutes = [
   { path: "/use-cases/thought-leadership", heading: /Build authority from what is happening now/i },
   { path: "/use-cases/professional-content-creation", heading: /Move from a blank page/i },
   { path: "/use-cases/multi-platform-publishing", heading: /One point of view/i },
+  { path: "/roles", heading: /Personal branding built around the work you do/i },
+  { path: "/roles/executives", heading: /Leadership visibility without a ghostwriting team/i },
+  { path: "/industries", heading: /Thought leadership for the industry you know best/i },
+  { path: "/industries/advertising-media", heading: /Have a point of view on every shift in advertising/i },
+  { path: "/compare", heading: /How TheSocialPundit compares/i },
+  { path: "/compare/taplio", heading: /TheSocialPundit vs Taplio/i },
   { path: "/blog", heading: /Ideas for people/i },
   { path: "/sitemap", heading: /Find your way around/i },
 ];
@@ -26,10 +32,19 @@ for (const route of publicRoutes) {
 }
 
 test("shows useful recovery actions for unknown routes", async ({ page }) => {
+  await page.goto("/");
   await page.goto("/route-that-does-not-exist");
+  await expect(page.locator("#prerendered")).toHaveCount(0);
+  await expect(page.locator("#root")).not.toHaveAttribute("hidden", "");
   await expect(page.getByRole("heading", { name: "This page took a wrong turn." })).toBeVisible();
   await expect(page.getByRole("link", { name: "Go home" })).toHaveAttribute("href", "/");
   await expect(page.getByRole("button", { name: "Go back" })).toBeVisible();
+  await expect(page).toHaveTitle("Page not found | TheSocialPundit");
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow");
+  await expect(page.locator('link[rel="canonical"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Go back" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator("h1").first()).toHaveText(/Turn what you know into influence/i);
 });
 
 test("reduced motion renders public content immediately", async ({ page }) => {

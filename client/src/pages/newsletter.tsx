@@ -19,6 +19,7 @@ const COPY: Record<Action, { title: string; body: string; button: string; done: 
 };
 
 function readLink(): { action: Action; token: string } | null {
+  if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
   for (const action of ["confirm", "unsubscribe"] as const) {
     const token = params.get(action);

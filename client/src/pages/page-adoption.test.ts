@@ -34,20 +34,30 @@ const fixture = `
       if (state.deferAccount) await new Promise(resolve => window.__pendingAccount.push(resolve));
       return new Response(JSON.stringify(state.accountError ? { message: "Account service unavailable" } : { saved: true }), { status: state.accountError ? 503 : 200 });
     }
+    if (method === "POST" && url === "/api/inbox/visit") {
+      return new Response(JSON.stringify({ previousVisitAt: null, currentVisitAt: new Date().toISOString() }));
+    }
     if (method !== "GET") return unexpected(method, url);
     const parsed = new URL(url, location.origin);
     if (parsed.origin !== location.origin || parsed.hash) return unexpected(method, url);
-    if (parsed.pathname === "/api/inbox") {
+    if (["/api/inbox", "/api/drafts", "/api/drafts/scheduled"].includes(parsed.pathname)) {
       const keys = [...parsed.searchParams.keys()];
       const status = parsed.searchParams.get("status");
-      if (keys.some(key => key !== "status") || keys.length > 1 || (status !== null && !["active", "saved", "dismissed"].includes(status))) return unexpected(method, url);
-      if (state.inboxError) return new Response(JSON.stringify({ message: typeof state.inboxError === "string" ? state.inboxError : "Inbox unavailable" }), { status: 503 });
-      return new Response(JSON.stringify(status === null ? state.inbox : state.inbox.filter(item => item.status === status)));
+      const paginated = parsed.searchParams.has("limit") || parsed.searchParams.has("offset");
+      const offset = parsed.searchParams.get("offset");
+      if (keys.some(key => !["status", "limit", "offset"].includes(key)) || new Set(keys).size !== keys.length ||
+        (status !== null && (parsed.pathname !== "/api/inbox" || !["active", "saved", "dismissed"].includes(status))) ||
+        (paginated && (parsed.searchParams.get("limit") !== "200" || offset === null || !/^[0-9]+$/.test(offset)))) return unexpected(method, url);
+      if (parsed.pathname === "/api/inbox" && state.inboxError) return new Response(JSON.stringify({ message: typeof state.inboxError === "string" ? state.inboxError : "Inbox unavailable" }), { status: 503 });
+      if (parsed.pathname === "/api/drafts" && state.draftsError) return new Response(JSON.stringify({ message: "Drafts unavailable" }), { status: 503 });
+      const rows = parsed.pathname === "/api/inbox" ? (status === null ? state.inbox : state.inbox.filter(item => item.status === status))
+        : parsed.pathname === "/api/drafts" ? state.drafts : state.schedules;
+      const items = paginated ? rows.slice(Number(offset), Number(offset) + 200) : rows;
+      return new Response(JSON.stringify(parsed.pathname === "/api/drafts/scheduled" ? { items } : items));
     }
-    if (url === "/api/drafts" && state.draftsError) return new Response(JSON.stringify({ message: "Drafts unavailable" }), { status: 503 });
     const responses = {
-      "/api/drafts": state.drafts, "/api/drafts/published": [], "/api/profile": { onboardingStatus: "completed" },
-      "/api/me": state.user, "/api/drafts/scheduled": { items: state.schedules }, "/api/trends": [],
+      "/api/drafts/published": [], "/api/profile": { onboardingStatus: "completed" },
+      "/api/me": state.user, "/api/trends": [],
       "/api/analytics/summary": { connected: { linkedin: false, twitter: false }, combined: {}, availability: {}, linkedin: null, twitter: null, lastSync: null },
       "/api/team/context": { tenantId: "t", tenantName: "Personal", tenantKind: "personal", role: "owner", memberships: [] },
     };
@@ -148,7 +158,8 @@ async function mount(surface: "home" | "discover" | "settings", width = 1280, ov
 }
 
 async function writes() {
-  return page.evaluate(() => (window as any).__calls.filter((call: { method: string }) => call.method !== "GET"));
+  // Discover records its visit on mount; distinguish that from user-triggered writes.
+  return page.evaluate(() => (window as any).__calls.filter((call: { method: string; url: string }) => call.method !== "GET" && call.url !== "/api/inbox/visit"));
 }
 
 const widths = [320, 375, 768, 1024, 1440];
@@ -181,7 +192,8 @@ describe("strict page-adoption request fixtures", () => {
   it("rejects and records unknown URLs, query parameters, statuses and methods even during an inbox outage", async () => {
     await mount("discover", 1280, { inboxError: true });
     const rejected = await page.evaluate(async () => {
-      const urls = ["/api/unmocked", "/api/inbox/refresh/unknown", "/api/inbox?status=unknown", "/api/inbox?status=saved&extra=1", "/api/inbox?status=active&status=saved", "https://external.test/api/inbox"];
+      const urls = ["/api/unmocked", "/api/inbox/refresh/unknown", "/api/inbox?status=unknown", "/api/inbox?status=saved&extra=1", "/api/inbox?status=active&status=saved", "https://external.test/api/inbox",
+        "/api/inbox?limit=200", "/api/inbox?limit=200&offset=-1", "/api/drafts?limit=200&offset=bad", "/api/drafts/scheduled?limit=200&offset=0&extra=1"];
       const failures = await Promise.all(urls.map(url => fetch(url).then(() => "UNEXPECTED SUCCESS", error => error.message)));
       failures.push(await fetch("/api/inbox", { method: "POST" }).then(() => "UNEXPECTED SUCCESS", error => error.message));
       const recorded = (window as any).__unexpectedRequests.slice();
@@ -189,19 +201,20 @@ describe("strict page-adoption request fixtures", () => {
       (window as any).__unexpectedRequests = [];
       return { failures, recorded };
     });
-    expect(rejected.failures).toHaveLength(7);
+    expect(rejected.failures).toHaveLength(11);
     expect(rejected.failures.every(message => message.startsWith("Unmocked request: "))).toBe(true);
     expect(rejected.recorded).toEqual(rejected.failures);
   });
 });
 
 describe("owned-page layout adoption (authored, not full embedded-section acceptance)", () => {
-  it.each((["home", "discover", "settings"] as const).flatMap(surface => [320, 375, 768, 1024, 1440].map(width => ({ surface, width }))))("coordinates $surface header/body with sidebar-reduced space at $width px", async ({ surface, width }) => {
+  it.each((["home", "discover", "settings"] as const).flatMap(surface => [320, 375, 768, 1024, 1440, 1920].map(width => ({ surface, width }))))("coordinates $surface header/body with sidebar-reduced space at $width px", async ({ surface, width }) => {
     await mount(surface, width);
-    const expectedWidth = surface === "discover" ? "workbench" : "standard";
     const geometry = await page.evaluate(() => {
       const header = document.querySelector<HTMLElement>("[data-page-header]")!;
       const body = document.querySelector<HTMLElement>("[data-page-body]")!;
+      const title = header.querySelector("h1")!;
+      const titleStyle = getComputedStyle(title);
       const boxes = [header, body].map(element => {
         const container = element.querySelector<HTMLElement>("[data-page-container]")!;
         const box = container.getBoundingClientRect();
@@ -209,10 +222,21 @@ describe("owned-page layout adoption (authored, not full embedded-section accept
       });
       const clipped = [...document.querySelectorAll<HTMLElement>("[data-page-container], [data-page-toolbar], [data-page-filters], [data-page-actions]")]
         .filter(element => element.scrollWidth > element.clientWidth + 1).map(element => element.outerHTML.slice(0, 150));
-      return { boxes, clipped, overflow: document.documentElement.scrollWidth > innerWidth };
+      return {
+        boxes, clipped, overflow: document.documentElement.scrollWidth > innerWidth,
+        title: {
+          left: title.getBoundingClientRect().left,
+          top: title.getBoundingClientRect().top - header.getBoundingClientRect().top,
+          fontSize: titleStyle.fontSize, fontWeight: titleStyle.fontWeight,
+        },
+      };
     });
+    const sidebarWidth = width < 768 ? 0 : 256;
+    const gutter = width < 640 ? 16 : 24;
+    const expectedLeft = sidebarWidth + gutter + Math.max(0, (width - sidebarWidth - 2 * gutter - 1280) / 2);
     expect(geometry.boxes[0]).toEqual(geometry.boxes[1]);
-    expect(geometry.boxes[0]).toMatchObject({ max: surface === "discover" ? "1280px" : "1024px", preset: expectedWidth, gutter: width < 640 ? "16px" : "24px" });
+    expect(geometry.boxes[0]).toMatchObject({ max: "1280px", preset: "workbench", gutter: `${gutter}px` });
+    expect(geometry.title).toEqual({ left: expectedLeft, top: 8, fontSize: "24px", fontWeight: "600" });
     expect(geometry.clipped).toEqual([]);
     expect(geometry.overflow).toBe(false);
     await browserExpect(page.getByRole("main")).toHaveCount(1);
@@ -341,9 +365,9 @@ describe("Home's contextual action and semantic statuses", () => {
     { label: "Review drafts", overrides: { drafts: [savedDraft] }, href: "/dashboard/content" },
     { label: "Explore story", overrides: {}, href: "/dashboard/discover" },
     { label: "Create post", overrides: { inbox: [] }, action: "new" },
-  ])("shows one primary: $label", async ({ label, overrides, action, href }) => {
+  ])("shows one contextual primary: $label", async ({ label, overrides, action, href }) => {
     await mount("home", 375, overrides);
-    const primary = page.locator("main button.bg-primary, main a.bg-primary");
+    const primary = page.getByTestId("card-personalized-briefing").locator("button.bg-primary, a.bg-primary");
     await browserExpect(primary).toHaveCount(1);
     await browserExpect(primary).toHaveText(label);
     if (href) await browserExpect(primary).toHaveAttribute("href", href);

@@ -6,6 +6,11 @@ interface RouteTransitionProps {
   /** Pages with the same key stay mounted across navigation (e.g. /sign-in/*). */
   transitionKey: (location: string) => string;
   className?: string;
+  /**
+   * Show the first page in its final state, without entrance animations. Used when the page is
+   * already on screen as prerendered HTML: replaying its entrance would make it flicker.
+   */
+  skipInitialAnimation?: boolean;
   /** Render the routes for this location; pass it to <Switch location>. */
   children: (location: string) => ReactNode;
 }
@@ -16,11 +21,11 @@ interface RouteTransitionProps {
  * render the NEXT page, which then mounts a second time and loses anything typed or
  * autofilled in the meantime.
  */
-export function RouteTransition({ transitionKey, className, children }: Readonly<RouteTransitionProps>) {
+export function RouteTransition({ transitionKey, className, skipInitialAnimation = false, children }: Readonly<RouteTransitionProps>) {
   const [location] = useLocation();
   const shouldReduceMotion = useReducedMotion();
   return (
-    <AnimatePresence mode="wait">
+    <AnimatePresence mode="wait" initial={!skipInitialAnimation}>
       <motion.div
         key={transitionKey(location)}
         className={className}

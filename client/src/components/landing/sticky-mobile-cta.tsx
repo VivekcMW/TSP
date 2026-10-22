@@ -21,7 +21,7 @@ export function StickyMobileCta() {
     return () => observer.disconnect();
   }, []);
 
-  if (isSignedIn) return null;
+  if (isSignedIn || typeof document === "undefined") return null;
   return createPortal(
     <div
       data-testid="sticky-mobile-cta"

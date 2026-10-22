@@ -8,6 +8,7 @@ import { ProductShowcase } from "@/components/landing/product-showcase";
 import { Markets } from "@/components/landing/markets";
 import { IndustriesShowcase } from "@/components/landing/industries-showcase";
 import { UseCasesPreview } from "@/components/landing/use-cases-preview";
+import { AudienceDirectory } from "@/components/landing/audience-directory";
 import { Trust } from "@/components/landing/trust";
 import { NewsletterBanner } from "@/components/landing/newsletter-banner";
 import { FAQ } from "@/components/landing/faq";
@@ -20,7 +21,7 @@ export default function LandingPage() {
     <div className="flex min-h-screen flex-col bg-background">
       <SEO
         canonical="/"
-        description="Turn relevant industry signals into professional posts in your voice. TheSocialPundit helps you discover, create, review, schedule, and publish with confidence."
+        description="TheSocialPundit turns current news in your industry into LinkedIn and social posts written in your voice. You review and approve every post before it publishes."
       />
       <AnnouncementBar />
       <SiteHeader />
@@ -31,6 +32,7 @@ export default function LandingPage() {
         <ProductShowcase />
         <Markets />
         <UseCasesPreview />
+        <AudienceDirectory />
         <IndustriesShowcase />
         <Trust />
         <NewsletterBanner />

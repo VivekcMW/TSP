@@ -68,8 +68,8 @@ export function SettingsShell() {
     </div>
   );
   return <SettingsNavigationGuard><main className="flex h-full min-w-0 flex-col overflow-hidden">
-    <PageHeader width="standard" title="Settings" help="Manage your account, content, and publishing preferences." />
-    <PageBody as="div" width="standard">
+    <PageHeader width="workbench" title="Settings" subtitle="Manage your account, content, and publishing preferences." />
+    <PageBody as="div" width="workbench">
         <Tabs value={active} onValueChange={selectSection} orientation={isMobile ? "horizontal" : "vertical"} className={cn("flex min-w-0 flex-col gap-6", !isMobile && "md:flex-row md:items-start")}>
           {navigation}
           <div className="min-w-0 flex-1">

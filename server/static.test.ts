@@ -4,10 +4,10 @@ import path from "node:path";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import express from "express";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { precompressAssets } from "./precompress";
-import { indexingHeaders, precompressedAssets, seoDocumentHandler } from "./static";
-import { BLOG_POSTS } from "../client/src/lib/blog-posts";
+import { indexingHeaders, loadPrerenderedPages, precompressedAssets, seoDocumentHandler, withPrerenderedBody } from "./static";
+import { BLOG_POSTS, blogPostSeoTitle } from "../client/src/lib/blog-posts";
 
 // Visitors abroad download the app's scripts over long links; compressed copies cut them to about a third.
 const script = `export const words = ${JSON.stringify(Array.from({ length: 4000 }, (_, i) => `word-${i % 50}`))};\n`;
@@ -132,7 +132,7 @@ describe("seoDocumentHandler", () => {
 
   it("renders metadata for the requested route, not the homepage", async () => {
     const home = await request(seoApp).get("/");
-    expect(home.text).toContain('<title data-rh="true">TheSocialPundit - Build Your Professional Authority on Social Media</title>');
+    expect(home.text).toContain('<title data-rh="true">AI LinkedIn Posts From Your Industry News | TheSocialPundit</title>');
 
     const pricing = await request(seoApp).get("/pricing");
     expect(pricing.status).toBe(200);
@@ -149,7 +149,7 @@ describe("seoDocumentHandler", () => {
   it("renders article metadata for a journal post", async () => {
     const post = BLOG_POSTS[0];
     const res = await request(seoApp).get(`/blog/${post.slug}`);
-    expect(res.text).toContain(`<title data-rh="true">${post.title} | TheSocialPundit</title>`);
+    expect(res.text).toContain(`<title data-rh="true">${blogPostSeoTitle(post)}</title>`);
     expect(res.text).toContain(`https://www.thesocialpundit.com/blog/${post.slug}`);
   });
 
@@ -160,9 +160,137 @@ describe("seoDocumentHandler", () => {
     expect(res.headers["x-robots-tag"]).toBe("noindex, nofollow");
   });
 
-  it("marks unknown routes noindex", async () => {
-    const res = await request(seoApp).get("/no-such-page");
+  it.each(["/no-such-page", "/blog/missing", "/roles/missing", "/careers/missing", "/dashboard-typo"])("returns a real noindex 404 for %s", async route => {
+    const res = await request(seoApp).get(route);
+    expect(res.status).toBe(404);
+    expect(res.headers["x-robots-tag"]).toBe("noindex, nofollow");
+    expect(res.text).toContain("Page not found");
+    expect(res.text).not.toContain('rel="canonical"');
+    expect(res.text).toContain('<meta data-rh="true" name="robots" content="noindex, nofollow" />');
+  });
+
+  it.each(["/dashboard", "/dashboard/settings", "/admin/users", "/sign-in", "/sign-up", "/sign-in/callback", "/verify-email", "/reset-password", "/onboarding", "/complete-registration", "/careers", "/case-studies"])("preserves the application shell for %s", async route => {
+    const res = await request(seoApp).get(route);
     expect(res.status).toBe(200);
     expect(res.headers["x-robots-tag"]).toBe("noindex, nofollow");
+    // The HTML must agree with the header: no "index" meta and no canonical pointing at the homepage.
+    expect(res.text).toContain('<meta data-rh="true" name="robots" content="noindex, nofollow" />');
+    expect(res.text).not.toContain('content="index, follow"');
+    expect(res.text).not.toContain('rel="canonical"');
+  });
+});
+
+describe("prerendered pages", () => {
+  const template = readFileSync(path.resolve("client/index.html"), "utf8");
+  const homeMarkup = `<main><h1>Turn what you know into influence.</h1><p>${"Real homepage copy. ".repeat(300)}</p><a href="/pricing">Pricing</a></main>`;
+  const prerendered = new Map([["/", homeMarkup], ["/pricing", "<main><h1>Pricing</h1></main>"]]);
+  let seoApp: express.Express;
+
+  beforeAll(() => {
+    seoApp = express();
+    seoApp.use(indexingHeaders);
+    seoApp.use("*", seoDocumentHandler(template, prerendered));
+  });
+
+  it("puts the page's real content in the initial HTML and hides the React root until hand-off", async () => {
+    const res = await request(seoApp).get("/");
+    expect(res.text).toContain(`<div id="prerendered">${homeMarkup}</div><div id="root" hidden></div>`);
+    expect(res.text).toContain('<title data-rh="true">AI LinkedIn Posts From Your Industry News | TheSocialPundit</title>');
+  });
+
+  it("uses the canonical route, so a trailing slash or query string still gets the page", async () => {
+    expect((await request(seoApp).get("/pricing/")).text).toContain("<h1>Pricing</h1>");
+    expect((await request(seoApp).get("/pricing?utm_source=x")).text).toContain("<h1>Pricing</h1>");
+  });
+
+  it("never prerenders private application shells", async () => {
+    for (const route of ["/dashboard", "/admin/users"]) {
+      const res = await request(seoApp).get(route);
+      expect(res.text).toContain('<div id="root"></div>');
+      expect(res.text).not.toContain('id="prerendered"');
+    }
+  });
+
+  describe("request-time pricing", () => {
+    const template = readFileSync(path.resolve("client/index.html"), "utf8");
+    const plan = { id: "pro", key: "pro", name: "Pro </script>", description: null, amount: 2000, currency: "USD", interval: "monthly", features: ["Real allowance"], recurringAvailable: false, available: true };
+
+    it("serves current prices on every request, compressed, with safe bootstrap data", async () => {
+      const render = vi.fn()
+        .mockResolvedValueOnce({ markup: "<main><h1>Pricing</h1><p>$20</p></main>", plans: [plan] })
+        .mockResolvedValueOnce({ markup: "<main><h1>Pricing</h1><p>$25</p></main>", plans: [{ ...plan, amount: 2500 }] });
+      const app = express().use("*", seoDocumentHandler(template, new Map(), render));
+      const first = await request(app).get("/pricing").set("Accept-Encoding", "br").buffer(true).parse(raw);
+      expect(first.status).toBe(200);
+      expect(first.headers["cache-control"]).toBe("no-store");
+      expect(first.body.toString()).toContain("$20");
+      expect(first.body.toString()).toContain('id="public-pricing-data"');
+      expect(first.body.toString()).not.toContain('Pro </script>');
+      const second = await request(app).get("/pricing/").set("Accept-Encoding", "br").buffer(true).parse(raw);
+      expect(second.body.toString()).toContain("$25");
+      expect(second.body.toString()).not.toContain("$20");
+    });
+
+    it("offers the live plans in the pricing structured data", async () => {
+      const free = { ...plan, id: "free", key: "free", name: "Free", amount: 0, currency: "INR" };
+      const render = vi.fn().mockResolvedValue({ markup: "<main><h1>Pricing</h1></main>", plans: [free, plan] });
+      const app = express().use("*", seoDocumentHandler(template, new Map(), render));
+      const res = await request(app).get("/pricing");
+      const blocks = [...res.text.matchAll(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)];
+      expect(blocks).toHaveLength(1);
+      const graph = JSON.parse(blocks[0][1]) as Array<Record<string, unknown>>;
+      expect(graph.map(node => node["@type"])).toEqual(["WebPage", "FAQPage", "SoftwareApplication"]);
+      expect(graph[2].offers).toEqual([
+        expect.objectContaining({ name: "Free", price: "0", priceCurrency: "USD" }),
+        expect.objectContaining({ name: "Pro </script>", price: "20.00", priceCurrency: "USD", priceSpecification: expect.objectContaining({ billingDuration: "P1M" }) }),
+      ]);
+    });
+
+    it.each(["failure", "empty"])("returns a temporary error instead of loading or stale prices on %s", async kind => {
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const render = kind === "failure" ? vi.fn().mockRejectedValue(new Error("database details")) : vi.fn().mockResolvedValue({ markup: "<p>$20</p>", plans: [] });
+        const app = express().use("*", seoDocumentHandler(template, new Map(), render));
+        const response = await request(app).get("/pricing");
+        expect(response.status).toBe(503);
+        expect(response.headers["retry-after"]).toBe("60");
+        expect(response.headers["cache-control"]).toBe("no-store");
+        expect(response.text).toContain("temporarily unavailable");
+        expect(response.text).not.toMatch(/Loading current plans|database details|\$20/);
+        expect(log).toHaveBeenCalled();
+      } finally { log.mockRestore(); }
+    });
+  });
+
+  it("compresses HTML with brotli, falling back to gzip, then to plain text", async () => {
+    const br = await request(seoApp).get("/").set("Accept-Encoding", "gzip, deflate, br").buffer(true).parse(raw);
+    expect(br.headers["content-encoding"]).toBe("br");
+    expect(br.headers["content-type"]).toMatch(/^text\/html/);
+    expect(br.headers.vary).toMatch(/Accept-Encoding/);
+    expect(br.body.toString()).toContain(homeMarkup);
+    expect(sentBytes(br)).toBeLessThan(Buffer.byteLength(br.body) / 5);
+
+    const gzip = await request(seoApp).get("/").set("Accept-Encoding", "gzip").buffer(true).parse(raw);
+    expect(gzip.headers["content-encoding"]).toBe("gzip");
+    expect(gzip.body.toString()).toContain(homeMarkup);
+
+    const plain = await request(seoApp).get("/").set("Accept-Encoding", "identity").buffer(true).parse(raw);
+    expect(plain.headers["content-encoding"]).toBeUndefined();
+    expect(plain.body.toString()).toContain(homeMarkup);
+  });
+
+  it("compresses the app shell served to private routes too", async () => {
+    const res = await request(seoApp).get("/dashboard").set("Accept-Encoding", "br").buffer(true).parse(raw);
+    expect(res.headers["content-encoding"]).toBe("br");
+    expect(res.headers["x-robots-tag"]).toBe("noindex, nofollow");
+    expect(res.body.toString()).toContain('<div id="root"></div>');
+  });
+
+  it("leaves a template without the root placeholder unchanged", () => {
+    expect(withPrerenderedBody("<body></body>", "<h1>x</h1>")).toBe("<body></body>");
+  });
+
+  it("loads nothing when the build produced no manifest", () => {
+    expect(loadPrerenderedPages(path.join(tmpdir(), "missing-prerender.json")).size).toBe(0);
   });
 });

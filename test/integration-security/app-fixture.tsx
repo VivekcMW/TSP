@@ -1,3 +1,7 @@
+// esbuild (unlike Vite) wraps react-icons in a lazy initialiser because lazy routes import icon
+// sets, then never runs it for DecorativeIcons' `import { IconContext } from "react-icons"`, so
+// the App crashed on "IconContext.Provider" before rendering. Importing the lib runs it first.
+import "react-icons/lib";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "../../client/src/App";

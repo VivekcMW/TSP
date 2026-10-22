@@ -19,6 +19,28 @@ import { app, errorHandler, createGracefulShutdown, shutdownTimeout } from "./in
 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllEnvs(); });
 
+describe("SEO response basics", () => {
+  it("does not advertise the framework in an X-Powered-By header", async () => {
+    const res = await request(app).get("/readyz");
+    expect(res.headers["x-powered-by"]).toBeUndefined();
+  });
+
+  it("lets consented Google Analytics load and send its data", async () => {
+    const csp = (await request(app).get("/readyz")).headers["content-security-policy"] as string;
+    const directive = (name: string) => csp.split(";").map(part => part.trim()).find(part => part.startsWith(`${name} `))!.split(/\s+/);
+    expect(directive("script-src")).toContain("https://www.googletagmanager.com");
+    for (const host of ["https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.analytics.google.com"]) {
+      expect(directive("connect-src")).toContain(host);
+    }
+  });
+
+  it("moves bare-domain pages to www before any route runs", async () => {
+    const res = await request(app).get("/pricing").set("Host", "thesocialpundit.com");
+    expect(res.status).toBe(301);
+    expect(res.headers.location).toBe("https://www.thesocialpundit.com/pricing");
+  });
+});
+
 describe("Express error safeguards", () => {
   describe.each(["status", "statusCode"])("error.%s", (field) => {
     const cases: Array<[unknown, number, string]> = [

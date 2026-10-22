@@ -53,7 +53,17 @@ beforeAll(async () => {
         // Suggestion calls take the next reply for their step (or one without a step), so prefetches can't reorder them.
         const step = String(url).includes("/api/onboarding/suggestions") && options.body ? JSON.parse(options.body).step : undefined;
         const index = step ? window.__responses.findIndex(next => !next.body?.step || next.body.step === step) : 0;
-        const next = targeted ? ((index >= 0 ? window.__responses.splice(index, 1)[0] : undefined) || { body: { status: "active", progress: { articlesProcessed: 0, articlesMatched: 0, articlesCreated: 0 } } }) : (window.__errors[url] ? { status: 500, body: { message: "Fixture error" } } : { body: window.__data[url] ?? {} });
+        // Lists load page by page (?limit=200&offset=N), so fixtures are keyed by path and served one page at a time.
+        const parsed = new URL(String(url), location.href);
+        const fixture = (path) => {
+          const value = window.__data[path];
+          if (!parsed.searchParams.has("limit")) return value ?? {};
+          const offset = Number(parsed.searchParams.get("offset") ?? 0), limit = Number(parsed.searchParams.get("limit"));
+          if (Array.isArray(value)) return value.slice(offset, offset + limit);
+          if (Array.isArray(value?.items)) return { ...value, items: value.items.slice(offset, offset + limit) };
+          return value ?? {};
+        };
+        const next = targeted ? ((index >= 0 ? window.__responses.splice(index, 1)[0] : undefined) || { body: { status: "active", progress: { articlesProcessed: 0, articlesMatched: 0, articlesCreated: 0 } } }) : (window.__errors[url] || window.__errors[parsed.pathname] ? { status: 500, body: { message: "Fixture error" } } : { body: url in window.__data ? window.__data[url] : fixture(parsed.pathname) });
         if (next.defer) await new Promise(resolve => window.__pending.push(resolve));
         if (next.networkError) throw new TypeError("Fixture network error");
         const response = new Response(next.rawBody ?? JSON.stringify(next.body), { status: next.status || 200, headers: { "Content-Type": "application/json" } });
@@ -231,9 +241,11 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
   it("sorts upcoming records and reports real target failures only once", async () => {
-    const schedule = (id: string, day: number) => ({ id, draftId: id, status: "scheduled", scheduledPublishAt: new Date(2026, 8, day).toISOString(), draft: { content: id, platform: "twitter" } });
-    await mount("home", [], { "/api/drafts": [{ id: "failed", publishStatus: "failed" }], "/api/drafts/scheduled": { items: [schedule("Later", 22), schedule("Sooner", 20), { ...schedule("failed", 21), status: "failed", targets: [{ platform: "twitter", status: "failed" }] }] } });
-    await browserExpect(page.getByTestId("card-attention-required")).toContainText("Review 1 failed post");
+    // Days from now: fixed dates turn into overdue posts once they pass, which Home rightly flags instead.
+    // Like the API, every schedule carries its targets: a parent status alone is not delivery evidence.
+    const schedule = (id: string, days: number) => ({ id, draftId: id, status: "scheduled", scheduledPublishAt: new Date(Date.now() + days * 86_400_000).toISOString(), targets: [{ platform: "twitter", status: "scheduled" }], draft: { content: id, platform: "twitter" } });
+    await mount("home", [], { "/api/drafts": [{ id: "failed", publishStatus: "failed" }], "/api/drafts/scheduled": { items: [schedule("Later", 4), schedule("Sooner", 2), { ...schedule("failed", 3), status: "failed", targets: [{ platform: "twitter", status: "failed" }] }] } });
+    await browserExpect(page.getByTestId("card-attention-required")).toContainText("1 post needs attention");
     expect(await page.getByTestId("card-upcoming-publishing").locator("p.font-medium").allTextContents()).toEqual(["Sooner", "Later"]);
   });
   it("waits for async completion, shares progress across mounts, and stops polling", async () => {
@@ -330,14 +342,17 @@ describe("UX audit screens (fully mocked Chromium)", () => {
     await browserExpect(page.getByRole("status")).toContainText("no job ID was received");
     await browserExpect(page.getByTestId("button-overview-refresh")).toBeDisabled();
     await browserExpect(page.getByTestId("button-overview-refresh")).toHaveText("Refresh articles");
+    // Home also polls the inbox every 15 s, so count the loads "Check status" adds (one first page each).
+    const inboxLoads = async () => (await calls()).filter((call: any) => call.url === "/api/inbox?limit=200&offset=0").length;
+    const before = await inboxLoads();
     await page.getByRole("button", { name: "Check status" }).click();
     await browserExpect(page.getByRole("status")).toContainText("does not confirm completion");
-    await browserExpect.poll(async () => (await calls()).filter((call: any) => call.url === "/api/inbox").length).toBe(1);
+    await browserExpect.poll(inboxLoads).toBe(before + 1);
     await resolvePending();
     await page.clock.runFor(5000);
     await browserExpect(page.getByRole("status")).toContainText("Another refresh remains blocked");
     expect((await calls()).filter((call: any) => call.method === "POST")).toHaveLength(1);
-    expect((await calls()).filter((call: any) => call.url === "/api/inbox")).toHaveLength(1);
+    expect(await inboxLoads()).toBe(before + 1);
     expect(await page.evaluate(() => (window as any).__toasts)).toEqual([]);
   });
   it.each([400, 401, 403, 422, 429])("permits an explicit retry after definite admission rejection %s", async (status) => {

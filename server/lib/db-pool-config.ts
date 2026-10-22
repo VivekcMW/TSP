@@ -8,6 +8,13 @@ const settings = {
   DB_IDLE_TRANSACTION_TIMEOUT_MS: { key: "idle_in_transaction_session_timeout", fallback: 30000, max: 300000 },
 } as const;
 
+/** An idle client dropped by the server (Neon does this) is re-emitted on the pool;
+ * unheard, that 'error' event exits the process. The pool replaces the client itself.
+ */
+export function watchIdleClientErrors(pool: { on(event: "error", listener: (error: Error) => void): unknown }, log: (message: string) => void = console.warn) {
+  pool.on("error", error => log(`[db] idle connection dropped: ${error.message}`));
+}
+
 /** pg's zero defaults mean unlimited waits. Invalid overrides must not disable
  * defenses, even in entrypoints that don't run production env verification.
  */

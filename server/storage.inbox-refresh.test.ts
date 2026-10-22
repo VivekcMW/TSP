@@ -91,6 +91,9 @@ afterEach(async () => {
 });
 afterAll(async () => { await pool.end(); await ownerPool.end(); });
 
+// getInboxItems returns list items with the caller's Discover read state.
+const listed = <T extends object>(row: T) => ({ ...row, readAt: null });
+
 describe("atomic inbox storage contract", () => {
   it("keeps historical quality null, owns admission time and hydrates old/new receipts", async () => {
     const [legacy] = await seed(1, "saved");
@@ -237,7 +240,7 @@ describe("atomic inbox storage contract", () => {
     const [draft] = await ownerDb.insert(drafts).values({ ...scope, inboxItemId: duplicate.id,
       platform: "linkedin", tone: "professional", content: "Preserved" }).returning();
     await expect(storage.updateInboxItem(scope, duplicate.id, { status: "active" })).rejects.toBeInstanceOf(InboxCanonicalConflictError);
-    expect(await storage.getInboxItems(scope)).toEqual(expect.arrayContaining([existing, duplicate]));
+    expect(await storage.getInboxItems(scope)).toEqual(expect.arrayContaining([existing, duplicate].map(listed)));
     expect((await ownerDb.select().from(drafts).where(eq(drafts.id, draft.id)))[0]).toEqual(draft);
     expect(await active()).toBe(1);
     await storage.updateInboxItem(scope, existing.id, { status: "dismissed" });
@@ -373,7 +376,7 @@ describe("atomic inbox storage contract", () => {
       [candidate("good"), { ...candidate("bad"), headline: null as unknown as string }], metrics)).rejects.toThrow();
     expect(await storage.getInboxRefreshReceipt(scope, operationId, true)).toBeUndefined();
     expect((await storage.getInboxItems(scope)).sort((a, b) => a.id.localeCompare(b.id)))
-      .toEqual(old.sort((a, b) => a.id.localeCompare(b.id)));
+      .toEqual(old.map(listed).sort((a, b) => a.id.localeCompare(b.id)));
     expect(await active()).toBe(10);
   });
 

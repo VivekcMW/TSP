@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { BLOG_POSTS } from "../client/src/lib/blog-posts";
+import { BLOG_POSTS, blogPostSeoTitle } from "../client/src/lib/blog-posts";
 import { publicSeoForPath, renderInitialSeo, sitemapEntries } from "./public-seo";
 import { USE_CASES } from "../shared/use-cases";
+import { allAudiencePages } from "../shared/audience-pages";
 
 const template = `<!doctype html><html><head>
 <meta name="description" content="default" />
@@ -27,11 +28,16 @@ describe("public initial SEO", () => {
     expect(pricing.canonical).toBe("https://www.thesocialpundit.com/pricing");
   });
 
+  it("keeps the homepage title short enough to show in full in search results", () => {
+    // Search results truncate titles at roughly 580px, about 60 characters.
+    expect(publicSeoForPath("/")!.title.length).toBeLessThanOrEqual(60);
+  });
+
   it("renders article metadata and schema before JavaScript runs", () => {
     const post = BLOG_POSTS[0];
     const result = renderInitialSeo(template, `/blog/${post.slug}`);
     expect(result.indexable).toBe(true);
-    expect(result.html).toContain(`<title data-rh="true">${post.title} | TheSocialPundit</title>`);
+    expect(result.html).toContain(`<title data-rh="true">${blogPostSeoTitle(post)}</title>`);
     expect(result.html).toContain(`href="https://www.thesocialpundit.com/blog/${post.slug}"`);
     expect(result.html).toContain('content="article"');
     expect(result.html).toContain('"@type":"Article"');
@@ -60,6 +66,30 @@ describe("public initial SEO", () => {
     expect(result.html).toContain('"@type":"WebPage"');
     expect(result.html).toContain('"@type":"FAQPage"');
     expect(result.html).toContain('data-rh="true"');
+  });
+});
+
+describe("role and industry pages", () => {
+  it("render their own metadata, breadcrumbs and FAQ schema before JavaScript runs", () => {
+    for (const { path, page } of allAudiencePages()) {
+      const result = renderInitialSeo(template, path);
+      expect(result.indexable, path).toBe(true);
+      expect(result.html).toContain(`<title data-rh="true">${page.seoTitle.replaceAll("&", "&amp;")}</title>`);
+      expect(result.html).toContain(`href="https://www.thesocialpundit.com${path}"`);
+      expect(result.html).toContain('"@type":"BreadcrumbList"');
+      expect(result.html).toContain('"@type":"FAQPage"');
+    }
+  });
+
+  it("render hub pages as collections of their pages", () => {
+    const result = renderInitialSeo(template, "/industries");
+    expect(result.html).toContain('"@type":"CollectionPage"');
+    expect(result.html).toContain("https://www.thesocialpundit.com/industries/advertising-media");
+  });
+
+  it("do not index unknown slugs", () => {
+    expect(renderInitialSeo(template, "/roles/astronauts").indexable).toBe(false);
+    expect(renderInitialSeo(template, "/industries/not-real").indexable).toBe(false);
   });
 });
 

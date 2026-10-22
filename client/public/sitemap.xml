@@ -2,145 +2,278 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://www.thesocialpundit.com/</loc>
-    <changefreq>weekly</changefreq>
-    <priority>1.0</priority>
+    <lastmod>2026-10-21</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/how-it-works</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.9</priority>
+    <lastmod>2026-10-21</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/use-cases</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.9</priority>
+    <lastmod>2026-10-11</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/pricing</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.9</priority>
+    <lastmod>2026-10-21</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/blog</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
+    <lastmod>2026-10-15</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/about</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
+    <lastmod>2026-10-10</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/contact</loc>
-    <changefreq>yearly</changefreq>
-    <priority>0.5</priority>
+    <lastmod>2026-08-28</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/newsletter</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
+    <lastmod>2026-10-11</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/privacy</loc>
-    <changefreq>yearly</changefreq>
-    <priority>0.3</priority>
+    <lastmod>2026-10-15</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/terms</loc>
-    <changefreq>yearly</changefreq>
-    <priority>0.3</priority>
+    <lastmod>2026-09-16</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/refund-policy</loc>
-    <changefreq>yearly</changefreq>
-    <priority>0.3</priority>
+    <lastmod>2026-09-16</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/subscription-cancellation</loc>
-    <changefreq>yearly</changefreq>
-    <priority>0.3</priority>
+    <lastmod>2026-09-16</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/data-retention</loc>
-    <changefreq>yearly</changefreq>
-    <priority>0.3</priority>
+    <lastmod>2026-10-11</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/ai-data-processing</loc>
-    <changefreq>yearly</changefreq>
-    <priority>0.4</priority>
+    <lastmod>2026-10-11</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/cookies</loc>
-    <changefreq>yearly</changefreq>
-    <priority>0.3</priority>
+    <lastmod>2026-10-15</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/sitemap</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.3</priority>
+    <lastmod>2026-10-15</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/use-cases/thought-leadership</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <lastmod>2026-10-11</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/use-cases/professional-content-creation</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <lastmod>2026-10-11</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/use-cases/multi-platform-publishing</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <lastmod>2026-10-11</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/roles</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/industries</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/roles/executives</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/roles/founders</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/roles/consultants</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/roles/sales-professionals</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/roles/marketing-professionals</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/roles/recruiters</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/roles/agency-leaders</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/roles/analysts-investors</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/industries/advertising-media</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/industries/technology-saas</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/industries/financial-services</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/industries/healthcare-life-sciences</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/industries/retail-ecommerce</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/industries/marketing-technology</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/industries/consulting-professional-services</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/industries/legal-services</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/industries/hospitality-travel</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/industries/real-estate</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/industries/education-edtech</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/industries/manufacturing-supply-chain</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/industries/hr-future-of-work</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/compare</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/compare/taplio</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/compare/authoredup</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/compare/buffer</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/compare/hootsuite</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/compare/jasper</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/compare/copy-ai</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/compare/feedly</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/compare/authory</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/how-to-build-a-personal-brand</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/how-to-become-a-thought-leader</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/how-to-use-ai-to-write-linkedin-posts</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/turn-industry-news-into-linkedin-posts</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/linkedin-content-strategy-for-executives</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/how-often-to-post-on-linkedin</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/repurpose-articles-into-social-media-posts</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/personal-branding-mistakes-to-avoid</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/how-to-stay-updated-on-industry-trends</loc>
+    <lastmod>2026-10-15</lastmod>
+  </url>
+  <url>
+    <loc>https://www.thesocialpundit.com/blog/how-to-develop-a-professional-point-of-view</loc>
+    <lastmod>2026-10-15</lastmod>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/blog/one-voice-ten-platforms</loc>
     <lastmod>2026-07-14</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/blog/15-minute-content-calendar</loc>
     <lastmod>2026-06-02</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/blog/ai-content-still-sound-like-you</loc>
     <lastmod>2026-05-20</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/blog/linkedin-algorithm-2026</loc>
     <lastmod>2026-04-11</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/blog/generic-ai-content-fails</loc>
     <lastmod>2026-03-08</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/blog/personal-brand-vs-company-brand</loc>
     <lastmod>2026-02-19</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/blog/beyond-linkedin-reddit-mastodon</loc>
     <lastmod>2026-01-22</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.thesocialpundit.com/blog/why-consistency-beats-virality</loc>
     <lastmod>2025-12-10</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.7</priority>
   </url>
 </urlset>

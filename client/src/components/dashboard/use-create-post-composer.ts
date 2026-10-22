@@ -6,6 +6,7 @@ import { supportsArticle, type EditorialFormat, type SourceFailure } from "@shar
 import { accountCache, ApiError, apiRequest } from "@/lib/queryClient";
 import { acknowledgeDraftSave, adoptDraftRevision, draftSaveBlocked, editDraftText, observeDraftRevision, parseDraftEditingSnapshot } from "@shared/draft-revision";
 import { useAuth } from "@/lib/auth";
+import { track } from "@/lib/analytics-consent";
 import { getPlatformMeta, PLATFORMS } from "@/lib/platforms";
 import { usablePost, type ReviewResponse } from "@/lib/editorial";
 import { isUsableInboxArticle } from "@/lib/inbox-quality";
@@ -858,7 +859,13 @@ export function useCreatePostComposer(isOpen: boolean, onCreateRoute = isOpen) {
     const ownsCopy = () => revision === copyRevision.current && scopeRef.current === renderScope && sourceRef.current === source &&
       !lifetime.current.signal.aborted && versionsRef.current[versionKey(platformValue, toneValue)]?.content === target.content;
     setCopyStatus("");
-    try { await navigator.clipboard.writeText(target.content); if (ownsCopy()) setCopyStatus("Copied. Paste and publish manually; publication is not tracked here."); }
+    try {
+      await navigator.clipboard.writeText(target.content);
+      if (ownsCopy()) {
+        track("content_copied", { platform: platformValue, surface: "create" });
+        setCopyStatus("Copied. Paste and publish manually; publication is not tracked here.");
+      }
+    }
     catch { if (ownsCopy()) setCopyStatus("Copy failed. Select and copy the text manually. Nothing was published."); }
   };
   const copy = () => copyVersion(platform, tone);

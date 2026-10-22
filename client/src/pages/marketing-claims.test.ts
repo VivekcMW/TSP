@@ -9,7 +9,9 @@ const sources = (dir: string) => readdirSync(path.join(root, dir))
   .filter(name => /\.tsx?$/.test(name) && !name.includes(".test."))
   .map(name => `${dir}/${name}`);
 const publicFiles = [
-  ...["landing", "about", "how-it-works", "pricing", "contact", "use-cases", "use-case"].map(page => `client/src/pages/${page}.tsx`),
+  ...["landing", "about", "how-it-works", "pricing", "contact", "use-cases", "use-case", "audience", "audience-hub", "compare", "compare-hub", "blog-post"].map(page => `client/src/pages/${page}.tsx`),
+  ...["audience-pages", "audience-roles", "audience-industries", "comparisons"].map(file => `shared/${file}.ts`),
+  "client/src/lib/blog-guides.ts",
   ...sources("client/src/components/landing"),
 ];
 

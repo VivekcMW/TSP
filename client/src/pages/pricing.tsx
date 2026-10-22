@@ -8,6 +8,8 @@ import { SEO } from "@/components/seo";
 import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
 import { useIsSignedIn } from "@/lib/dev-auth";
 import { formatPrice, intervalUnit, plansForCurrency, yearlySaving, type PublicBillingPlan } from "@/lib/billing";
+import { PRICING_FAQS, pricingFaqJsonLd } from "@shared/pricing-faqs";
+import { pricingOffersJsonLd } from "@shared/public-billing";
 
 const GLOBAL_CURRENCY = "USD";
 
@@ -63,7 +65,7 @@ function PlanCard({ plan, price, unit, eyebrow, detail, badge, highlight, unavai
 
 export default function Pricing() {
   const isSignedIn = useIsSignedIn();
-  const { data, isPending, isError, refetch } = useQuery<{ plans: PublicBillingPlan[] }>({ queryKey: ["/api/public/billing/plans"] });
+  const { data, isPending, isError, refetch } = useQuery<{ plans: PublicBillingPlan[] }>({ queryKey: ["/api/public/billing/plans"], staleTime: 0, refetchOnMount: true });
 
   const free = data?.plans.find(plan => plan.amount === 0);
   const paid = data ? plansForCurrency(data.plans, GLOBAL_CURRENCY) : [];
@@ -72,11 +74,29 @@ export default function Pricing() {
   const saving = monthly && yearly ? yearlySaving(monthly.amount, yearly.amount) : 0;
   const startFree = { label: isSignedIn ? "Go to Dashboard" : "Start free", href: isSignedIn ? "/dashboard" : "/sign-up" };
   const notYet = "Global checkout opens soon.";
-  const buy = (plan: PublicBillingPlan) => plan.available === false ? startFree : { label: `Choose ${plan.name}`, href: "/dashboard/settings?tab=billing" };
+  // Signed-out visitors would hit a sign-in wall at the billing page; account creation comes first.
+  const buy = (plan: PublicBillingPlan) => plan.available === false ? startFree
+    : { label: `Choose ${plan.name}`, href: isSignedIn ? "/dashboard/settings?tab=billing" : "/sign-up" };
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <SEO title="Pricing" canonical="/pricing" description="Simple global pricing for TheSocialPundit, billed in US dollars." />
+      <SEO
+        title="Pricing"
+        canonical="/pricing"
+        description="Start building professional authority for free, then upgrade when you need the complete creation, scheduling, publishing, and performance workflow."
+        jsonLd={[
+          {
+            "@context": "https://schema.org",
+            "@type": "WebPage",
+            name: "Pricing",
+            url: "https://www.thesocialpundit.com/pricing",
+            isPartOf: { "@type": "WebSite", "@id": "https://www.thesocialpundit.com/#website", name: "TheSocialPundit", url: "https://www.thesocialpundit.com/" },
+            inLanguage: "en",
+          },
+          pricingFaqJsonLd(),
+          ...(data ? [pricingOffersJsonLd(data.plans, GLOBAL_CURRENCY)] : []),
+        ]}
+      />
       <SiteHeader />
       <main className="flex-1" data-testid="section-pricing">
         <section className="relative overflow-hidden bg-foreground px-4 py-16 text-background sm:px-6 lg:py-24">
@@ -174,9 +194,10 @@ export default function Pricing() {
               <StaggerGroup className="grid gap-6 md:grid-cols-3" data-testid="pricing-plans">
                 {free && <StaggerItem><PlanCard plan={free} eyebrow="Start here" price={formatPrice(0, GLOBAL_CURRENCY)} unit="month" detail="No card required" action={startFree} /></StaggerItem>}
                 {monthly && <StaggerItem><PlanCard plan={monthly} eyebrow="Stay flexible" price={formatPrice(monthly.amount, monthly.currency)} unit={intervalUnit(monthly.interval)}
+                  detail={monthly.recurringAvailable ? "One-time or recurring checkout" : "One-time access; no automatic renewal"}
                   unavailableNote={monthly.available === false ? notYet : undefined} action={buy(monthly)} /></StaggerItem>}
                 {yearly && <StaggerItem><PlanCard plan={yearly} eyebrow="Best value" price={formatPrice(yearly.amount, yearly.currency)} unit={intervalUnit(yearly.interval)} highlight
-                  detail={`About ${formatPrice(Math.round(yearly.amount / 1200) * 100, yearly.currency)} a month`}
+                  detail={`About ${formatPrice(Math.round(yearly.amount / 1200) * 100, yearly.currency)} a month. ${yearly.recurringAvailable ? "One-time or recurring checkout." : "No automatic renewal."}`}
                   badge={saving > 0 ? `Save ${saving}%` : undefined}
                   unavailableNote={yearly.available === false ? notYet : undefined} action={buy(yearly)} /></StaggerItem>}
               </StaggerGroup>
@@ -191,7 +212,7 @@ export default function Pricing() {
               <div className="bg-card p-7">
                 <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><Zap className="h-5 w-5" aria-hidden="true" /></span>
                 <h2 className="mt-5 font-semibold text-foreground">No lock-in</h2>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">Pay once for a month or year, or subscribe and cancel whenever you like from Billing.</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">One-time access does not renew automatically. Where recurring checkout is available, request cancellation from Billing.</p>
               </div>
             </Reveal>
 
@@ -201,6 +222,26 @@ export default function Pricing() {
               Free plan allowances reset at midnight UTC. Paid access begins only after a successful checkout.
             </p>
             </Reveal>
+          </div>
+        </section>
+
+        <section className="px-4 py-16 sm:px-6 lg:py-24" aria-labelledby="pricing-faq-title">
+          <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[0.75fr_1.25fr]">
+            <Reveal>
+              <h2 id="pricing-faq-title" className="font-heading text-3xl font-semibold tracking-tight text-foreground">Pricing questions</h2>
+              <p className="mt-3 text-muted-foreground">Still unsure? <Link href="/contact" className="text-primary hover:underline">Ask us</Link>.</p>
+            </Reveal>
+            <div className="divide-y border-y">
+              {PRICING_FAQS.map(faq => (
+                <div key={faq.question} className="py-5">
+                  <h3 className="font-semibold text-foreground">{faq.question}</h3>
+                  <p className="mt-2 leading-7 text-muted-foreground">
+                    {faq.answer}
+                    {faq.question === "Can I get a refund?" && <> <Link href="/refund-policy" className="text-primary hover:underline">Read the refund policy</Link>.</>}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
       </main>

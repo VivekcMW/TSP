@@ -8,9 +8,16 @@ documents, which has been retired.
 - `www.thesocialpundit.com` and `thesocialpundit.com` resolve to a Google Cloud
   HTTPS load balancer (`34.117.52.220`, forwarding rule `tsp-app-https-rule`).
   DNS is hosted at GoDaddy (`domaincontrol.com`); mail is Google Workspace.
+  `www` is canonical: the app answers page requests (GET/HEAD, outside `/api/`,
+  `/healthz` and `/readyz`) on the bare domain with a 301 to the same path on
+  `www` (`server/middlewares/canonicalHost.ts`).
 - The load balancer fronts the Cloud Run service **`tsp-app`**
   (project `tsp-social-pundit`, region `asia-south1`). The same container
-  serves the API and the built frontend.
+  serves the API and the built frontend. `pnpm run build` prerenders every
+  sitemap page into `dist/prerender.json` (`script/prerender.ts`), and the
+  server inlines it into the initial HTML, Brotli/gzip-compressed, so crawlers
+  read real headings, copy and links without running JavaScript. The build
+  fails if a public page renders without exactly one `<h1>`.
 - Configuration comes from Secret Manager and plain service environment
   variables. `DATABASE_URL` points to Neon project `bitter-queen-12361026`
   (endpoint `ep-wandering-haze-b3gbbgun`, pooled). `REDIS_URL` points to the
@@ -27,7 +34,9 @@ documents, which has been retired.
   discovery (`discovered_sites`, `watch_terms`) and WebSub columns. Related settings,
   all optional: `GDELT_ENABLED=false`, `WEBSUB_ENABLED=false`, `INDEX_ONLY_THRESHOLD`
   (default 40; index candidates above which the search engines are skipped). WebSub
-  hubs call back at `${APP_URL}/api/websub/:id`. `GET /api/admin/index` shows counts.
+  hubs call back at `${APP_URL}/api/websub/:id`. A delivery to a subscription the app
+  no longer holds (no row or no secret) gets `410 Gone`, which lets the hub drop it;
+  a 404 made hubs retry it hundreds of times a day. `GET /api/admin/index` shows counts.
 - `PLAN_LIMITS_ENABLED=false` (set 2026-09-24 at the user's request): Free
   accounts get Pro access (unlimited generations, publishing, scheduling and
   analytics). Remove the variable, or set it to `true`, to restore Free-plan
@@ -163,6 +172,83 @@ gcloud run services update-traffic tsp-app --region asia-south1 --remove-tags "r
 E2E_BASE_URL=https://www.thesocialpundit.com E2E_API_BASE_URL=https://www.thesocialpundit.com \
   pnpm exec playwright test --config=playwright.deployment.config.ts
 ```
+
+## Analytics (Google Analytics 4 + Tag Manager)
+
+The site loads GA4 (`G-D5K9DSSFW2`) and GTM (`GTM-P4Z2QFPV`) only after cookie
+consent (`client/src/lib/analytics-consent.ts`). The app sends page views only
+after the destination has rendered, including lazy routes and transitions.
+URL query parameters are allowlisted (campaign/click attribution and tab/view);
+other parameters, nested redirects, credentials and fragments are discarded.
+Custom events reject email-bearing parameters. Do not put personal data in
+paths, campaign labels, titles or event parameters. Automatic events and
+container tags still require account-side review and payload validation.
+Withdrawal disables GA measurement, updates consent, clears analytics cookies,
+and stops app events without a reload; changes in another tab are also applied.
+Advertising consent and Google advertising signals are disabled.
+
+Required account settings:
+match the code, or data is wrong:
+
+- Data stream → Enhanced measurement → **"Page changes based on browser history
+  events" OFF.** The app already sends a page view per client-side navigation;
+  leaving this on counts every navigation twice.
+- Data stream → Configure tag settings → **Data redaction ON** for email and the
+  query parameters `token, text, email, code, state, draft` (belt and braces for
+  `link_url` and anything the code does not see).
+- Audit the published GTM container: the application owns GA4 configuration.
+  Remove/pause any second configuration for `G-D5K9DSSFW2`; do not rely on
+  implicit deduplication. Other tags must also honour consent.
+- Review key-event definitions before using them for acquisition decisions.
+  Retire the old `newsletter_subscribe` and `publish_post` conversion labels;
+  their replacements distinguish requests from outcomes.
+
+| Event | Meaning |
+| --- | --- |
+| `sign_up` | Successful email account creation; social signups are not inferred from account age |
+| `login` | Successful authentication after a recorded sign-in attempt |
+| `registration_complete` | Successful product registration form, for email or social accounts |
+| `onboarding_complete` | Onboarding preferences saved |
+| `generate_post` | Generation result received, not necessarily approved or published |
+| `newsletter_signup_requested` | Confirmation requested, not a confirmed subscriber |
+| `publish_requested` | Direct publication request accepted, not proof of delivery |
+| `post_scheduled` / `posts_scheduled` | Scheduling request succeeded |
+| `content_copied` | Clipboard copy succeeded, not proof of publication |
+| `begin_checkout` | Checkout opened |
+| `purchase` | Verification returned a captured payment; amount/currency come from the recorded payment |
+
+GA4 purchase events use the provider payment ID as `transaction_id` for
+deduplication. Client events may be absent due to consent, blockers, closed tabs
+or later capture; they do not cover renewals/refunds. Use authoritative account,
+publishing and billing records for business totals and retention, not GA alone.
+Social account creation, confirmed newsletter subscriptions and eventual
+publishing outcomes require their own authoritative measurement before being
+reported as conversions. Do not bypass analytics consent to fill those gaps.
+
+Validate events in GA4 DebugView/Realtime and inspect outgoing requests as well
+as the local event queue. Collection may be batched; request observation alone
+does not prove account-side ingestion. Keep developer/test traffic excluded.
+
+## Public pricing and document delivery
+
+Public marketing pages remain prerendered. `/pricing` is the exception: its
+initial HTML is rendered from the same allowlisted billing catalogue as
+`/api/public/billing/plans`, on each request. The build retains `dist/ssr/`
+for this purpose; deploy the entire `dist` directory. No database is needed
+during the build.
+
+Pricing responses use `Cache-Control: no-store`. Safe JSON seeds the browser's
+query cache so handoff does not replace prices with a loading placeholder;
+the client then revalidates the catalogue. Database or rendering failures
+produce HTTP 503 with `Retry-After` and an explicit unavailable page, never
+invented or stale prices. Monitor pricing latency and 503s after deployment.
+The static full-text discovery export does not contain live numeric prices;
+the canonical pricing page is the source for them.
+
+Unknown public routes return HTTP 404 and noindex, using the prerendered
+not-found page. Known account routes and dashboard/admin route trees retain
+their application shell and noindex headers. The internal 404 render is not
+added to the sitemap or discovery export.
 
 ## Roll back
 

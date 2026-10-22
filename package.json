@@ -17,7 +17,8 @@
     "design:check": "tsx script/generate-design-css.ts --check",
     "db:migrate": "tsx script/migrate.ts",
     "db:migrate:dry": "tsx script/migrate.ts --dry",
-    "check:production": "NODE_ENV=production tsx scripts/verify-production-env.ts"
+    "check:production": "NODE_ENV=production tsx scripts/verify-production-env.ts",
+    "seo:indexnow": "tsx scripts/indexnow-submit.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.126.0",

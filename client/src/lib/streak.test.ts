@@ -41,6 +41,11 @@ describe("computeStreak", () => {
     expect(computeStreak([null, undefined, "2026-10-01T09:00:00Z"], "UTC", now)).toEqual({ current: 1, longest: 1, postedToday: true });
   });
 
+  it("ignores invalid and future dates instead of crashing or inflating history", () => {
+    expect(computeStreak(["invalid", "2026-10-02T09:00:00Z", "2026-10-01T09:00:00Z"], "UTC", new Date("2026-10-01T18:00:00Z")))
+      .toEqual({ current: 1, longest: 1, postedToday: true });
+  });
+
   it("respects a non-UTC time zone for day boundaries", () => {
     // 2026-10-01T23:30 UTC is already 2026-10-02 05:00 in Asia/Kolkata (+5:30).
     const now = new Date("2026-10-02T04:00:00Z");

@@ -37,6 +37,7 @@ export function AppSidebar() {
                       data-testid={`nav-${item.title.toLowerCase()}`}
                     >
                       <Link href={item.url} className="relative" aria-current={isActive ? "page" : undefined}>
+                        {/* Not colour alone: the pale active row needs this cobalt marker (Ink & Cobalt sidebar contract). */}
                         {isActive && (
                           <div
                             aria-hidden="true"

@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ArrowUp, Check, ChevronDown, ChevronUp, FileText, Link2, MessageSquare, NotebookPen, Paperclip, PenLine, Plus, Ruler, Save, ShieldCheck, SlidersHorizontal, Sparkles, Undo2, Wand2, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, ChevronUp, FileText, Link2, MessageSquare, NotebookPen, Paperclip, Plus, Ruler, Save, ShieldCheck, SlidersHorizontal, Sparkles, Undo2, Wand2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { WorkflowStatus } from "./workflow-status";
 import { RichArticleEditor } from "./rich-article-editor";
 import { DocumentEditor } from "./document-editor";
 import { PunditWriting } from "./pundit-writing";
+import { PageBody, PageHeader } from "./page-header";
 import { publicSourceUrl, versionCounts, versionKey } from "./create-post-state";
 import type { CreatePostComposer } from "./use-create-post-composer";
 
@@ -159,24 +160,15 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
   };
 
   return <div className="flex h-full min-h-0 min-w-0 flex-col bg-muted/20">
-    <header className="shrink-0 border-b bg-card">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2 sm:px-6">
-        <div className="flex min-w-0 items-center gap-3">
-          <span aria-hidden="true" className="hidden size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary sm:flex"><PenLine className="h-4 w-4" /></span>
-          <div className="min-w-0">
-            <h1 className="truncate font-heading text-base font-semibold leading-tight tracking-tight sm:text-lg" data-testid="text-page-title">Create post</h1>
-            <p className="truncate text-xs text-muted-foreground">{sourceLabel}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-1 sm:gap-2">
-          <output className="hidden items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-xs text-muted-foreground sm:inline-flex" aria-live="polite">
-            <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${saveDot}`} />{saveStatus}
-          </output>
-          <Button variant="ghost" size="icon" aria-label="Save progress" disabled={!c.persistence.ready || c.persistence.status === "saving"} onClick={() => void c.persistence.save()}><Save className="h-4 w-4" /></Button>
-          <Button size="sm" variant="outline" aria-label="Adapt for platforms" className="px-2 sm:px-3" disabled={locked || !c.mainReady} onClick={() => runAction("platforms")}><Sparkles className="h-4 w-4" /><span className="hidden sm:inline">Adapt for platforms</span></Button>
-        </div>
-      </div>
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-1.5 px-3 pb-2 sm:px-6">
+    <PageHeader width="workbench" sticky={false} title="Create post" subtitle={sourceLabel} actions={<>
+      <output className="hidden items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-xs text-muted-foreground sm:inline-flex" aria-live="polite">
+        <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${saveDot}`} />{saveStatus}
+      </output>
+      <Button variant="ghost" size="icon" aria-label="Save progress" disabled={!c.persistence.ready || c.persistence.status === "saving"} onClick={() => void c.persistence.save()}><Save className="h-4 w-4" /></Button>
+      <Button size="sm" variant="outline" aria-label="Adapt for platforms" className="px-2 sm:px-3" disabled={locked || !c.mainReady} onClick={() => runAction("platforms")}><Sparkles className="h-4 w-4" /><span className="hidden sm:inline">Adapt for platforms</span></Button>
+    </>} />
+    <div className="dashboard-gutter shrink-0 border-b bg-card px-4 py-2 sm:px-6">
+      <div className="dashboard-container flex max-w-7xl flex-wrap items-center gap-1.5">
         <div className="flex shrink-0 items-center gap-1 rounded-lg bg-muted p-0.5" aria-label="Editor views">
           <Button variant={!showingVersions ? "secondary" : "ghost"} size="sm" aria-pressed={!showingVersions} className={!showingVersions ? "shadow-sm" : ""}
             onClick={() => c.goToStep(c.main ? "review" : "source")} disabled={locked}><FileText className="h-4 w-4" />Document</Button>
@@ -191,9 +183,9 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
           </Button>)}
         </div>
       </div>
-    </header>
+    </div>
 
-    <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-3 py-5 sm:px-6 sm:py-8" data-testid="document-scroll-area">
+    <PageBody as="div" width="workbench" className="py-5 sm:py-8" data-testid="document-scroll-area">
       <div className="mx-auto mb-3 max-w-7xl space-y-2">
         {c.persistence.error && <WorkflowStatus tone="error" actions={<>
           {c.persistence.ready && <Button variant="outline" onClick={() => void c.persistence.save()}>Retry saving</Button>}
@@ -334,7 +326,7 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
           </div>
         </div>
       </section>
-    </div>
+    </PageBody>
 
     <Dialog open={Boolean(panel)} onOpenChange={open => { if (!open) { setPanel(undefined); focusChat(); } }}>
       <DialogContent className="max-h-[85dvh] w-[calc(100%-1rem)] max-w-2xl overflow-y-auto">

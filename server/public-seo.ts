@@ -1,5 +1,12 @@
-import { BLOG_POSTS } from "../client/src/lib/blog-posts";
+import { BLOG_POSTS, blogPostJsonLd, blogPostSeoTitle } from "../client/src/lib/blog-posts";
 import { USE_CASES } from "../shared/use-cases";
+import { AUDIENCE_PAGES_UPDATED, AUDIENCE_SECTIONS, allAudiencePages, audienceHubJsonLd, audiencePageJsonLd } from "../shared/audience-pages";
+
+import { pricingFaqJsonLd } from "../shared/pricing-faqs";
+import { COMPARE_HUB, COMPARISONS, COMPARISONS_CHECKED, compareHubJsonLd, comparisonJsonLd, comparisonPath } from "../shared/comparisons";
+
+/** Last content change of the use-case pages (shared/use-cases.ts). */
+const USE_CASES_UPDATED = "2026-10-11";
 
 const SITE_URL = "https://www.thesocialpundit.com";
 const DEFAULT_IMAGE = `${SITE_URL}/og-image.jpg`;
@@ -17,76 +24,73 @@ export interface PublicSeoMetadata {
 interface PublicPage {
   title: string;
   description: string;
-  /** Sitemap hints. A page listed here is public, indexable, and belongs in sitemap.xml. */
-  changefreq: "weekly" | "monthly" | "yearly";
-  priority: string;
+  /**
+   * When the page's content last changed (YYYY-MM-DD). A page listed here is public, indexable,
+   * and belongs in sitemap.xml. Update it whenever the page's content changes: search engines
+   * only trust lastmod when it is accurate, so it is never taken from the build clock.
+   */
+  lastmod: string;
   schema?: Record<string, unknown>;
+  /** Replaces the default WebPage schema entirely, for pages that share their schema with the browser. */
+  jsonLd?: PublicSeoMetadata["jsonLd"];
 }
 
 const pages: Record<string, PublicPage> = {
   "/": {
-    title: "TheSocialPundit - Build Your Professional Authority on Social Media",
-    description: "Turn relevant industry signals into professional posts in your voice. TheSocialPundit helps you discover, create, review, schedule, and publish with confidence.",
-    changefreq: "weekly",
-    priority: "1.0",
+    title: "AI LinkedIn Posts From Your Industry News | TheSocialPundit",
+    description: "TheSocialPundit turns current news in your industry into LinkedIn and social posts written in your voice. You review and approve every post before it publishes.",
+    lastmod: "2026-10-21",
   },
   "/how-it-works": {
-    title: "How TheSocialPundit Works | TheSocialPundit",
-    description: "See how TheSocialPundit finds relevant industry signals, helps shape your point of view, drafts in your voice, and keeps you in control before publishing.",
-    changefreq: "monthly",
-    priority: "0.9",
+    title: "How It Works: AI Posts From Industry News | TheSocialPundit",
+    description: "See how TheSocialPundit finds current news in your field, drafts LinkedIn and social posts in your voice, and waits for your approval before anything publishes.",
+    lastmod: "2026-10-21",
   },
   "/use-cases": {
     title: "Use Cases | TheSocialPundit",
     description: "Explore how TheSocialPundit supports thought leadership, professional content creation, and multi-platform publishing—with you in control.",
-    changefreq: "monthly",
-    priority: "0.9",
+    lastmod: "2026-10-11",
   },
   "/pricing": {
     title: "Pricing | TheSocialPundit",
     description: "Start building professional authority for free, then upgrade when you need the complete creation, scheduling, publishing, and performance workflow.",
-    changefreq: "monthly",
-    priority: "0.9",
+    lastmod: "2026-10-21",
+    schema: pricingFaqJsonLd(),
   },
   "/blog": {
     title: "TheSocialPundit Journal | TheSocialPundit",
     description: "Clear thinking on professional authority, content strategy, AI-assisted writing, and showing up with a point of view people remember.",
-    changefreq: "weekly",
-    priority: "0.9",
+    lastmod: "2026-10-15",
   },
   "/about": {
     title: "About | TheSocialPundit",
     description: "Why we built TheSocialPundit and what we believe about useful AI, professional judgment, personal voice, and human-approved publishing.",
-    changefreq: "monthly",
-    priority: "0.7",
+    lastmod: "2026-10-10",
   },
   "/contact": {
     title: "Contact | TheSocialPundit",
     description: "Contact TheSocialPundit for product, privacy, billing, partnership, or support questions.",
-    changefreq: "yearly",
-    priority: "0.5",
+    lastmod: "2026-08-28",
   },
   "/newsletter": {
     title: "Newsletter | TheSocialPundit",
     description: "Join TheSocialPundit for practical ideas on professional authority, useful AI, editorial voice, and sustainable content strategy.",
-    changefreq: "monthly",
-    priority: "0.6",
+    lastmod: "2026-10-11",
   },
-  "/privacy": { title: "Privacy Policy | TheSocialPundit", description: "How TheSocialPundit collects, uses, protects, and deletes personal information.", changefreq: "yearly", priority: "0.3" },
-  "/terms": { title: "Terms of Service | TheSocialPundit", description: "The terms that govern use of TheSocialPundit.", changefreq: "yearly", priority: "0.3" },
-  "/refund-policy": { title: "Refund Policy | TheSocialPundit", description: "TheSocialPundit refund eligibility, process, and contact information.", changefreq: "yearly", priority: "0.3" },
-  "/subscription-cancellation": { title: "Subscription Cancellation | TheSocialPundit", description: "How to cancel a TheSocialPundit subscription and understand when access ends.", changefreq: "yearly", priority: "0.3" },
-  "/data-retention": { title: "Data Retention Policy | TheSocialPundit", description: "How long TheSocialPundit retains account, content, quality, billing, and audit records.", changefreq: "yearly", priority: "0.3" },
-  "/ai-data-processing": { title: "AI Data Processing | TheSocialPundit", description: "How TheSocialPundit uses AI providers, approved voice samples, content-free quality signals, and human review.", changefreq: "yearly", priority: "0.4" },
-  "/cookies": { title: "Cookie Policy | TheSocialPundit", description: "How TheSocialPundit uses essential, preference, and analytics cookies.", changefreq: "yearly", priority: "0.3" },
-  "/sitemap": { title: "Sitemap | TheSocialPundit", description: "Browse every public product, company, policy, use-case, and journal page on TheSocialPundit.", changefreq: "monthly", priority: "0.3" },
+  "/privacy": { title: "Privacy Policy | TheSocialPundit", description: "How TheSocialPundit collects, uses, protects, and deletes personal information.", lastmod: "2026-10-15" },
+  "/terms": { title: "Terms of Service | TheSocialPundit", description: "The terms that govern use of TheSocialPundit.", lastmod: "2026-09-16" },
+  "/refund-policy": { title: "Refund Policy | TheSocialPundit", description: "TheSocialPundit refund eligibility, process, and contact information.", lastmod: "2026-09-16" },
+  "/subscription-cancellation": { title: "Subscription Cancellation | TheSocialPundit", description: "How to cancel a TheSocialPundit subscription and understand when access ends.", lastmod: "2026-09-16" },
+  "/data-retention": { title: "Data Retention Policy | TheSocialPundit", description: "How long TheSocialPundit retains account, content, quality, billing, and audit records.", lastmod: "2026-10-11" },
+  "/ai-data-processing": { title: "AI Data Processing | TheSocialPundit", description: "How TheSocialPundit uses AI providers, approved voice samples, content-free quality signals, and human review.", lastmod: "2026-10-11" },
+  "/cookies": { title: "Cookie Policy | TheSocialPundit", description: "How TheSocialPundit uses essential, preference, and analytics cookies.", lastmod: "2026-10-15" },
+  "/sitemap": { title: "Sitemap | TheSocialPundit", description: "Browse every public product, role, industry, comparison, company, policy, use-case, and journal page on TheSocialPundit.", lastmod: "2026-10-15" },
   ...Object.fromEntries(USE_CASES.map(useCase => [
     `/use-cases/${useCase.slug}`,
     {
       title: useCase.seoTitle,
       description: useCase.metaDescription,
-      changefreq: "monthly" as const,
-      priority: "0.8",
+      lastmod: USE_CASES_UPDATED,
       schema: {
         "@context": "https://schema.org",
         "@type": "FAQPage",
@@ -97,6 +101,34 @@ const pages: Record<string, PublicPage> = {
         })),
       },
     },
+  ])),
+  ...Object.fromEntries(Object.values(AUDIENCE_SECTIONS).map(section => [
+    section.path,
+    {
+      title: section.seoTitle,
+      description: section.metaDescription,
+      lastmod: AUDIENCE_PAGES_UPDATED,
+      jsonLd: audienceHubJsonLd(section.kind),
+    },
+  ])),
+  ...Object.fromEntries(allAudiencePages().map(({ kind, path, page }) => [
+    path,
+    {
+      title: page.seoTitle,
+      description: page.metaDescription,
+      lastmod: AUDIENCE_PAGES_UPDATED,
+      jsonLd: audiencePageJsonLd(kind, page),
+    },
+  ])),
+  [COMPARE_HUB.path]: {
+    title: `${COMPARE_HUB.seoTitle} | ${BRAND}`,
+    description: COMPARE_HUB.metaDescription,
+    lastmod: COMPARISONS_CHECKED,
+    jsonLd: compareHubJsonLd(),
+  },
+  ...Object.fromEntries(COMPARISONS.map(page => [
+    comparisonPath(page),
+    { title: page.seoTitle, description: page.metaDescription, lastmod: COMPARISONS_CHECKED, jsonLd: comparisonJsonLd(page) },
   ])),
 };
 
@@ -128,7 +160,8 @@ export function publicSeoForPath(pathname: string): PublicSeoMetadata | undefine
       type: "website",
       image: DEFAULT_IMAGE,
     };
-    if (path !== "/") metadata.jsonLd = page.schema
+    if (page.jsonLd) metadata.jsonLd = page.jsonLd;
+    else if (path !== "/") metadata.jsonLd = page.schema
       ? [webpageSchema(metadata), page.schema]
       : webpageSchema(metadata);
     return metadata;
@@ -139,83 +172,53 @@ export function publicSeoForPath(pathname: string): PublicSeoMetadata | undefine
   if (!post) return undefined;
   const canonical = `${SITE_URL}/blog/${post.slug}`;
   const metadata: PublicSeoMetadata = {
-    title: `${post.title} | ${BRAND}`,
+    title: blogPostSeoTitle(post),
     description: post.excerpt,
     canonical,
     type: "article",
     image: DEFAULT_IMAGE,
   };
-  metadata.jsonLd = [
-    {
-      "@context": "https://schema.org",
-      "@type": "Article",
-      headline: post.title,
-      description: post.excerpt,
-      datePublished: post.date,
-      dateModified: post.date,
-      mainEntityOfPage: canonical,
-      author: { "@type": "Organization", name: post.author, url: `${SITE_URL}/about` },
-      publisher: {
-        "@type": "Organization",
-        name: BRAND,
-        url: SITE_URL,
-        logo: { "@type": "ImageObject", url: `${SITE_URL}/favicon.png` },
-      },
-    },
-    {
-      "@context": "https://schema.org",
-      "@type": "BreadcrumbList",
-      itemListElement: [
-        { "@type": "ListItem", position: 1, name: "Home", item: `${SITE_URL}/` },
-        { "@type": "ListItem", position: 2, name: "Journal", item: `${SITE_URL}/blog` },
-        { "@type": "ListItem", position: 3, name: post.title, item: canonical },
-      ],
-    },
-  ];
+  metadata.jsonLd = blogPostJsonLd(post);
   return metadata;
 }
 
 export interface SitemapEntry {
   loc: string;
-  lastmod?: string;
-  changefreq: string;
-  priority: string;
+  /** Real date of the page's last content change. changefreq and priority are omitted: Google ignores both. */
+  lastmod: string;
 }
 
 /**
  * Every public URL, derived from the same catalog that produces the page metadata, so a page
  * can never be listed in the sitemap without metadata (or indexed without being listed).
- * `lastmod` is only emitted where a real date exists — Google ignores the hint when it is
- * generated from the build clock, so static pages deliberately omit it.
  */
 export function sitemapEntries(): SitemapEntry[] {
   return [
     ...Object.entries(pages).map(([path, page]) => ({
       loc: `${SITE_URL}${path === "/" ? "/" : path}`,
-      changefreq: page.changefreq,
-      priority: page.priority,
+      lastmod: page.lastmod,
     })),
     ...BLOG_POSTS.map(post => ({
       loc: `${SITE_URL}/blog/${post.slug}`,
-      lastmod: post.date,
-      changefreq: "yearly",
-      priority: "0.7",
+      lastmod: post.updated ?? post.date,
     })),
   ];
 }
 
 export function generateSitemap(): string {
   const urls = sitemapEntries().map(entry =>
-    [
-      "  <url>",
-      `    <loc>${text(entry.loc)}</loc>`,
-      ...(entry.lastmod ? [`    <lastmod>${text(entry.lastmod)}</lastmod>`] : []),
-      `    <changefreq>${entry.changefreq}</changefreq>`,
-      `    <priority>${entry.priority}</priority>`,
-      "  </url>",
-    ].join("\n"),
+    `  <url>\n    <loc>${text(entry.loc)}</loc>\n    <lastmod>${text(entry.lastmod)}</lastmod>\n  </url>`,
   );
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join("\n")}\n</urlset>\n`;
+}
+
+/** The public page catalogue, for search and AI discovery files (llms.txt). */
+export function publicPageCatalogue(): Array<{ url: string; title: string; description: string }> {
+  return Object.entries(pages).map(([path, page]) => ({
+    url: `${SITE_URL}${path === "/" ? "/" : path}`,
+    title: page.title.replace(` | ${BRAND}`, ""),
+    description: page.description,
+  }));
 }
 
 function attribute(value: string) {
@@ -246,9 +249,12 @@ export function renderInitialSeo(html: string, pathname: string): { html: string
   rendered = replaceMeta(rendered, "name", "twitter:title", metadata.title);
   rendered = replaceMeta(rendered, "name", "twitter:description", metadata.description);
   rendered = replaceMeta(rendered, "name", "twitter:image", metadata.image);
-  if (metadata.jsonLd) {
-    const json = JSON.stringify(metadata.jsonLd).replaceAll("<", "\\u003c");
-    rendered = rendered.replace(/<script(?=[^>]*\btype="application\/ld\+json")[^>]*>[\s\S]*?<\/script>/i, `<script type="application/ld+json" data-rh="true">${json}</script>`);
-  }
+  if (metadata.jsonLd) rendered = replaceJsonLd(rendered, metadata.jsonLd);
   return { html: rendered, indexable: true };
+}
+
+/** Replaces the document's JSON-LD block. */
+export function replaceJsonLd(html: string, jsonLd: NonNullable<PublicSeoMetadata["jsonLd"]>): string {
+  const json = JSON.stringify(jsonLd).replaceAll("<", "\\u003c");
+  return html.replace(/<script(?=[^>]*\btype="application\/ld\+json")[^>]*>[\s\S]*?<\/script>/i, () => `<script type="application/ld+json" data-rh="true">${json}</script>`);
 }

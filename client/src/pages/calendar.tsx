@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, ChevronLeft, ChevronRight, Clock, FileText, GripVertical, List, Plus, Search } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Clock, FileText, GripVertical, List, Plus, Search, SlidersHorizontal } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/select";
@@ -22,6 +23,7 @@ import { ApiError } from "@/lib/queryClient";
 import { capturePublishingConsent } from "@shared/publishing-consent";
 import { usePublishSchedule } from "@/hooks/use-publish-schedule";
 import { usePublishingReadiness } from "@/hooks/use-publishing-readiness";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { Draft } from "@shared/schema";
 
 // Preserve the existing public export used by target-recovery regression tests.
@@ -68,6 +70,8 @@ export default function CalendarPage() {
   const readiness = usePublishingReadiness();
   const defaults = publishingDefaults(readiness.profile);
   const [view, setView] = useState<CalendarView>("month");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const isMobile = useIsMobile();
   const [searchText, setSearchText] = useState("");
   const [platformFilter, setPlatformFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -232,19 +236,37 @@ export default function CalendarPage() {
                 <Button variant="ghost" size="icon" onClick={() => moveCursor(1)} aria-label="Next period"><ChevronRight className="h-4 w-4" /></Button>
               </div>
             </div>
-            <div role="group" aria-label="Calendar view" className="flex min-w-0 max-w-full flex-wrap gap-1 rounded-lg border bg-muted/30 p-1">
+            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+              <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
+                <PopoverTrigger asChild>
+                  <Button size="sm" variant={filtersOpen ? "selected" : "outline"} aria-controls="calendar-filters">
+                    <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />Filter
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  id="calendar-filters"
+                  role="dialog"
+                  aria-label="Filter calendar posts"
+                  side={isMobile ? "bottom" : "right"}
+                  align="start"
+                  sideOffset={8}
+                  collisionPadding={16}
+                  className="w-[min(36rem,calc(100vw-2rem))] max-h-[min(32rem,var(--radix-popover-content-available-height))] overflow-y-auto p-4"
+                >
+                  <div className="grid min-w-0 grid-cols-2 gap-3">
+                    <Field id="calendar-search" label="Search posts" className="col-span-2 min-w-0 lg:col-span-1" render={props => <div className="relative"><Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" /><Input {...props} type="search" value={searchText} onChange={event => setSearchText(event.target.value)} placeholder="Find a post or draft..." className="pl-9" /></div>} />
+                    <Field id="calendar-platform" label="Platform" className="min-w-0" render={props => <NativeSelect {...props} value={platformFilter} onChange={event => setPlatformFilter(event.target.value)}><option value="all">All platforms</option>{filterPlatforms.map(platform => <option key={platform} value={platform}>{getPlatformMeta(platform).label}</option>)}</NativeSelect>} />
+                    <Field id="calendar-status" label="Status" className="min-w-0" render={props => <NativeSelect {...props} value={statusFilter} onChange={event => setStatusFilter(event.target.value)}><option value="all">All active posts</option><option value="pending">Scheduled</option><option value="published">Published</option><option value="attention">Needs attention</option><option value="simulated">Demo only</option><option value="cancelled">Cancelled</option></NativeSelect>} />
+                    <Field id="calendar-timezone" label="Display & scheduling timezone" className="col-span-2 min-w-0 lg:col-span-1" render={props => <NativeSelect {...props} value={timeZone} onChange={event => setZoneOverride(event.target.value)}>{[...new Set([timeZone, ...CALENDAR_TIMEZONES])].map(zone => <option key={zone} value={zone}>{zone}</option>)}</NativeSelect>} />
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <div role="group" aria-label="Calendar view" className="flex min-w-0 max-w-full flex-wrap gap-1 rounded-lg border bg-muted/30 p-1">
               {(["month", "week", "list"] as const).map(mode => <Button key={mode} size="sm" variant={view === mode ? "selected" : "ghost"} aria-pressed={view === mode} onClick={() => setView(mode)}>
                 {mode === "list" && <List className="h-4 w-4" />}{mode === "list" ? "Agenda" : mode === "month" ? "Month" : "Week"}
               </Button>)}
+              </div>
             </div>
-          </div>
-          <div className="grid min-w-0 grid-cols-2 gap-3 lg:grid-cols-4">
-            <Field id="calendar-search" label="Search posts" className="col-span-2 min-w-0 lg:col-span-1" render={props => <div className="relative"><Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" /><Input {...props} type="search" value={searchText} onChange={event => setSearchText(event.target.value)} placeholder="Find a post or draft..." className="pl-9" /></div>} />
-            <Field id="calendar-platform" label="Platform" className="min-w-0" render={props => <NativeSelect {...props} value={platformFilter} onChange={event => setPlatformFilter(event.target.value)}><option value="all">All platforms</option>{filterPlatforms.map(platform => <option key={platform} value={platform}>{getPlatformMeta(platform).label}</option>)}</NativeSelect>} />
-            <Field id="calendar-status" label="Status" className="min-w-0" render={props => <NativeSelect {...props} value={statusFilter} onChange={event => setStatusFilter(event.target.value)}>
-              <option value="all">All active posts</option><option value="pending">Scheduled</option><option value="published">Published</option><option value="attention">Needs attention</option><option value="simulated">Demo only</option><option value="cancelled">Cancelled</option>
-            </NativeSelect>} />
-            <Field id="calendar-timezone" label="Display & scheduling timezone" className="col-span-2 min-w-0 lg:col-span-1" render={props => <NativeSelect {...props} value={timeZone} onChange={event => setZoneOverride(event.target.value)}>{[...new Set([timeZone, ...CALENDAR_TIMEZONES])].map(zone => <option key={zone} value={zone}>{zone}</option>)}</NativeSelect>} />
           </div>
           {filtered && <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><span>Filters apply to calendar posts; search and platform also filter the draft queue.</span><Button size="sm" variant="ghost" onClick={clearFilters}>Clear filters</Button></div>}
         </div>

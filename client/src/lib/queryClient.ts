@@ -75,6 +75,17 @@ export async function apiRequest(
   return res;
 }
 
+export async function fetchAllPages<T>(url: string, signal?: AbortSignal): Promise<T[]> {
+  const items: T[] = [];
+  for (let offset = 0; ; offset += 200) {
+    const response = await apiRequest("GET", `${url}?limit=200&offset=${offset}`, undefined, { signal });
+    const page: T[] = await response.json();
+    if (!Array.isArray(page)) throw new Error(`Could not load the complete list from ${url}.`);
+    items.push(...page);
+    if (page.length < 200) return items;
+  }
+}
+
 type UnauthorizedBehavior = "returnNull" | "throw";
 export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;

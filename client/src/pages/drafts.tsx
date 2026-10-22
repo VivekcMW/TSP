@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useSearch, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { FileText, Send, CalendarPlus, CalendarDays, ChevronLeft, Plus, Search } from "lucide-react";
+import { FileText, Send, CalendarPlus, CalendarDays, ChevronLeft, Plus, Search, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -22,7 +23,7 @@ import { NativeSelect } from "@/components/ui/select";
 import { Field } from "@/components/ui/field";
 import { useToast } from "@/hooks/use-toast";
 import { useIsSignedIn } from "@/lib/dev-auth";
-import { accountCache, ApiError, apiRequest, queryClient } from "@/lib/queryClient";
+import { accountCache, ApiError, apiRequest, fetchAllPages, queryClient } from "@/lib/queryClient";
 import { acknowledgeDraftSave, adoptDraftRevision, draftSaveBlocked, editDraftText, observeDraftRevision, parseDraftEditingSnapshot, type DraftEditingState } from "@shared/draft-revision";
 import { DraftRevisionNotice } from "@/components/dashboard/social-preview-card";
 import { getPlatformMeta, PLATFORMS } from "@/lib/platforms";
@@ -35,9 +36,11 @@ import { DraftCard, DraftListItem, canEditDraft, type DraftScheduleInfo } from "
 import { usePublishSchedule } from "@/hooks/use-publish-schedule";
 import { useDraftPublishStatus } from "@/hooks/use-publish-status";
 import { usePublishingReadiness } from "@/hooks/use-publishing-readiness";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { ScheduleTargetActions } from "@/components/publishing-target-actions";
-import { canChangeSchedule, draftStatusGroup, fetchDraftDetails, fetchPublishingSchedules, invalidatePublishingQueries, publishingTextValidation, scheduleConfirmationKey, selectionBlockers } from "@/lib/publishing";
+import { canChangeSchedule, contentStatusGroup, draftStatusGroup, fetchDraftDetails, fetchPublishingSchedules, invalidatePublishingQueries, publishingTextValidation, scheduleConfirmationKey, selectionBlockers } from "@/lib/publishing";
 import { capturePublishingConsent, type PublishingConsent } from "@shared/publishing-consent";
+import { track } from "@/lib/analytics-consent";
 import { dateKeyInTimeZone, publishingDefaults, scheduleTimeValidation } from "@/lib/calendar";
 import { distinctDaySendSlots } from "@/lib/send-time";
 import type { Draft } from "@shared/schema";
@@ -62,6 +65,8 @@ export default function DraftsPage() {
   const [previewDraftId, setPreviewDraftId] = useState<string | null>(null);
   const [mobilePreview, setMobilePreview] = useState(false);
   const [sortOrder, setSortOrder] = useState("updated");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const isMobile = useIsMobile();
   const isSignedIn = useIsSignedIn();
   const { toast } = useToast();
   const [editingDraft, setEditingDraft] = useState<Draft | null>(null);
@@ -126,6 +131,7 @@ export default function DraftsPage() {
 
   const { data: drafts, isLoading, isError: draftsError, isFetching: draftsFetching, refetch: refetchDrafts } = useQuery<Draft[]>({
     queryKey: ["/api/drafts"],
+    queryFn: ({ signal }) => fetchAllPages<Draft>("/api/drafts", signal),
     enabled: !!isSignedIn,
     refetchInterval: 15_000,
   });
@@ -418,6 +424,7 @@ export default function DraftsPage() {
     setPublishMessage("Submitting direct publication request…");
     try {
       await apiRequest("POST", `/api/drafts/${encodeURIComponent(draft.id)}/publish-now`, { consent });
+      track("publish_requested", { platform: draft.platform });
       setPublishMessage("Request processed. Checking every target; a completed or skipped job is not confirmation of delivery.");
     } catch (error) {
       if (error instanceof ApiError && error.status === 409 && error.code === "publishing_reconfirm_required") {
@@ -461,14 +468,15 @@ export default function DraftsPage() {
     if (searchQuery.trim() && !draft.content.toLowerCase().includes(searchQuery.trim().toLowerCase())) return false;
     return true;
   });
+  const contentGroup = (draft: Draft) => contentStatusGroup(draft.publishStatus, scheduleInfoById.get(draft.id)?.schedule);
   const statusCounts = {
     all: filteredDrafts.length,
-    ready: filteredDrafts.filter((draft) => draftStatusGroup(draft.publishStatus) === "ready").length,
-    scheduled: filteredDrafts.filter((draft) => draftStatusGroup(draft.publishStatus) === "scheduled").length,
-    attention: filteredDrafts.filter((draft) => draftStatusGroup(draft.publishStatus) === "attention").length,
-    published: filteredDrafts.filter((draft) => draftStatusGroup(draft.publishStatus) === "published").length,
+    ready: filteredDrafts.filter((draft) => contentGroup(draft) === "ready").length,
+    scheduled: filteredDrafts.filter((draft) => contentGroup(draft) === "scheduled").length,
+    attention: filteredDrafts.filter((draft) => contentGroup(draft) === "attention").length,
+    published: filteredDrafts.filter((draft) => contentGroup(draft) === "published").length,
   };
-  const visibleDrafts = filteredDrafts.filter((draft) => draftView === "all" || draftStatusGroup(draft.publishStatus) === draftView).sort((a, b) => {
+  const visibleDrafts = filteredDrafts.filter((draft) => draftView === "all" || contentGroup(draft) === draftView).sort((a, b) => {
     const timestamp = (draft: Draft) => new Date((sortOrder === "updated" ? draft.updatedAt ?? draft.createdAt : draft.createdAt ?? draft.updatedAt) ?? 0).getTime();
     return sortOrder === "oldest" ? timestamp(a) - timestamp(b) : timestamp(b) - timestamp(a);
   });
@@ -597,6 +605,7 @@ export default function DraftsPage() {
       <PageBody as="div" width="workbench" contentClassName="flex min-h-0 flex-col">
         <PageToolbar aria-label="Content filters" className="mb-5 rounded-xl border bg-card/80 p-3 shadow-sm">
           <div className="w-full min-w-0 space-y-4">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
             <div role="group" aria-label="Content status" className="flex flex-wrap items-center gap-1">{((["all", "ready", "scheduled", "attention", "published"] as const).map((view) => (
               <Button
                 key={view}
@@ -616,10 +625,20 @@ export default function DraftsPage() {
                 {statusLabels[view]}<span className={`rounded-md px-1.5 py-0.5 text-xs tabular-nums ${draftView === view ? "bg-primary/10" : "bg-muted text-muted-foreground"}`}>{isLoading || draftsError ? "-" : statusCounts[view]}</span>
               </Button>
             )))}</div>
-            <div className="grid min-w-0 grid-cols-2 gap-3 lg:grid-cols-4">
-              <Field label="Search drafts" className="col-span-2 min-w-0" render={props => <div className="relative"><Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" /><Input {...props} type="search" className="pl-9" value={searchQuery} onChange={event => { setSearchQuery(event.target.value); setMobilePreview(false); }} placeholder="Find a saved post..." data-testid="input-search-drafts" /></div>} />
-              <Field label="Filter by platform" className="min-w-0" render={props => <NativeSelect {...props} value={platformFilter} onChange={event => { setPlatformFilter(event.target.value); setMobilePreview(false); }} data-testid="select-platform-filter"><option value="all">All platforms</option>{PLATFORMS.map(platform => <option key={platform.value} value={platform.value}>{platform.label}</option>)}</NativeSelect>} />
-              <Field label="Sort posts" className="min-w-0" render={props => <NativeSelect {...props} value={sortOrder} onChange={event => setSortOrder(event.target.value)}><option value="updated">Recently updated</option><option value="newest">Newest saved</option><option value="oldest">Oldest saved</option></NativeSelect>} />
+              <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
+                <PopoverTrigger asChild>
+                  <Button size="sm" variant={filtersOpen ? "selected" : "outline"} aria-controls="content-filter-controls">
+                    <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />Filter
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent id="content-filter-controls" role="dialog" aria-label="Filter content" side={isMobile ? "bottom" : "right"} align="start" sideOffset={8} collisionPadding={16} className="w-[min(36rem,calc(100vw-2rem))] max-h-[min(32rem,var(--radix-popover-content-available-height))] overflow-y-auto p-4">
+                  <div className="grid min-w-0 grid-cols-2 gap-3">
+                    <Field label="Search drafts" className="col-span-2 min-w-0" render={props => <div className="relative"><Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" /><Input {...props} type="search" className="pl-9" value={searchQuery} onChange={event => { setSearchQuery(event.target.value); setMobilePreview(false); }} placeholder="Find a saved post..." data-testid="input-search-drafts" /></div>} />
+                    <Field label="Filter by platform" className="min-w-0" render={props => <NativeSelect {...props} value={platformFilter} onChange={event => { setPlatformFilter(event.target.value); setMobilePreview(false); }} data-testid="select-platform-filter"><option value="all">All platforms</option>{PLATFORMS.map(platform => <option key={platform.value} value={platform.value}>{platform.label}</option>)}</NativeSelect>} />
+                    <Field label="Sort posts" className="min-w-0" render={props => <NativeSelect {...props} value={sortOrder} onChange={event => setSortOrder(event.target.value)}><option value="updated">Recently updated</option><option value="newest">Newest saved</option><option value="oldest">Oldest saved</option></NativeSelect>} />
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
             {(searchQuery || platformFilter !== "all") && <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground"><span>{visibleDrafts.length} matching {visibleDrafts.length === 1 ? "post" : "posts"}</span><Button variant="ghost" size="sm" onClick={() => { setSearchQuery(""); setPlatformFilter("all"); }}>Clear filters</Button></div>}
             {selectedDraftIds.size > 0 && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-3">

@@ -17,7 +17,7 @@ export default function PrivacyPolicyPage() {
             <h1 className="heading-display mb-4" data-testid="text-privacy-title">
               Privacy Policy
             </h1>
-            <p className="text-sm text-muted-foreground mb-12">Last updated: September 28, 2026</p>
+            <p className="text-sm text-muted-foreground mb-12">Last updated: October 15, 2026</p>
 
             <div className="prose prose-neutral dark:prose-invert max-w-none space-y-8">
               <section>
@@ -105,7 +105,7 @@ export default function PrivacyPolicyPage() {
                 <p className="text-muted-foreground">
                   We do not sell your personal information. We share data only with the service providers
                   necessary to operate TheSocialPundit — including our authentication provider (Better Auth),
-                  configured AI provider (OpenRouter or Google Gemini), payment processor (Razorpay), email provider (Resend), and our
+                  configured AI provider (OpenRouter or Google Gemini), payment processor (Razorpay), email provider (Resend), website analytics provider (Google Analytics, only with your consent), and our
                   hosting and database infrastructure — and only to the
                   extent needed for them to perform their function. We may also disclose information if
                   required by law.
@@ -140,7 +140,9 @@ export default function PrivacyPolicyPage() {
                 <h2 className="heading-section !text-2xl">Cookies</h2>
                 <p className="text-muted-foreground">
                   We use essential authentication and security cookies to keep you signed in and protect your
-                  session. The current Service does not intentionally use third-party advertising cookies. See
+                  session. With your consent, we also use Google Analytics to understand how the website is
+                  used; it is not loaded unless you accept analytics, and you can change your choice at any
+                  time with "Cookie settings" in the footer. We do not use third-party advertising cookies. See
                   our <a href="/cookies" className="text-primary underline">Cookie Policy</a> for details.
                 </p>
               </section>
