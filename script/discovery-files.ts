@@ -2,7 +2,7 @@ import { BLOG_POSTS, blogPostSeoTitle } from "../client/src/lib/blog-posts";
 import { AUDIENCE_SECTIONS, SITE_URL, audiencePagePath } from "../shared/audience-pages";
 import { COMPARE_HUB, COMPARISONS, comparisonPath } from "../shared/comparisons";
 import { USE_CASES } from "../shared/use-cases";
-import { LINKEDIN_POST_TOOL_PATH } from "../shared/linkedin-post-tool";
+import { FREE_TOOLS, FREE_TOOLS_HUB_PATH } from "../shared/free-tools";
 import { publicPageCatalogue } from "../server/public-seo";
 
 const BRAND = "TheSocialPundit";
@@ -33,7 +33,7 @@ export function generateLlmsTxt(): string {
       `By ${section.singular}`,
       [described(section.path), ...section.pages.map(page => link(page.label, audiencePagePath(section.kind, page), page.metaDescription))],
     ] as [string, string[]]),
-    ["Free tools", [LINKEDIN_POST_TOOL_PATH].map(described)],
+    ["Free tools", [FREE_TOOLS_HUB_PATH, ...FREE_TOOLS.map(tool => tool.path)].map(described)],
     ["Comparisons", [described(COMPARE_HUB.path), ...COMPARISONS.map(page => link(page.headline, comparisonPath(page), page.metaDescription))]],
     ["Guides and articles", [described("/blog"), ...BLOG_POSTS.map(post => link(post.seoTitle ?? post.title, `/blog/${post.slug}`, post.excerpt))]],
     ["Company and policies", ["/about", "/contact", "/newsletter", "/privacy", "/terms", "/ai-data-processing", "/data-retention", "/cookies", "/refund-policy", "/subscription-cancellation"].map(described)],

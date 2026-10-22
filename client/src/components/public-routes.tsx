@@ -34,6 +34,10 @@ const AudiencePage = lazy(() => import("@/pages/audience"));
 const CompareHubPage = lazy(() => import("@/pages/compare-hub"));
 const ComparePage = lazy(() => import("@/pages/compare"));
 const LinkedInPostToolPage = lazy(() => import("@/pages/linkedin-post-generator"));
+const LinkedInHookToolPage = lazy(() => import("@/pages/linkedin-hook-generator"));
+const LinkedInHashtagToolPage = lazy(() => import("@/pages/linkedin-hashtag-generator"));
+const LinkedInFormatterToolPage = lazy(() => import("@/pages/linkedin-post-formatter"));
+const FreeToolsPage = lazy(() => import("@/pages/free-tools"));
 
 /**
  * The marketing site. Reachable signed in or signed out, so this list lived in
@@ -58,7 +62,11 @@ export function PublicRoutes({ signInRoutes, location }: { signInRoutes?: ReactN
       <Route path="/industries/:slug">{params => <AudiencePage kind="industries" slug={params.slug} />}</Route>
       <Route path="/compare" component={CompareHubPage} />
       <Route path="/compare/:slug">{params => <ComparePage slug={params.slug} />}</Route>
+      <Route path="/tools" component={FreeToolsPage} />
       <Route path="/tools/linkedin-post-generator" component={LinkedInPostToolPage} />
+      <Route path="/tools/linkedin-hook-generator" component={LinkedInHookToolPage} />
+      <Route path="/tools/linkedin-hashtag-generator" component={LinkedInHashtagToolPage} />
+      <Route path="/tools/linkedin-post-formatter" component={LinkedInFormatterToolPage} />
       <Route path="/blog" component={BlogPage} />
       <Route path="/blog/:slug" component={BlogPostPage} />
       <Route path="/about" component={AboutPage} />

@@ -5,6 +5,7 @@ import { SEO } from "@/components/seo";
 import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
 import { BLOG_POSTS } from "@/lib/blog-posts";
 import { USE_CASES } from "@shared/use-cases";
+import { FREE_TOOLS } from "@shared/free-tools";
 import { AUDIENCE_SECTIONS, audiencePagePath } from "@shared/audience-pages";
 import { COMPARE_HUB, COMPARISONS, comparisonPath } from "@shared/comparisons";
 
@@ -15,7 +16,8 @@ const groups = [
       { href: "/how-it-works", label: "How it works" },
       { href: "/pricing", label: "Pricing" },
       { href: "/use-cases", label: "Use cases" },
-      { href: "/tools/linkedin-post-generator", label: "Free LinkedIn post generator" },
+      { href: "/tools", label: "Free LinkedIn tools" },
+      ...FREE_TOOLS.map(tool => ({ href: tool.path, label: `Free ${tool.name}` })),
       ...USE_CASES.map(useCase => ({ href: `/use-cases/${useCase.slug}`, label: useCase.label })),
     ],
   },

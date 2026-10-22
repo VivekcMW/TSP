@@ -6,6 +6,7 @@ const publicRoutes = [
   "/privacy", "/terms", "/refund-policy", "/subscription-cancellation",
   "/data-retention", "/ai-data-processing", "/cookies", "/email-preferences",
   "/invitation-preferences", "/newsletter", "/case-studies", "/careers", "/tools/linkedin-post-generator",
+  "/tools", "/tools/linkedin-hook-generator", "/tools/linkedin-hashtag-generator", "/tools/linkedin-post-formatter",
   "/sign-in", "/sign-up", "/verify-email", "/reset-password",
 ];
 

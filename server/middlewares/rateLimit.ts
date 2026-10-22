@@ -3,6 +3,8 @@ import type { Request, RequestHandler } from "express";
 import { redis } from "../lib/redis";
 import { RateLimitStoreUnavailableError, RecoverableRateLimitRedisStore } from "./rateLimitRedisStore";
 import { LINKEDIN_POST_TOOL_DAILY_LIMIT } from "@shared/linkedin-post-tool";
+import { LINKEDIN_HOOK_TOOL_DAILY_LIMIT } from "@shared/linkedin-hook-tool";
+import { LINKEDIN_HASHTAG_TOOL_DAILY_LIMIT } from "@shared/linkedin-hashtag-tool";
 
 // Keyed by authenticated user (falls back to IP pre-auth) so one abusive
 // account can't be worked around by rotating IPs, and legitimate shared
@@ -89,6 +91,27 @@ export const publicPostToolGlobalRateLimit = recoverableRateLimit({
   store: makeStore("public-post-tool-global"),
   message: { code: "tool_busy", message: "The free tool is very busy today. Create a free account to keep writing posts, or try again tomorrow." },
 });
+
+// The other free AI tools follow the same pattern: a daily allowance per visitor, then one
+// site-wide daily ceiling per tool.
+function publicToolRateLimits(name: string, dailyLimit: number, usedUp: string) {
+  const day = 24 * 60 * 60 * 1000;
+  return {
+    perVisitor: recoverableRateLimit({
+      windowMs: day, limit: dailyLimit, standardHeaders: true, legacyHeaders: false,
+      keyGenerator: keyByUser, skipFailedRequests: true, store: makeStore(`public-${name}-tool`),
+      message: { code: "tool_daily_limit", message: `You've used today's ${dailyLimit} free ${usedUp}. Create a free account to keep going, or come back tomorrow.` },
+    }),
+    global: recoverableRateLimit({
+      windowMs: day, limit: Number(process.env.PUBLIC_TOOL_DAILY_CAP) || 500, standardHeaders: false, legacyHeaders: false,
+      keyGenerator: () => "all", skipFailedRequests: true, store: makeStore(`public-${name}-tool-global`),
+      message: { code: "tool_busy", message: "The free tool is very busy today. Create a free account to keep going, or try again tomorrow." },
+    }),
+  };
+}
+
+export const publicHookToolRateLimits = publicToolRateLimits("hook", LINKEDIN_HOOK_TOOL_DAILY_LIMIT, "hook generations");
+export const publicHashtagToolRateLimits = publicToolRateLimits("hashtag", LINKEDIN_HASHTAG_TOOL_DAILY_LIMIT, "hashtag generations");
 
 // Gemini-backed endpoints: generation is the most expensive/abusable path.
 // Onboarding suggestions are small and cached; separate from post generation.

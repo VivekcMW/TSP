@@ -5,6 +5,10 @@ import { AUDIENCE_PAGES_UPDATED, AUDIENCE_SECTIONS, allAudiencePages, audienceHu
 import { pricingFaqJsonLd } from "../shared/pricing-faqs";
 import { COMPARE_HUB, COMPARISONS, COMPARISONS_CHECKED, compareHubJsonLd, comparisonJsonLd, comparisonPath } from "../shared/comparisons";
 import { LINKEDIN_POST_TOOL_PATH, LINKEDIN_POST_TOOL_SEO, linkedInPostToolJsonLd } from "../shared/linkedin-post-tool";
+import { LINKEDIN_HOOK_TOOL_PATH, LINKEDIN_HOOK_TOOL_SEO, linkedInHookToolJsonLd } from "../shared/linkedin-hook-tool";
+import { LINKEDIN_HASHTAG_TOOL_PATH, LINKEDIN_HASHTAG_TOOL_SEO, linkedInHashtagToolJsonLd } from "../shared/linkedin-hashtag-tool";
+import { LINKEDIN_FORMATTER_TOOL_PATH, LINKEDIN_FORMATTER_TOOL_SEO, linkedInFormatterToolJsonLd } from "../shared/linkedin-formatter";
+import { FREE_TOOLS_HUB_PATH, FREE_TOOLS_HUB_SEO, freeToolsHubJsonLd } from "../shared/free-tools";
 
 /** Last content change of the use-case pages (shared/use-cases.ts). */
 const USE_CASES_UPDATED = "2026-10-11";
@@ -58,7 +62,11 @@ const pages: Record<string, PublicPage> = {
     lastmod: "2026-10-21",
     schema: pricingFaqJsonLd(),
   },
+  [FREE_TOOLS_HUB_PATH]: { ...FREE_TOOLS_HUB_SEO, jsonLd: freeToolsHubJsonLd() },
   [LINKEDIN_POST_TOOL_PATH]: { ...LINKEDIN_POST_TOOL_SEO, jsonLd: linkedInPostToolJsonLd() },
+  [LINKEDIN_HOOK_TOOL_PATH]: { ...LINKEDIN_HOOK_TOOL_SEO, jsonLd: linkedInHookToolJsonLd() },
+  [LINKEDIN_HASHTAG_TOOL_PATH]: { ...LINKEDIN_HASHTAG_TOOL_SEO, jsonLd: linkedInHashtagToolJsonLd() },
+  [LINKEDIN_FORMATTER_TOOL_PATH]: { ...LINKEDIN_FORMATTER_TOOL_SEO, jsonLd: linkedInFormatterToolJsonLd() },
   "/blog": {
     title: "TheSocialPundit Journal | TheSocialPundit",
     description: "Clear thinking on professional authority, content strategy, AI-assisted writing, and showing up with a point of view people remember.",

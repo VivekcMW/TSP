@@ -10,6 +10,7 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { SEO } from "@/components/seo";
 import { Reveal } from "@/components/motion/reveal";
+import { MoreFreeTools } from "@/components/free-tools";
 import { fadeUp } from "@/lib/motion";
 import { track } from "@/lib/analytics-consent";
 import {
@@ -199,7 +200,7 @@ export default function LinkedInPostGeneratorPage() {
             <h2 className="heading-section mb-6">What makes a news post work on LinkedIn</h2>
             <div className="space-y-4 text-muted-foreground">
               <p>Sharing a link with "Interesting read" rarely gets noticed. The posts that start conversations do three things: they make the news easy to grasp in a sentence or two, they add a point of view only someone in your field would have, and they ask a question people actually want to answer.</p>
-              <p>Post soon after the story breaks, keep paragraphs short so the post reads well on a phone, and use two or three specific hashtags rather than ten generic ones. Most importantly, edit the draft until it sounds like you. Readers follow people, not press releases.</p>
+              <p>Post soon after the story breaks, keep paragraphs short so the post reads well on a phone, and use two or three specific hashtags rather than ten generic ones (the <Link href="/tools/linkedin-hashtag-generator" className="font-medium text-primary underline-offset-4 hover:underline">hashtag generator</Link> helps). Most importantly, edit the draft until it sounds like you. Readers follow people, not press releases.</p>
               <p>If you want this done every week, <Link href="/how-it-works" className="font-medium text-primary underline-offset-4 hover:underline">TheSocialPundit</Link> watches the news in your industry, suggests the stories worth talking about and drafts posts in your own voice for you to approve.</p>
             </div>
           </div>
@@ -218,6 +219,7 @@ export default function LinkedInPostGeneratorPage() {
             </div>
           </div>
         </section>
+        <MoreFreeTools current={LINKEDIN_POST_TOOL_PATH} />
       </main>
       <SiteFooter />
     </div>

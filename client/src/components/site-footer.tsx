@@ -51,6 +51,11 @@ export function SiteFooter() {
                 </Link>
               </li>
               <li>
+                <Link href="/tools" className="hover:text-primary transition-colors" data-testid="link-footer-tools">
+                  Free LinkedIn Tools
+                </Link>
+              </li>
+              <li>
                 <Link href="/tools/linkedin-post-generator" className="hover:text-primary transition-colors" data-testid="link-footer-post-generator">
                   Free Post Generator
                 </Link>
