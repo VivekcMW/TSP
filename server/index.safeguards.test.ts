@@ -34,6 +34,13 @@ describe("SEO response basics", () => {
     }
   });
 
+  it("lets consented Microsoft Clarity load and send its data", async () => {
+    const csp = (await request(app).get("/readyz")).headers["content-security-policy"] as string;
+    const directive = (name: string) => csp.split(";").map(part => part.trim()).find(part => part.startsWith(`${name} `))!.split(/\s+/);
+    expect(directive("script-src")).toEqual(expect.arrayContaining(["https://www.clarity.ms", "https://*.clarity.ms"]));
+    expect(directive("connect-src")).toEqual(expect.arrayContaining(["https://*.clarity.ms", "https://c.bing.com"]));
+  });
+
   it("moves bare-domain pages to www before any route runs", async () => {
     const res = await request(app).get("/pricing").set("Host", "thesocialpundit.com");
     expect(res.status).toBe(301);

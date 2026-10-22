@@ -57,7 +57,7 @@ function AuthenticatedLayout({ children }: { children: ReactNode }) {
     <HelpProvider>
     <CreatePostProvider key={JSON.stringify([user?.id, profile?.tenantId])}>
     <SidebarProvider style={style as React.CSSProperties} className="h-full min-h-0">
-      <div className="flex h-full w-full">
+      <div className="flex h-full w-full" data-clarity-mask="True">
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0">
           <DashboardNavbar />

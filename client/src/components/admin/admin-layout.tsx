@@ -61,7 +61,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-screen w-full">
+      <div className="flex h-screen w-full" data-clarity-mask="True">
         <AdminSidebar />
         <div className="flex flex-col flex-1 min-w-0">
           <AdminNavbar />

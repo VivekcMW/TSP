@@ -154,7 +154,7 @@ function AppRoutes() {
         scope={dbUser?.id && tenantId ? `${dbUser.id}:${tenantId}` : null}
         enabled={Boolean(dbUser?.registrationCompleted && tenantId)}
         phase="setup"
-      ><HelpProvider phase="setup"><Suspense fallback={<LoadingScreen />}><OnboardingPage /><PrerenderHandoff /><AnalyticsPage /></Suspense></HelpProvider></AppTourProvider>;
+      ><HelpProvider phase="setup"><div className="contents" data-clarity-mask="True"><Suspense fallback={<LoadingScreen />}><OnboardingPage /><PrerenderHandoff /><AnalyticsPage /></Suspense></div></HelpProvider></AppTourProvider>;
 
     case "dashboard":
       // A failed background refresh must not destroy Settings or Create state.

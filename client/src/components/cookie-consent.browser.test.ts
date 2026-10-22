@@ -66,12 +66,15 @@ async function visit(page: Page, tagRequests: string[]) {
 async function open() {
   const context = await browser.newContext();
   const tagRequests: string[] = [];
+  const clarityRequests: string[] = [];
+  await context.route("https://www.clarity.ms/**", route => { clarityRequests.push(route.request().url()); return route.fulfill({ contentType: "text/javascript", body: "" }); });
   await context.route("https://consent.test/**", route => route.fulfill({ contentType: "text/html", body: '<div id="root"></div>' }));
   await context.route("https://www.googletagmanager.com/**", route => { tagRequests.push(route.request().url()); return route.fulfill({ contentType: "text/javascript", body: "" }); });
   await context.route("**/*", route => route.fallback());
   const page = await context.newPage();
-  return { context, page, tagRequests };
+  return { context, page, tagRequests, clarityRequests };
 }
+const clarityCalls = (page: Page) => page.evaluate(() => ((window as unknown as { clarity?: { q?: ArrayLike<unknown>[] } }).clarity?.q ?? []).map(entry => Array.from(entry)));
 const banner = (page: Page) => page.getByRole("region", { name: "Cookie consent" });
 // Every gtag() call, as plain arrays. gtag.js is stubbed, so the queue is the full record.
 const gtagCalls = (page: Page) => page.evaluate(() => ((window as unknown as { dataLayer?: unknown[] }).dataLayer ?? [])
@@ -236,13 +239,29 @@ describe("cookie consent", () => {
     const { context, page, tagRequests } = await open();
     try {
       await visit(page, tagRequests);
-      await page.evaluate(() => { document.cookie = "_ga=GA1.1.123; path=/"; document.cookie = "_ga_ABC=GS1.1; path=/"; document.cookie = "keep=1; path=/"; });
+      await page.evaluate(() => { document.cookie = "_ga=GA1.1.123; path=/"; document.cookie = "_ga_ABC=GS1.1; path=/"; document.cookie = "_clck=abc; path=/"; document.cookie = "_clsk=def; path=/"; document.cookie = "keep=1; path=/"; });
       await banner(page).getByRole("button", { name: "Reject" }).click();
       await expect(banner(page).count()).resolves.toBe(0);
       await expect(page.evaluate(() => document.cookie)).resolves.toBe("keep=1");
       await page.reload(); await visit(page, tagRequests);
       await expect(banner(page).count()).resolves.toBe(0);
       expect(tagRequests).toEqual([]);
+    } finally { await context.close(); }
+  });
+
+  it("loads Microsoft Clarity only with consent and tells it when consent is withdrawn", async () => {
+    const { context, page, tagRequests, clarityRequests } = await open();
+    try {
+      await visit(page, tagRequests);
+      expect(clarityRequests).toEqual([]);
+      await expect(page.evaluate(() => typeof (window as unknown as { clarity?: unknown }).clarity)).resolves.toBe("undefined");
+      await banner(page).getByRole("button", { name: "Accept analytics" }).click();
+      await expect.poll(() => clarityRequests).toEqual(["https://www.clarity.ms/tag/z1pelaa8ib?ref=bwt"]);
+      expect(await clarityCalls(page)).toEqual([["consentv2", { ad_Storage: "denied", analytics_Storage: "granted" }]]);
+      await page.getByRole("button", { name: "Cookie settings" }).click();
+      await banner(page).getByRole("button", { name: "Reject" }).click();
+      await expect.poll(() => clarityCalls(page)).toContainEqual(["consentv2", { ad_Storage: "denied", analytics_Storage: "denied" }]);
+      expect(clarityRequests).toHaveLength(1);
     } finally { await context.close(); }
   });
 
@@ -281,7 +300,7 @@ describe("cookie consent", () => {
     } finally { await context.close(); }
   });
 
-  it("never loads Tag Manager unconditionally from index.html", () => {
-    expect(readFileSync(path.join(root, "client/index.html"), "utf8")).not.toMatch(/googletagmanager\.com/);
+  it("never loads Tag Manager or Clarity unconditionally from index.html", () => {
+    expect(readFileSync(path.join(root, "client/index.html"), "utf8")).not.toMatch(/googletagmanager\.com|clarity\.ms/);
   });
 });
