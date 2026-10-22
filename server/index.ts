@@ -21,7 +21,7 @@ import { configureProxy } from "./lib/proxy";
 import { redis } from "./lib/redis";
 import { requireDbUser } from "./middlewares/requireDbUser";
 import { requirePermission } from "./middlewares/requirePermission";
-import { canonicalHostRedirect } from "./middlewares/canonicalHost";
+import { canonicalHostRedirect, canonicalPathRedirect, cloudRunHostNoindex } from "./middlewares/canonicalHost";
 
 export const app = express();
 // Advertises the framework to scanners and serves no client.
@@ -46,6 +46,8 @@ app.use((req, res, next) => {
 });
 
 app.use(canonicalHostRedirect);
+app.use(canonicalPathRedirect);
+app.use(cloudRunHostNoindex);
 
 app.use((_req, res, next) => {
   if (shuttingDown) {
