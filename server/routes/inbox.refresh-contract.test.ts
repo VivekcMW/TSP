@@ -94,26 +94,21 @@ describe("refresh caller outcome parity", () => {
     expect((await request(app).get("/api/inbox/refresh/job").expect(200)).body).toMatchObject({ status: "active" });
   });
 
-  it.each(["updated", "capacity", "no_new", "needs_setup"] as const)("returns %s with committed counts in sync, worker and admin", async outcome => {
+  it.each(["updated", "capacity", "no_new", "needs_setup"] as const)("returns %s with committed counts in sync and worker", async outcome => {
     const expected = result(outcome); fixtures.process.mockResolvedValue(expected);
     const sync = await request(app).post("/api/inbox/refresh").send({ autoRefresh: true }).expect(200);
     expect(sync.body).toMatchObject(expected);
     const task = job();
     expect(await handleInboxRefresh(task as any)).toEqual(expected);
     expect(task.progress).toHaveBeenCalledExactlyOnceWith(expected);
-    const admin = await request(app).post("/api/admin/engine-runs/run/rerun").send({ tenantId: fixtures.scope.tenantId }).expect(200);
-    expect(admin.body).toEqual(expected);
     expect(fixtures.storage.updateInboxItem).not.toHaveBeenCalled();
     expect(fixtures.storage.getInboxItems).not.toHaveBeenCalled();
   });
 
-  it("returns 502 for sync/admin failures and throws for worker retry without prefetch dismissal", async () => {
+  it("returns 502 for sync failures and throws for worker retry without prefetch dismissal", async () => {
     fixtures.process.mockResolvedValue(result("failure"));
-    for (const [url, body] of [["/api/inbox/refresh", { autoRefresh: true }],
-      ["/api/admin/engine-runs/run/rerun", { tenantId: fixtures.scope.tenantId }]] as const) {
-      const response = await request(app).post(url).send(body).expect(502);
-      expect(response.body).toMatchObject({ success: false, outcome: "failure", count: 0, replacedCount: 0 });
-    }
+    const response = await request(app).post("/api/inbox/refresh").send({ autoRefresh: true }).expect(502);
+    expect(response.body).toMatchObject({ success: false, outcome: "failure", count: 0, replacedCount: 0 });
     await expect(handleInboxRefresh(job() as any)).rejects.toThrow(inboxRefreshMessage("failure"));
     expect(fixtures.storage.updateInboxItem).not.toHaveBeenCalled();
   });
@@ -122,7 +117,6 @@ describe("refresh caller outcome parity", () => {
     fixtures.storage.createEngineRunLog.mockRejectedValue(new Error("private log connection"));
     expect((await request(app).post("/api/inbox/refresh").send({}).expect(200)).body).toMatchObject(result("updated"));
     expect(await handleInboxRefresh(job() as any)).toEqual(result("updated"));
-    expect((await request(app).post("/api/admin/engine-runs/run/rerun").send({ tenantId: fixtures.scope.tenantId }).expect(200)).body).toEqual(result("updated"));
   });
 
   it("replays a worker receipt before profile lookup or fetch after postcommit progress failure", async () => {
@@ -192,24 +186,12 @@ describe("refresh caller outcome parity", () => {
     expect((await request(app).patch("/api/inbox/saved").send({ status: "active" }).expect(409)).body.outcome).toBe("capacity");
   });
 
-  it("preserves admin target scope validation and rejects malformed IDs before work", async () => {
-    await request(app).post("/api/admin/engine-runs/run/rerun").send({ tenantId: "foreign" }).expect(403);
-    await request(app).post("/api/admin/engine-runs/run/rerun").send({ tenantId: fixtures.scope.tenantId, operationId: "bad" }).expect(400);
-    expect(fixtures.process).not.toHaveBeenCalled(); expect(fixtures.getRun).not.toHaveBeenCalled();
-  });
-
-  it("replays admin receipts and propagates operation identity to admin jobs", async () => {
-    fixtures.getQueue.mockReturnValue({}); fixtures.enqueue.mockResolvedValue("admin-job");
-    const body = { tenantId: fixtures.scope.tenantId, operationId: randomUUID() };
-    await request(app).post("/api/admin/engine-runs/run/rerun").send(body).expect(202);
-    const config = fixtures.enqueue.mock.calls[0][0];
-    expect(config.operationId).toMatch(/^admin:/);
-    expect(config).toMatchObject(fixtures.scope);
-    fixtures.storage.getInboxRefreshReceipt.mockResolvedValue(result("no_new"));
-    const replay = await request(app).post("/api/admin/engine-runs/run/rerun").send(body).expect(200);
-    expect(replay.body).toEqual(result("no_new"));
-    expect(fixtures.storage.getInboxRefreshReceipt.mock.calls[1]).toEqual([fixtures.scope, config.operationId, false]);
-    expect(fixtures.enqueue).toHaveBeenCalledTimes(1); expect(fixtures.process).not.toHaveBeenCalled();
+  it.each([{}, { tenantId: "foreign" }, { tenantId: fixtures.scope.tenantId, operationId: randomUUID() }])("retires historical admin reruns without creating a new recovery identity (%j)", async body => {
+    const response = await request(app).post("/api/admin/engine-runs/run/rerun").send(body).expect(410);
+    expect(response.body.code).toBe("unsafe_rerun_retired");
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(fixtures.enqueue).not.toHaveBeenCalled(); expect(fixtures.process).not.toHaveBeenCalled();
+    expect(fixtures.getRun).not.toHaveBeenCalled(); expect(fixtures.storage.getInboxRefreshReceipt).not.toHaveBeenCalled();
   });
 
   it("sanitizes worker errors and job status output and does not leak foreign jobs", async () => {

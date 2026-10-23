@@ -13,17 +13,24 @@ import { featureFlags } from "@shared/schema";
  * must never silently turn a feature off.
  */
 
-interface CacheEntry { value: boolean; expiresAt: number }
+interface FlagRow { enabled: boolean; expiresAt?: Date | null; tenantIds?: string[] }
+interface CacheEntry { row: FlagRow | undefined; expiresAt: number }
 const CACHE_TTL_MS = 30_000;
 const cache = new Map<string, CacheEntry>();
 
-export async function isFeatureEnabled(key: string, fallback = true): Promise<boolean> {
+export function evaluateFlag(row: FlagRow | undefined, fallback: boolean, tenantId?: string, now = Date.now()): boolean {
+  if (!row) return fallback;
+  if (!row.enabled || (row.expiresAt && row.expiresAt.getTime() <= now)) return false;
+  return !row.tenantIds?.length || (!!tenantId && row.tenantIds.includes(tenantId));
+}
+export async function isFeatureEnabled(key: string, fallback = true, tenantId?: string): Promise<boolean> {
   const cached = cache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
-  const [row] = await db.select({ enabled: featureFlags.enabled }).from(featureFlags).where(eq(featureFlags.key, key)).limit(1);
-  const value = row?.enabled ?? fallback;
-  cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
-  return value;
+  if (cached && cached.expiresAt > Date.now()) return evaluateFlag(cached.row, fallback, tenantId);
+  const [row] = await db.select({ enabled: featureFlags.enabled, expiresAt: featureFlags.expiresAt, tenantIds: featureFlags.tenantIds })
+    .from(featureFlags).where(eq(featureFlags.key, key)).limit(1);
+  if (cache.size >= 256) cache.clear();
+  cache.set(key, { row, expiresAt: Date.now() + CACHE_TTL_MS });
+  return evaluateFlag(row, fallback, tenantId);
 }
 
 /** Test-only: avoid a stale cached value leaking across cases that toggle the same key. */

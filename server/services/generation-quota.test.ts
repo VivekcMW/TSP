@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 const mocks = vi.hoisted(() => ({ tenantBilling: vi.fn(), readEntitlementState: vi.fn() }));
+const quotaAdditional = vi.hoisted(() => vi.fn());
 vi.mock("./billing-repository", () => mocks);
+vi.mock("./admin-quotas", () => ({ activeQuotaAdditional: quotaAdditional }));
 import { assertGenerationAdmission, finishGeneration, generationInputHash, generationOperationId, generationPeriod, readGenerationOperation, reserveGeneration, runGeneration } from "./generation-quota";
 import { resolveTenantEntitlements } from "./entitlements";
 import { AIGenerationError } from "./openRouter";
@@ -56,6 +58,7 @@ beforeEach(() => {
   vi.clearAllMocks(); rows = []; now = new Date("2026-09-19T23:59:00Z"); plans = [free, pro]; subscriptions = [];
   serial = Promise.resolve(); countOverride = undefined; failInsert = false; failUpdate = false; failCommit = false;
   mocks.readEntitlementState.mockImplementation(async () => ({ plans, subscriptions }));
+  quotaAdditional.mockResolvedValue(0);
   mocks.tenantBilling.mockImplementation((_tenant: string, callback: (tx: any) => Promise<unknown>) => {
     const result = serial.then(async () => {
       const snapshot = structuredClone(rows);
@@ -67,6 +70,15 @@ beforeEach(() => {
 });
 
 describe("consumed attempt reservations", () => {
+  it("enforces additional allowance under the existing atomic reservation and expires it without replaying work", async () => {
+    quotaAdditional.mockResolvedValue(2);
+    for (let index = 0; index < 5; index++) await reserve();
+    await expect(reserve()).rejects.toMatchObject({ code: "generation_quota_exceeded" });
+    quotaAdditional.mockResolvedValue(0);
+    await expect(reserve()).rejects.toMatchObject({ code: "generation_quota_exceeded" });
+    expect(rows).toHaveLength(5);
+    expect(quotaAdditional).toHaveBeenCalledWith(tx, scope.tenantId, now);
+  });
   it("counts provider work once per intent during a duplicate submission burst", async () => {
     const ids = Array.from({ length: 3 }, () => randomUUID());
     const work = vi.fn(async () => "mock provider result");

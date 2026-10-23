@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
-import { billingCustomers, billingPlans, billingWebhookEvents, paymentMethods, payments, subscriptions, type BillingPlan, type Subscription } from "@shared/schema";
+import { billingCustomers, billingEmailNotifications, billingPlans, billingWebhookEvents, paymentMethods, payments, subscriptions, type BillingPlan, type Subscription } from "@shared/schema";
 import * as provider from "./razorpay";
 import { BillingError, orderPeriodEnd, paymentCanAdvance, providerDate, subscriptionPatch } from "./billing-lifecycle";
 
@@ -157,15 +157,22 @@ export class BillingRepository {
     if (remote?.customer_id && !local.checkoutProviderCustomerId) patch.checkoutProviderCustomerId = remote.customer_id;
     let record: typeof payments.$inferSelect | undefined;
     let capturedNow = false;
+    let failureNotificationId: string | undefined;
     if (paymentId) {
       const payment = await this.validatedPayment(local, paymentId, remote?.customer_id ?? customer.razorpayCustomerId, requireCaptured);
       const saved = await this.savePayment(tx, local, payment);
       record = saved.record;
       capturedNow = saved.capturedNow;
+      if (saved.advanced && record.status === "failed") {
+        const [notification] = await tx.insert(billingEmailNotifications).values({
+          tenantId, paymentId: record.razorpayPaymentId, recipient: customer.email, recipientName: customer.name,
+        }).onConflictDoNothing({ target: billingEmailNotifications.paymentId }).returning({ id: billingEmailNotifications.id });
+        failureNotificationId = notification?.id;
+      }
       if (!recurring && saved.advanced) patch = orderPaymentPatch(local, payment, record.paidAt, capturedNow);
     }
     if (Object.keys(patch).length) await tx.update(subscriptions).set(patch).where(and(eq(subscriptions.id, local.id), eq(subscriptions.tenantId, tenantId)));
-    return { payment: record, capturedNow, subscription: { ...local, ...patch } };
+    return { payment: record, capturedNow, subscription: { ...local, ...patch }, failureNotificationId };
   }
 
   verify(tenantId: string, id: string, paymentId: string, recurring = false) {
@@ -213,9 +220,9 @@ export class BillingRepository {
         return { duplicate: true };
       }
       if (!subscriptionId && !payment?.id) throw new BillingError(400, "payment_required", "Payment entity is required");
-      await this.reconcile(tx, tenantId, (subscriptionId ?? orderId)!, Boolean(subscriptionId), payment?.id);
+      const result = await this.reconcile(tx, tenantId, (subscriptionId ?? orderId)!, Boolean(subscriptionId), payment?.id);
       await tx.update(billingWebhookEvents).set({ processingStatus: "processed", processedAt: new Date() }).where(eq(billingWebhookEvents.id, claimed.id));
-      return { duplicate: false };
+      return { duplicate: false, failureNotificationId: result.failureNotificationId };
     });
   }
 }

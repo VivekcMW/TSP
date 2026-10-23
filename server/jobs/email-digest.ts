@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db";
-import { inboxItems, users } from "@shared/schema";
+import { emailDeliveries, inboxItems, users } from "@shared/schema";
 import { storage, type TenantScope } from "../storage";
 import { getEmailPreferences } from "../services/email/preferences";
 import { digestSlot, preferenceEnabled } from "../services/email/policy";
@@ -17,19 +17,29 @@ export async function sendDigestForScope(scope: TenantScope, now = new Date()) {
   if (!user?.email) return;
   const articles = await db.transaction(async tx => {
     await tx.execute(sql`select set_config('app.tenant_id', ${scope.tenantId}, true)`);
-    return tx.select({ source: sql<string>`left(${inboxItems.source}, 120)`, headline: sql<string>`left(${inboxItems.headline}, 300)`,
+    const articleTime = sql`coalesce(${inboxItems.publishedAt}, ${inboxItems.discoveredAt})`;
+    return tx.select({ id: inboxItems.id, source: sql<string>`left(${inboxItems.source}, 120)`, headline: sql<string>`left(${inboxItems.headline}, 300)`,
       summary: sql<string>`left(coalesce(${inboxItems.summary}, ''), 600)`, url: sql<string>`left(${inboxItems.articleUrl}, 2048)` })
-      .from(inboxItems).where(and(eq(inboxItems.tenantId, scope.tenantId), eq(inboxItems.userId, scope.userId), eq(inboxItems.status, "active")))
-      .orderBy(sql`coalesce(${inboxItems.rankingScore}, ${inboxItems.relevanceScore}) desc nulls last`, inboxItems.id).limit(5);
+      .from(inboxItems).where(and(eq(inboxItems.tenantId, scope.tenantId), eq(inboxItems.userId, scope.userId), eq(inboxItems.status, "active"),
+        sql`${articleTime} >= ${new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString()}::timestamptz`,
+        sql`${articleTime} <= ${now.toISOString()}::timestamptz`,
+        sql`not exists (select 1 from ${emailDeliveries}
+          where ${emailDeliveries.userId} = ${scope.userId}
+            and ${emailDeliveries.type} = 'daily_digest'
+            and ${emailDeliveries.status} in ('pending', 'sending', 'sent', 'unknown')
+            and ${emailDeliveries.digestContext}->>'tenantId' = ${scope.tenantId}
+            and (${emailDeliveries.digestContext}->'articleIds') ? ${inboxItems.id})`))
+      .orderBy(sql`${articleTime} desc`, sql`coalesce(${inboxItems.rankingScore}, ${inboxItems.relevanceScore}) desc nulls last`, inboxItems.id).limit(100);
   });
   // Never put credentials or non-web URLs from legacy inbox rows into an email.
   const safe = articles.filter(article => {
     try { const url = new URL(article.url); return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password; }
     catch { return false; }
-  });
-  if (!safe.length) return;
+  }).slice(0, 5);
   await deliverAppEmail({ type: "daily_digest", userId: scope.userId, recipient: user.email, recipientName: user.name ?? undefined,
-    dedupeKey: JSON.stringify(["daily-digest-v1", scope.tenantId, scope.userId, slot]), ...emailTemplates.dailyDigest(safe) });
+    dedupeKey: JSON.stringify(["daily-digest-v1", scope.tenantId, scope.userId, slot]),
+    digestContext: { tenantId: scope.tenantId, articleIds: safe.map(article => article.id) },
+    ...emailTemplates.dailyDigest(safe) });
 }
 
 let cursor: TenantScope | undefined;

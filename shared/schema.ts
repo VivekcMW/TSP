@@ -408,8 +408,64 @@ export const featureFlags = pgTable("feature_flags", {
   key: varchar("key").notNull().unique(),
   description: text("description"),
   enabled: boolean("enabled").default(false).notNull(),
+  owner: varchar("owner"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  tenantIds: jsonb("tenant_ids").$type<string[]>().default([]).notNull(),
+  revision: integer("revision").default(1).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const adminIncidents = pgTable("admin_incidents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  signal: varchar("signal").notNull().unique(),
+  severity: varchar("severity").$type<"warning" | "critical">().notNull(),
+  state: varchar("state").$type<"open" | "acknowledged" | "resolved">().default("open").notNull(),
+  summary: varchar("summary").notNull(),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  acknowledgedBy: varchar("acknowledged_by"),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  version: integer("version").default(1).notNull(),
+});
+export const adminTenantRollups = pgTable("admin_tenant_rollups", {
+  tenantId: varchar("tenant_id").primaryKey(),
+  inboxItems: integer("inbox_items").notNull(),
+  drafts: integer("drafts").notNull(),
+  engineRuns: integer("engine_runs").notNull(),
+  failedSchedules: integer("failed_schedules").notNull(),
+  observedAt: timestamp("observed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export const adminQuotaGrants = pgTable("admin_quota_grants", {
+  id: varchar("id").primaryKey(),
+  tenantId: varchar("tenant_id").notNull(),
+  additional: integer("additional").notNull(),
+  createdBy: varchar("created_by").notNull(),
+  reason: varchar("reason").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+});
+export const adminFlagHistory = pgTable("admin_flag_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  flagKey: varchar("flag_key").notNull(),
+  actorId: varchar("actor_id").notNull(),
+  reason: varchar("reason").notNull(),
+  operation: varchar("operation").notNull(),
+  snapshot: jsonb("snapshot").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export const aiAttemptObservations = pgTable("ai_attempt_observations", {
+  id: varchar("id").primaryKey(),
+  tenantId: varchar("tenant_id").notNull(),
+  provider: varchar("provider").notNull(),
+  model: varchar("model"),
+  outcome: varchar("outcome").$type<"succeeded" | "failed">().notNull(),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  providerCostUsd: numeric("provider_cost_usd", { precision: 20, scale: 10 }),
+  durationMs: integer("duration_ms").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const creationSessions = pgTable("creation_sessions", {
@@ -439,6 +495,42 @@ export const emailPreferences = pgTable("email_preferences", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export type DigestDeliveryContext = { tenantId: string; articleIds: string[] };
+
+// Account-wide communication records, like email_deliveries; never expose these
+// through tenant APIs. Announcement mutations require audited platform permission.
+export const emailCampaigns = pgTable("email_campaigns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  content: jsonb("content").$type<import("./email-announcements").Announcement>().notNull(),
+  status: varchar("status").$type<"draft" | "active" | "paused" | "completed">().notNull().default("draft"),
+  createdBy: varchar("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+});
+
+export const emailCampaignRecipients = pgTable("email_campaign_recipients", {
+  campaignId: varchar("campaign_id").notNull().references(() => emailCampaigns.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  outcome: varchar("outcome"),
+  retryAt: timestamp("retry_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  primaryKey({ columns: [table.campaignId, table.userId] }),
+  index("idx_email_campaign_pending").on(table.campaignId, table.retryAt, table.userId).where(sql`${table.outcome} is null`),
+]);
+
+export const billingEmailNotifications = pgTable("billing_email_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull(),
+  paymentId: varchar("payment_id").notNull().unique(),
+  recipient: varchar("recipient").notNull(),
+  recipientName: varchar("recipient_name").notNull(),
+  outcome: varchar("outcome"),
+  retryAt: timestamp("retry_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  index("idx_billing_email_pending").on(table.retryAt, table.id).where(sql`${table.outcome} is null`),
+]);
+
 export const emailDeliveries = pgTable("email_deliveries", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id"),
@@ -452,9 +544,13 @@ export const emailDeliveries = pgTable("email_deliveries", {
   leaseUntil: timestamp("lease_until", { withTimezone: true }),
   retryAt: timestamp("retry_at", { withTimezone: true }),
   attempts: integer("attempts").notNull().default(0),
+  digestContext: jsonb("digest_context").$type<DigestDeliveryContext>(),
   sentAt: timestamp("sent_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, table => [
+  index("idx_email_digest_history").on(table.userId, sql`(${table.digestContext}->>'tenantId')`)
+    .where(sql`${table.type} = 'daily_digest' and ${table.status} in ('pending', 'sending', 'sent', 'unknown')`),
+]);
 
 export const insertFeatureFlagSchema = createInsertSchema(featureFlags).omit({
   id: true,

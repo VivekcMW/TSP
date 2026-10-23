@@ -4,6 +4,7 @@ import { handleInboxRefresh } from "./handlers/inbox-refresh";
 import { handlePublishDraft } from "./handlers/publish-draft";
 import type { InboxRefreshJobData, InboxRefreshJobProgress } from "./queue";
 import type { PublishDraftJobData, PublishDraftJobProgress } from "./handlers/publish-draft";
+import { startWorkerHeartbeat, stopWorkerHeartbeat } from "./worker-health";
 
 /**
  * Register all job handlers.
@@ -80,6 +81,7 @@ export async function registerJobHandlers(): Promise<void> {
     });
   }
 
+  await startWorkerHeartbeat([...(inboxQueue ? ["inbox"] : []), ...(publishQueue ? ["publishing"] : [])]);
   console.log("[jobs] Job handlers registered successfully");
 }
 
@@ -87,6 +89,7 @@ export async function registerJobHandlers(): Promise<void> {
  * Cleanup function for graceful shutdown.
  */
 export async function closeJobHandlers(): Promise<void> {
+  await stopWorkerHeartbeat();
   await closeQueues();
   console.log("[jobs] Job queues closed");
 }

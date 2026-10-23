@@ -36,6 +36,29 @@ describe("durable delivery state machine", () => {
     expect(claim?.token).toBeTruthy(); expect(m.transaction).toHaveBeenCalledTimes(1); expect(m.execute).toHaveBeenCalledTimes(1);
     expect(m.insert).toHaveBeenCalledWith(expect.objectContaining({ attempts: 1, status: "pending", dedupeKey: deliveryKey(email) }));
   });
+  it("persists digest article identities atomically with the pre-dispatch claim", async () => {
+    const digestContext = { tenantId: "tenant", articleIds: ["article-1", "article-2"] };
+    await claimDelivery({ ...email, digestContext });
+    expect(m.insert).toHaveBeenCalledWith(expect.objectContaining({ status: "pending", digestContext }));
+    expect(m.transaction).toHaveBeenCalledTimes(1);
+  });
+  it("updates the reserved articles on a safe failed retry, including a no-new-stories retry", async () => {
+    m.existing = { id: "row", status: "failed", attempts: 1, digestContext: { tenantId: "tenant", articleIds: ["old"] } };
+    const digestContext = { tenantId: "tenant", articleIds: [] };
+    await claimDelivery({ ...email, digestContext });
+    expect(m.update).toHaveBeenCalledWith(expect.objectContaining({ digestContext }));
+  });
+  it("does not replace article history for accepted or uncertain deliveries", async () => {
+    for (const status of ["sent", "unknown", "sending"]) {
+      m.existing = { id: "row", status, attempts: 1, leaseUntil: new Date(Date.now() + 60_000) };
+      expect(await claimDelivery({ ...email, digestContext: { tenantId: "tenant", articleIds: ["replacement"] } })).toBeUndefined();
+    }
+    expect(m.update).not.toHaveBeenCalled();
+  });
+  it("does not attach digest history to other email categories", async () => {
+    await claimDelivery({ ...email, type: "welcome", digestContext: { tenantId: "tenant", articleIds: ["article"] } });
+    expect(m.insert).toHaveBeenCalledWith(expect.objectContaining({ digestContext: null }));
+  });
   it.each(["sent", "unknown", "suppressed"])("does not replay %s", async status => {
     m.existing = { id: "row", status, attempts: 1 };
     expect(await claimDelivery(email)).toBeUndefined(); expect(m.insert).not.toHaveBeenCalled();

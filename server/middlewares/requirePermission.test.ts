@@ -22,7 +22,7 @@ import type { Permission } from "../services/permissions";
 function appWith(ctx: TenantContext, permission: Permission): Express {
   const app = express();
   app.use((req, _res, next) => {
-    req.dbUser = { id: ctx.userId } as NonNullable<typeof req.dbUser>;
+    req.dbUser = { id: ctx.userId, email: "hello@thesocialpundit.com", emailVerified: true } as NonNullable<typeof req.dbUser>;
     req.tenant = ctx;
     next();
   });

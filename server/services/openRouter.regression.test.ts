@@ -3,11 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../lib/redis", () => ({ redis: undefined }));
 let ai: typeof import("./openRouter");
 const fetchMock = vi.fn();
+const observation = vi.hoisted(() => vi.fn());
+vi.mock("./ai-observations", () => ({ recordAIAttempt: observation }));
 const completion = (content = "Grounded post") => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content } }] }), { status: 200 });
 
 beforeEach(async () => {
   vi.resetModules();
   fetchMock.mockReset();
+  observation.mockReset(); observation.mockResolvedValue(undefined);
+  vi.stubEnv("AI_OBSERVATIONS_ENABLED", "false");
   vi.stubGlobal("fetch", fetchMock);
   vi.stubEnv("AI_PROVIDER", "openrouter");
   vi.stubEnv("AI_FALLBACK_PROVIDER", "");
@@ -20,6 +24,27 @@ beforeEach(async () => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("AI provider safety", () => {
+  it("records scoped reported tokens/cost without copying content or replaying after measurement failure", async () => {
+    vi.stubEnv("AI_OBSERVATIONS_ENABLED", "true");
+    observation.mockRejectedValue(new Error("Database observation unavailable"));
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ model: "openai/gpt-4o-mini", usage: { prompt_tokens: 12, completion_tokens: 3, cost: 0.0012 },
+      choices: [{ finish_reason: "stop", message: { content: "Private generated text" } }] })));
+    expect(await ai.generateText("Private prompt", { scope: { tenantId: "tenant" } })).toBe("Private generated text");
+    await vi.waitFor(() => expect(observation).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "tenant", provider: "openrouter",
+      inputTokens: 12, outputTokens: 3, providerCostUsd: 0.0012, outcome: "succeeded" })));
+    expect(JSON.stringify(observation.mock.calls)).not.toMatch(/Private/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("does not hold the generated result or replay provider work while optional observation storage is blocked", async () => {
+    vi.stubEnv("AI_OBSERVATIONS_ENABLED", "true");
+    let finish!: () => void;
+    observation.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+    fetchMock.mockResolvedValue(completion());
+    expect(await ai.generateText("article", { scope: { tenantId: "tenant" }, timeoutMs: 1000 })).toBe("Grounded post");
+    await vi.waitFor(() => expect(observation).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    finish();
+  });
   it("returns real provider text and separates trusted system instructions", async () => {
     fetchMock.mockResolvedValue(completion("  Real content  "));
     expect(await ai.generateText("untrusted article", { systemPrompt: "trusted rules" })).toBe("Real content");

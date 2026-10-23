@@ -4,7 +4,8 @@ import { z } from "zod";
 import { billingGenerationOperations as operations } from "@shared/schema";
 import type { TenantScope } from "../storage";
 import { tenantBilling, type BillingTransaction } from "./billing-repository";
-import { assertTenantEntitlement, EntitlementError, getTenantEntitlements, type TenantEntitlements } from "./entitlements";
+import { assertResolvedEntitlement, assertTenantEntitlement, EntitlementError, getTenantEntitlements, type TenantEntitlements } from "./entitlements";
+import { activeQuotaAdditional } from "./admin-quotas";
 import { AIGenerationError } from "./openRouter";
 import { CrawlError } from "./crawlerFetch";
 
@@ -67,7 +68,9 @@ async function dbSafe<T>(work: () => Promise<T>): Promise<T> {
 async function allowance(tx: BillingTransaction, tenantId: string) {
   const time = await tx.execute(sql`select clock_timestamp() as now`);
   const now = new Date(time.rows[0].now as string | Date);
-  const access = await getTenantEntitlements(tenantId, tx, now);
+  const base = await getTenantEntitlements(tenantId, tx, now);
+  const extra = base.maxDailyGenerations !== null && base.maxDailyGenerations > 0 ? await activeQuotaAdditional(tx, tenantId, now) : 0;
+  const access = { ...base, maxDailyGenerations: base.maxDailyGenerations === null ? null : base.maxDailyGenerations + extra };
   // Denied/unknown plans must not turn into an invented free billing period.
   if (access.maxDailyGenerations === 0) await assertTenantEntitlement(tenantId, "generate", { transaction: tx, now });
   const period = generationPeriod(access, now);
@@ -80,7 +83,7 @@ async function allowance(tx: BillingTransaction, tenantId: string) {
   if (access.maxDailyGenerations !== null && access.maxDailyGenerations > 0 && used >= access.maxDailyGenerations) {
     throw new GenerationQuotaError(429, "generation_quota_exceeded", "Generation attempt allowance exhausted. Free allowances reset at midnight UTC.", Math.max(1, Math.ceil((period.end.getTime() - now.getTime()) / 1000)));
   }
-  await assertTenantEntitlement(tenantId, "generate", { transaction: tx, now, dailyGenerationsUsed: used });
+  assertResolvedEntitlement(access, "generate", used);
   return { access, period, now };
 }
 

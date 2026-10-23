@@ -56,7 +56,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  emailPreferences = { dailyDigest: true, contentAlerts: false, productUpdates: true, marketing: true, publishing: true, accountAlerts: true, digestTimezone: "UTC", digestTime: "09:00" };
+  emailPreferences = { dailyDigest: true, weeklySummary: false, contentAlerts: false, productUpdates: true, marketing: true, publishing: true, accountAlerts: true, digestTimezone: "UTC", digestTime: "09:00" };
   profile = { focusDescription: "Original focus", publications: ["Publication"], keywords: ["technology"], influencers: [], companies: [], enabledPlatforms: ["linkedin", "twitter"], defaultPlatform: "linkedin", defaultTone: "professional", preferredPublishTime: "09:00", timezone: "UTC", requirePublishReview: true, dailyDigest: true, contentAlerts: false, productUpdates: true };
   user = { id: "fixture-user", name: "Original Person", firstName: "Original", lastName: "Person", email: "fixture@example.invalid", emailVerified: true, image: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   connected = { twitter: true, slack: true };
@@ -758,6 +758,22 @@ describe("Settings consolidation and trust", () => {
     await page.getByTestId("button-save-notifications").click();
     await browserExpect(page.getByTestId("button-save-notifications")).toBeDisabled();
     expect(emailPreferences.reminders).toBe(false);
+  });
+
+  it("opts into Monday weekly summaries independently of the daily digest and persists after reload", async () => {
+    await open("notifications");
+    await browserExpect(page.getByRole("switch", { name: "Weekly Summary", exact: true })).not.toBeChecked();
+    await page.getByRole("switch", { name: "Weekly Summary", exact: true }).check();
+    await page.getByRole("switch", { name: /Daily Digest/ }).uncheck();
+    await page.getByTestId("button-save-notifications").click();
+    await browserExpect(page.getByTestId("button-save-notifications")).toBeDisabled();
+    await browserExpect(page.getByText("Notifications saved", { exact: true })).toBeVisible();
+    await browserExpect.poll(reloadBlocked).toBe(false);
+    expect(emailPreferences).toMatchObject({ weeklySummary: true, dailyDigest: false });
+    expect(requests.filter(item => item.method === "PATCH").map(item => item.body)).toEqual([{ weeklySummary: true, dailyDigest: false }]);
+    await page.reload();
+    await browserExpect(page.getByRole("switch", { name: "Weekly Summary", exact: true })).toBeChecked();
+    await browserExpect(page.getByRole("switch", { name: /Daily Digest/ })).not.toBeChecked();
   });
 
   it("pauses reminders for a month from the email link, once, and resumes on request", async () => {

@@ -30,7 +30,8 @@ export async function claimDelivery(email: AppEmail) {
         || (existing.retryAt && existing.retryAt.getTime() > Date.now())) return undefined;
     }
     const data = { status: "pending", claimToken: token, leaseUntil: new Date(Date.now() + 120_000), retryAt: null,
-      errorMessage: null, attempts: (existing?.attempts ?? 0) + 1 };
+      errorMessage: null, attempts: (existing?.attempts ?? 0) + 1,
+      digestContext: email.type === "daily_digest" ? email.digestContext ?? null : null };
     const [row] = existing
       ? await tx.update(emailDeliveries).set(data).where(eq(emailDeliveries.id, existing.id)).returning()
       : await tx.insert(emailDeliveries).values({ ...data, dedupeKey: key, userId: email.userId ?? null,

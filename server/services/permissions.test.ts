@@ -56,7 +56,7 @@ describe("the permission matrix as a whole", () => {
 describe("platform staff are read-only across tenants", () => {
   // The property that matters most: support can look, but cannot act.
   const WRITE_SHAPED = ALL_PERMISSIONS.filter((p) =>
-    /:(write|approve|invite|remove|create|connect|manage|delete|operate|override)\b/.test(p) ||
+    /:(write|approve|invite|remove|create|connect|manage|delete|operate|override|send)\b/.test(p) ||
     p === "tenant:delete",
   );
 

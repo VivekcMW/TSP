@@ -1,5 +1,6 @@
 import { Resend } from "resend";
-import { emailColor, emailTemplates, escapeHtml } from "./templates";
+import { emailColor, emailFonts, emailTemplates, escapeHtml } from "./templates";
+import { invariant } from "../../../client/src/design/tokens";
 import Bull from "bull";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -7,6 +8,7 @@ import { getEmailPreferences } from "./preferences";
 import { isEssentialEmail, preferenceEnabled } from "./policy";
 import { beginDelivery, claimDelivery, deliveryKey, finishDelivery, recoverEmailDeliveries } from "./delivery-store";
 import { queuePrefix } from "../../lib/redis-options";
+import type { DigestDeliveryContext } from "@shared/schema";
 
 export type EmailType =
   | "verification" | "password_reset" | "existing_account" | "welcome" | "password_changed"
@@ -25,6 +27,7 @@ export interface AppEmail {
   html: string;
   text?: string;
   dedupeKey?: string;
+  digestContext?: DigestDeliveryContext;
   invitationId?: string;
   invitationUnsubscribeUrl?: string;
   required?: boolean;
@@ -86,9 +89,54 @@ export function wrapEmail(email: AppEmail) {
   const unsubscribe = invitation ? email.invitationUnsubscribeUrl! : `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/dashboard/settings?tab=notifications`;
   const unsubscribeLabel = invitation ? "Stop invitation emails" : "Manage email preferences";
   const privacy = invitation ? getInvitationDeliveryConfiguration()!.privacyUrl : `${process.env.APP_URL ?? "https://www.thesocialpundit.com"}/privacy`;
-  const secondary = email.secondaryCta ? `<a href="${escapeHtml(email.secondaryCta.url)}" style="display:inline-block;margin-top:8px;border:1px solid ${emailColor("input")};background:${emailColor("card")};color:${emailColor("card-foreground")};padding:12px 21px;border-radius:6px;text-decoration:none;font-weight:700">${escapeHtml(email.secondaryCta.label)}</a>` : "";
-  const cta = email.primaryCta ? `<p style="margin:24px 0"><a href="${escapeHtml(email.primaryCta.url)}" style="display:inline-block;margin:8px 8px 0 0;background:${emailColor("primary")};color:${emailColor("primary-foreground")};padding:13px 22px;border-radius:6px;text-decoration:none;font-weight:700">${escapeHtml(email.primaryCta.label)}</a>${secondary}</p><p style="font-size:12px;color:${emailColor("muted-foreground")};overflow-wrap:anywhere;word-break:break-all">If the button does not work, copy this link: ${escapeHtml(email.primaryCta.url)}</p>` : "";
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><span style="display:none!important;opacity:0;height:0;width:0">${escapeHtml(email.preheader ?? email.subject)}</span></head><body style="margin:0;padding:0 12px;background:${emailColor("background")};font-family:Arial,sans-serif;color:${emailColor("foreground")}"><main style="max-width:600px;margin:32px auto;background:${emailColor("card")};color:${emailColor("card-foreground")};border:1px solid ${emailColor("border")};border-radius:8px;overflow:hidden"><header style="background:${emailColor("card")};color:${emailColor("card-foreground")};padding:24px 28px;border-bottom:3px solid ${emailColor("primary")}"><div style="font-size:20px;font-weight:700">TheSocialPundit</div><div style="margin-top:6px;color:${emailColor("muted-foreground")};font-size:11px;text-transform:uppercase;letter-spacing:1.5px">Your professional signal</div></header><section style="padding:28px"><p style="margin-top:0;color:${emailColor("muted-foreground")};font-size:11px;text-transform:uppercase;letter-spacing:1.4px">${escapeHtml(email.eyebrow ?? "TheSocialPundit")}</p><p>${name}</p>${email.html}${cta}${email.afterCta ?? ""}</section><footer style="border-top:1px solid ${emailColor("border")};padding:18px 28px;color:${emailColor("muted-foreground")};font-size:12px">You received this email from TheSocialPundit.<br><a href="${escapeHtml(unsubscribe)}" style="color:${emailColor("primary")}">${unsubscribeLabel}</a> · <a href="${escapeHtml(privacy)}" style="color:${emailColor("primary")}">Privacy</a></footer></main></body></html>`;
+  const secondary = email.secondaryCta ? `<a class="email-button" href="${escapeHtml(email.secondaryCta.url)}" style="display:inline-block;margin:0 ${invariant["space-2"]} ${invariant["space-2"]} 0;border:1px solid ${emailColor("input")};background:${emailColor("secondary")};color:${emailColor("secondary-foreground")};padding:${invariant["space-3"]} ${invariant["space-6"]};border-radius:${invariant["radius-control"]};font-size:14px;line-height:20px;text-align:center;text-decoration:none;font-weight:600;mso-padding-alt:12px 24px">${escapeHtml(email.secondaryCta.label)}</a>` : "";
+  const cta = email.primaryCta ? `<div style="margin:${invariant["space-6"]} 0"><a class="email-button" href="${escapeHtml(email.primaryCta.url)}" style="display:inline-block;margin:0 ${invariant["space-2"]} ${invariant["space-2"]} 0;border:1px solid ${emailColor("primary")};background:${emailColor("primary")};color:${emailColor("primary-foreground")};padding:${invariant["space-3"]} ${invariant["space-6"]};border-radius:${invariant["radius-control"]};font-size:14px;line-height:20px;text-align:center;text-decoration:none;font-weight:600;mso-padding-alt:12px 24px">${escapeHtml(email.primaryCta.label)}</a>${secondary}</div><p style="font-size:12px;line-height:20px;color:${emailColor("muted-foreground")};overflow-wrap:anywhere;word-break:break-all">If the button does not work, copy this link: ${escapeHtml(email.primaryCta.url)}</p>` : "";
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="x-apple-disable-message-reformatting">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <title>${escapeHtml(email.subject)}</title>
+  <style>
+    :root { color-scheme: only light; }
+    body, table, td, a { -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+    table { mso-table-lspace:0pt; mso-table-rspace:0pt; }
+    .email-copy p { margin:0 0 ${invariant["space-4"]}; }
+    @media only screen and (max-width:480px) {
+      .email-canvas { padding:16px 8px!important; }
+      .email-padding { padding:24px 16px!important; }
+      .email-title { font-size:22px!important; line-height:30px!important; }
+      .email-button { display:block!important; margin-right:0!important; }
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background:${emailColor("background")};font-family:${emailFonts.body};font-size:16px;line-height:26px;color:${emailColor("foreground")}">
+  <div aria-hidden="true" style="display:none!important;visibility:hidden;mso-hide:all;opacity:0;height:0;width:0;max-height:0;overflow:hidden">${escapeHtml(email.preheader ?? email.subject)}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${emailColor("background")}"><tr><td class="email-canvas" align="center" style="padding:${invariant["space-8"]} ${invariant["space-4"]}">
+    <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" align="center"><tr><td><![endif]-->
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;table-layout:fixed;background:${emailColor("card")};color:${emailColor("card-foreground")};border:1px solid ${emailColor("card-border")};border-radius:${invariant["radius-card"]}">
+      <tr><td class="email-padding" style="padding:${invariant["space-6"]};border-bottom:1px solid ${emailColor("border")}">
+        <div style="font-family:${emailFonts.heading};font-size:20px;line-height:28px;font-weight:600;color:${emailColor("foreground")}">TheSocialPundit<span style="color:${emailColor("primary")}">.</span></div>
+        <p style="margin:${invariant["space-1"]} 0 0;font-size:12px;line-height:20px;color:${emailColor("muted-foreground")}">Your professional signal</p>
+      </td></tr>
+      <tr><td class="email-padding email-copy" style="padding:${invariant["space-6"]};font-family:${emailFonts.body};font-size:16px;line-height:26px;overflow-wrap:anywhere;word-wrap:break-word">
+        <p style="margin:0 0 ${invariant["space-3"]};font-size:12px;line-height:20px;font-weight:600;color:${emailColor("muted-foreground")}">${escapeHtml(email.eyebrow ?? "TheSocialPundit")}</p>
+        <h1 class="email-title" style="margin:0 0 ${invariant["space-6"]};font-family:${emailFonts.heading};font-size:24px;line-height:32px;font-weight:600;color:${emailColor("foreground")}">${escapeHtml(email.subject)}</h1>
+        <p style="margin:0 0 ${invariant["space-4"]}">${name}</p>
+        ${email.html}${cta}${email.afterCta ?? ""}
+      </td></tr>
+      <tr><td class="email-padding" style="padding:${invariant["space-6"]};border-top:1px solid ${emailColor("border")};font-size:12px;line-height:20px;color:${emailColor("muted-foreground")}">
+        <p style="margin:0 0 ${invariant["space-2"]}">You received this email from TheSocialPundit.</p>
+        <a href="${escapeHtml(unsubscribe)}" style="color:${emailColor("primary")};text-decoration:underline">${unsubscribeLabel}</a> &nbsp;&middot;&nbsp; <a href="${escapeHtml(privacy)}" style="color:${emailColor("primary")};text-decoration:underline">Privacy</a>
+      </td></tr>
+    </table>
+    <!--[if mso]></td></tr></table><![endif]-->
+  </td></tr></table>
+</body>
+</html>`;
 }
 
 /** Text version for templates that only supply HTML: HTML-only mail is more often filtered as spam. */

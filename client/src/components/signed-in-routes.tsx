@@ -31,12 +31,18 @@ const CreatePostPage = lazy(() => import("@/pages/create-post"));
 const AcceptInvitePage = lazy(() => import("@/pages/accept-invite"));
 const AdminOverviewPage = lazy(() => import("@/pages/admin/overview"));
 const AdminTenantsPage = lazy(() => import("@/pages/admin/tenants"));
+const AdminTenantDetailPage = lazy(() => import("@/pages/admin/tenant-detail"));
 const AdminUsersPage = lazy(() => import("@/pages/admin/users"));
+const AdminUserDetailPage = lazy(() => import("@/pages/admin/user-detail"));
 const AdminIntegrationsPage = lazy(() => import("@/pages/admin/integrations"));
 const AdminAuditLogPage = lazy(() => import("@/pages/admin/audit-log"));
 const AdminEngineRunsPage = lazy(() => import("@/pages/admin/engine-runs"));
 const AdminFeatureFlagsPage = lazy(() => import("@/pages/admin/feature-flags"));
 const AdminMonitoringPage = lazy(() => import("@/pages/admin/monitoring"));
+const AdminEmailAnnouncementsPage = lazy(() => import("@/pages/admin/email-announcements"));
+const AdminEmailDeliveriesPage = lazy(() => import("@/pages/admin/email-deliveries"));
+const AdminOperationsPage = lazy(() => import("@/pages/admin/operations"));
+const AdminSearchPage = lazy(() => import("@/pages/admin/search"));
 
 function AuthenticatedLayout({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -127,12 +133,18 @@ function AdminRouter() {
           <Switch location={location}>
             <Route path="/admin" component={AdminOverviewPage} />
             <Route path="/admin/tenants" component={AdminTenantsPage} />
+            <Route path="/admin/tenants/:id" component={AdminTenantDetailPage} />
             <Route path="/admin/users" component={AdminUsersPage} />
+            <Route path="/admin/users/:id" component={AdminUserDetailPage} />
             <Route path="/admin/integrations" component={AdminIntegrationsPage} />
             <Route path="/admin/audit-log" component={AdminAuditLogPage} />
             <Route path="/admin/engine-runs" component={AdminEngineRunsPage} />
             <Route path="/admin/feature-flags" component={AdminFeatureFlagsPage} />
             <Route path="/admin/monitoring" component={AdminMonitoringPage} />
+            <Route path="/admin/email-announcements" component={AdminEmailAnnouncementsPage} />
+            <Route path="/admin/email-deliveries" component={AdminEmailDeliveriesPage} />
+            <Route path="/admin/operations" component={AdminOperationsPage} />
+            <Route path="/admin/search" component={AdminSearchPage} />
             <Route component={NotFound} />
           </Switch>
           <AnalyticsPage path={location} />

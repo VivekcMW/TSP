@@ -14,9 +14,10 @@ import { useSettingsDraft } from "./use-settings-draft";
 
 const preferences = [
   { key: "dailyDigest", label: "Daily Digest", description: "Receive a daily email with your curated content." },
+  { key: "weeklySummary", label: "Weekly Summary", description: "Your articles discovered, drafts created and confirmed published posts for the previous Monday to Sunday. Sent on Monday at your digest time." },
   { key: "reminders", label: "Posting reminders", description: "A weekly nudge with stories worth posting about, when you've been quiet for a week." },
   { key: "contentAlerts", label: "New Content Alerts", description: "Get notified when high-priority content arrives." },
-  { key: "productUpdates", label: "Product Updates", description: "Learn about new features and improvements." },
+  { key: "productUpdates", label: "Product Updates", description: "New features, improvements, maintenance notices and incident updates." },
   { key: "marketing", label: "Marketing", description: "Optional offers, independent of other notifications." },
   { key: "publishing", label: "Publishing Updates", description: "Draft and publishing results." },
   { key: "accountAlerts", label: "Account Alerts", description: "Optional connection and usage updates." },
@@ -28,7 +29,7 @@ export function NotificationSettings() {
   const cache = useQueryClient();
   const { toast } = useToast();
   const { data: profile, isLoading, isError, refetch } = useQuery<EmailPreferenceValues>({ queryKey: ["/api/email-preferences"] });
-  const { draft, setDraft, dirty, acknowledge } = useSettingsDraft({ dailyDigest: profile?.dailyDigest ?? true, reminders: profile?.reminders ?? true, contentAlerts: profile?.contentAlerts ?? false, productUpdates: profile?.productUpdates ?? true,
+  const { draft, setDraft, dirty, acknowledge } = useSettingsDraft({ dailyDigest: profile?.dailyDigest ?? true, weeklySummary: profile?.weeklySummary ?? false, reminders: profile?.reminders ?? true, contentAlerts: profile?.contentAlerts ?? false, productUpdates: profile?.productUpdates ?? true,
     marketing: profile?.marketing ?? true, publishing: profile?.publishing ?? true, accountAlerts: profile?.accountAlerts ?? true,
     digestTimezone: profile?.digestTimezone ?? "UTC", digestTime: profile?.digestTime ?? "09:00" });
   const edits = useRef<EmailPreferencePatch>({});
@@ -80,7 +81,7 @@ export function NotificationSettings() {
     <fieldset disabled={mutation.isPending} className="min-w-0 space-y-4">
       {preferences.map(({ key, label, description }) => {
         // Keep optional-offer and account-update consent visible.
-        const keepDescriptionVisible = key === "marketing" || key === "accountAlerts";
+        const keepDescriptionVisible = key === "marketing" || key === "accountAlerts" || key === "weeklySummary" || key === "productUpdates";
         return <div key={key} className="flex min-h-11 items-center justify-between gap-4">
           <div className="min-w-0 [overflow-wrap:anywhere]">
             <div className={fieldLabelRowClassName}>
@@ -97,7 +98,7 @@ export function NotificationSettings() {
         <button type="button" className="control-touch-target min-h-8 min-w-8 font-medium text-primary underline underline-offset-4 disabled:opacity-50" disabled={pause.isPending} onClick={() => pause.mutate(null)}>Resume reminders</button>
       </p>}
       <div className="min-w-0 space-y-2">
-        <div className={fieldLabelRowClassName}><Label htmlFor="digest-time">Daily digest time</Label><InfoTooltip label="Daily digest time" descriptionId="digest-time-help">Digest times follow daylight saving changes.</InfoTooltip></div>
+        <div className={fieldLabelRowClassName}><Label htmlFor="digest-time">Daily digest time</Label><InfoTooltip label="Daily digest time" descriptionId="digest-time-help">Daily digests and Monday weekly summaries use this time and timezone, following daylight saving changes.</InfoTooltip></div>
         <Input id="digest-time" aria-describedby="digest-time-help" type="time" value={draft.digestTime} onChange={event => edit("digestTime", event.target.value)} />
       </div>
       <Field id="digest-timezone" label="Digest timezone (IANA name)" render={(controlProps) => <Input {...controlProps} value={draft.digestTimezone} placeholder="Asia/Kolkata" onChange={event => edit("digestTimezone", event.target.value)} />} />

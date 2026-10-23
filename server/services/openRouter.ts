@@ -87,6 +87,7 @@ export interface GenerationResult {
   /** Successful attempt only; null means the provider did not report usage. */
   usage: { inputTokens: number | null; outputTokens: number | null };
   fallbackUsed: boolean;
+  providerCostUsd?: number | null;
 }
 
 type ProviderResult = Omit<GenerationResult, "provider" | "fallbackUsed">;
@@ -281,7 +282,7 @@ async function generateChatCompletion(
   const json = await response.json() as {
     error?: { code?: number };
     model?: string;
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
+    usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
     choices?: Array<{
       finish_reason?: string;
       message?: {
@@ -309,7 +310,9 @@ async function generateChatCompletion(
   let text = "";
   if (typeof content === "string") text = content.trim();
   else if (Array.isArray(content)) text = content.filter(part => !part?.type || part.type === "text").map(part => part?.text || "").join("").trim();
-  return { text, model: json.model || model, usage: { inputTokens: tokenCount(json.usage?.prompt_tokens), outputTokens: tokenCount(json.usage?.completion_tokens) } };
+  const providerCostUsd = diagnostic.provider === "openrouter" && typeof json.usage?.cost === "number" && Number.isFinite(json.usage.cost) && json.usage.cost >= 0 ? json.usage.cost : undefined;
+  return { text, model: json.model || model, usage: { inputTokens: tokenCount(json.usage?.prompt_tokens), outputTokens: tokenCount(json.usage?.completion_tokens) },
+    ...(providerCostUsd !== undefined ? { providerCostUsd } : {}) };
 }
 
 async function generateWithOpenRouter(prompt: string, options: GenerationOptions, diagnostic: AIDiagnosticInput): Promise<ProviderResult> {
@@ -442,15 +445,20 @@ async function attempt(provider: AIProvider, prompt: string, options: Generation
   execution.budgetMs = remaining;
   execution.attempt++;
   execution.diagnostic = diagnostic;
+  const attemptStartedAt = Date.now();
+  let observedResult: ProviderResult | undefined;
+  let succeeded = false;
   try {
     const adapter = { anthropic: generateWithAnthropic, gemini: generateWithGemini, openrouter: generateWithOpenRouter, openai: generateWithOpenAI }[provider];
     const result = await adapter(prompt, { ...options, timeoutMs: remaining,
       signal: provider === "gemini" ? geminiAbortSignal(options, execution) : signal }, diagnostic);
+    observedResult = result;
     // Timer callbacks can be delayed by an event-loop stall; time is authoritative.
     if (Date.now() >= options.deadlineAt!) execution.expire();
     if (signal.aborted) throw cancellationFailure(signal);
     diagnostic.stage = "provider_empty_text";
     if (!result.text.trim()) throw new AIGenerationError("ai_invalid_output");
+    succeeded = true;
     return result;
   } catch (error) {
     const failure = normalizeFailure(error, signal);
@@ -459,6 +467,18 @@ async function attempt(provider: AIProvider, prompt: string, options: Generation
       cooldowns.set(provider, { code: failure.code, until: Date.now() + (failure.retryAfterSeconds ?? 60) * 1000 });
     }
     throw failure;
+  } finally {
+    if (process.env.AI_OBSERVATIONS_ENABLED === "true" && options.scope?.tenantId) {
+      const measurement = { tenantId: options.scope.tenantId, provider,
+        model: observedResult?.model ?? (typeof diagnostic.model === "string" ? diagnostic.model : undefined),
+        outcome: succeeded ? "succeeded" as const : "failed" as const,
+        inputTokens: observedResult?.usage.inputTokens ?? diagnostic.inputTokens,
+        outputTokens: observedResult?.usage.outputTokens ?? diagnostic.outputTokens,
+        providerCostUsd: observedResult?.providerCostUsd, durationMs: Date.now() - attemptStartedAt };
+      // Optional telemetry cannot extend the provider deadline or change its outcome.
+      void import("./ai-observations").then(({ recordAIAttempt }) => recordAIAttempt(measurement))
+        .catch(() => console.error("[ai:observations] Attempt measurement unavailable; provider work was not replayed"));
+    }
   }
 }
 

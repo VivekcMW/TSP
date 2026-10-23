@@ -6,6 +6,24 @@ import { PLATFORM_LABELS, platformLabel } from "@shared/platform-labels";
 const APP = process.env.APP_URL ?? "https://www.thesocialpundit.com";
 
 describe("email content customers receive", () => {
+  it("renders weekly counts and an unambiguous date range without claiming platform analytics", () => {
+    const content = emailTemplates.weeklySummary({ workspace: "Research <Team>", weekStart: "2026-10-19", weekEnd: "2026-10-25", articles: 0, drafts: 3, published: 2 });
+    expect(content.html).toContain("Research &lt;Team&gt;");
+    expect(content.text).toContain("19 October 2026");
+    expect(content.text).toContain("25 October 2026");
+    expect(content.text).toContain("Articles discovered: 0");
+    expect(content.text).toContain("Drafts created: 3");
+    expect(content.text).toContain("Confirmed published posts: 2");
+    expect(content.html).not.toMatch(/impressions|engagement rate|views/i);
+  });
+  it.each(["product_update", "maintenance", "incident"] as const)("renders safe plain-text and HTML content for %s announcements", type => {
+    const content = emailTemplates.announcement({ type, title: "Service update", body: "<script>unsafe</script>\n\nAn update & details.", actionLabel: "Read update", actionUrl: "https://example.invalid/update" });
+    expect(content.html).not.toContain("<script>");
+    expect(content.html).toContain("&lt;script&gt;unsafe&lt;/script&gt;");
+    expect(content.html).toContain("<p>An update &amp; details.</p>");
+    expect(content.text).toBe("<script>unsafe</script>\n\nAn update & details.");
+    expect(content.primaryCta?.url).toBe("https://example.invalid/update");
+  });
   it("welcomes by industry name and leads into setup, in today's product words", () => {
     const email = emailTemplates.welcome("Media & Advertising");
     expect(email.subject).toBe("Welcome to TheSocialPundit · Media & Advertising");
@@ -43,7 +61,8 @@ describe("email content customers receive", () => {
       { source: "Cricinfo", headline: "BCCI opens a new centre of excellence - Cricinfo", summary: "The centre in Bengaluru hosts training for all age groups.", url: "https://news.test/a" },
       { source: "The Times of India", headline: "Muthoot Fincorp bags BCCI rights | The Times of India", summary: "", url: "https://news.test/b" },
     ]);
-    expect(email.html).toContain("Your top stories today");
+    expect(email.html).toContain("Your latest stories from the last 48 hours");
+    expect(email.text).toContain("Your latest stories from the last 48 hours");
     expect(email.html).toContain(">BCCI opens a new centre of excellence</a>");
     expect(email.html).toContain(">Muthoot Fincorp bags BCCI rights</a>");
     expect(email.html).toContain("The centre in Bengaluru hosts training");
@@ -51,6 +70,15 @@ describe("email content customers receive", () => {
     expect(email.text).toContain("BCCI opens a new centre of excellence\nhttps://news.test/a");
     const trailing = emailTemplates.dailyDigest([{ source: "Cricinfo", headline: "Binny and Shah open a centre, Bengaluru, September 29, 2024, - Cricinfo", summary: "", url: "https://news.test/c" }]);
     expect(trailing.html).toContain(">Binny and Shah open a centre, Bengaluru, September 29, 2024</a>");
+  });
+
+  it("sends an honest no-new-stories briefing instead of recycling old articles", () => {
+    const email = emailTemplates.dailyDigest([]);
+    expect(email.subject).toBe("Your daily briefing: no new stories");
+    expect(email.html).toContain("last 48 hours");
+    expect(email.text).toContain("We won't repeat stories from your earlier briefings.");
+    expect(email.html).not.toContain("<article");
+    expect(email.primaryCta).toEqual({ label: "Open Discover", url: `${APP}/dashboard/discover` });
   });
 
   it("tells people when their password changes", () => {

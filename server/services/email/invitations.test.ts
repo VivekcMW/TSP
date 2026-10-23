@@ -192,7 +192,7 @@ describe("invitation email rendering", () => {
       primaryCta: { label: "Join", url: `${origin}/sign-up` },
       afterCta: "<p>The Founding Team<br>TheSocialPundit</p>" });
     const { html, text } = m.send.mock.calls[0][0];
-    expect(html).toContain("<p>Hi there,</p>");
+    expect(html).toMatch(/<p[^>]*>Hi there,<\/p>/);
     expect(text).toMatch(/^Hi there,\n\nCome join us\./);
     expect(text).toContain(`Join: ${origin}/sign-up`);
     for (const part of [html, text]) expect(part.match(/The Founding Team/g)).toHaveLength(1);

@@ -1,6 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { users } from "@shared/models/auth";
+import { effectivePlatformRole } from "@shared/admin-access";
 import {
   auditLog,
   tenantMembers,
@@ -102,11 +103,11 @@ export async function resolveTenantContext(
   requestedTenantId?: string,
 ): Promise<TenantContext | null> {
   const [user] = await db
-    .select({ platformRole: users.platformRole })
+    .select({ platformRole: users.platformRole, email: users.email, emailVerified: users.emailVerified })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
-  const platformRole = (user?.platformRole as PlatformRole | null) ?? null;
+  const platformRole = effectivePlatformRole(user);
 
   if (!requestedTenantId) {
     const personal = await ensurePersonalTenant(userId);

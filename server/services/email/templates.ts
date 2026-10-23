@@ -1,6 +1,13 @@
 import { NEWSLETTER_PROMISE } from "@shared/newsletter";
 import { platformLabel } from "@shared/platform-labels";
-import { lightColors, type ColorToken } from "../../../client/src/design/tokens";
+import { invariant, lightColors, type ColorToken } from "../../../client/src/design/tokens";
+import type { Announcement } from "@shared/email-announcements";
+
+// Web fonts are optional in email clients; always keep widely available fallbacks.
+export const emailFonts = {
+  body: invariant["font-sans"].replace("system-ui, sans-serif", "Arial, Helvetica, sans-serif"),
+  heading: invariant["font-heading"].replace("system-ui, sans-serif", "Arial, Helvetica, sans-serif"),
+};
 
 /** Email clients cannot resolve CSS variables (or reliably parse modern HSL).
  * Derive comma-separated RGB literals from the same authored light tokens. */
@@ -111,12 +118,22 @@ export const emailTemplates = {
   }),
   dailyDigest: (articles: Array<{ source: string; headline: string; summary: string; url: string }>): EmailContent => {
     const picked = articles.slice(0, 5).map(article => ({ ...article, headline: withoutSourceSuffix(article.headline, article.source) }));
+    if (!picked.length) {
+      return {
+        subject: "Your daily briefing: no new stories",
+        eyebrow: "Daily digest",
+        preheader: "No new stories to share from the last 48 hours.",
+        html: "<p>No new stories to share from your followed topics, companies and people in the last 48 hours. We won't repeat stories from your earlier briefings.</p><p>You can explore Discover or update your followed topics for your next briefing.</p>",
+        text: "No new stories to share from your followed topics, companies and people in the last 48 hours. We won't repeat stories from your earlier briefings.\n\nYou can explore Discover or update your followed topics for your next briefing.",
+        primaryCta: { label: "Open Discover", url: `${appUrl()}/dashboard/discover` },
+      };
+    }
     return {
       subject: "Your daily industry briefing",
       eyebrow: "Daily digest",
       preheader: picked[0]?.headline,
-      html: `<p>Your top stories today, picked from the topics, companies and people you follow.</p>${picked.map(article => `<article style="border-top:1px solid ${emailColor("border")};padding:16px 0"><p style="margin:0;color:${emailColor("muted-foreground")};font-size:11px;text-transform:uppercase">${escapeHtml(article.source)}</p><h2 style="font-size:18px;margin:7px 0"><a href="${escapeHtml(article.url)}" style="color:${emailColor("primary")};text-decoration:none">${escapeHtml(article.headline)}</a></h2>${article.summary ? `<p style="color:${emailColor("muted-foreground")};line-height:1.5;margin:0">${escapeHtml(article.summary)}</p>` : ""}</article>`).join("")}`,
-      text: ["Your top stories today, picked from the topics, companies and people you follow.",
+      html: `<p>Your latest stories from the last 48 hours, picked from the topics, companies and people you follow.</p>${picked.map(article => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr><td style="border-top:1px solid ${emailColor("border")};padding:${invariant["space-6"]} 0"><p style="margin:0;color:${emailColor("muted-foreground")};font-size:12px;line-height:20px">${escapeHtml(article.source)}</p><h2 style="font-family:${emailFonts.heading};font-size:18px;font-weight:600;line-height:26px;margin:${invariant["space-2"]} 0"><a href="${escapeHtml(article.url)}" style="color:${emailColor("primary")};text-decoration:underline">${escapeHtml(article.headline)}</a></h2>${article.summary ? `<p style="color:${emailColor("muted-foreground")};font-size:14px;line-height:24px;margin:0">${escapeHtml(article.summary)}</p>` : ""}</td></tr></table>`).join("")}`,
+      text: ["Your latest stories from the last 48 hours, picked from the topics, companies and people you follow.",
         ...picked.map(article => `${article.source}: ${article.headline}\n${article.url}${article.summary ? `\n${article.summary}` : ""}`)].join("\n\n"),
       primaryCta: { label: "Open Discover", url: `${appUrl()}/dashboard/discover` },
     };
@@ -141,7 +158,7 @@ export const emailTemplates = {
       subject,
       eyebrow: "Your weekly nudge",
       preheader: "Pick one and we'll draft it in your voice in under a minute.",
-      html: `<p>Quiet week on your feeds, busy week in ${where}. ${picked.length === 1 ? "One story" : `${picked.length === 3 ? "Three" : "Two"} stories`} picked up while you were heads-down:</p>${picked.map(story => `<div style="border-top:1px solid ${emailColor("border")};padding:14px 0"><p style="margin:0 0 4px;font-weight:700;color:${emailColor("foreground")}">${escapeHtml(story.headline)}</p><p style="margin:0;font-size:13px;color:${emailColor("muted-foreground")}">${escapeHtml(story.source)} · <a href="${escapeHtml(createFrom(story.url))}" style="color:${emailColor("primary")};font-weight:700">Write about this →</a></p></div>`).join("")}<p>One thoughtful post a week keeps you in the conversation your peers are having. Pick one, and Pundit drafts it in your voice. You just add your take.</p>`,
+      html: `<p>Quiet week on your feeds, busy week in ${where}. ${picked.length === 1 ? "One story" : `${picked.length === 3 ? "Three" : "Two"} stories`} picked up while you were heads-down:</p>${picked.map(story => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr><td style="border-top:1px solid ${emailColor("border")};padding:${invariant["space-4"]} 0"><h2 style="font-family:${emailFonts.heading};font-size:16px;line-height:24px;margin:0 0 ${invariant["space-1"]};font-weight:600;color:${emailColor("foreground")}">${escapeHtml(story.headline)}</h2><p style="margin:0;font-size:13px;line-height:22px;color:${emailColor("muted-foreground")}">${escapeHtml(story.source)} · <a href="${escapeHtml(createFrom(story.url))}" style="color:${emailColor("primary")};font-weight:600;text-decoration:underline">Write about this →</a></p></td></tr></table>`).join("")}<p>One thoughtful post a week keeps you in the conversation your peers are having. Pick one, and Pundit drafts it in your voice. You just add your take.</p>`,
       text: [`Quiet week on your feeds, busy week in ${topics.length ? joinTopics(topics.slice(0, 2)) : "your industry"}. These stories picked up while you were heads-down:`,
         ...picked.map(story => `${story.headline} (${story.source})\nWrite about this: ${createFrom(story.url)}`),
         "One thoughtful post a week keeps you in the conversation your peers are having. Pick one, and Pundit drafts it in your voice. You just add your take."].join("\n\n"),
@@ -175,6 +192,26 @@ export const emailTemplates = {
   productUpdate: (title: string, body: string, url: string): EmailContent => ({
     subject: title, eyebrow: "Product update", html: `<p>${escapeHtml(body)}</p>`, primaryCta: { label: "Explore the update", url },
   }),
+  announcement: (content: Announcement): EmailContent => ({
+    subject: content.title,
+    eyebrow: { product_update: "Product update", maintenance: "Maintenance notice", incident: "Incident notice" }[content.type],
+    preheader: content.body.slice(0, 160),
+    html: content.body.split(/\n\s*\n/).map(paragraph => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`).join(""),
+    text: content.body,
+    primaryCta: { label: content.actionLabel, url: content.actionUrl },
+  }),
+  weeklySummary: (summary: { workspace: string; weekStart: string; weekEnd: string; articles: number; drafts: number; published: number }): EmailContent => {
+    const period = `${longDate(new Date(`${summary.weekStart}T00:00:00Z`))} – ${longDate(new Date(`${summary.weekEnd}T00:00:00Z`))}`;
+    const rows = [["Articles discovered", summary.articles], ["Drafts created", summary.drafts], ["Confirmed published posts", summary.published]] as const;
+    return {
+      subject: `Your weekly summary · ${summary.workspace}`,
+      eyebrow: "Weekly summary",
+      preheader: `${summary.articles} articles discovered, ${summary.drafts} drafts created and ${summary.published} posts published.`,
+      html: `<p>Your activity in <strong>${escapeHtml(summary.workspace)}</strong> for ${escapeHtml(period)}.</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows.map(([label, value]) => `<tr><td style="padding:12px 0;border-bottom:1px solid ${emailColor("border")};color:${emailColor("muted-foreground")}">${label}</td><td align="right" style="padding:12px 0;border-bottom:1px solid ${emailColor("border")};font-weight:600">${value}</td></tr>`).join("")}</table><p style="margin-top:24px">Explore Discover and plan your next post when you're ready.</p>`,
+      text: `Your activity in ${summary.workspace} for ${period}.\n\n${rows.map(([label, value]) => `${label}: ${value}`).join("\n")}`,
+      primaryCta: { label: "Open workspace", url: `${appUrl()}/dashboard` },
+    };
+  },
   teamInvitation: ({ inviterName, tenantName, role, acceptUrl }: { inviterName: string; tenantName: string; role: string; acceptUrl: string }): EmailContent => ({
     subject: `${inviterName} invited you to join ${tenantName} on TheSocialPundit`,
     eyebrow: "Team invitation",

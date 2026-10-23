@@ -1,7 +1,7 @@
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
-  LayoutDashboard, Building2, Users, ScrollText, Activity, Flag, Plug, ArrowLeft,
+  LayoutDashboard, Building2, Users, ScrollText, Activity, Flag, Plug, ArrowLeft, Mail, Search,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useIsSignedIn } from "@/lib/dev-auth";
@@ -20,17 +20,21 @@ import {
 } from "@/components/ui/sidebar";
 
 const adminNav = [
-  { title: "Overview", url: "/admin", icon: LayoutDashboard },
+  { title: "Command Center", url: "/admin", icon: LayoutDashboard },
+  { title: "Platform Search", url: "/admin/search", icon: Search },
   { title: "Tenants", url: "/admin/tenants", icon: Building2 },
   { title: "Users", url: "/admin/users", icon: Users },
   { title: "Integrations", url: "/admin/integrations", icon: Plug },
   { title: "Audit Log", url: "/admin/audit-log", icon: ScrollText },
   { title: "Pipeline", url: "/admin/engine-runs", icon: Activity },
   { title: "Monitoring", url: "/admin/monitoring", icon: Activity },
+  { title: "Operations", url: "/admin/operations", icon: Activity },
   { title: "Feature Flags", url: "/admin/feature-flags", icon: Flag },
+  { title: "Email Announcements", url: "/admin/email-announcements", icon: Mail },
+  { title: "Email Deliveries", url: "/admin/email-deliveries", icon: Mail },
 ];
 
-const adminOnlyTitles = new Set(["Integrations", "Pipeline", "Feature Flags"]);
+const adminOnlyTitles = new Set(["Integrations", "Pipeline", "Feature Flags", "Email Announcements", "Operations"]);
 
 // Same collapsible icon-rail sidebar as the tenant app's AppSidebar, but with
 // the cross-tenant admin nav instead — kept as a separate component (rather
@@ -62,7 +66,7 @@ export function AdminSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {adminNav.filter((item) => dbUser?.platformRole === "platform_admin" || !adminOnlyTitles.has(item.title)).map((item) => {
-                const isActive = location === item.url;
+                const isActive = location === item.url || (item.url !== "/admin" && location.startsWith(`${item.url}/`));
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton

@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const PAGE_TITLES: Record<string, string> = {
-  "/admin": "Overview",
+  "/admin": "Command Center",
   "/admin/tenants": "Tenants",
   "/admin/users": "Users",
   "/admin/integrations": "Integrations",
@@ -23,6 +23,10 @@ const PAGE_TITLES: Record<string, string> = {
   "/admin/engine-runs": "Pipeline",
   "/admin/feature-flags": "Feature Flags",
   "/admin/monitoring": "Monitoring",
+  "/admin/email-announcements": "Email Announcements",
+  "/admin/email-deliveries": "Email Deliveries",
+  "/admin/operations": "Operations",
+  "/admin/search": "Platform Search",
 };
 
 // Same shape as the tenant app's DashboardNavbar, branded for the admin
@@ -47,7 +51,7 @@ export function AdminNavbar() {
     ? `${firstName[0]}${lastName[0]}`
     : primaryEmail?.[0]?.toUpperCase() || "U";
 
-  const pageTitle = PAGE_TITLES[location] ?? "Overview";
+  const pageTitle = PAGE_TITLES[location] ?? (location.startsWith("/admin/tenants/") ? "Tenant 360" : location.startsWith("/admin/users/") ? "Account investigation" : "Admin");
 
   return (
     <header className="flex items-center justify-between gap-4 px-3 py-2.5 border-b bg-card text-card-foreground sticky top-0 z-10">

@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ checkout: vi.fn(), verify: vi.fn(), cancel: vi.fn(), webhook: vi.fn(), readBillingState: vi.fn(), readEntitlementState: vi.fn(), plans: vi.fn(), email: vi.fn() }));
+const mocks = vi.hoisted(() => ({ checkout: vi.fn(), verify: vi.fn(), cancel: vi.fn(), webhook: vi.fn(), readBillingState: vi.fn(), readEntitlementState: vi.fn(), plans: vi.fn(), email: vi.fn(), billingEmails: vi.fn() }));
 vi.mock("../db", () => ({ db: { select: () => ({ from: () => ({ where: mocks.plans, then: (resolve: (value: unknown) => unknown, reject: (error: unknown) => unknown) => Promise.resolve().then(() => mocks.plans()).then(resolve, reject) }) }) } }));
 vi.mock("../middlewares/requireDbUser", () => ({
   requireDbUser(req: Request, res: Response, next: NextFunction) {
@@ -16,6 +16,7 @@ vi.mock("../middlewares/requireDbUser", () => ({
 vi.mock("../middlewares/requirePermission", () => ({ requirePermission: () => (req: Request, res: Response, next: NextFunction) => req.headers["x-test-user"] === "owner" ? next() : res.status(403).json({ message: "Forbidden" }) }));
 vi.mock("../services/billing-repository", () => ({ billingRepository: mocks, readBillingState: mocks.readBillingState, readEntitlementState: mocks.readEntitlementState }));
 vi.mock("../services/email", () => ({ sendAppEmail: mocks.email, emailTemplates: { paymentSucceeded: () => ({}), subscriptionCancelled: () => ({}) } }));
+vi.mock("../services/email/billing-notifications", () => ({ runBillingNotificationBatch: mocks.billingEmails }));
 import { registerBillingRoutes } from "./billing";
 import { BillingError } from "../services/billing-lifecycle";
 import { requireEntitlement } from "../middlewares/requireEntitlement";
@@ -43,6 +44,15 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("billing HTTP security", () => {
+  it("dispatches a validated failure outbox entry but still acknowledges billing if email infrastructure fails", async () => {
+    const body = JSON.stringify({ event: "payment.failed", payload: { payment: { entity: { id: "pay_1", order_id: "order_1", email: "evil@example.test" } } } });
+    mocks.webhook.mockResolvedValue({ duplicate: false, failureNotificationId: "notification" });
+    mocks.billingEmails.mockRejectedValue(new Error("transport unavailable"));
+    const result = await request(app()).post("/api/webhooks/razorpay").set("x-razorpay-signature", signature(body)).send(body).set("Content-Type", "application/json").expect(200);
+    expect(mocks.billingEmails).toHaveBeenCalledWith(undefined, undefined, "notification");
+    expect(result.body).toEqual({ received: true, duplicate: false });
+    expect(result.text).not.toContain("notification");
+  });
   it("serves only safe public catalog fields without authentication", async () => {
     mocks.plans.mockResolvedValue([{ id: "catalog", key: "pro_monthly", name: "Catalog plan", amount: 7311, currency: "INR", interval: "monthly", features: ["Catalog feature"], razorpayPlanId: "private_provider_plan", isActive: true, listed: true }]);
     const result = await request(app()).get("/api/public/billing/plans").expect(200);

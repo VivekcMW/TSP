@@ -62,6 +62,50 @@ for local iteration, run `npx drizzle-kit push` directly and re-apply
 | `0026_search_query_planning.sql` | Adds checked `search_edition` (text, non-null `en-US`) and server-owned `search_query_state` (JSONB object, non-null `{}`) to profiles. |
 | `0027_inbox_refresh_contract.sql` | Adds canonical inbox identity, mutation versions, a nonunique scoped index and durable refresh receipts under FORCE RLS. |
 | `0038_repair_legacy_keyword_wrappers.sql` | Forward-only repair of exact recoverable 0022 nested keyword objects; preserves zero/category/original metadata and fails on ambiguous data. Applied only in the isolated acceptance rehearsal. |
+| `0055_recent_email_digest.sql` | Adds delivery-scoped digest article identities and a scoped history index. Apply before deploying the recent/unemailed 48-hour digest; legacy delivery receipts cannot reconstruct article history. |
+| `0056_email_communications.sql` | Adds immutable announcement campaigns, snapshotted recipients and the payment-failure outbox with indexes/runtime grants. Apply before deploying the communication scheduler and updated billing reconciliation. |
+| `0057_admin_operations.sql` | Adds durable incidents, FORCE-RLS quota grants/AI observations, owned/expiring targeted flags and immutable flag history, plus delivery search indexes. |
+| `0058_admin_rollups.sql` | Adds metadata-only tenant count snapshots and restricted runtime read/upsert grants. |
+
+### Email communications (0055/0056)
+
+Apply both additive migrations before deploying this email version, using the
+authorized migration-owner workflow. Both are now applied to the verified
+loopback development database only; no remote migration is implied.
+Do not enable new
+senders on an old schema.
+
+`EMAIL_WEEKLY_SUMMARY_ENABLED` and `EMAIL_ANNOUNCEMENTS_ENABLED` default false.
+The production scheduler gates are also required for automatic dispatch and
+essential payment-outbox recovery. Announcement confirmation requires its flag
+on the API process as well as the worker. Payment-failure outbox creation and the
+immediate post-commit attempt are not controlled by these optional flags.
+See the [notification contract](../docs/notifications-media-contract.md#weekly-summaries-announcements-and-payment-failure-bindings)
+for consent, scheduling, admin confirmation and unknown-outcome handling.
+
+### Admin operations (0057/0058)
+
+Both migrations are applied only to `localhost:5433/thesocialpundit_dev`.
+Existing ledger gaps 0050, 0052 and 0053 remain deliberately unreconciled;
+the explicit `onlyFile` selections do not validate or repair those gaps.
+Missing feedback storage is surfaced as unavailable by workspace insights.
+Do not edit these applied migrations or silently apply historical gaps.
+
+Fresh-chain acceptance replayed all 58 migrations into a randomly named,
+disposable loopback `_test` database, then verified real restricted-role RLS,
+quota admission/idempotency, feature history/revisions, incident persistence,
+scoped AI observations/insights, and 100-tenant rollups. The wrapper
+`pnpm exec tsx scripts/verify-admin-roadmap.ts` cleans up only its exact generated
+database. It requires matching loopback `_dev` owner/application source targets
+and local create/drop-database privileges; it never uses development rows as
+fixtures. Its authentication is stubbed, while permissions/audit/SQL are real.
+
+Apply the additive schema with the approved owner workflow before deployment.
+`ADMIN_OPERATIONS_ENABLED`, `ADMIN_ROLLUPS_ENABLED` and `AI_OBSERVATIONS_ENABLED`
+default false. The first two also require production scheduler gates.
+See the [admin operating runbook](../docs/design-system.md#advanced-admin-controls-and-operating-runbook)
+for scope, thresholds, safe recovery, expiry semantics and acceptance boundaries.
+No production/remote application or live provider acceptance was performed.
 
 ### Publication resolution (0023)
 

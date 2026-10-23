@@ -44,6 +44,7 @@ beforeAll(async () => {
     "./email": `export const sendAppEmail = async email => {
       globalThis.__outbox.push(email); return { messageId: "captured-not-sent" };
     };
+    export { emailTemplates } from "./server/services/email/templates";
     export const sendVerificationEmail = ${blocked("verification delivery")};
     export const sendPasswordResetEmail = ${blocked("reset delivery")};`,
   };
@@ -62,7 +63,7 @@ beforeAll(async () => {
           return { path: path.join(root, "shared", `${args.path.slice("@shared/".length)}.ts`) };
         }
       });
-      builder.onLoad({ filter: /.*/, namespace: "email-style-mock" }, args => ({ contents: stubs[args.path], loader: "js" }));
+      builder.onLoad({ filter: /.*/, namespace: "email-style-mock" }, args => ({ contents: stubs[args.path], loader: "js", resolveDir: root }));
     } }],
   });
   const module = { exports: {} };
@@ -104,12 +105,19 @@ const cases: { name: string; content: (templates: Templates) => EmailContent }[]
   { name: "published post", content: t => t.postPublished("linkedin") },
   { name: "failed post", content: t => t.postFailed("twitter", "Connection unavailable.") },
   { name: "digest", content: t => t.dailyDigest([{ ...story, summary: "The saved summary." }]) },
+  { name: "empty digest", content: t => t.dailyDigest([]) },
   { name: "weekly reminder", content: t => t.reminderWeekly({ firstName: "Ada", topics: ["Research"], stories: [story], variant: 0 }) },
   { name: "empty weekly reminder", content: t => t.reminderWeekly({ firstName: null, topics: [], stories: [], variant: 1 }) },
   { name: "single reminder", content: t => t.reminderSingle({ story, platform: "linkedin" }) },
   { name: "empty single reminder", content: t => t.reminderSingle({ story: null, platform: "twitter" }) },
   { name: "check-in", content: t => t.reminderCheckIn({ firstName: "Ada" }) },
   { name: "product update", content: t => t.productUpdate("An update", "A product improvement.", `${origin}/update`) },
+  { name: "team invitation", content: t => t.teamInvitation({ inviterName: "Ada", tenantName: "Research", role: "editor", acceptUrl: `${origin}/team?token=fixture` }) },
+  { name: "weekly summary", content: t => t.weeklySummary({ workspace: "Research", weekStart: "2026-10-19", weekEnd: "2026-10-25", articles: 12, drafts: 4, published: 2 }) },
+  ...(["product_update", "maintenance", "incident"] as const).map(type => ({
+    name: `${type} announcement`,
+    content: (t: Templates) => t.announcement({ type, title: "An update", body: "An important update for your workspace.", actionLabel: "Read update", actionUrl: `${origin}/update` }),
+  })),
 ];
 
 describe("Ink/Cobalt email rendering (transport and DB imports fully mocked)", () => {
@@ -130,8 +138,9 @@ describe("Ink/Cobalt email rendering (transport and DB imports fully mocked)", (
     const html = render(email);
     const color = rendering.emailColor;
     expectEmailSafeStyles(html);
-    expect(html).toContain(`<header style="background:${color("card")};color:${color("card-foreground")};`);
-    expect(html).toContain(`border-bottom:3px solid ${color("primary")}`);
+    expect(html).toContain(`background:${color("card")};color:${color("card-foreground")};`);
+    expect(html).toContain(`border-bottom:1px solid ${color("border")}`);
+    expect(html).not.toContain("border-bottom:3px");
     expect(html).toContain(`background:${color("primary")};color:${color("primary-foreground")};`);
     expect(html).toContain(email.html);
     if (email.afterCta) expect(html).toContain(email.afterCta);
@@ -147,7 +156,7 @@ describe("Ink/Cobalt email rendering (transport and DB imports fully mocked)", (
   it("uses a neutral secondary CTA without losing its label, target or outline", () => {
     const html = render(rendering.emailTemplates.reminderCheckIn({ firstName: null }));
     const color = rendering.emailColor;
-    expect(html).toContain(`border:1px solid ${color("input")};background:${color("card")};color:${color("card-foreground")};`);
+    expect(html).toContain(`border:1px solid ${color("input")};background:${color("secondary")};color:${color("secondary-foreground")};`);
     expect(html).toContain("Pause for a month</a>");
     expect(html).toContain("?tab=notifications&amp;pause=reminders");
   });
@@ -175,24 +184,55 @@ describe("Ink/Cobalt email rendering (transport and DB imports fully mocked)", (
     expect(render({ subject: "Semantic colors", eyebrow: "Status", html })).toContain(html);
   });
 
-  it("renders the legacy welcome body through mocked lookup/capture only, retaining its content and links", async () => {
+  it("routes the compatibility welcome sender through the shared content and wrapper without nested documents", async () => {
     const result = await rendering.sendWelcomeEmail("reader@example.test", "Ada <Reader>", "technology_saas");
     expect(result).toEqual({ success: true, messageId: "captured-not-sent" });
     expect(lookups).toEqual(["mock recipient lookup"]);
     expect(outbox).toHaveLength(1);
     const email = outbox[0];
-    expect(email).toMatchObject({ type: "welcome", userId: "fixture-user", recipient: "reader@example.test", dedupeKey: "welcome:fixture-user", subject: "Welcome to TheSocialPundit - Your Voice, Amplified" });
+    expect(email).toMatchObject({ type: "welcome", userId: "fixture-user", recipient: "reader@example.test", recipientName: "Ada <Reader>",
+      dedupeKey: "welcome:fixture-user", ...rendering.emailTemplates.welcome("Technology & SaaS") });
     expectEmailSafeStyles(email.html);
-    const color = rendering.emailColor;
-    expect(email.html).toContain(`background: ${color("card")}; color: ${color("card-foreground")};`);
-    expect(email.html).toContain(`background: ${color("primary")}; color: ${color("primary-foreground")};`);
-    expect(email.html).toContain(`background: ${color("accent")};`);
-    expect(email.html).toContain(`fill="${color("accent-foreground")}"`);
-    expect(email.html).toContain("Welcome aboard, Ada &lt;Reader&gt;!");
-    expect(email.html).toContain("Your Voice in Tech & SaaS");
-    expect(email.html).toContain("Start Building Your Authority");
-    expect(email.html).toContain(`href="${origin}/dashboard"`);
-    expect(email.html).toContain(`href="${origin}/dashboard/settings?tab=notifications"`);
-    expectEmailSafeStyles(rendering.wrapEmail(email));
+    expect(email.html).not.toMatch(/<!doctype|<html|<head|<body/i);
+    const html = rendering.wrapEmail(email);
+    expect(html.match(/<!doctype html>/gi)).toHaveLength(1);
+    expect(html).toContain("Hi Ada &lt;Reader&gt;,");
+    expect(html).toContain(`href="${origin}/onboarding"`);
+    expectEmailSafeStyles(html);
+  });
+
+  it("uses token typography, geometry, readable spacing and a responsive table shell", () => {
+    const html = render(rendering.emailTemplates.welcome(null));
+    expect(html).toContain('lang="en"');
+    expect(html).toContain('name="color-scheme" content="light"');
+    expect(html).toContain("font-family:Inter, Arial, Helvetica, sans-serif");
+    expect(html).toContain("font-family:Poppins, Arial, Helvetica, sans-serif");
+    expect(html).toContain("border-radius:6px");
+    expect(html).not.toMatch(/border-radius:(?:8|10|12)px/);
+    expect(html).toContain("max-width:600px");
+    expect(html).toContain('role="presentation"');
+    expect(html).toContain('<!--[if mso]><table role="presentation" width="600"');
+    expect(html).toContain("@media only screen and (max-width:480px)");
+    expect(html).toContain("padding:12px 24px");
+    expect(html).toContain("line-height:20px");
+    expect(html).toContain('<h1 class="email-title"');
+    expect(html.indexOf("</head>")).toBeLessThan(html.indexOf('aria-hidden="true"'));
+    expect(html).not.toMatch(/<script|<svg|<iframe|@import|url\(/i);
+  });
+
+  it("escapes the visible title, preview text and CTA labels while preserving their destinations", () => {
+    const html = render({
+      subject: 'An update <script>alert("subject")</script>',
+      eyebrow: "<b>Status</b>",
+      preheader: "<img src=x>",
+      html: "<p>Existing trusted template content.</p>",
+      primaryCta: { label: "<b>Open</b>", url: `${origin}/open?a=1&b=2` },
+    });
+    expect(html).not.toMatch(/<script|<img|<b>/);
+    expect(html).toContain("<title>An update &lt;script&gt;alert(&quot;subject&quot;)&lt;/script&gt;</title>");
+    expect(html).toContain("&lt;img src=x&gt;");
+    expect(html).toContain("&lt;b&gt;Status&lt;/b&gt;");
+    expect(html).toContain("&lt;b&gt;Open&lt;/b&gt;</a>");
+    expect(html).toContain(`href="${origin}/open?a=1&amp;b=2"`);
   });
 });
