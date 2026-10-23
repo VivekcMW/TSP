@@ -1,26 +1,43 @@
+import { lazy, Suspense, type ReactNode } from "react";
 import { Route, Switch } from "wouter";
 
 import LandingPage from "@/pages/landing";
-import PricingPage from "@/pages/pricing";
-import HowItWorksPage from "@/pages/how-it-works";
-import IndustriesPage from "@/pages/industries";
-import BlogPage from "@/pages/blog";
-import BlogPostPage from "@/pages/blog-post";
-import ResourcesPage from "@/pages/resources";
-import AboutPage from "@/pages/about";
-import ContactPage from "@/pages/contact";
-import PrivacyPolicyPage from "@/pages/privacy";
-import TermsOfServicePage from "@/pages/terms";
-import RefundPolicyPage from "@/pages/refund-policy";
-import SubscriptionCancellationPage from "@/pages/subscription-cancellation";
-import DataRetentionPage from "@/pages/data-retention";
-import AIDataProcessingPage from "@/pages/ai-data-processing";
-import CookiePolicyPage from "@/pages/cookies";
-import EmailPreferencesPage from "@/pages/email-preferences";
-import CaseStudiesPage from "@/pages/case-studies";
-import CareersPage from "@/pages/careers";
 import NotFound from "@/pages/not-found";
 import { ResetPasswordPage } from "@/pages/auth";
+import { LoadingScreen } from "@/components/loading-screen";
+import { PrerenderHandoff } from "@/lib/prerender";
+import { AnalyticsPage } from "@/components/analytics-page";
+
+const PricingPage = lazy(() => import("@/pages/pricing"));
+const HowItWorksPage = lazy(() => import("@/pages/how-it-works"));
+const BlogPage = lazy(() => import("@/pages/blog"));
+const BlogPostPage = lazy(() => import("@/pages/blog-post"));
+const AboutPage = lazy(() => import("@/pages/about"));
+const ContactPage = lazy(() => import("@/pages/contact"));
+const PrivacyPolicyPage = lazy(() => import("@/pages/privacy"));
+const TermsOfServicePage = lazy(() => import("@/pages/terms"));
+const RefundPolicyPage = lazy(() => import("@/pages/refund-policy"));
+const SubscriptionCancellationPage = lazy(() => import("@/pages/subscription-cancellation"));
+const DataRetentionPage = lazy(() => import("@/pages/data-retention"));
+const AIDataProcessingPage = lazy(() => import("@/pages/ai-data-processing"));
+const CookiePolicyPage = lazy(() => import("@/pages/cookies"));
+const EmailPreferencesPage = lazy(() => import("@/pages/email-preferences"));
+const InvitationPreferencesPage = lazy(() => import("@/pages/invitation-preferences"));
+const NewsletterPage = lazy(() => import("@/pages/newsletter"));
+const CaseStudiesPage = lazy(() => import("@/pages/case-studies"));
+const CareersPage = lazy(() => import("@/pages/careers"));
+const UseCasesPage = lazy(() => import("@/pages/use-cases"));
+const UseCasePage = lazy(() => import("@/pages/use-case"));
+const SitemapPage = lazy(() => import("@/pages/sitemap"));
+const AudienceHubPage = lazy(() => import("@/pages/audience-hub"));
+const AudiencePage = lazy(() => import("@/pages/audience"));
+const CompareHubPage = lazy(() => import("@/pages/compare-hub"));
+const ComparePage = lazy(() => import("@/pages/compare"));
+const LinkedInPostToolPage = lazy(() => import("@/pages/linkedin-post-generator"));
+const LinkedInHookToolPage = lazy(() => import("@/pages/linkedin-hook-generator"));
+const LinkedInHashtagToolPage = lazy(() => import("@/pages/linkedin-hashtag-generator"));
+const LinkedInFormatterToolPage = lazy(() => import("@/pages/linkedin-post-formatter"));
+const FreeToolsPage = lazy(() => import("@/pages/free-tools"));
 
 /**
  * The marketing site. Reachable signed in or signed out, so this list lived in
@@ -30,16 +47,28 @@ import { ResetPasswordPage } from "@/pages/auth";
  * the gate decides *whether* to render this tree, this component decides which
  * page within it.
  */
-export function PublicRoutes({ signInRoutes }: { signInRoutes?: React.ReactNode }) {
+export function PublicRoutes({ signInRoutes, location }: { signInRoutes?: ReactNode; location?: string }) {
   return (
-    <Switch>
+    <Suspense fallback={<LoadingScreen />}>
+    <Switch location={location}>
       <Route path="/" component={LandingPage} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/how-it-works" component={HowItWorksPage} />
-      <Route path="/industries" component={IndustriesPage} />
+      <Route path="/use-cases" component={UseCasesPage} />
+      <Route path="/use-cases/:slug" component={UseCasePage} />
+      <Route path="/roles"><AudienceHubPage kind="roles" /></Route>
+      <Route path="/roles/:slug">{params => <AudiencePage kind="roles" slug={params.slug} />}</Route>
+      <Route path="/industries"><AudienceHubPage kind="industries" /></Route>
+      <Route path="/industries/:slug">{params => <AudiencePage kind="industries" slug={params.slug} />}</Route>
+      <Route path="/compare" component={CompareHubPage} />
+      <Route path="/compare/:slug">{params => <ComparePage slug={params.slug} />}</Route>
+      <Route path="/tools" component={FreeToolsPage} />
+      <Route path="/tools/linkedin-post-generator" component={LinkedInPostToolPage} />
+      <Route path="/tools/linkedin-hook-generator" component={LinkedInHookToolPage} />
+      <Route path="/tools/linkedin-hashtag-generator" component={LinkedInHashtagToolPage} />
+      <Route path="/tools/linkedin-post-formatter" component={LinkedInFormatterToolPage} />
       <Route path="/blog" component={BlogPage} />
       <Route path="/blog/:slug" component={BlogPostPage} />
-      <Route path="/resources" component={ResourcesPage} />
       <Route path="/about" component={AboutPage} />
       <Route path="/contact" component={ContactPage} />
       <Route path="/privacy" component={PrivacyPolicyPage} />
@@ -50,11 +79,18 @@ export function PublicRoutes({ signInRoutes }: { signInRoutes?: React.ReactNode 
       <Route path="/ai-data-processing" component={AIDataProcessingPage} />
       <Route path="/cookies" component={CookiePolicyPage} />
       <Route path="/email-preferences" component={EmailPreferencesPage} />
+      <Route path="/invitation-preferences" component={InvitationPreferencesPage} />
+      <Route path="/newsletter" component={NewsletterPage} />
       <Route path="/case-studies" component={CaseStudiesPage} />
       <Route path="/careers" component={CareersPage} />
+      <Route path="/sitemap" component={SitemapPage} />
       <Route path="/reset-password" component={ResetPasswordPage} />
       {signInRoutes}
       <Route component={NotFound} />
     </Switch>
+    {/* Inside the Suspense boundary: hands off only once the lazy page has actually rendered. */}
+    <PrerenderHandoff />
+    <AnalyticsPage path={location} />
+    </Suspense>
   );
 }

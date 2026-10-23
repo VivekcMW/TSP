@@ -8,6 +8,7 @@ import { decryptStoredCredential } from "../webhookSecrets";
 export interface LinkedInPublishResult {
   success: boolean;
   postId?: string;
+  status?: string;
   error?: string;
 }
 
@@ -28,7 +29,7 @@ export async function publishToLinkedIn(
 ): Promise<LinkedInPublishResult> {
   try {
     if (process.env.PUBLISHING_MODE !== "live") {
-      return { success: true, postId: `sandbox_linkedin_${Date.now()}` };
+      return { success: true, status: "simulated" };
     }
     const account = await storage.getSocialAccountByProvider(scope, "linkedin");
     const connection = assessProviderConnection("linkedin", account);
@@ -41,7 +42,7 @@ export async function publishToLinkedIn(
     const firstImage = await (async () => {
       for (const item of media) {
         const asset = await storage.getMediaAsset(scope, item.id);
-        if (!asset?.contentType.startsWith("image/")) continue;
+        if (!asset?.contentType.startsWith("image/")) throw new Error("Attached image unavailable");
         const initialize = await fetch("https://api.linkedin.com/rest/images?action=initializeUpload", {
           method: "POST",
           headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", "Linkedin-Version": process.env.LINKEDIN_API_VERSION || "202601", "X-Restli-Protocol-Version": "2.0.0" },
@@ -68,8 +69,8 @@ export async function publishToLinkedIn(
 
     return { success: true, postId };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("[publisher:linkedin] Error publishing to LinkedIn:", message);
+    const message = "LinkedIn delivery could not be confirmed";
+    console.error("[publisher:linkedin] Delivery could not be confirmed");
     return {
       success: false,
       error: message,

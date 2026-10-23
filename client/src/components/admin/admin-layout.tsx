@@ -8,6 +8,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 import { AdminNavbar } from "@/components/admin/admin-navbar";
 import { AppFooter } from "@/components/dashboard/app-footer";
+import { effectivePlatformRole } from "@shared/admin-access";
 
 /**
  * Shell for the Super Admin surface, deliberately mirroring the tenant app's
@@ -36,15 +37,18 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!dbUser?.platformRole) {
+  if (!effectivePlatformRole(dbUser)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background px-4">
         <div className="max-w-sm text-center space-y-3">
           <ShieldAlert className="w-10 h-10 text-destructive mx-auto" />
           <h1 className="heading-dashboard text-xl">Staff access only</h1>
           <p className="text-sm text-muted-foreground">
-            This area is restricted to platform staff. If you believe this is a mistake, contact an administrator.
+            Sign in with a verified hello@thesocialpundit.com or marketing@thesocialpundit.com account with a provisioned staff role.
           </p>
+          <Link href="/sign-in" className="inline-flex min-h-11 items-center text-sm text-primary underline">
+            Sign in with an approved account
+          </Link>
           <Link href="/dashboard" className="text-sm text-primary hover:underline inline-flex items-center gap-1" data-testid="link-admin-denied-back">
             <ArrowLeft className="w-3.5 h-3.5" />
             Back to Dashboard
@@ -61,7 +65,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-screen w-full">
+      <div className="flex h-screen w-full" data-clarity-mask="True">
         <AdminSidebar />
         <div className="flex flex-col flex-1 min-w-0">
           <AdminNavbar />
@@ -72,4 +76,3 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     </SidebarProvider>
   );
 }
-

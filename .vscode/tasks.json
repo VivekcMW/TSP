@@ -1,0 +1,34 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run TheSocialPundit locally",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"dev"
+			],
+			"options": {
+				"env": {
+					"DEV_AUTH_BYPASS": "false",
+					"VITE_DEV_AUTH_BYPASS": "false",
+					"BETTER_AUTH_URL": "http://localhost:4300",
+					"APP_URL": "http://localhost:4300"
+				}
+			},
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Sign in to Google Cloud",
+			"type": "shell",
+			"command": "gcloud",
+			"args": [
+				"auth",
+				"login"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}

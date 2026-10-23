@@ -1,8 +1,7 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { Activity, RefreshCw } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Activity } from "lucide-react";
+import { Link } from "wouter";
 import { useIsSignedIn } from "@/lib/dev-auth";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,26 +26,10 @@ interface EngineRun {
 
 export default function AdminEngineRunsPage() {
   const isSignedIn = useIsSignedIn();
-  const { toast } = useToast();
 
   const { data: runs, isLoading, isError, refetch } = useQuery<EngineRun[]>({
     queryKey: ["/api/admin/engine-runs"],
     enabled: !!isSignedIn,
-  });
-
-  const rerunMutation = useMutation({
-    mutationFn: async (run: EngineRun) => {
-      const res = await apiRequest("POST", `/api/admin/engine-runs/${run.id}/rerun`, { tenantId: run.tenantId }, { headers: { "x-tenant-id": run.tenantId, "x-access-reason": "Admin requested a pipeline rerun from the Engine Runs dashboard" } });
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/engine-runs"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/usage"] });
-      toast({ title: data.queued ? "Engine re-run queued" : "Engine re-run complete", description: data.queued ? "The worker will process it shortly." : "Refresh the list to see the new run." });
-    },
-    onError: () => {
-      toast({ title: "Re-run failed", description: "Please try again.", variant: "destructive" });
-    },
   });
 
   return (
@@ -54,7 +37,7 @@ export default function AdminEngineRunsPage() {
       <PageHeader
         icon={Activity}
         title="Pipeline"
-        subtitle="Content-engine runs across every tenant — re-run any past run for its original user"
+        subtitle="Content-engine run history. Recovery is restricted to retained failed discovery jobs with their original identity."
       />
       <main className="flex-1 p-6 overflow-y-auto">
         <Card className="max-w-6xl mx-auto">
@@ -103,16 +86,7 @@ export default function AdminEngineRunsPage() {
                         {run.startedAt ? new Date(run.startedAt).toLocaleString() : "—"}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => rerunMutation.mutate(run)}
-                          disabled={rerunMutation.isPending || !run.userId}
-                          data-testid={`button-rerun-${run.id}`}
-                        >
-                          <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${rerunMutation.isPending ? "animate-spin" : ""}`} />
-                          Re-run
-                        </Button>
+                        <Button variant="outline" size="sm" asChild><Link href="/admin/operations">Inspect recovery</Link></Button>
                       </TableCell>
                     </TableRow>
                   ))}

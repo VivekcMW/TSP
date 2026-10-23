@@ -7,6 +7,7 @@ vi.mock("../lib/redis", () => ({ get redis() { return mocks.enabled ? { hgetall:
 vi.mock("./queue", () => ({ queueOptions: mocks.options }));
 vi.mock("../services/editorial-request", () => ({ executeEditorialRequest: vi.fn() }));
 vi.mock("../services/tenancy", () => ({ resolveTenantContext: vi.fn() }));
+vi.mock("../services/generation-quota", () => ({ assertGenerationAdmission: vi.fn(), generationAccessFailure: () => undefined, generationOperationId: (id: string) => id, runGeneration: vi.fn() }));
 vi.mock("bull", () => ({ default: class {
   constructor(name: string, options: any) {
     mocks.construct(name, options);
@@ -25,6 +26,15 @@ beforeEach(() => {
 afterEach(async () => { await closeEditorialJobs(); vi.unstubAllEnvs(); });
 
 describe("editorial worker initialization", () => {
+  it("keeps the production producer available without starting a candidate worker", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AI_PROVIDER", "gemini");
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "");
+    vi.stubEnv("BACKGROUND_JOBS_ENABLED", "false");
+    expect(initializeEditorialJobs()).toBeDefined();
+    expect(mocks.construct).toHaveBeenCalledOnce();
+    expect(mocks.process).not.toHaveBeenCalled();
+  });
   it("uses the existing full-URL Redis options, disables all Bull replay, and starts once", async () => {
     expect(initializeEditorialJobs()).toBeDefined(); initializeEditorialJobs();
     expect(mocks.options).toHaveBeenCalledWith("rediss://redis.invalid:6380/2");
@@ -48,5 +58,16 @@ describe("editorial worker initialization", () => {
     mocks.enabled = false;
     expect(initializeEditorialJobs()).toBeUndefined();
     expect(mocks.construct).not.toHaveBeenCalled();
+  });
+
+  it("cleans up every connection for a production model/version partition", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AI_PROVIDER", "gemini");
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "");
+    expect(initializeEditorialJobs()).toBeDefined();
+    expect(mocks.construct).toHaveBeenCalledWith(expect.stringMatching(/^editorial_generation-production-[a-f0-9]{12}$/), expect.any(Object));
+    await closeEditorialJobs();
+    expect(mocks.close).toHaveBeenCalledTimes(1);
+    expect(mocks.disconnect).toHaveBeenCalledTimes(3);
   });
 });

@@ -4,21 +4,29 @@ import { z } from "zod";
 import { db } from "../db";
 import { requireDbUser } from "../middlewares/requireDbUser";
 import { requirePermission } from "../middlewares/requirePermission";
-import { storage } from "../storage";
-import { engineRegistry } from "../services/engines/index.js";
-import { normalizeIndustryToSlug } from "../services/metaEngine";
 import * as adminService from "../services/adminService";
-import { featureFlags, insertFeatureFlagSchema, platformIntegrations } from "@shared/schema";
-import { enqueueInboxRefresh, getInboxRefreshQueue } from "../jobs/queue";
+import { adminFlagHistory, featureFlags, insertFeatureFlagSchema, platformIntegrations } from "@shared/schema";
+import { registerEmailAnnouncementRoutes } from "./email-announcements";
+import { registerAdminTenantRoutes } from "./admin-tenants";
+import { registerAdminRecordRoutes } from "./admin-records";
+import { registerAdminOperationRoutes } from "./admin-operations";
+import { flagHistory, mutateFlag } from "../services/admin-flags";
+import { AdminControlConflict } from "../services/admin-quotas";
+import { flagPolicySchema } from "@shared/admin-controls";
+import { clearFeatureFlagCache } from "../services/featureFlags";
 
 const createFlagSchema = insertFeatureFlagSchema.pick({ key: true, description: true, enabled: true }).extend({
   key: z.string().trim().min(2).max(80).regex(/^[a-z0-9][a-z0-9_:-]*$/, "Use lowercase letters, numbers, underscores, colons, or hyphens."),
-});
-const updateFlagSchema = z.object({ enabled: z.boolean() });
-const rerunSchema = z.object({ tenantId: z.string().min(1) });
+  enabled: z.literal(false).default(false),
+}).strict();
+const updateFlagSchema = z.object({ enabled: z.boolean(), revision: z.number().int().positive() }).strict();
 const updateIntegrationSchema = z.object({ enabled: z.boolean(), notes: z.string().max(500).optional() });
 
 export function registerAdminRoutes(app: Express) {
+  registerEmailAnnouncementRoutes(app);
+  registerAdminTenantRoutes(app);
+  registerAdminRecordRoutes(app);
+  registerAdminOperationRoutes(app);
   // --- tenants ---------------------------------------------------------------
   app.get("/api/admin/tenants", requireDbUser, requirePermission("tenant:read:all"), async (_req, res) => {
     try {
@@ -60,6 +68,16 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // --- pipeline / engine runs ------------------------------------------------
+  /** The shared article index: catalogue, discovery, pool and the last crawl cycle. */
+  app.get("/api/admin/index", requireDbUser, requirePermission("pipeline:operate:all"), async (_req, res) => {
+    try {
+      const [{ indexHealth }, { lastPoolCrawl }] = await Promise.all([import("../services/articlePool"), import("../jobs/pool-crawl")]);
+      res.json({ ...await indexHealth(), lastCrawl: lastPoolCrawl });
+    } catch {
+      res.status(500).json({ message: "Index health unavailable" });
+    }
+  });
+
   app.get("/api/admin/engine-runs", requireDbUser, requirePermission("pipeline:operate:all"), async (_req, res) => {
     try {
       res.json(await adminService.listEngineRunsAcrossTenants());
@@ -70,6 +88,7 @@ export function registerAdminRoutes(app: Express) {
   });
 
   app.get("/api/admin/monitoring", requireDbUser, requirePermission("usage:read:all"), async (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
     try {
       res.json(await adminService.getPlatformMonitoring());
     } catch (error) {
@@ -78,53 +97,9 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post("/api/admin/engine-runs/:id/rerun", requireDbUser, requirePermission("pipeline:operate:all"), async (req, res) => {
-    try {
-      const validation = rerunSchema.safeParse(req.body);
-      if (!validation.success) {
-        return res.status(400).json({ message: "tenantId is required" });
-      }
-      const { tenantId } = validation.data;
-
-      if (req.tenant?.tenantId !== tenantId) {
-        return res.status(403).json({ message: "Tenant context does not match rerun target", code: "tenant_context_mismatch" });
-      }
-
-      const run = await adminService.getEngineRunById(req.params.id, tenantId);
-      if (!run?.userId) {
-        return res.status(404).json({ message: "Engine run not found" });
-      }
-
-      const scope = { tenantId, userId: run.userId };
-      const profile = await storage.getUserProfile(scope);
-      if (!profile) {
-        return res.status(404).json({ message: "User profile not found for this run" });
-      }
-
-      if (getInboxRefreshQueue()) {
-        const jobId = await enqueueInboxRefresh({ tenantId, userId: run.userId, manual: true, priority: "high", triggeredBy: "manual" });
-        if (jobId) return res.status(202).json({ queued: true, jobId, tenantId, userId: run.userId });
-      }
-
-      const industry = normalizeIndustryToSlug(run.industry);
-      const engine = engineRegistry.getEngine(industry);
-      const result = await engine.processForUser(scope, profile);
-
-      await storage.createEngineRunLog(scope, {
-        industry,
-        status: result.success ? "success" : "failed",
-        articlesProcessed: result.articlesProcessed,
-        articlesMatched: result.articlesMatched,
-        errorMessage: result.errors?.join("; ") || null,
-        durationMs: result.durationMs,
-        completedAt: new Date(),
-      });
-
-      res.json(result);
-    } catch (error) {
-      console.error("Error re-running engine:", error);
-      res.status(500).json({ message: "Failed to re-run engine" });
-    }
+  app.post("/api/admin/engine-runs/:id/rerun", requireDbUser, requirePermission("pipeline:operate:all"), (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.status(410).json({ code: "unsafe_rerun_retired", message: "Historical runs cannot create new recovery operations. Use Operations to inspect and recover an eligible retained failed discovery job with its original identity." });
   });
 
   // --- feature flags -----------------------------------------------------
@@ -139,12 +114,21 @@ export function registerAdminRoutes(app: Express) {
   });
 
   app.post("/api/admin/feature-flags", requireDbUser, requirePermission("flag:write:all"), async (req, res) => {
+    const reason = req.get("x-access-reason")?.trim();
+    if (!reason) return res.status(400).json({ message: "A flag change reason is required" });
     try {
       const validation = createFlagSchema.safeParse(req.body);
       if (!validation.success) {
         return res.status(400).json({ message: "Invalid request data", errors: validation.error.errors });
       }
-      const [created] = await db.insert(featureFlags).values(validation.data).returning();
+      const created = await db.transaction(async tx => {
+        const [row] = await tx.insert(featureFlags).values({ ...validation.data, enabled: false, owner: req.dbUser!.email,
+          expiresAt: new Date(Date.now() + 30 * 86_400_000) }).returning();
+        if (!row) throw new Error("Flag not created");
+        await tx.insert(adminFlagHistory).values({ flagKey: row.key, actorId: req.dbUser!.id, reason, operation: "create", snapshot: { before: null, after: row } });
+        return row;
+      });
+      clearFeatureFlagCache();
       res.json(created);
     } catch (error: any) {
       if (error?.code === "23505") {
@@ -156,35 +140,58 @@ export function registerAdminRoutes(app: Express) {
   });
 
   app.patch("/api/admin/feature-flags/:id", requireDbUser, requirePermission("flag:write:all"), async (req, res) => {
+    const reason = req.get("x-access-reason")?.trim();
+    if (!reason) return res.status(400).json({ message: "A flag change reason is required" });
     try {
       const validation = updateFlagSchema.safeParse(req.body);
       if (!validation.success) {
         return res.status(400).json({ message: "Invalid request data" });
       }
-      const [updated] = await db
-        .update(featureFlags)
-        .set({ enabled: validation.data.enabled, updatedAt: new Date() })
-        .where(eq(featureFlags.id, req.params.id))
-        .returning();
+      const updated = await mutateFlag(req.params.id, req.dbUser!.id, reason, { operation: "toggle", ...validation.data });
       if (!updated) {
         return res.status(404).json({ message: "Feature flag not found" });
       }
       res.json(updated);
     } catch (error) {
+      if (error instanceof AdminControlConflict) return res.status(409).json({ message: error.message });
       console.error("Error updating feature flag:", error);
       res.status(500).json({ message: "Failed to update feature flag" });
     }
   });
 
   app.delete("/api/admin/feature-flags/:id", requireDbUser, requirePermission("flag:write:all"), async (req, res) => {
+    const reason = req.get("x-access-reason")?.trim();
+    const query = z.object({ revision: z.coerce.number().int().positive() }).strict().safeParse(req.query);
+    if (!reason || !query.success) return res.status(400).json({ message: "Reason and current revision are required. Deletion restores the shipped default." });
     try {
-      const deleted = await db.delete(featureFlags).where(eq(featureFlags.id, req.params.id)).returning({ id: featureFlags.id });
-      if (!deleted.length) return res.status(404).json({ message: "Feature flag not found" });
+      const deleted = await mutateFlag(req.params.id, req.dbUser!.id, reason, { operation: "delete", revision: query.data.revision });
+      if (!deleted) return res.status(404).json({ message: "Feature flag not found" });
       res.json({ message: "Feature flag deleted" });
     } catch (error) {
+      if (error instanceof AdminControlConflict) return res.status(409).json({ message: error.message });
       console.error("Error deleting feature flag:", error);
       res.status(500).json({ message: "Failed to delete feature flag" });
     }
+  });
+  app.patch("/api/admin/feature-flags/:id/policy", requireDbUser, requirePermission("flag:write:all"), async (req, res) => {
+    const reason = req.get("x-access-reason")?.trim();
+    const parsed = flagPolicySchema.safeParse(req.body);
+    if (!reason || !parsed.success) return res.status(400).json({ message: "Valid ownership, expiry, tenant rollout and reason are required" });
+    try {
+      const row = await mutateFlag(req.params.id, req.dbUser!.id, reason, { operation: "policy", policy: parsed.data });
+      if (!row) return res.status(404).json({ message: "Flag not found" });
+      res.json(row);
+    } catch (error) {
+      if (error instanceof AdminControlConflict) return res.status(409).json({ message: error.message });
+      console.error("[admin:flags] Policy update failed"); res.status(503).json({ message: "Flag policy unavailable" });
+    }
+  });
+  app.get("/api/admin/feature-flag-history", requireDbUser, requirePermission("flag:write:all"), async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const parsed = z.object({ key: z.string().min(1).max(80) }).strict().safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ message: "Flag key required" });
+    try { res.json(await flagHistory(parsed.data.key)); }
+    catch { console.error("[admin:flags] History unavailable"); res.status(503).json({ message: "Flag history unavailable" }); }
   });
 
   // --- integration management -----------------------------------------------

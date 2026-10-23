@@ -4,12 +4,17 @@ import { handleInboxRefresh } from "./handlers/inbox-refresh";
 import { handlePublishDraft } from "./handlers/publish-draft";
 import type { InboxRefreshJobData, InboxRefreshJobProgress } from "./queue";
 import type { PublishDraftJobData, PublishDraftJobProgress } from "./handlers/publish-draft";
+import { startWorkerHeartbeat, stopWorkerHeartbeat } from "./worker-health";
 
 /**
  * Register all job handlers.
  * Called on app startup to set up queue event listeners and processors.
  */
 export async function registerJobHandlers(): Promise<void> {
+  if (process.env.BACKGROUND_JOBS_ENABLED === "false") {
+    console.log("[jobs] Queue workers explicitly disabled; producers remain available");
+    return;
+  }
   const inboxQueue = getInboxRefreshQueue();
   const publishQueue = getPublishDraftQueue();
 
@@ -38,12 +43,12 @@ export async function registerJobHandlers(): Promise<void> {
       console.log(`[jobs] Job ${job.id} completed: ${result.articlesCreated} articles created`);
     });
 
-    inboxQueue.on("failed", (job, err) => {
-      console.error(`[jobs] Job ${job.id} failed (attempt ${job.attemptsMade}/${job.opts.attempts}):`, err.message);
+    inboxQueue.on("failed", () => {
+      console.error("[jobs] Inbox refresh attempt failed");
     });
 
-    inboxQueue.on("error", (err) => {
-      console.error("[jobs] Inbox queue error:", err);
+    inboxQueue.on("error", () => {
+      console.error("[jobs] Inbox queue unavailable");
     });
   }
 
@@ -67,18 +72,16 @@ export async function registerJobHandlers(): Promise<void> {
       console.log(`[jobs:publish] Job ${job.id} completed: ${result.platform} - ${result.postId}`);
     });
 
-    publishQueue.on("failed", (job, err) => {
-      console.error(
-        `[jobs:publish] Job ${job.id} failed on ${job.data.platform} (attempt ${job.attemptsMade}/${job.opts.attempts}):`,
-        err.message
-      );
+    publishQueue.on("failed", () => {
+      console.error("[jobs:publish] Publish attempt failed");
     });
 
-    publishQueue.on("error", (err) => {
-      console.error("[jobs:publish] Publish queue error:", err);
+    publishQueue.on("error", () => {
+      console.error("[jobs:publish] Publish queue unavailable");
     });
   }
 
+  await startWorkerHeartbeat([...(inboxQueue ? ["inbox"] : []), ...(publishQueue ? ["publishing"] : [])]);
   console.log("[jobs] Job handlers registered successfully");
 }
 
@@ -86,6 +89,7 @@ export async function registerJobHandlers(): Promise<void> {
  * Cleanup function for graceful shutdown.
  */
 export async function closeJobHandlers(): Promise<void> {
+  await stopWorkerHeartbeat();
   await closeQueues();
   console.log("[jobs] Job queues closed");
 }

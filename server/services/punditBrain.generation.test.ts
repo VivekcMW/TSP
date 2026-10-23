@@ -15,7 +15,7 @@ vi.mock("./openRouter", async importOriginal => ({
   },
 }));
 import { AIGenerationError } from "./openRouter";
-import { generateInstantReview, generatePlatformReviews, generatePostContent } from "./punditBrain";
+import { generateInstantReview, generateMainDraftDetailed, generatePlatformReviews, generatePlatformReviewsDetailed, generatePostContent } from "./punditBrain";
 
 const article = { headline: "Pilot result", summary: "The pilot reduced latency by 12% in a trial of 30 stores.", source: "Research Desk", articleUrl: "https://news.test/pilot" };
 const fetched = { title: article.headline, content: article.summary, source: article.source, url: article.articleUrl };
@@ -23,6 +23,54 @@ const post = "Research Desk reports 12% lower latency in a 30-store trial. https
 
 beforeEach(() => { generateText.mockReset().mockResolvedValue(post); });
 afterEach(() => vi.useRealTimers());
+
+describe("platform-neutral main draft", () => {
+  it("makes one writer call without creating platform posts", async () => {
+    const result = await generateMainDraftDetailed(fetched, { tones: ["industryInsider"] });
+    expect(result.mainDraft?.content).toBe(post);
+    expect(result.posts).toEqual({});
+    expect(result.details).toEqual({});
+    expect(result.mainDraft?.validation.requiresHumanReview).toBe(true);
+    expect(generateText).toHaveBeenCalledTimes(1);
+    expect(generateText.mock.calls[0][1].systemPrompt).toContain("BEFORE choosing any publishing platform");
+    expect(generateText.mock.calls[0][1].systemPrompt).not.toContain("LinkedIn reaction");
+    expect(JSON.parse(generateText.mock.calls[0][0]).article.summary).toBe(article.summary);
+  });
+  it("uses the application limit rather than a social platform limit", async () => {
+    const content = "Research Desk reports a pilot. ".repeat(110) + article.articleUrl;
+    generateText.mockResolvedValue(content);
+    expect((await generateMainDraftDetailed(fetched)).mainDraft?.content).toBe(content);
+  });
+  it("strips invented URLs and restores the article link without a repair", async () => {
+    generateText.mockResolvedValue("Research Desk reports a 12% latency drop. https://invented.test/");
+    const result = await generateMainDraftDetailed(fetched);
+    expect(result.mainDraft?.content).not.toContain("invented.test");
+    expect(result.mainDraft?.content).toContain(article.articleUrl);
+    expect(generateText).toHaveBeenCalledTimes(1);
+  });
+  it("does not generate after cancellation", async () => {
+    const controller = new AbortController(); controller.abort();
+    await expect(generateMainDraftDetailed(fetched, { signal: controller.signal })).rejects.toMatchObject({ code: "ai_cancelled" });
+    expect(generateText).not.toHaveBeenCalled();
+  });
+  it("preserves reviewed intent only in adaptation, leaving legacy reaction requests unchanged", async () => {
+    await generatePlatformReviewsDetailed(fetched, ["linkedin"], { tones: ["thoughtLeader"], adaptReviewedDraft: true });
+    expect(generateText.mock.calls[0][1].systemPrompt).toContain("retaining its intent, qualifications, and opinion");
+    expect(generateText.mock.calls[0][1].systemPrompt).not.toContain("React to a supported point");
+    await generatePlatformReviewsDetailed(fetched, ["linkedin"], { tones: ["thoughtLeader"] });
+    expect(generateText.mock.calls[1][1].systemPrompt).toContain("Write a linkedin post reacting to the supplied article.");
+  });
+  it("sends editing directions and the current document as data, without replacing source evidence", async () => {
+    const draftInstruction = "Shorten the argument while preserving its caveats.";
+    const currentDraft = "My edited document and its caveats.";
+    await generateMainDraftDetailed(fetched, { draftInstruction, currentDraft });
+    const [prompt, options] = generateText.mock.calls[0];
+    expect(JSON.parse(prompt)).toMatchObject({ draftInstruction, currentDraft, article: { summary: article.summary } });
+    expect(options.systemPrompt).not.toContain(draftInstruction);
+    expect(options.systemPrompt).toContain("complete proposed document");
+    expect(options.systemPrompt).not.toContain("React to a supported point");
+  });
+});
 
 describe("grounded post generation", () => {
   it.each(ALL_PLATFORM_KEYS)("includes the actual fetched content for %s", async platform => {
@@ -49,20 +97,20 @@ describe("grounded post generation", () => {
     expect(generateText).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["", "INSUFFICIENT_SOURCE_CONTENT"])("rejects unusable content %j", async output => {
+  it.each([["", "ai_invalid_output"], ["INSUFFICIENT_SOURCE_CONTENT", "ai_insufficient_source"]])("rejects unusable content %j", async (output, code) => {
     generateText.mockResolvedValue(output);
-    await expect(generatePostContent(article, "twitter", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    await expect(generatePostContent(article, "twitter", "professional")).rejects.toMatchObject({ code });
     expect(generateText).toHaveBeenCalledTimes(1);
   });
 
   it("allows exactly one format repair and never returns invalid or canned content", async () => {
-    generateText.mockResolvedValue("Invalid post without attribution or link.");
+    generateText.mockResolvedValue("Invalid post with an invented link: https://elsewhere.test/pilot");
     await expect(generatePostContent(article, "twitter", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
     expect(generateText).toHaveBeenCalledTimes(2);
   });
 
   it("accepts a valid repair without truncating or fabricating text", async () => {
-    generateText.mockResolvedValueOnce("Invalid").mockResolvedValueOnce(post);
+    generateText.mockResolvedValueOnce("x".repeat(281) + " " + post).mockResolvedValueOnce(post);
     expect(await generatePostContent(article, "twitter", "professional")).toBe(post);
     expect(generateText.mock.calls[1][1].systemPrompt).toContain("Correct these format issues");
   });
@@ -77,9 +125,11 @@ describe("grounded post generation", () => {
     expect(JSON.parse(generateText.mock.calls[0][0]).article.articleUrl).toBe(article.articleUrl);
   });
 
-  it("rejects invented URL suffixes, rather than accepting a substring match", async () => {
+  it("strips invented URL suffixes, rather than accepting a substring match", async () => {
     generateText.mockResolvedValue(post + "-invented");
-    await expect(generatePostContent(article, "twitter", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    const content = await generatePostContent(article, "twitter", "professional");
+    expect(content).not.toContain("-invented");
+    expect(content.trimEnd().endsWith(article.articleUrl)).toBe(true);
   });
 
   it("accepts real URLs with parentheses and does not mistake report.com for t.co", async () => {
@@ -89,11 +139,13 @@ describe("grounded post generation", () => {
     await expect(generatePostContent({ ...article, articleUrl: url }, "twitter", "professional")).resolves.toBe(output);
   });
 
-  it("supports manual text without a link but rejects an invented one", async () => {
+  it("supports manual text without a link and strips an invented one", async () => {
     generateText.mockResolvedValueOnce("Research Desk reports 12% lower latency.");
     await expect(generatePostContent({ ...article, articleUrl: "" }, "twitter", "professional")).resolves.toContain("12%");
     generateText.mockResolvedValue(post);
-    await expect(generatePostContent({ ...article, articleUrl: "" }, "twitter", "professional")).rejects.toMatchObject({ code: "ai_invalid_output" });
+    const content = await generatePostContent({ ...article, articleUrl: "" }, "twitter", "professional");
+    expect(content).toContain("12% lower latency");
+    expect(content).not.toContain("https://");
   });
 
   it("does not truncate overlong model text into a seemingly successful post", async () => {
@@ -104,7 +156,7 @@ describe("grounded post generation", () => {
 });
 
 describe("bounded instant reviews", () => {
-  it("aborts the batch at the 60-second deadline without returning partial posts", async () => {
+  it("stops the batch before spending cleanup headroom without returning partial posts", async () => {
     vi.useFakeTimers();
     generateText.mockImplementation((_prompt, options) => new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -117,9 +169,10 @@ describe("bounded instant reviews", () => {
     const outcome = generatePlatformReviews(fetched, ["twitter", "linkedin", "reddit", "medium"]).catch(error => error);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(await outcome).toMatchObject({ code: "ai_timeout" });
-    expect(generateText).toHaveBeenCalledTimes(8);
+    // At 57s only 3s remain: no fourth pair may consume the 5s cleanup reserve.
+    expect(generateText).toHaveBeenCalledTimes(6);
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(generateText).toHaveBeenCalledTimes(8);
+    expect(generateText).toHaveBeenCalledTimes(6);
   });
 
   it("preserves the legacy two-platform, four-tone result shape", async () => {

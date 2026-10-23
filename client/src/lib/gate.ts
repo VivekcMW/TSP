@@ -45,9 +45,11 @@ export const PUBLIC_PATHS = [
   "/",
   "/pricing",
   "/how-it-works",
+  "/use-cases",
+  "/roles",
   "/industries",
+  "/compare",
   "/blog",
-  "/resources",
   "/about",
   "/contact",
   "/privacy",
@@ -58,8 +60,16 @@ export const PUBLIC_PATHS = [
   "/ai-data-processing",
   "/cookies",
   "/email-preferences",
+  "/invitation-preferences",
+  "/newsletter",
   "/case-studies",
   "/careers",
+  "/sitemap",
+  "/tools",
+  "/tools/linkedin-post-generator",
+  "/tools/linkedin-hook-generator",
+  "/tools/linkedin-hashtag-generator",
+  "/tools/linkedin-post-formatter",
   "/verify-email",
   "/reset-password",
 ] as const;
@@ -72,6 +82,10 @@ export function isPublicPath(path: string): boolean {
   return (
     (PUBLIC_PATHS as readonly string[]).includes(path) ||
     path.startsWith("/blog/") ||
+    path.startsWith("/use-cases/") ||
+    path.startsWith("/roles/") ||
+    path.startsWith("/industries/") ||
+    path.startsWith("/compare/") ||
     isAuthGatewayPath(path)
   );
 }

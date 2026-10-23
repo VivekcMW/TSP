@@ -71,6 +71,7 @@ export const PERMISSIONS = {
   "quota:override:all": { tenant: NO_TENANT_ROLE, platform: ADMIN_ONLY, audit: true },
   "impersonate:all": { tenant: NO_TENANT_ROLE, platform: ADMIN_ONLY, audit: true },
   "pipeline:operate:all": { tenant: NO_TENANT_ROLE, platform: ADMIN_ONLY, audit: true },
+  "email:send:all": { tenant: NO_TENANT_ROLE, platform: ADMIN_ONLY, audit: true },
 } as const satisfies Record<string, Grant>;
 
 export type Permission = keyof typeof PERMISSIONS;

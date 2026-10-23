@@ -2,6 +2,9 @@ import { build as esbuild, type BuildOptions } from "esbuild";
 import { rm, readFile } from "fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { precompressAssets } from "../server/precompress";
+import { prerenderPublicPages } from "./prerender";
+import { writeSearchFiles } from "./generate-search-files";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -9,6 +12,8 @@ const allowlist = [
   "nanoid",
   // ESM-only v3 must be bundled: external CJS default interop varies by Node version.
   "node-fetch",
+  // Keep crawler DOM/date parsing self-contained in the compiled artifact.
+  "htmlparser2",
   "@clerk/express",
   "@google/genai",
   "cors",
@@ -52,9 +57,16 @@ export async function serverBuildOptions(): Promise<BuildOptions> {
 
 async function buildAll() {
   await rm("dist", { recursive: true, force: true });
+  await writeSearchFiles();
   console.log("building client...");
   const { build: viteBuild } = await import("vite");
   await viteBuild();
+  console.log("prerendering public pages...");
+  const prerendered = await prerenderPublicPages();
+  console.log(`prerendered ${prerendered} public pages`);
+  // The whole public folder: hashed assets plus root files such as sitemap.xml.
+  const compressed = precompressAssets(resolve("dist/public"));
+  console.log(`compressed ${compressed} client files (brotli + gzip)`);
   console.log("building server...");
   await esbuild(await serverBuildOptions());
 }

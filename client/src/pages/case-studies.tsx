@@ -32,17 +32,17 @@ export default function CaseStudiesPage() {
                 exactly how the product works.
               </p>
               <div className="flex flex-wrap items-center justify-center gap-4">
-                <Link href="/how-it-works" data-testid="link-case-studies-how-it-works">
-                  <Button variant="outline" size="lg">
+                <Button asChild variant="outline" size="lg">
+                  <Link href="/how-it-works" data-testid="link-case-studies-how-it-works">
                     See How It Works
-                  </Button>
-                </Link>
-                <Link href="/sign-up" data-testid="link-case-studies-signup">
-                  <Button size="lg">
+                  </Link>
+                </Button>
+                <Button asChild size="lg">
+                  <Link href="/sign-up" data-testid="link-case-studies-signup">
                     <Sparkles className="w-4 h-4 mr-2" />
                     Start Free Today
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             </Reveal>
           </div>

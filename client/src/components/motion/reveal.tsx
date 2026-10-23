@@ -32,17 +32,25 @@ export function Reveal({ children, variants = fadeUp, className, delay = 0 }: Re
   );
 }
 
+interface StaggerProps {
+  children: ReactNode;
+  className?: string;
+  /** Forwarded so an animated wrapper can still carry the element's test hook. */
+  "data-testid"?: string;
+}
+
 // Wraps a group of `StaggerItem` children so they cascade in one after another.
-export function StaggerGroup({ children, className }: { children: ReactNode; className?: string }) {
+export function StaggerGroup({ children, className, "data-testid": testId }: StaggerProps) {
   const shouldReduceMotion = useReducedMotion();
 
   if (shouldReduceMotion) {
-    return <div className={className}>{children}</div>;
+    return <div className={className} data-testid={testId}>{children}</div>;
   }
 
   return (
     <motion.div
       className={className}
+      data-testid={testId}
       initial="hidden"
       whileInView="visible"
       viewport={{ once: true, margin: "-80px" }}
@@ -53,9 +61,9 @@ export function StaggerGroup({ children, className }: { children: ReactNode; cla
   );
 }
 
-export function StaggerItem({ children, className }: { children: ReactNode; className?: string }) {
+export function StaggerItem({ children, className, "data-testid": testId }: StaggerProps) {
   return (
-    <motion.div className={className} variants={staggerItem}>
+    <motion.div className={className} data-testid={testId} variants={staggerItem}>
       {children}
     </motion.div>
   );

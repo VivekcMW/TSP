@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { requireLocalTestDatabase } from "../test/database-safety";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { sql } from "drizzle-orm";
 import { db, pool } from "./db";
 import { ownerDb, ownerPool } from "../test/db-owner";
@@ -7,17 +8,22 @@ import { users, tenants, tenantMembers } from "@shared/schema";
 import { storage, type TenantScope } from "./storage";
 import { aggregateScheduleStatus } from "./jobs/schedule-state";
 
-// Defense in depth: this file never writes to anything but local port-5433 test DBs.
-for (const value of [process.env.DATABASE_URL, process.env.OWNER_TEST_DATABASE_URL]) {
-  const url = new URL(value!);
-  if (!["localhost", "127.0.0.1"].includes(url.hostname) || url.port !== "5433" || url.pathname !== "/thesocialpundit_test") throw new Error("Scheduling tests require isolated local thesocialpundit_test:5433");
-}
+// This suite proves real PostgreSQL fencing/RLS, not entitlement/provider policy.
+// Policy itself is covered separately with explicitly mocked boundary tests.
+vi.mock("./services/publishing-policy", async importOriginal => ({
+  ...await importOriginal<typeof import("./services/publishing-policy")>(),
+  assertPublishingPolicy: vi.fn().mockResolvedValue(undefined),
+}));
+
+// Defense in depth: only explicit matching local test targets, never dev/prod.
+requireLocalTestDatabase();
 const prefix = `schedule-test-${randomUUID()}`;
 const a: TenantScope = { tenantId: `${prefix}-tenant`, userId: `${prefix}-a` };
 const coworker: TenantScope = { tenantId: a.tenantId, userId: `${prefix}-b` };
 const other: TenantScope = { tenantId: `${prefix}-other`, userId: a.userId };
 
 beforeAll(async () => {
+  vi.stubEnv("PUBLISHING_MODE", "live");
   const role = await db.execute(sql`select current_user, rolsuper, rolbypassrls from pg_roles where rolname = current_user`);
   expect(role.rows[0]).toMatchObject({ current_user: "tsp_app", rolsuper: false, rolbypassrls: false });
   await ownerDb.insert(users).values([{ id: a.userId, email: `${a.userId}@example.test` }, { id: coworker.userId, email: `${coworker.userId}@example.test` }]);
@@ -34,6 +40,7 @@ afterAll(async () => {
   await ownerDb.execute(sql`delete from tenants where id in (${a.tenantId}, ${other.tenantId})`);
   await ownerDb.execute(sql`delete from users where id in (${a.userId}, ${coworker.userId})`);
   await pool.end(); await ownerPool.end();
+  vi.unstubAllEnvs();
 });
 
 async function fixture(platforms = ["linkedin", "twitter"]) {
@@ -41,9 +48,13 @@ async function fixture(platforms = ["linkedin", "twitter"]) {
   const schedule = await storage.scheduleDraftPublish(a, draft.id, new Date(Date.now() - 1000), platforms);
   const targets = await storage.getDraftScheduleTargets(a, schedule.id);
   const data = (index: number) => ({ ...a, draftId: draft.id, draftScheduleId: schedule.id, draftScheduleTargetId: targets[index].id, platform: targets[index].platform, publishAt: schedule.scheduledPublishAt });
-  const finish = (index: number, status: "published" | "failed" | "unknown") => storage.finishPublishTarget(a, targets[index].id, status, {
-    draftId: draft.id, platform: targets[index].platform, status, publishedPostId: status === "published" ? "provider-post" : null, errorMessage: status === "published" ? null : "test failure",
-  });
+  const finish = async (index: number, status: "published" | "failed" | "unknown") => {
+    const current = (await storage.getDraftScheduleTargets(a, schedule.id)).find(target => target.id === targets[index].id)!;
+    return storage.finishPublishTarget(a, targets[index].id, status, {
+      draftId: draft.id, platform: targets[index].platform, status, claimToken: current.claimToken, executionMode: current.executionMode,
+      receiptKind: status === "published" ? "provider_id" : "none", publishedPostId: status === "published" ? "provider-post" : null, errorMessage: status === "published" ? null : "test failure",
+    });
+  };
   return { draft, schedule, targets, data, finish };
 }
 
@@ -57,6 +68,95 @@ describe("aggregate schedule outcomes", () => {
 });
 
 describe("transactional scheduling and RLS", () => {
+  it("correlates live receipts to each draft before paginating without changing stored history", async () => {
+    const live = await fixture();
+    for (const index of [0, 1]) {
+      expect(await storage.claimPublishTarget(a, live.data(index))).toBeDefined();
+      expect(await live.finish(index, "published")).toBe(true);
+    }
+    const emptySchedule = await fixture(["linkedin"]);
+    await ownerDb.execute(sql`delete from draft_schedule_targets where draft_schedule_id = ${emptySchedule.schedule.id}`);
+    const noSchedule = await storage.createDraft(a, { platform: "linkedin", tone: "professional", content: "No receipt" });
+    const ready = await storage.createDraft(a, { platform: "linkedin", tone: "professional", content: "Untouched" });
+    const ids = [live.draft.id, emptySchedule.draft.id, noSchedule.id, ready.id];
+    for (const [index, id] of ids.entries()) {
+      await ownerDb.execute(sql`update drafts set updated_at = ${new Date(Date.UTC(2100, 0, 4 - index))},
+        publish_status = ${index === 3 ? "draft" : "published"}, published_at = ${index === 3 ? null : new Date(0)} where id = ${id}`);
+    }
+      const storedLive = await storage.getDraft(a, live.draft.id);
+      const storedLegacy = await storage.getDraft(a, noSchedule.id);
+      expect(storedLive?.publishedAt).toBeInstanceOf(Date);
+      expect(storedLegacy?.publishedAt).toBeInstanceOf(Date);
+    const first = await storage.getDrafts(a, { limit: 2 });
+    const second = await storage.getDrafts(a, { limit: 2, offset: 2 });
+    expect([...first, ...second].map(row => [row.id, row.publishStatus])).toEqual([
+      [live.draft.id, "published"], [emptySchedule.draft.id, "legacy_unverified"],
+      [noSchedule.id, "legacy_unverified"], [ready.id, "draft"],
+    ]);
+    expect(first[0].publishedAt).toEqual(storedLive!.publishedAt);
+    expect(first[1].publishedAt).toBeNull();
+    expect(second[0].publishedAt).toBeNull();
+    expect(await storage.getDraft(a, noSchedule.id)).toEqual(storedLegacy);
+    for (const scope of [coworker, other]) expect(await storage.getDrafts(scope)).toEqual([]);
+  });
+  it.each([
+    { label: "non-published sibling", status: "failed", mode: "live", kind: "provider_id", postId: "provider-post" },
+    { label: "missing mode", status: "published", mode: null, kind: "provider_id", postId: "provider-post" },
+    { label: "sandbox mode", status: "published", mode: "sandbox", kind: "provider_id", postId: "provider-post" },
+    { label: "manual receipt", status: "published", mode: "live", kind: "manual", postId: "provider-post" },
+    { label: "missing receipt kind", status: "published", mode: "live", kind: null, postId: "provider-post" },
+    { label: "missing provider ID", status: "published", mode: "live", kind: "provider_id", postId: null },
+    { label: "blank provider ID", status: "published", mode: "live", kind: "provider_id", postId: "   " },
+    { label: "synthetic provider ID", status: "published", mode: "live", kind: "provider_id", postId: "SaNdBoX_fake" },
+  ])("does not let a live sibling hide $label in draft lists", async ({ status, mode, kind, postId }) => {
+    const f = await fixture();
+    await storage.claimPublishTarget(a, f.data(0));
+    await f.finish(0, "published");
+    await ownerDb.execute(sql`update draft_schedule_targets set status = ${status}, execution_mode = ${mode},
+      receipt_kind = ${kind}, provider_post_id = ${postId} where id = ${f.targets[1].id}`);
+    await ownerDb.execute(sql`update drafts set publish_status = 'published', published_at = now() where id = ${f.draft.id}`);
+    expect((await storage.getDrafts(a)).find(row => row.id === f.draft.id))
+      .toMatchObject({ publishStatus: "legacy_unverified", publishedAt: null });
+    expect((await storage.getDraft(a, f.draft.id))?.publishStatus).toBe("published");
+  });
+  it("does not count legacy success flags as live receipts or rewrite their history", async () => {
+    const f = await fixture(["linkedin"]);
+    await ownerDb.execute(sql`update drafts set publish_status = 'published', published_at = now() where id = ${f.draft.id}`);
+    await ownerDb.execute(sql`update draft_schedules set status = 'published' where id = ${f.schedule.id}`);
+    await ownerDb.execute(sql`update draft_schedule_targets set status = 'published', execution_mode = null where draft_schedule_id = ${f.schedule.id}`);
+    expect((await storage.getDrafts(a)).find(draft => draft.id === f.draft.id)).toMatchObject({ publishStatus: "legacy_unverified", publishedAt: null });
+    expect((await storage.getDraftPublishStatus(a, f.draft.id))?.schedule?.status).toBe("legacy_unverified");
+    expect((await storage.getScheduledDraftsByStatus(a, "published")).some(schedule => schedule.id === f.schedule.id)).toBe(false);
+    expect((await storage.getDraft(a, f.draft.id))?.publishStatus).toBe("published");
+    await expect(storage.scheduleDraftPublish(a, f.draft.id, new Date())).rejects.toThrow("already published");
+  });
+  it("audits one concurrent reconciliation winner and fences the old worker", async () => {
+    const f = await fixture(["linkedin"]);
+    const claimed = await storage.claimPublishTarget(a, f.data(0));
+    await f.finish(0, "unknown");
+    const [target] = await storage.getDraftScheduleTargets(a, f.schedule.id);
+    const decision = { expectedRevision: target.revision, decision: "not_delivered" as const, note: "Operator checked provider and stopped worker", workerStopped: true };
+    for (const scope of [coworker, other]) expect(await storage.reconcilePublishTarget(scope, f.draft.id, target.id, decision)).toBeUndefined();
+    const results = await Promise.allSettled([storage.reconcilePublishTarget(a, f.draft.id, target.id, decision), storage.reconcilePublishTarget(a, f.draft.id, target.id, decision)]);
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(await storage.finishPublishTarget(a, target.id, "published", { draftId: f.draft.id, platform: target.platform, status: "published", claimToken: claimed!.publishClaim.token, executionMode: "live", receiptKind: "provider_id", publishedPostId: "late-receipt" })).toBe(false);
+    const logs = await storage.getPublishLogs(a, f.draft.id);
+    expect(logs.filter(log => log.evidence)).toHaveLength(1);
+    expect(logs.find(log => log.evidence)).toMatchObject({ actorUserId: a.userId, receiptKind: "manual", evidence: { previousStatus: "unknown", previousRevision: target.revision } });
+    expect(await storage.getPublishLogs(coworker, f.draft.id)).toEqual([]);
+  });
+  it("preserves manual receipts through cancellation and forbids replay", async () => {
+    const f = await fixture(["linkedin"]);
+    await storage.claimPublishTarget(a, f.data(0)); await f.finish(0, "unknown");
+    const [target] = await storage.getDraftScheduleTargets(a, f.schedule.id);
+    await storage.reconcilePublishTarget(a, f.draft.id, target.id, { expectedRevision: target.revision, decision: "delivered", note: "Operator inspected matching provider post", receipt: "post-123", workerStopped: true });
+    await expect(storage.cancelDraftScheduleTarget(a, f.draft.id, target.id)).rejects.toThrow();
+    await storage.cancelDraftSchedule(a, f.draft.id);
+    expect((await storage.getDraftSchedule(a, f.draft.id))?.status).toBe("manual_published");
+    expect((await storage.getDraft(a, f.draft.id))?.publishedAt).toBeNull();
+    await expect(storage.scheduleDraftPublish(a, f.draft.id, new Date())).rejects.toThrow("Copy");
+    await expect(storage.retryDraftScheduleTargets(a, f.draft.id)).rejects.toThrow();
+  });
   it("returns an owned schedule snapshot and distinguishes no schedule from no access", async () => {
     const draft = await storage.createDraft(a, { platform: "linkedin", tone: "professional", content: "Unscheduled" });
     expect(await storage.getDraftPublishStatus(a, draft.id)).toEqual({ schedule: null });

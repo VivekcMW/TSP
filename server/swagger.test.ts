@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 import { setupSwagger } from "./swagger";
@@ -26,5 +26,20 @@ describe("swagger setup", () => {
       nullable: true,
       allOf: [{ $ref: "#/components/schemas/DraftPublishStatusSchedule" }],
     });
+  });
+
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it("does not publish the API docs in production unless explicitly enabled", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const hidden = express();
+    setupSwagger(hidden);
+    await request(hidden).get("/api-docs.json").expect(404);
+    await request(hidden).get("/api-docs").expect(404);
+
+    vi.stubEnv("API_DOCS_ENABLED", "true");
+    const enabled = express();
+    setupSwagger(enabled);
+    await request(enabled).get("/api-docs.json").expect(200);
   });
 });

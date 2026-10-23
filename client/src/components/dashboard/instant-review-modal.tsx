@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { PLATFORMS, getPlatformMeta } from "@/lib/platforms";
+import { track } from "@/lib/analytics-consent";
 
 interface InstantReviewResult {
   article: {
@@ -80,22 +81,30 @@ function PostCard({
   };
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(getFullContent());
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(getFullContent());
+      track("content_copied", { platform, surface: "instant_review" });
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast({ title: "Copy failed", description: "Copy the text manually. Nothing was published.", variant: "destructive" });
+    }
   };
 
   const handlePostNow = async () => {
     const full = getFullContent();
+    let copied = false;
     try {
       await navigator.clipboard.writeText(full);
+      copied = true;
+      track("content_copied", { platform, surface: "instant_review" });
     } catch {
-      // non-fatal
+      toast({ title: "Copy failed", description: "Copy the text manually before publishing.", variant: "destructive" });
     }
 
     const meta = getPlatformMeta(platform);
     window.open(meta.composeUrl(full, articleUrl), "_blank");
-    toast({ title: `Opening ${meta.label}`, description: "Your post is copied and ready to paste into the composer." });
+    toast({ title: `Opening ${meta.label}`, description: copied ? "Your post is copied and ready to paste into the composer." : "Copy your post manually before publishing in the composer." });
   };
 
   const removeHashtag = (tag: string) => {

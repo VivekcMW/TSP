@@ -1,9 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Exercise the real SDK serialization/errors/retry settings with mock HTTP only.
+// Exercise real SDK serialization/errors/retry settings with mock HTTP and deterministic jitter.
+const retryJitter = vi.hoisted(() => vi.fn(() => 250));
+vi.mock("node:crypto", async importOriginal => ({
+  ...await importOriginal<typeof import("node:crypto")>(),
+  randomInt: retryJitter,
+}));
 vi.mock("../lib/redis", () => ({ redis: undefined }));
 let ai: typeof import("./openRouter");
 const http = vi.fn();
+const operationIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const json = (body: unknown, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 const message = (overrides = {}) => json({
   id: "test-message", type: "message", role: "assistant", model: "claude-sonnet-5",
@@ -16,6 +22,7 @@ const errorResponse = (status: number, details?: object, headers = {}) => json({
 beforeEach(async () => {
   vi.resetModules();
   http.mockReset();
+  retryJitter.mockReset().mockReturnValue(250);
   vi.stubGlobal("fetch", http);
   for (const key of ["AI_PROVIDER", "AI_FALLBACK_PROVIDER", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "AI_TENANT_REQUEST_BUDGET", "AI_TENANT_BUDGET_WINDOW_SECONDS", "AI_SHARED_MAX_CONCURRENT_REQUESTS", "AI_INTEGRATIONS_GEMINI_API_KEY", "AI_INTEGRATIONS_GEMINI_BASE_URL", "OPENROUTER_MODEL", "GEMINI_MODEL", "OPENAI_API_KEY", "OPENAI_MODEL"]) vi.stubEnv(key, "");
   vi.stubEnv("CLAUDE_API_KEY", "claude-unit-test-only");
@@ -93,12 +100,24 @@ describe("Claude-primary provider contract", () => {
     expect(await ai.generateText("article")).toBe("Post");
   });
 
-  it.each([400, 401, 402, 403, 404, 408, 413, 422, 429, 500, 504, 529])("never retries HTTP %s by default or leaks provider bodies", async status => {
+  it.each([400, 401, 402, 403, 404, 408, 413, 422, 429, 500, 502, 504, 529])("never retries HTTP %s by default or leaks provider bodies", async status => {
     http.mockResolvedValue(errorResponse(status));
     const result = await ai.generateText("article").catch(ai.getAIErrorResponse);
     expect(result).toHaveProperty("body.code");
     expect(JSON.stringify(result)).not.toContain("private-provider-details");
     expect(http).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries explicit HTTP 503 exactly once without leaking provider bodies", async () => {
+    vi.useFakeTimers();
+    http.mockImplementation(() => errorResponse(503));
+    const pending = ai.generateText("article").catch(ai.getAIErrorResponse);
+    await vi.advanceTimersByTimeAsync(1_250);
+    const result = await pending;
+    expect(result).toMatchObject({ body: { code: "ai_unavailable" } });
+    expect(JSON.stringify(result)).not.toContain("private-provider-details");
+    expect(http).toHaveBeenCalledTimes(2);
+    expect(retryJitter).toHaveBeenCalledExactlyOnceWith(0, 251);
   });
 
   it("honors transient Retry-After without claiming quota exhaustion", async () => {
@@ -154,25 +173,74 @@ describe("Claude-primary provider contract", () => {
     expect(http).toHaveBeenCalledTimes(1);
   });
 
-  it.each([401, 402, 429, 500, 529])("uses exactly one explicit fallback for HTTP %s", async status => {
+  it.each([401, 402, 403, 429])("uses exactly one explicit fallback for HTTP %s", async status => {
     vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
     http.mockResolvedValueOnce(errorResponse(status)).mockResolvedValueOnce(legacy());
     expect(await ai.generateTextWithMetadata("article")).toEqual({ text: "Fallback post", provider: "openrouter", model: "legacy-model", usage: { inputTokens: 20, outputTokens: 8 }, fallbackUsed: true });
     expect(http).toHaveBeenCalledTimes(2);
+    expect(retryJitter).not.toHaveBeenCalled();
+  });
+
+  it.each([408, 500, 502, 504, 529])("never retries or falls back after ambiguous HTTP %s", async status => {
+    vi.useFakeTimers();
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
+    http.mockImplementation(() => errorResponse(status));
+    const pending = ai.generateText("article").catch(ai.getAIErrorResponse);
+    await vi.advanceTimersByTimeAsync(1_250);
+    const result = await pending;
+    expect(result).toMatchObject({ body: { code: status === 408 || status === 504 ? "ai_timeout" : "ai_unavailable" } });
+    expect(JSON.stringify(result)).not.toMatch(/private-provider-details|unit-test-only/);
+    expect(http).toHaveBeenCalledTimes(1);
+    expect(retryJitter).not.toHaveBeenCalled();
+  });
+
+  it.each(["anthropic", "gemini", "openrouter", "openai"])("never retries or falls back after an ambiguous %s network failure", async provider => {
+    vi.useFakeTimers();
+    vi.stubEnv("AI_PROVIDER", provider);
+    vi.stubEnv("AI_FALLBACK_PROVIDER", provider === "openrouter" ? "claude" : "openrouter");
+    http.mockRejectedValue(new TypeError("private-provider-details Bearer router-unit-test-only"));
+    const pending = ai.generateText("article").catch(ai.getAIErrorResponse);
+    await vi.advanceTimersByTimeAsync(1_250);
+    const result = await pending;
+    expect(result).toMatchObject({ body: { code: "ai_unavailable" } });
+    expect(JSON.stringify(result)).not.toMatch(/private-provider-details|unit-test-only/);
+    expect(http).toHaveBeenCalledTimes(1);
+    expect(retryJitter).not.toHaveBeenCalled();
+  });
+
+  it("retries explicit HTTP 503 once, then uses exactly one explicit fallback", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
+    http.mockResolvedValueOnce(errorResponse(503)).mockResolvedValueOnce(errorResponse(503)).mockResolvedValueOnce(legacy());
+    const pending = ai.generateTextWithMetadata("article");
+    await vi.advanceTimersByTimeAsync(1_250);
+    expect(await pending).toEqual({ text: "Fallback post", provider: "openrouter", model: "legacy-model", usage: { inputTokens: 20, outputTokens: 8 }, fallbackUsed: true });
+    expect(http).toHaveBeenCalledTimes(3);
+    expect(retryJitter).toHaveBeenCalledExactlyOnceWith(0, 251);
   });
 
   it("does not recursively fall back if both providers fail", async () => {
+    vi.useFakeTimers();
     vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
-    http.mockImplementation(() => errorResponse(500));
-    await expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_unavailable" });
-    expect(http).toHaveBeenCalledTimes(2);
+    http.mockImplementation(() => errorResponse(503));
+    const settled = expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_unavailable" });
+    await vi.advanceTimersByTimeAsync(1_250);
+    await settled;
+    // One explicit-503 retry of the primary, then a single, non-retried fallback call.
+    expect(http).toHaveBeenCalledTimes(3);
+    expect(retryJitter).toHaveBeenCalledExactlyOnceWith(0, 251);
   });
 
   it("does not retry a provider via its alias", async () => {
+    vi.useFakeTimers();
     vi.stubEnv("AI_FALLBACK_PROVIDER", "claude");
-    http.mockResolvedValue(errorResponse(500));
-    await expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_unavailable" });
-    expect(http).toHaveBeenCalledTimes(1);
+    http.mockImplementation(() => errorResponse(503));
+    const settled = expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_unavailable" });
+    await vi.advanceTimersByTimeAsync(1_250);
+    await settled;
+    // Only the explicit-503 retry: the alias never becomes a second "fallback" call.
+    expect(http).toHaveBeenCalledTimes(2);
+    expect(retryJitter).toHaveBeenCalledExactlyOnceWith(0, 251);
   });
 
   it("fails closed for unknown provider or missing credentials", async () => {
@@ -210,12 +278,16 @@ describe("Claude-primary provider contract", () => {
   it("shares one deadline with fallback and does not retry after timeout", async () => {
     vi.useFakeTimers();
     vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
-    http.mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve(errorResponse(500)), 15_000)))
+    http.mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve(errorResponse(401)), 15_000)))
       .mockImplementation((_url, options) => new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(new Error("abort")), { once: true })));
     const result = ai.generateText("article").catch(ai.getAIErrorResponse);
-    await vi.advanceTimersByTimeAsync(ai.AI_REQUEST_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(ai.AI_REQUEST_TIMEOUT_MS + 1_250);
     expect(await result).toMatchObject({ body: { code: "ai_timeout" } });
     expect(http).toHaveBeenCalledTimes(2);
+    expect(http.mock.calls.map(([url]) => String(url))).toEqual([
+      "https://api.anthropic.com/v1/messages", "https://provider.invalid/api/v1/chat/completions",
+    ]);
+    expect(retryJitter).not.toHaveBeenCalled();
   });
 
   it("enforces tenant budgets across providers without fallback bypass", async () => {
@@ -255,7 +327,7 @@ describe("Claude-primary provider contract", () => {
   it("falls back to Claude only when explicitly configured from a legacy provider", async () => {
     vi.stubEnv("AI_PROVIDER", "openrouter");
     vi.stubEnv("AI_FALLBACK_PROVIDER", "claude");
-    http.mockResolvedValueOnce(errorResponse(500)).mockResolvedValueOnce(message());
+    http.mockResolvedValueOnce(errorResponse(401)).mockResolvedValueOnce(message());
     expect(await ai.generateTextWithMetadata("article")).toMatchObject({ provider: "anthropic", fallbackUsed: true });
     expect(http).toHaveBeenCalledTimes(2);
   });
@@ -283,5 +355,116 @@ describe("Claude-primary provider contract", () => {
     http.mockResolvedValue(message());
     await ai.generateText("article");
     expect(log).not.toHaveBeenCalled();
+  });
+});
+describe("provider safety (Gemini primary)", () => {
+  const gemini = () => json({ modelVersion: "gemini-test-model", usageMetadata: { promptTokenCount: 9, candidatesTokenCount: 4 }, candidates: [{ finishReason: "STOP", content: { parts: [{ text: "Gemini post" }] } }] });
+  const geminiCalls = () => http.mock.calls.filter(([url]) => String(url).includes("generativelanguage.googleapis.com")).length;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubEnv("AI_PROVIDER", "gemini");
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "");
+    vi.stubEnv("GEMINI_MODEL", "gemini-test-model");
+    vi.stubEnv("OPENROUTER_MODEL", "router-test-model");
+  });
+
+  it.each([0, 250])("retries explicit HTTP 503 once after 1s plus %sms jitter before any fallback", async jitter => {
+    retryJitter.mockReturnValue(jitter);
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
+    http.mockResolvedValueOnce(errorResponse(503)).mockResolvedValueOnce(gemini());
+    const pending = ai.generateTextWithMetadata("article");
+    await vi.advanceTimersByTimeAsync(999 + jitter);
+    expect(http).toHaveBeenCalledTimes(1);
+    expect(retryJitter).toHaveBeenCalledExactlyOnceWith(0, 251);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await pending).toEqual({ text: "Gemini post", provider: "gemini", model: "gemini-test-model", usage: { inputTokens: 9, outputTokens: 4 }, fallbackUsed: false });
+    expect(geminiCalls()).toBe(2);
+    expect(http).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([408, 500, 502, 504, 529])("never retries or falls back after ambiguous HTTP %s", async status => {
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
+    http.mockImplementation(() => errorResponse(status));
+    const pending = ai.generateText("article").catch(ai.getAIErrorResponse);
+    await vi.advanceTimersByTimeAsync(1_250);
+    const result = await pending;
+    expect(result).toMatchObject({ body: { code: status === 408 || status === 504 ? "ai_timeout" : "ai_unavailable" } });
+    expect(JSON.stringify(result)).not.toMatch(/private-provider-details|unit-test-only/);
+    expect(geminiCalls()).toBe(1);
+    expect(http).toHaveBeenCalledTimes(1);
+    expect(retryJitter).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 402, 429, 503])("keeps production-style fallback blank after HTTP %s even with other provider keys present", async status => {
+    http.mockImplementation(() => errorResponse(status));
+    const pending = ai.generateText("article").catch(ai.getAIErrorResponse);
+    await vi.advanceTimersByTimeAsync(1_250);
+    expect(await pending).toMatchObject({ body: { code: status === 401 ? "ai_configuration" : status === 503 ? "ai_unavailable" : "ai_quota" } });
+    const attempts = status === 503 ? 2 : 1;
+    expect(geminiCalls()).toBe(attempts);
+    expect(http).toHaveBeenCalledTimes(attempts);
+    expect(retryJitter).toHaveBeenCalledTimes(status === 503 ? 1 : 0);
+  });
+
+  it("reports the primary's failure, not an unfunded fallback's quota error", async () => {
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
+    http.mockResolvedValueOnce(errorResponse(503)).mockResolvedValueOnce(errorResponse(503)).mockResolvedValueOnce(errorResponse(402));
+    const settled = expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_unavailable" });
+    await vi.advanceTimersByTimeAsync(1_250);
+    await settled;
+    expect(geminiCalls()).toBe(2);
+    expect(http).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([401, 402, 403, 429])("uses configured generic-provider fallback without retrying HTTP %s", async status => {
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
+    http.mockResolvedValueOnce(errorResponse(status)).mockResolvedValueOnce(legacy());
+    expect(await ai.generateTextWithMetadata("article")).toMatchObject({ provider: "openrouter", fallbackUsed: true });
+    expect(geminiCalls()).toBe(1);
+    expect(http).toHaveBeenCalledTimes(2);
+    expect(retryJitter).not.toHaveBeenCalled();
+  });
+
+  it("does not retry or fall back after the shared deadline and logs only safe timeout metadata", async () => {
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    http.mockImplementation((_url, options) => new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason))));
+    const settled = expect(ai.generateText("article")).rejects.toMatchObject({ code: "ai_timeout" });
+    await vi.advanceTimersByTimeAsync(ai.AI_REQUEST_TIMEOUT_MS + 1_250);
+    await settled;
+    expect(geminiCalls()).toBe(1);
+    expect(http).toHaveBeenCalledTimes(1);
+    expect(retryJitter).not.toHaveBeenCalled();
+    expect(warn.mock.calls).toEqual([["[ai-provider-failure]", expect.any(String)]]);
+    expect(JSON.parse(warn.mock.calls[0][1])).toStrictEqual({
+      provider: "gemini", model: "gemini-test-model", code: "ai_timeout", status: null, retryAfterSeconds: null,
+      operationId: expect.stringMatching(operationIdPattern), jobId: null, stage: "provider",
+      elapsedMs: ai.AI_REQUEST_TIMEOUT_MS, budgetMs: ai.AI_REQUEST_TIMEOUT_MS, attempt: 1, timeoutOrigin: "operation_deadline",
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/private-provider-details|unit-test-only|article/);
+  });
+
+  it("logs every provider failure with allowlisted metadata only", async () => {
+    vi.stubEnv("AI_FALLBACK_PROVIDER", "openrouter");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    http.mockResolvedValueOnce(errorResponse(503)).mockResolvedValueOnce(errorResponse(503)).mockResolvedValueOnce(errorResponse(402));
+    const settled = expect(ai.generateText("article", { systemPrompt: "private-system-prompt", scope: { tenantId: "private-tenant-scope" } })).rejects.toMatchObject({ code: "ai_unavailable" });
+    await vi.advanceTimersByTimeAsync(1_250);
+    await settled;
+    expect(geminiCalls()).toBe(2);
+    expect(http).toHaveBeenCalledTimes(3);
+    expect(warn.mock.calls).toEqual(Array.from({ length: 3 }, () => ["[ai-provider-failure]", expect.any(String)]));
+    const failures = warn.mock.calls.map(([, body]) => JSON.parse(body));
+    const operationId = failures[0].operationId;
+    expect(operationId).toEqual(expect.stringMatching(operationIdPattern));
+    expect(failures).toStrictEqual([
+      { provider: "gemini", model: "gemini-test-model", code: "ai_unavailable", status: 503, retryAfterSeconds: null,
+        operationId, jobId: null, stage: "provider", elapsedMs: 0, budgetMs: ai.AI_REQUEST_TIMEOUT_MS, attempt: 1, timeoutOrigin: null },
+      { provider: "gemini", model: "gemini-test-model", code: "ai_unavailable", status: 503, retryAfterSeconds: null,
+        operationId, jobId: null, stage: "provider", elapsedMs: 1_250, budgetMs: ai.AI_REQUEST_TIMEOUT_MS - 1_250, attempt: 2, timeoutOrigin: null },
+      { provider: "openrouter", model: "router-test-model", code: "ai_quota", status: 402, retryAfterSeconds: 60,
+        operationId, jobId: null, stage: "provider", elapsedMs: 1_250, budgetMs: ai.AI_REQUEST_TIMEOUT_MS - 1_250, attempt: 3, timeoutOrigin: null },
+    ]);
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/private-provider-details|unit-test-only|article|private-system-prompt|private-tenant-scope/);
   });
 });

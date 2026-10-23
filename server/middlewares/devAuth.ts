@@ -51,8 +51,7 @@ let cachedUser: User | undefined;
 /**
  * Returns the seeded local user, creating it on first use.
  *
- * Onboarding is marked as not-started so the dev user goes through the
- * profile setup flow for testing purposes.
+ * New profiles start onboarding; existing setup survives server restarts.
  */
 export async function resolveDevUser(): Promise<User> {
   if (cachedUser) {
@@ -92,9 +91,9 @@ export async function resolveDevUser(): Promise<User> {
   console.log("[devAuth] Existing profile:", existingProfile?.onboardingStatus);
 
   if (!existingProfile) {
-    console.log("[devAuth] Creating new profile with not-started status");
+    console.log("[devAuth] Creating new development profile");
     await storage.createUserProfile(scope, {
-      onboardingStatus: "not-started",
+      onboardingStatus: process.env.DEV_AUTH_SEED_ONBOARDING_COMPLETED === "true" ? "completed" : "not-started",
       focusDescription: "Seeded local development profile.",
       publications: [],
       keywords: [
@@ -104,11 +103,6 @@ export async function resolveDevUser(): Promise<User> {
       ],
       influencers: [],
       companies: [],
-    });
-  } else if (existingProfile.onboardingStatus !== "not-started") {
-    console.log("[devAuth] Updating existing profile to not-started status");
-    await storage.updateUserProfile(scope, {
-      onboardingStatus: "not-started",
     });
   }
 

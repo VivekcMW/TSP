@@ -1,15 +1,19 @@
 import fetch, { type Headers } from "node-fetch";
-import { Agent as HttpAgent } from "node:http";
-import { Agent as HttpsAgent } from "node:https";
-import type { LookupFunction } from "node:net";
+import type { Agent as HttpAgent } from "node:http";
 import { Readable } from "node:stream";
-import { resolvePublicHttpUrl } from "./urlValidator.js";
+import type { SourceFailure } from "@shared/editorial";
+import { pinnedPublicAgent, SafeOutboundError } from "./safeOutbound.js";
+export { withAbort } from "./safeOutbound.js";
 
 export class CrawlError extends Error {
-  constructor(public readonly code: string, message: string) {
+  constructor(public readonly code: string, message: string, public readonly sources: SourceFailure["sources"] = []) {
     super(message);
     this.name = "CrawlError";
   }
+}
+
+export function sourceFailureBody(error: CrawlError): SourceFailure {
+  return { code: "source_unreadable", message: `${error.message} Try another public URL or supply the text yourself.`, sources: error.sources };
 }
 
 export function crawlErrorMessage(error: unknown): string {
@@ -63,19 +67,10 @@ function acquire(host: string, signal: AbortSignal): Promise<() => void> {
   });
 }
 
-/** DNS lookup cannot be cancelled by Node; abandon its result on cancellation. */
-export function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  signal.throwIfAborted();
-  return new Promise((resolve, reject) => {
-    const abort = () => reject(signal.reason);
-    signal.addEventListener("abort", abort, { once: true });
-    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
-  });
-}
-
-export interface CrawlPage { url: string; text: string; status: number; headers: Headers }
+export interface CrawlPage { url: string; text: string; status: number; headers: Headers; bytes?: Buffer }
 export interface CrawlBudget { requests: number; bytes: number }
-export interface CrawlOptions { signal?: AbortSignal; timeoutMs?: number; maxBytes?: number; method?: "GET" | "HEAD"; budget?: CrawlBudget }
+/** `headers` adds conditional request headers (If-None-Match / If-Modified-Since); a 304 then returns with an empty body. */
+export interface CrawlOptions { signal?: AbortSignal; timeoutMs?: number; maxBytes?: number; method?: "GET" | "HEAD" | "POST"; budget?: CrawlBudget; headers?: Record<string, string>; binary?: boolean; body?: string; contentType?: string }
 
 function boundedSetting(value: number | undefined, fallback: number, maximum: number): number {
   return Number.isFinite(value) ? Math.max(1, Math.min(Math.floor(value!), maximum)) : fallback;
@@ -91,19 +86,6 @@ function parseCrawlUrl(rawUrl: string): URL {
   }
 }
 
-async function pinnedAgent(url: URL, signal: AbortSignal): Promise<HttpAgent> {
-  const target = await withAbort(resolvePublicHttpUrl(url.href), signal);
-  if (!target.ok) throw new CrawlError("blocked", target.reason);
-  signal.throwIfAborted();
-  // No second DNS resolution at connect time. Host header and TLS SNI retain the URL hostname.
-  const record = target.records[0];
-  const lookup: LookupFunction = (_hostname, lookupOptions, callback) => {
-    if (lookupOptions.all) callback(null, [record]);
-    else callback(null, record.address, record.family);
-  };
-  return url.protocol === "https:" ? new HttpsAgent({ lookup, keepAlive: false }) : new HttpAgent({ lookup, keepAlive: false });
-}
-
 async function fetchHop(url: URL, signal: AbortSignal, options: CrawlOptions, maxBytes: number): Promise<CrawlPage | { redirect: string }> {
   const release = await acquire(url.hostname.toLowerCase().replace(/\.$/, ""), signal);
   let agent: HttpAgent | undefined;
@@ -115,32 +97,44 @@ async function fetchHop(url: URL, signal: AbortSignal, options: CrawlOptions, ma
       budget.requests--;
       maxBytes = Math.min(maxBytes, budget.bytes);
     }
-    agent = await pinnedAgent(url, signal);
+    agent = await pinnedPublicAgent(url, signal);
     const response = await fetch(url, {
       method: options.method ?? "GET", redirect: "manual", agent, signal,
       size: maxBytes, highWaterMark: 16 * 1024,
-      headers: { "User-Agent": "TheSocialPundit/1.0 (Public Source Reader)", Accept: "text/html,application/xhtml+xml,application/rss+xml,application/atom+xml,application/feed+json,application/json,text/xml" },
+      ...(options.body !== undefined ? { body: options.body } : {}),
+      headers: { ...options.headers, ...(options.contentType ? { "Content-Type": options.contentType } : {}), "User-Agent": "TheSocialPundit/1.0 (Public Source Reader)", Accept: "text/html,application/xhtml+xml,application/rss+xml,application/atom+xml,application/feed+json,application/json,text/xml" },
     });
     body = response.body;
     if ([301, 302, 303, 307, 308].includes(response.status)) {
+      // A form post is never replayed at another address.
+      if (options.method === "POST") throw new CrawlError("redirect", "The hub redirected the subscription request.");
       const location = response.headers.get("location");
       if (!location) throw new CrawlError("redirect", "The source returned an invalid redirect.");
       try { return { redirect: new URL(location, url).href }; }
       catch { throw new CrawlError("redirect", "The source returned an invalid redirect."); }
     }
-    if (!response.ok) throw new CrawlError("http", `The source returned HTTP ${response.status}. It may be unavailable or restrict automated access.`);
-    if (response.headers.get("x-amzn-waf-action") === "challenge" || response.headers.get("cf-mitigated") === "challenge") {
-      throw new CrawlError("challenge", "This source requires a browser verification and cannot be crawled.");
+    // Must run before the generic !response.ok check below: a bot-blocked
+    // request is always a non-2xx status, so checking ok first made this
+    // unreachable and every deliberate block surfaced as a generic HTTP error.
+    // Only a conditional request may accept "not modified"; anything else with no body is an error.
+    if (response.status === 304 && (options.headers?.["If-None-Match"] || options.headers?.["If-Modified-Since"])) {
+      return { url: url.href, text: "", status: 304, headers: response.headers };
     }
+    if (response.headers.get("x-amzn-waf-action") === "challenge" || response.headers.get("cf-mitigated") === "challenge"
+      || response.headers.has("x-datadome") || (response.status === 403 && response.headers.get("server") === "cloudflare")) {
+      throw new CrawlError("challenge", "This publisher actively blocks automated readers, not just this app.");
+    }
+    if (!response.ok) throw new CrawlError("http", `The source returned HTTP ${response.status}. It may be unavailable or restrict automated access.`);
     if (Number(response.headers.get("content-length")) > maxBytes) throw new CrawlError("size", "The source response exceeds the crawl size limit.");
     // node-fetch enforces `size` on the decompressed stream, including chunked responses.
-    const text = options.method === "HEAD" ? "" : await response.text();
+    const bytes = options.binary && options.method !== "HEAD" ? Buffer.from(await response.arrayBuffer()) : undefined;
+    const text = options.method === "HEAD" || bytes ? "" : await response.text();
     signal.throwIfAborted();
     if (budget) {
       budget.bytes -= Buffer.byteLength(text);
       if (budget.bytes < 0) throw new CrawlError("budget", "The crawl reached its byte budget. Try a direct feed URL.");
     }
-    return { url: url.href, text, status: response.status, headers: response.headers };
+    return { url: url.href, text, status: response.status, headers: response.headers, ...(bytes ? { bytes } : {}) };
   } finally {
     if (body instanceof Readable) body.destroy();
     agent?.destroy();
@@ -148,14 +142,28 @@ async function fetchHop(url: URL, signal: AbortSignal, options: CrawlOptions, ma
   }
 }
 
+// Binary downloads (a GDELT 15-minute file is 10–30 MB zipped) may exceed the page limit.
+const BINARY_MAX_BYTES = 64 * 1024 * 1024;
+
+/** Posts a small form to a public address (WebSub subscriptions), with the same address checks as pages. */
+export async function postPublicForm(rawUrl: string, fields: Record<string, string>, options: Pick<CrawlOptions, "signal" | "timeoutMs"> = {}): Promise<CrawlPage> {
+  return fetchPublicText(rawUrl, { ...options, method: "POST", body: new URLSearchParams(fields).toString(), contentType: "application/x-www-form-urlencoded", maxBytes: 64 * 1024 });
+}
+
+/** A public binary file, with the same address checks as pages; `maxBytes` may go up to 64 MB. */
+export async function fetchPublicBytes(rawUrl: string, options: Omit<CrawlOptions, "binary" | "method"> = {}): Promise<Buffer> {
+  const page = await fetchPublicText(rawUrl, { ...options, binary: true });
+  return page.bytes ?? Buffer.alloc(0);
+}
+
 /** GET-only public crawler: no cookies, auth, proxy env, automatic redirects, or unpinned DNS. */
 export async function fetchPublicText(rawUrl: string, options: CrawlOptions = {}): Promise<CrawlPage> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new CrawlError("timeout", "The source took too long to respond.")), boundedSetting(options.timeoutMs, 8000, 10000));
+  const timer = setTimeout(() => controller.abort(new CrawlError("timeout", "The source took too long to respond.")), boundedSetting(options.timeoutMs, 8000, options.binary ? 60_000 : 10000));
   const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
   // 2MB rejected real-world long-form pages (e.g. Wikipedia articles routinely
   // run 2.1-2.5MB of raw HTML despite modest readable text) - see crawlerFetch.test.ts.
-  const maxBytes = boundedSetting(options.maxBytes, 5 * 1024 * 1024, 5 * 1024 * 1024);
+  const maxBytes = boundedSetting(options.maxBytes, 5 * 1024 * 1024, options.binary ? BINARY_MAX_BYTES : 5 * 1024 * 1024);
   const seen = new Set<string>();
   let current = rawUrl;
   try {
@@ -171,6 +179,7 @@ export async function fetchPublicText(rawUrl: string, options: CrawlOptions = {}
     throw new CrawlError("redirect", "The source has too many redirects.");
   } catch (error) {
     if (signal.aborted) throw new CrawlError("timeout", "The crawl was cancelled or exceeded its time budget.");
+    if (error instanceof SafeOutboundError) throw new CrawlError(error.code, error.message);
     if (error instanceof CrawlError) throw error;
     if ((error as { type?: string })?.type === "max-size") throw new CrawlError("size", "The source response exceeds the crawl size limit.");
     throw new CrawlError("network", "The source could not be reached. It may be offline or block automated access.");

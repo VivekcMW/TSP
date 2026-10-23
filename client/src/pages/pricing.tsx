@@ -1,148 +1,250 @@
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
+import { ArrowRight, Check, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Check, ArrowRight } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { SEO } from "@/components/seo";
-import { Link } from "wouter";
 import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion/reveal";
-import { fadeUp } from "@/lib/motion";
+import { useIsSignedIn } from "@/lib/dev-auth";
+import { formatPrice, intervalUnit, plansForCurrency, yearlySaving, type PublicBillingPlan } from "@/lib/billing";
+import { PRICING_FAQS, pricingFaqJsonLd } from "@shared/pricing-faqs";
+import { pricingOffersJsonLd } from "@shared/public-billing";
 
-const earlyAdopterFeatures = [
-  { text: "10 Curated articles per day", included: true },
-  { text: "Unlimited AI post generations", included: true },
-  { text: "All 4 tonality styles", included: true },
-  { text: "23 platforms — LinkedIn to Reddit, Weibo, Mastodon & developer blogs", included: true },
-  { text: "Hot Trends analysis", included: true },
-  { text: "Instant Review (any URL)", included: true },
-];
+const GLOBAL_CURRENCY = "USD";
 
-const comingSoonFeatures = [
-  { text: "One-click scheduling", included: true },
-  { text: "Analytics dashboard", included: true },
-  { text: "Team collaboration", included: true },
-  { text: "Custom RSS feeds", included: true },
-];
+interface PlanCardProps {
+  plan: PublicBillingPlan;
+  price: string;
+  unit: string;
+  eyebrow: string;
+  detail?: string;
+  badge?: string;
+  highlight?: boolean;
+  unavailableNote?: string;
+  action: { label: string; href: string };
+}
+
+function PlanCard({ plan, price, unit, eyebrow, detail, badge, highlight, unavailableNote, action }: PlanCardProps) {
+  return (
+    <article
+      className={`relative flex h-full min-w-0 flex-col overflow-hidden rounded-3xl border bg-card p-6 shadow-sm hover-lift sm:p-7 ${
+        highlight ? "border-primary shadow-[0_20px_60px_-32px_hsl(var(--primary)/0.55)] ring-1 ring-primary" : ""
+      }`}
+      data-testid={`plan-${plan.key}`}
+    >
+      {highlight && <div className="absolute inset-x-0 top-0 h-1 bg-primary" />}
+      <div className="flex min-h-8 items-center justify-between gap-3">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">{eyebrow}</p>
+        {badge && <span className="rounded-full bg-primary px-3 py-1 text-xs font-bold text-primary-foreground">{badge}</span>}
+      </div>
+      <h2 className="mt-4 font-heading text-2xl font-semibold text-foreground">{plan.name}</h2>
+      {plan.description && <p className="mt-2 min-h-10 text-sm leading-6 text-muted-foreground">{plan.description}</p>}
+      <p className="mt-7 font-heading text-5xl font-semibold tracking-tight text-foreground">
+        {price}<span className="ml-1 text-base font-normal tracking-normal text-muted-foreground">/ {unit}</span>
+      </p>
+      <p className="mt-2 min-h-5 text-sm font-medium text-muted-foreground">{detail}</p>
+      <div className="my-6 h-px bg-border" />
+      <ul className="flex-1 space-y-3.5">
+        {plan.features.map(feature => (
+          <li key={feature} className="flex gap-3 text-sm leading-5 text-foreground">
+            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-success-subtle text-success">
+              <Check className="h-3.5 w-3.5" aria-hidden="true" />
+            </span>
+            {feature}
+          </li>
+        ))}
+      </ul>
+      {unavailableNote && <p className="mt-6 rounded-xl border bg-muted/60 px-4 py-3 text-sm leading-5 text-muted-foreground">{unavailableNote}</p>}
+      <Button asChild size="lg" className="mt-6 w-full" variant={highlight ? "default" : "outline"}>
+        <Link href={action.href}>{action.label}<ArrowRight className="ml-1 h-4 w-4" aria-hidden="true" /></Link>
+      </Button>
+    </article>
+  );
+}
 
 export default function Pricing() {
+  const isSignedIn = useIsSignedIn();
+  const { data, isPending, isError, refetch } = useQuery<{ plans: PublicBillingPlan[] }>({ queryKey: ["/api/public/billing/plans"], staleTime: 0, refetchOnMount: true });
+
+  const free = data?.plans.find(plan => plan.amount === 0);
+  const paid = data ? plansForCurrency(data.plans, GLOBAL_CURRENCY) : [];
+  const monthly = paid.find(plan => plan.interval === "monthly");
+  const yearly = paid.find(plan => plan.interval === "annual");
+  const saving = monthly && yearly ? yearlySaving(monthly.amount, yearly.amount) : 0;
+  const startFree = { label: isSignedIn ? "Go to Dashboard" : "Start free", href: isSignedIn ? "/dashboard" : "/sign-up" };
+  const notYet = "Global checkout opens soon.";
+  // Signed-out visitors would hit a sign-in wall at the billing page; account creation comes first.
+  const buy = (plan: PublicBillingPlan) => plan.available === false ? startFree
+    : { label: `Choose ${plan.name}`, href: isSignedIn ? "/dashboard/settings?tab=billing" : "/sign-up" };
+
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <SEO 
+    <div className="flex min-h-screen flex-col bg-background">
+      <SEO
         title="Pricing"
         canonical="/pricing"
-        description="Simple, value-based pricing for TheSocialPundit. Start free and scale your professional authority with plans starting at $0/month."
+        description="Start building professional authority for free, then upgrade when you need the complete creation, scheduling, publishing, and performance workflow."
+        jsonLd={[
+          {
+            "@context": "https://schema.org",
+            "@type": "WebPage",
+            name: "Pricing",
+            url: "https://www.thesocialpundit.com/pricing",
+            isPartOf: { "@type": "WebSite", "@id": "https://www.thesocialpundit.com/#website", name: "TheSocialPundit", url: "https://www.thesocialpundit.com/" },
+            inLanguage: "en",
+          },
+          pricingFaqJsonLd(),
+          ...(data ? [pricingOffersJsonLd(data.plans, GLOBAL_CURRENCY)] : []),
+        ]}
       />
       <SiteHeader />
-      
-      <main className="flex-1">
-        <section className="py-20 lg:py-28" data-testid="section-pricing">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <Reveal variants={fadeUp} className="text-center mb-16">
-              <Badge className="bg-success/10 text-success border-success/20 text-sm font-bold tracking-wider uppercase px-4 py-2 mb-6">
-                Free for the First 1,000 Subscribers
-              </Badge>
-              <h1 className="heading-display mb-6" data-testid="text-pricing-headline">
-                Start building authority today.
+      <main className="flex-1" data-testid="section-pricing">
+        <section className="relative overflow-hidden bg-foreground px-4 py-16 text-background sm:px-6 lg:py-24">
+          <div className="pointer-events-none absolute -right-24 -top-40 h-96 w-96 rounded-full bg-primary/35 blur-3xl" aria-hidden="true" />
+          <div className="pointer-events-none absolute -bottom-52 left-1/4 h-96 w-96 rounded-full bg-secondary/20 blur-3xl" aria-hidden="true" />
+          <div className="pointer-events-none absolute inset-0 opacity-[0.05] [background-image:linear-gradient(to_right,currentColor_1px,transparent_1px),linear-gradient(to_bottom,currentColor_1px,transparent_1px)] [background-size:48px_48px]" aria-hidden="true" />
+          <div className="relative mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:gap-20">
+            <Reveal>
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary-foreground/70">Pricing built to grow with you</p>
+              <h1 className="mt-5 max-w-3xl font-heading text-5xl font-semibold leading-[0.98] tracking-tight text-white sm:text-6xl lg:text-7xl">
+                Begin with your voice. Pay when you need momentum.
               </h1>
-              <p className="text-lg text-muted-foreground max-w-xl mx-auto">
-                We're opening TheSocialPundit to early adopters for free. Get full access while we grow together.
+              <p className="mt-6 max-w-2xl text-lg leading-8 text-white/70">
+                Start building your professional authority for free. Upgrade only when you are ready for the complete creation and publishing workflow.
               </p>
+              <div className="mt-8 flex flex-wrap gap-x-6 gap-y-3 text-sm font-medium text-white/90">
+                {["No card to start", "You approve every post", "Cancel any time"].map(item => (
+                  <span key={item} className="flex items-center gap-2">
+                    <span className="grid h-5 w-5 place-items-center rounded-full bg-white/10 text-primary-foreground">
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    </span>
+                    {item}
+                  </span>
+                ))}
+              </div>
             </Reveal>
-            
-            <StaggerGroup className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-              <StaggerItem>
-              <Card className="p-8 relative bg-surface-ink text-surface-ink-foreground border-surface-ink h-full" data-testid="card-pricing-early-adopter">
-                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-success text-success-foreground">
-                  EARLY ADOPTER
-                </Badge>
-                
-                <div className="space-y-6">
+
+            <Reveal delay={0.1}>
+            <div className="relative mx-auto w-full max-w-md" aria-label="A simple path from Free to Pro">
+              <div className="absolute -inset-5 rounded-[2rem] border border-white/10 bg-white/5" aria-hidden="true" />
+              <div className="relative rotate-[-2deg] rounded-3xl border border-white/15 bg-white/10 p-6 shadow-2xl backdrop-blur-md">
+                <div className="flex items-center justify-between gap-4">
                   <div>
-                    <h3 className="text-lg font-semibold">Full Access</h3>
-                    <div className="mt-4 flex items-baseline gap-2">
-                      <span className="text-4xl font-bold">$0</span>
-                      <span className="text-surface-ink-foreground/60 line-through">$49/mo</span>
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/50">Free</p>
+                    <p className="mt-1 font-heading text-xl font-semibold text-white">Find your rhythm</p>
+                  </div>
+                  <span className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-white/70">Start here</span>
+                </div>
+                <div className="mt-6 space-y-3">
+                  {["Shape your professional voice", "Turn expertise into clear ideas"].map(item => (
+                    <div key={item} className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-white/75">
+                      <Check className="h-4 w-4 text-primary-foreground" aria-hidden="true" />{item}
                     </div>
-                    <p className="mt-4 text-sm text-surface-ink-foreground/60">
-                      Everything you need to build your professional authority. Free while we grow.
-                    </p>
-                  </div>
-                  
-                  <ul className="space-y-3">
-                    {earlyAdopterFeatures.map((feature, index) => (
-                      <li key={index} className="flex items-center gap-3 text-sm">
-                        <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
-                          <Check className="w-3 h-3 text-success-foreground" />
-                        </div>
-                        <span>{feature.text}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  
-                  <Link href="/sign-up">
-                    <Button className="w-full bg-success hover:bg-success/90 text-success-foreground" data-testid="button-start-free">
-                      Start Free Today
-                    </Button>
-                  </Link>
+                  ))}
                 </div>
-              </Card>
-              </StaggerItem>
-              
-              <StaggerItem>
-              <Card className="p-8 relative h-full" data-testid="card-pricing-coming-soon">
-                <Badge variant="outline" className="absolute -top-3 left-1/2 -translate-x-1/2">
-                  COMING SOON
-                </Badge>
-                
-                <div className="space-y-6">
+              </div>
+
+              <div className="relative -mt-4 ml-6 rotate-[1.5deg] rounded-3xl border border-primary/40 bg-card p-6 text-card-foreground shadow-2xl sm:ml-10">
+                <div className="absolute inset-x-6 top-0 h-1 rounded-b-full bg-primary" aria-hidden="true" />
+                <div className="flex items-center justify-between gap-4">
                   <div>
-                    <h3 className="text-lg font-semibold">On the Roadmap</h3>
-                    <p className="mt-4 text-sm text-muted-foreground">
-                      We're building more features based on early adopter feedback. Here's what's next:
-                    </p>
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Pro</p>
+                    <p className="mt-1 font-heading text-xl font-semibold">Build momentum</p>
                   </div>
-                  
-                  <ul className="space-y-3">
-                    {comingSoonFeatures.map((feature, index) => (
-                      <li key={index} className="flex items-center gap-3 text-sm text-muted-foreground">
-                        <div className="w-4 h-4 rounded-full bg-muted flex items-center justify-center">
-                          <Check className="w-3 h-3 text-muted-foreground" />
-                        </div>
-                        <span>{feature.text}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  
-                  <p className="text-xs text-muted-foreground pt-4 border-t">
-                    Early adopters will be grandfathered into premium features as they launch.
-                  </p>
+                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground">
+                    <Zap className="h-5 w-5" aria-hidden="true" />
+                  </span>
                 </div>
-              </Card>
-              </StaggerItem>
-            </StaggerGroup>
+                <div className="mt-6 grid grid-cols-2 gap-3">
+                  {["Create", "Schedule", "Publish", "Measure"].map(item => (
+                    <div key={item} className="rounded-xl bg-muted px-3 py-3 text-center text-sm font-semibold">{item}</div>
+                  ))}
+                </div>
+                <p className="mt-5 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <ArrowRight className="h-4 w-4 text-primary" aria-hidden="true" />Upgrade when the workflow earns its place.
+                </p>
+              </div>
+            </div>
+            </Reveal>
           </div>
         </section>
-        
-        <section className="py-16 lg:py-20" data-testid="section-enterprise">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <Reveal>
-            <Card className="p-12 text-center bg-muted/30">
-              <h2 className="heading-section mb-4" data-testid="text-enterprise-headline">
-                Enterprise & Custom Solutions
-              </h2>
-              <p className="text-muted-foreground max-w-xl mx-auto mb-6">
-                Managing more than 10 profiles? We offer custom white-label solutions for agencies and executive teams.
-              </p>
-              <a href="mailto:founders@thesocialpundit.com" className="inline-flex items-center gap-2 text-primary font-medium hover:underline" data-testid="link-speak-founding-team">
-                Speak with our Founding Team <ArrowRight className="w-4 h-4" />
-              </a>
-            </Card>
+
+        <section className="bg-muted/30 px-4 py-16 sm:px-6 lg:py-24">
+          <div className="mx-auto max-w-6xl">
+            <Reveal className="mb-10 max-w-2xl">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Choose your plan</p>
+              <h2 className="mt-3 font-heading text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">A simple path from first post to full momentum.</h2>
+              <p className="mt-3 text-muted-foreground">Every plan keeps you in control. Pro adds the complete creation, scheduling, and performance workflow.</p>
             </Reveal>
+            {isPending && <p role="status" className="text-center text-muted-foreground">Loading current plans…</p>}
+            {(isError || (!isPending && !data?.plans.length)) && (
+              <div className="grid overflow-hidden rounded-3xl border bg-card shadow-sm lg:grid-cols-[1fr_auto]">
+                <div className="p-7 sm:p-9">
+                  <span className="grid h-11 w-11 place-items-center rounded-xl bg-muted text-muted-foreground"><RefreshCw className="h-5 w-5" aria-hidden="true" /></span>
+                  <h2 className="mt-5 font-heading text-2xl font-semibold text-foreground">Current pricing is temporarily unavailable.</h2>
+                  <p role="alert" className="mt-2 max-w-2xl leading-7 text-muted-foreground">We could not confirm the live plan catalog, so we are not showing stale prices. You can retry now or start free and choose a paid plan later.</p>
+                </div>
+                <div className="flex flex-col justify-center gap-3 border-t bg-muted/40 p-7 lg:min-w-64 lg:border-l lg:border-t-0">
+                  <Button onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />Retry pricing</Button>
+                  <Button asChild variant="outline"><Link href={startFree.href}>{startFree.label}<ArrowRight className="ml-1 h-4 w-4" aria-hidden="true" /></Link></Button>
+                </div>
+              </div>
+            )}
+            {!isError && data && data.plans.length > 0 && (
+              <StaggerGroup className="grid gap-6 md:grid-cols-3" data-testid="pricing-plans">
+                {free && <StaggerItem><PlanCard plan={free} eyebrow="Start here" price={formatPrice(0, GLOBAL_CURRENCY)} unit="month" detail="No card required" action={startFree} /></StaggerItem>}
+                {monthly && <StaggerItem><PlanCard plan={monthly} eyebrow="Stay flexible" price={formatPrice(monthly.amount, monthly.currency)} unit={intervalUnit(monthly.interval)}
+                  detail={monthly.recurringAvailable ? "One-time or recurring checkout" : "One-time access; no automatic renewal"}
+                  unavailableNote={monthly.available === false ? notYet : undefined} action={buy(monthly)} /></StaggerItem>}
+                {yearly && <StaggerItem><PlanCard plan={yearly} eyebrow="Best value" price={formatPrice(yearly.amount, yearly.currency)} unit={intervalUnit(yearly.interval)} highlight
+                  detail={`About ${formatPrice(Math.round(yearly.amount / 1200) * 100, yearly.currency)} a month. ${yearly.recurringAvailable ? "One-time or recurring checkout." : "No automatic renewal."}`}
+                  badge={saving > 0 ? `Save ${saving}%` : undefined}
+                  unavailableNote={yearly.available === false ? notYet : undefined} action={buy(yearly)} /></StaggerItem>}
+              </StaggerGroup>
+            )}
+
+            <Reveal className="mt-14 grid gap-px overflow-hidden rounded-3xl border bg-border md:grid-cols-2">
+              <div className="bg-card p-7">
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><ShieldCheck className="h-5 w-5" aria-hidden="true" /></span>
+                <h2 className="mt-5 font-semibold text-foreground">Secure checkout</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">Payments are handled securely by Razorpay. Your payment details are never stored by us.</p>
+              </div>
+              <div className="bg-card p-7">
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><Zap className="h-5 w-5" aria-hidden="true" /></span>
+                <h2 className="mt-5 font-semibold text-foreground">No lock-in</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">One-time access does not renew automatically. Where recurring checkout is available, request cancellation from Billing.</p>
+              </div>
+            </Reveal>
+
+            <Reveal>
+            <p className="mx-auto mt-6 flex max-w-3xl items-start justify-center gap-2 text-center text-sm text-muted-foreground">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              Free plan allowances reset at midnight UTC. Paid access begins only after a successful checkout.
+            </p>
+            </Reveal>
+          </div>
+        </section>
+
+        <section className="px-4 py-16 sm:px-6 lg:py-24" aria-labelledby="pricing-faq-title">
+          <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[0.75fr_1.25fr]">
+            <Reveal>
+              <h2 id="pricing-faq-title" className="font-heading text-3xl font-semibold tracking-tight text-foreground">Pricing questions</h2>
+              <p className="mt-3 text-muted-foreground">Still unsure? <Link href="/contact" className="text-primary hover:underline">Ask us</Link>.</p>
+            </Reveal>
+            <div className="divide-y border-y">
+              {PRICING_FAQS.map(faq => (
+                <div key={faq.question} className="py-5">
+                  <h3 className="font-semibold text-foreground">{faq.question}</h3>
+                  <p className="mt-2 leading-7 text-muted-foreground">
+                    {faq.answer}
+                    {faq.question === "Can I get a refund?" && <> <Link href="/refund-policy" className="text-primary hover:underline">Read the refund policy</Link>.</>}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
       </main>
-      
       <SiteFooter />
     </div>
   );

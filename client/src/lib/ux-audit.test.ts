@@ -1,13 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildPublishingActivity } from "./publishing-activity";
-import { normalizeOnboardingChoices, visibleOnboardingChoices } from "./onboarding-choices";
+import { normalizeOnboardingChoices } from "./onboarding-choices";
 import { isRefreshJobRunning, refreshJobMessage, type RefreshJobState } from "../hooks/use-inbox-refresh-job";
 
 describe("UX audit data helpers", () => {
-  it("keeps selected AI and custom values visible ahead of catalog choices", () => {
-    expect(visibleOnboardingChoices(["Catalog", "AI source"], ["AI Source", "Custom"]))
-      .toEqual(["AI Source", "Custom", "Catalog"]);
-  });
   it("normalizes malformed suggestions and respects the server list cap", () => {
     expect(normalizeOnboardingChoices([null, "", "  ", "Custom", "custom", 1])).toEqual(["Custom"]);
     expect(normalizeOnboardingChoices("wrong shape")).toEqual([]);
@@ -39,5 +35,11 @@ describe("UX audit data helpers", () => {
     const state: RefreshJobState = { status: "queued", progress: { articlesProcessed: 0, articlesMatched: 0, articlesCreated: 0 } };
     expect(refreshJobMessage(state)).toContain("Waiting for a worker");
     expect(refreshJobMessage({ ...state, status: "completed", progress: { ...state.progress, needsSetup: true } })).toContain("Add a source or topic");
+  });
+  it.each([
+    ["capacity", "Your inbox is full"], ["no_new", "No new articles"], ["needs_setup", "Add interests"], ["updated", "3 new articles"],
+  ] as const)("reports the shared %s outcome truthfully", (outcome, message) => {
+    expect(refreshJobMessage({ status: "completed", progress: { articlesProcessed: 12, articlesMatched: 12,
+      articlesCreated: 3, outcome, activeCount: 10, replacedCount: 1 } })).toContain(message);
   });
 });

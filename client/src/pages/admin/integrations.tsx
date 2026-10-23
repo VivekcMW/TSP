@@ -90,8 +90,8 @@ export default function AdminIntegrationsPage() {
                 <Card key={integration.id} className="hover-elevate" data-testid={`card-integration-${integration.key}`}>
                   <CardContent className="p-4 flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-md bg-secondary/15 flex items-center justify-center shrink-0">
-                        <Icon className="w-4 h-4 text-secondary" />
+                      <div className="w-9 h-9 rounded-md bg-info-subtle flex items-center justify-center shrink-0">
+                        <Icon className="w-4 h-4 text-info" />
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{integration.label}</p>

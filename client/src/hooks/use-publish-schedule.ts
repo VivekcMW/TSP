@@ -1,5 +1,8 @@
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import type { PublishingConsent } from '@shared/publishing-consent';
+import { track } from '@/lib/analytics-consent';
+import { useAppTourReporter } from '@/components/app-tour';
 
 export interface ScheduleResult {
   id: string;
@@ -12,23 +15,25 @@ export interface ScheduleResult {
 export interface BulkScheduleResult {
   scheduled: string[];
   failed: string[];
+  errors?: Record<string, { code: string; message: string; status: number }>;
   message: string;
 }
 
 export function usePublishSchedule() {
+  const reportTour = useAppTourReporter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const scheduleDraft = async (draftId: string, publishAt: Date, platforms?: string[]): Promise<ScheduleResult | null> => {
+  const scheduleDraft = async (draftId: string, publishAt: Date, consent: PublishingConsent, platforms?: string[]): Promise<ScheduleResult | null> => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const response = await fetch(`/api/drafts/${draftId}/schedule`, {
+      const response = await fetch(`/api/drafts/${encodeURIComponent(draftId)}/schedule`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ publishAt: publishAt.toISOString(), ...(platforms?.length ? { platforms } : {}) }),
+        body: JSON.stringify({ publishAt: publishAt.toISOString(), consent, ...(platforms?.length ? { platforms } : {}) }),
       });
 
       if (!response.ok) {
@@ -37,6 +42,8 @@ export function usePublishSchedule() {
       }
 
       const result = await response.json();
+      reportTour?.("publishing-result", draftId, "scheduled");
+      track('post_scheduled', { ...(platforms?.length ? { platform: platforms.join(',') } : {}) });
       toast({
         title: 'Success',
         description: result.message,
@@ -58,6 +65,7 @@ export function usePublishSchedule() {
 
   const bulkSchedule = async (
     draftIds: string[],
+    consents: Record<string, PublishingConsent>,
     publishAt?: Date,
     schedule?: Record<string, Date>
   ): Promise<BulkScheduleResult | null> => {
@@ -65,7 +73,7 @@ export function usePublishSchedule() {
     setError(null);
 
     try {
-      const body: any = { draftIds };
+      const body: { draftIds: string[]; consents: Record<string, PublishingConsent>; publishAt?: string; schedule?: Record<string, string> } = { draftIds, consents };
       if (publishAt) body.publishAt = publishAt.toISOString();
       if (schedule) {
         body.schedule = Object.entries(schedule).reduce((acc, [id, date]) => {
@@ -86,6 +94,7 @@ export function usePublishSchedule() {
       }
 
       const result = await response.json();
+      track("posts_scheduled", { count: result.scheduled.length, failed_count: result.failed.length });
       toast({
         title: 'Bulk Schedule Complete',
         description: result.message,
@@ -105,15 +114,15 @@ export function usePublishSchedule() {
     }
   };
 
-  const reschedule = async (draftId: string, publishAt: Date): Promise<ScheduleResult | null> => {
+  const reschedule = async (draftId: string, publishAt: Date, consent: PublishingConsent): Promise<ScheduleResult | null> => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(`/api/drafts/${draftId}/schedule`, {
+      const response = await fetch(`/api/drafts/${encodeURIComponent(draftId)}/schedule`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ publishAt: publishAt.toISOString() }),
+        body: JSON.stringify({ publishAt: publishAt.toISOString(), consent }),
       });
 
       if (!response.ok) {
@@ -146,7 +155,7 @@ export function usePublishSchedule() {
     setError(null);
 
     try {
-      const response = await fetch(`/api/drafts/${draftId}/schedule`, {
+      const response = await fetch(`/api/drafts/${encodeURIComponent(draftId)}/schedule`, {
         method: 'DELETE',
       });
 
@@ -174,14 +183,15 @@ export function usePublishSchedule() {
     }
   };
 
-  const publishNow = async (draftId: string): Promise<{ jobId: string | null; status: string } | null> => {
+  const publishNow = async (draftId: string, consent: PublishingConsent): Promise<{ jobId: string | null; status: string } | null> => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(`/api/drafts/${draftId}/publish-now`, {
+      const response = await fetch(`/api/drafts/${encodeURIComponent(draftId)}/publish-now`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ consent }),
       });
 
       if (!response.ok) {

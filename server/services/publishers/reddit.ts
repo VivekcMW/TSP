@@ -2,7 +2,7 @@ import { storage, type TenantScope } from "../../storage";
 import { decryptStoredCredential } from "../webhookSecrets";
 
 export async function publishToReddit(scope: TenantScope, draftId: string, content: string) {
-  if (process.env.PUBLISHING_MODE !== "live") return { success: true, postId: `sandbox_reddit_${Date.now()}` };
+  if (process.env.PUBLISHING_MODE !== "live") return { success: true, status: "simulated" };
   const account = await storage.getSocialAccountByProvider(scope, "reddit");
   if (!account?.accessToken || !account.accountHandle) return { success: false, error: "Connect Reddit and choose a subreddit before publishing" };
   const title = content.split("\n").find(Boolean)?.replace(/^#+\s*/, "").slice(0, 300) || "The Social Pundit post";
@@ -13,5 +13,5 @@ export async function publishToReddit(scope: TenantScope, draftId: string, conte
     if (!response.ok || error) return { success: false, error: error || `Reddit publish failed (${response.status})` };
     const data = json.json?.data; if (!data?.name) return { success: false, error: "Reddit did not return a post ID" };
     return { success: true, postId: data.name, postUrl: data.url ? `https://reddit.com${data.url}` : undefined };
-  } catch (error) { return { success: false, error: error instanceof Error ? error.message : "Reddit publish failed" }; }
+  } catch { return { success: false, error: "Reddit delivery could not be confirmed" }; }
 }

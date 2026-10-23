@@ -3,6 +3,7 @@ import { enqueueInboxRefresh, enqueuePublishDraft } from "./queue";
 import { storage, type TenantScope } from "../storage";
 import { pool } from "../db";
 import { redis } from "../lib/redis";
+import { observeSchedulerStart, observeSchedulerFinish } from "./execution-health";
 
 const tasks = new Map<string, ReturnType<typeof cron.schedule>>();
 const running = new Map<string, Promise<void>>();
@@ -49,7 +50,15 @@ export async function runSchedulerCycle(name: string, minutes: number, work: (sl
         if (broken) throw new Error("Scheduler lock connection lost");
         await client.query("SELECT 1");
       };
-      await work(slot, assertConnected);
+      const run = `${slot}:${Date.now()}`;
+      try { await observeSchedulerStart(name, minutes, run); }
+      catch { console.error("[scheduler:health] Could not record cycle start"); }
+      let succeeded = false;
+      try { await work(slot, assertConnected); succeeded = true; }
+      finally {
+        try { await observeSchedulerFinish(name, run, succeeded); }
+        catch { console.error("[scheduler:health] Could not record cycle completion"); }
+      }
     } finally {
       try { await client.query("ROLLBACK"); } catch { broken = true; }
       client.removeListener("error", onError);
@@ -121,17 +130,58 @@ export function schedulePublishRefresh(intervalMinutes = 1): string {
   return schedule("publish", intervalMinutes, async (_slot, assertConnected) => publishDueDrafts(assertConnected));
 }
 
+export function scheduleEmailDigest(): string {
+  return schedule("email-digest", 1, async (_slot, assertConnected) => {
+    const { runEmailDigestCycle } = await import("./email-digest");
+    await runEmailDigestCycle(assertConnected);
+  });
+}
+
+export function scheduleEmailCommunications(): string {
+  return schedule("email-communications", 1, async (_slot, assertConnected) => {
+    const { runEmailCommunicationsCycle } = await import("./email-communications");
+    await runEmailCommunicationsCycle(assertConnected);
+  });
+}
+export function scheduleAdminOperations(): string {
+  return schedule("admin-operations", 1, async () => {
+    const { synchronizeIncidents } = await import("../services/admin-incidents");
+    await synchronizeIncidents();
+  });
+}
+export function scheduleAdminRollups(): string {
+  return schedule("admin-rollups", 15, async (_slot, assertConnected) => {
+    const { collectAdminRollups } = await import("../services/admin-rollups");
+    await collectAdminRollups(assertConnected);
+  });
+}
+
+/** The shared article index: poll due publications, fetch bodies, prune (see jobs/pool-crawl.ts). */
+export function schedulePoolCrawl(intervalMinutes = 15): string {
+  return schedule("pool-crawl", intervalMinutes, async (_slot, assertConnected) => {
+    const { runPoolCrawlCycle } = await import("./pool-crawl");
+    await runPoolCrawlCycle(assertConnected);
+  });
+}
+
 export async function initializeScheduler(): Promise<boolean> {
   if (process.env.BACKGROUND_JOBS_ENABLED !== "true" || process.env.NODE_ENV !== "production" || process.env.CRON_SCHEDULER !== "true") return false;
   const active = Number(process.env.CRON_REFRESH_INTERVAL || "360");
   const top = Number(process.env.CRON_REFRESH_TOPUSERS_INTERVAL || "30");
   const publish = Number(process.env.CRON_PUBLISH_INTERVAL || "1");
+  const crawl = Number(process.env.POOL_CRAWL_INTERVAL || "15");
   // Validate everything before registering any task (no half-started scheduler).
-  [active, top, publish].forEach(intervalCron);
+  [active, top, publish, crawl].forEach(intervalCron);
   if (!redis) throw new Error("Scheduler requires Redis");
   scheduleActiveUserRefresh(active);
   scheduleTopUserRefresh(top);
   schedulePublishRefresh(publish);
+  if (process.env.EMAIL_DIGEST_ENABLED === "true") scheduleEmailDigest();
+  // Billing outbox recovery is essential, independent of digest/marketing gates.
+  scheduleEmailCommunications();
+  if (process.env.ADMIN_OPERATIONS_ENABLED === "true") scheduleAdminOperations();
+  if (process.env.ADMIN_ROLLUPS_ENABLED === "true") scheduleAdminRollups();
+  if (process.env.POOL_CRAWL_ENABLED !== "false") schedulePoolCrawl(crawl);
   return true;
 }
 

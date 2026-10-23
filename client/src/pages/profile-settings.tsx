@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, ExternalLink, Link2, User, Sparkles, Save, Plus, X } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Field, fieldLabelRowClassName } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -15,23 +16,27 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import { SourcesManagerContent } from "@/components/dashboard/sources-manager";
-import { getIndustryData } from "@/components/onboarding/onboarding-wizard";
+import { getIndustryData } from "@/lib/industry-data";
 import type { UserProfile, InboxItem, ProfileSocialLink } from "@shared/schema";
+import { reconcileKeywords } from "@shared/profile-preferences";
+import { getSearchEdition, SEARCH_EDITIONS } from "@shared/search-editions";
+import { publicationCandidatesSchema, reconcilePublicationCandidates, selectedPublicationCandidates, type PublicationCandidate } from "@shared/publication-preferences";
+import { PublicationSourceFeedback } from "@/components/settings/publication-source-feedback";
+import { parsePublicationCandidate } from "@/lib/publication-candidates";
 
 // Helper to extract keyword strings from weighted keywords
 function keywordStrings(keywords: (string | { keyword: string; weight?: number })[]): string[] {
   return keywords.map(kw => typeof kw === 'string' ? kw : kw.keyword);
 }
 
-// Helper to convert string keywords to weighted format
-function toWeightedKeywords(keywords: string[]) {
-  return keywords.map(kw => ({ keyword: kw, weight: 0.7 }));
-}
-
-function contentValues(profile?: UserProfile) {
+function contentValues(profile?: UserProfile & { publicationCandidates?: PublicationCandidate[] }) {
   return {
+    searchEdition: getSearchEdition(profile?.searchEdition).id,
     focusDescription: profile?.focusDescription ?? "",
     publications: profile?.publications ?? [],
+    publicationCandidates: reconcilePublicationCandidates(profile?.publications ?? [], profile?.publicationCandidates ?? []),
+    // Keep this in the draft snapshot: a refetch must not erase an explicit clear.
+    hadPublicationCandidates: Boolean(profile?.publicationCandidates?.length),
     keywords: keywordStrings(profile?.keywords ?? []),
     influencers: profile?.influencers ?? [],
     companies: profile?.companies ?? [],
@@ -72,9 +77,23 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
   const { data: socialLinks = [], isLoading: socialLinksLoading } = useQuery<ProfileSocialLink[]>({ queryKey: ["/api/profile/social-links"] });
 
   const { draft, setDraft, dirty, acknowledge } = useSettingsDraft(contentValues(profile));
-  const { focusDescription, publications, keywords, influencers, companies } = draft;
+  const { searchEdition, focusDescription, publications, publicationCandidates, keywords, influencers, companies } = draft;
   const setFocusDescription = (value: string) => setDraft((current) => ({ ...current, focusDescription: value }));
-  const setPublications = (value: string[]) => setDraft((current) => ({ ...current, publications: value }));
+  const setPublications = (value: string[]) => setDraft((current) => ({
+    ...current, publications: value,
+    publicationCandidates: reconcilePublicationCandidates(value, current.publicationCandidates),
+  }));
+  const setPublicationUrl = (name: string, url: string) => setDraft((current) => {
+    const candidates = current.publicationCandidates;
+    const matches = (item: PublicationCandidate) => item.name.toLowerCase() === name.toLowerCase();
+    let next = candidates.filter(item => !matches(item));
+    if (url.trim()) {
+      next = candidates.some(matches)
+        ? candidates.map(item => matches(item) ? { name: item.name, url } : item)
+        : [...candidates, { name, url }];
+    }
+    return { ...current, publicationCandidates: next };
+  });
   const setKeywords = (value: string[]) => setDraft((current) => ({ ...current, keywords: value }));
   const setInfluencers = (value: string[]) => setDraft((current) => ({ ...current, influencers: value }));
   const setCompanies = (value: string[]) => setDraft((current) => ({ ...current, companies: value }));
@@ -95,10 +114,13 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
 
   const updateMutation = useMutation({
     mutationFn: async (data: typeof draft): Promise<UserProfile> => {
-      // Convert string keywords to weighted format for API
+      // Label-only edits must not reset saved weights or categories.
+      const { publicationCandidates: candidates, hadPublicationCandidates, ...values } = data;
+      const selectedCandidates = publicationCandidatesSchema.parse(selectedPublicationCandidates(data.publications, candidates));
       const payload = {
-        ...data,
-        keywords: toWeightedKeywords(data.keywords),
+        ...values,
+        ...(hadPublicationCandidates || selectedCandidates.length ? { publicationCandidates: selectedCandidates } : {}),
+        keywords: reconcileKeywords(data.keywords, profile?.keywords ?? []),
       };
       return (await apiRequest("PATCH", "/api/profile", payload)).json();
     },
@@ -106,6 +128,7 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
       acknowledge(submitted, contentValues(saved));
       queryClient.setQueryData(["/api/profile"], saved);
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sources/publications"] });
       toast({
         title: "Profile updated",
         description: "Your preferences have been saved.",
@@ -136,7 +159,8 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
   });
 
   const { mutate: saveContent, isPending: savePending } = updateMutation;
-  const saveDisabled = !dirty || !profile || profileError || profileLoading;
+  const validPublicationUrls = publicationCandidates.length <= 20 && publicationCandidates.every(item => Boolean(parsePublicationCandidate(item)));
+  const saveDisabled = !dirty || !profile || profileError || profileLoading || !validPublicationUrls;
   const handleSave = useCallback(() => {
     if (!saveDisabled && !savePending) saveContent(draft);
   }, [draft, saveContent, saveDisabled, savePending]);
@@ -182,12 +206,12 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
       <div className="space-y-2">
         {socialLinks.map((link, index) => (
           <div key={link.id} className="flex flex-wrap items-center gap-3 rounded-[4px] border p-3" data-testid={`social-link-${link.platform}`}>
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] bg-secondary/15"><Link2 className="h-4 w-4 text-secondary" /></div>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] bg-info-subtle"><Link2 className="h-4 w-4 text-info" /></div>
             <div className="min-w-0 flex-1"><p className="text-sm font-medium">{link.label}</p><a href={link.url} target="_blank" rel="noreferrer" className="block truncate text-xs text-muted-foreground hover:text-primary">{link.url}</a></div>
             <div className="flex shrink-0 items-center gap-1">
-              <Button type="button" variant="ghost" size="icon" className="h-11 w-11" disabled={index === 0 || reorderLinksMutation.isPending} onClick={() => moveLink(index, -1)} aria-label={`Move ${link.label} up`}><ArrowUp className="h-3.5 w-3.5" /></Button>
-              <Button type="button" variant="ghost" size="icon" className="h-11 w-11" disabled={index === socialLinks.length - 1 || reorderLinksMutation.isPending} onClick={() => moveLink(index, 1)} aria-label={`Move ${link.label} down`}><ArrowDown className="h-3.5 w-3.5" /></Button>
-              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" disabled={deleteLinkMutation.isPending} onClick={() => deleteLinkMutation.mutate(link.id)} aria-label={`Remove ${link.label}`}><X className="h-3.5 w-3.5" /></Button>
+              <Button type="button" variant="ghost" size="icon" disabled={index === 0 || reorderLinksMutation.isPending} onClick={() => moveLink(index, -1)} aria-label={`Move ${link.label} up`}><ArrowUp className="h-3.5 w-3.5" /></Button>
+              <Button type="button" variant="ghost" size="icon" disabled={index === socialLinks.length - 1 || reorderLinksMutation.isPending} onClick={() => moveLink(index, 1)} aria-label={`Move ${link.label} down`}><ArrowDown className="h-3.5 w-3.5" /></Button>
+              <Button type="button" variant="ghost" size="icon" disabled={deleteLinkMutation.isPending} onClick={() => deleteLinkMutation.mutate(link.id)} aria-label={`Remove ${link.label}`}><X className="h-3.5 w-3.5" /></Button>
             </div>
           </div>
         ))}
@@ -214,31 +238,29 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
     );
   }
 
-  if (profileError || !profile) return <div role="alert" className="p-4">Content preferences could not be loaded. <Button className="min-h-11" variant="outline" onClick={() => refetch()}>Retry</Button></div>;
+  if (profileError || !profile) return <div role="alert" className="p-4">Content preferences could not be loaded. <Button variant="outline" onClick={() => refetch()}>Retry</Button></div>;
 
   return (
     <>
       {!embedded && <PageHeader
         icon={User}
         title="Profile Settings"
-        subtitle="Customize your content preferences"
-        actions={<Button className="min-h-11" onClick={handleSave} disabled={savePending || saveDisabled} data-testid="button-save-profile"><Save className="w-4 h-4 mr-2" />{savePending ? "Saving..." : "Save Changes"}</Button>}
+        help="Customize your content preferences"
+        actions={<Button onClick={handleSave} disabled={savePending || saveDisabled} data-testid="button-save-profile"><Save className="w-4 h-4" />{savePending ? "Saving..." : "Save Changes"}</Button>}
       />}
       
       <Body className={embedded ? "" : "flex-1 p-4 sm:p-6 overflow-y-auto"}>
-        <fieldset disabled={savePending} className="mx-auto w-full min-w-0 max-w-5xl space-y-6 [&_button]:min-h-11 [&_button]:min-w-11 [&_input]:min-h-11">
+        <fieldset disabled={savePending} className="mx-auto w-full min-w-0 max-w-5xl space-y-6">
           <Card>
             <CardHeader className="flex flex-row items-start justify-between gap-4">
               <div>
-                <CardTitle><label htmlFor="focus-description">Voice &amp; focus</label></CardTitle>
-                <CardDescription>
-                  Describe what you want to be known for in your industry
-                </CardDescription>
+                <CardTitle className={fieldLabelRowClassName} help="Describe what you want to be known for in your industry" helpId="focus-description-help"><label htmlFor="focus-description">Voice &amp; focus</label></CardTitle>
               </div>
             </CardHeader>
             <CardContent>
               <Textarea
                 id="focus-description"
+                aria-describedby="focus-description-help"
                 maxLength={500}
                 value={focusDescription}
                 onChange={(e) => setFocusDescription(e.target.value)}
@@ -249,14 +271,27 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader>
+              <CardTitle className={fieldLabelRowClassName} help="Choose a provider edition preference for news search. This is not a strict language or location filter and does not translate your queries." helpId="search-edition-description"><label htmlFor="search-edition">Search language &amp; region</label></CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Select value={searchEdition} onValueChange={(value) => setDraft((current) => ({ ...current, searchEdition: getSearchEdition(value).id }))} disabled={savePending}>
+                <SelectTrigger id="search-edition" aria-describedby="search-edition-description"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {SEARCH_EDITIONS.map(({ value, label }) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+
           <Card data-testid="card-profile-social-links">
             <CardHeader>
-              <CardTitle>Social profiles</CardTitle>
-              <CardDescription>Links people can visit when they want to learn more about your work.</CardDescription>
+              <CardTitle help="Links people can visit when they want to learn more about your work.">Social profiles</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {socialLinksContent}
-              <div className="grid gap-2 md:grid-cols-[180px_1fr_1.5fr_auto]">
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14em),1fr))] gap-2">
                 <Select value={newLinkPlatform} onValueChange={handleLinkPlatformChange}><SelectTrigger aria-label="Social platform"><SelectValue /></SelectTrigger><SelectContent>{socialLinkPlatforms.filter((platform) => !socialLinks.some((link) => link.platform === platform.value)).map((platform) => <SelectItem key={platform.value} value={platform.value}>{platform.label}</SelectItem>)}</SelectContent></Select>
                 <Input value={newLinkLabel} onChange={(event) => setNewLinkLabel(event.target.value)} placeholder="Link label" aria-label="Social link label" />
                 <Input value={newLinkUrl} onChange={(event) => setNewLinkUrl(event.target.value)} placeholder="https://…" type="url" aria-label="Social link URL" />
@@ -268,10 +303,7 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
 
           <Card>
             <CardHeader>
-              <CardTitle>Publications</CardTitle>
-              <CardDescription>
-                Industry publications you follow for insights
-              </CardDescription>
+              <CardTitle help="Industry publications you follow for insights. Choose from industry suggestions or add your own publication.">Publications</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
@@ -282,7 +314,7 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
                       onClick={() => removeItem(publications, setPublications, pub)}
                       type="button"
                       aria-label={`Remove publication ${pub}`}
-                      className="ml-1 hover:text-destructive"
+                      className="control-touch-target ml-1 inline-flex min-h-8 min-w-8 items-center justify-center hover:text-destructive"
                       data-testid={`button-remove-publication-${pub}`}
                     >
                       <X className="w-3 h-3" />
@@ -302,16 +334,29 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
                 aria-label="Search and select publications"
                 maxItems={20}
               />
-              <p className="text-xs text-muted-foreground">Choose from industry suggestions or add your own publication.</p>
+              <p className="text-xs text-muted-foreground">Changing or removing a URL pauses its auto-added source when no other selected publication uses it. Manually added sources stay unchanged; manage them in Custom Sources.</p>
+              {publications.map((name, index) => {
+                const candidate = publicationCandidates.find(item => item.name.toLowerCase() === name.toLowerCase());
+                const invalid = candidate && !parsePublicationCandidate(candidate);
+                const inputId = `publication-url-${index}`;
+                let hint = candidate ? "Unverified URL" : "URL needed";
+                if (invalid) hint = "Use an HTTP(S) URL without credentials, up to 2048 characters.";
+                return <div key={name} className="space-y-1">
+                  <Field id={inputId} label={`URL for ${name}`} invalid={Boolean(invalid)} controlProps={{ "aria-describedby": `${inputId}-hint` }}
+                    render={(controlProps) => <Input {...controlProps} type="url" maxLength={2048} placeholder="https://…" value={candidate?.url ?? ""}
+                      onChange={(event) => setPublicationUrl(name, event.target.value)} />} />
+                  <p id={`${inputId}-hint`} className={`text-xs ${invalid ? "text-destructive" : "text-muted-foreground"}`}>
+                    {hint}
+                  </p>
+                </div>;
+              })}
+              <PublicationSourceFeedback />
             </CardContent>
           </Card>
 
           <Card data-testid="card-custom-sources">
             <CardHeader>
-              <CardTitle>Custom Sources</CardTitle>
-              <CardDescription>
-                Add any blog, publication, or site — we detect its feed automatically. Discover fetches only from what you add here plus live search on your keywords/companies/influencers below, nothing else.
-              </CardDescription>
+              <CardTitle help="Add a public blog, publication, or site. Discover reads your active sources, selected publication URLs after a successful check, and live search on your keywords, companies and influencers.">Custom Sources</CardTitle>
             </CardHeader>
             <CardContent>
               <SourcesManagerContent />
@@ -320,10 +365,7 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
 
           <Card>
             <CardHeader>
-              <CardTitle>Keywords</CardTitle>
-              <CardDescription>
-                Topics and keywords that match your expertise
-              </CardDescription>
+              <CardTitle help="Topics and keywords that match your expertise. Suggestions are based on your industry and detected inbox topics.">Keywords</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
@@ -334,7 +376,7 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
                       onClick={() => removeItem(keywords, setKeywords, keyword)}
                       type="button"
                       aria-label={`Remove keyword ${keyword}`}
-                      className="ml-1 hover:text-destructive"
+                      className="control-touch-target ml-1 inline-flex min-h-8 min-w-8 items-center justify-center hover:text-destructive"
                       data-testid={`button-remove-keyword-${keyword}`}
                     >
                       <X className="w-3 h-3" />
@@ -354,16 +396,12 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
                 aria-label="Search and select keywords"
                 maxItems={20}
               />
-              <p className="text-xs text-muted-foreground">Suggestions are based on your industry and detected inbox topics.</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Influencers</CardTitle>
-              <CardDescription>
-                Industry leaders whose insights you value
-              </CardDescription>
+              <CardTitle help="Industry leaders whose insights you value. Relevant industry and country-based leaders are shown first.">Influencers</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
@@ -374,7 +412,7 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
                       onClick={() => removeItem(influencers, setInfluencers, influencer)}
                       type="button"
                       aria-label={`Remove influencer ${influencer}`}
-                      className="ml-1 hover:text-destructive"
+                      className="control-touch-target ml-1 inline-flex min-h-8 min-w-8 items-center justify-center hover:text-destructive"
                       data-testid={`button-remove-influencer-${influencer}`}
                     >
                       <X className="w-3 h-3" />
@@ -394,16 +432,12 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
                 aria-label="Search and select influencers"
                 maxItems={20}
               />
-              <p className="text-xs text-muted-foreground">Relevant industry and country-based leaders are shown first.</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Companies</CardTitle>
-              <CardDescription>
-                Companies you want to track for news and updates
-              </CardDescription>
+              <CardTitle help="Companies you want to track for news and updates">Companies</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
@@ -414,7 +448,7 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
                       onClick={() => removeItem(companies, setCompanies, company)}
                       type="button"
                       aria-label={`Remove company ${company}`}
-                      className="ml-1 hover:text-destructive"
+                      className="control-touch-target ml-1 inline-flex min-h-8 min-w-8 items-center justify-center hover:text-destructive"
                       data-testid={`button-remove-company-${company}`}
                     >
                       <X className="w-3 h-3" />
@@ -440,10 +474,7 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
           {aiKeywords.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>AI-Detected Keywords</CardTitle>
-                <CardDescription>
-                  Keywords extracted from your inbox content. Click to add to your profile.
-                </CardDescription>
+                <CardTitle help="Keywords extracted from your inbox content. Click to add to your profile.">AI-Detected Keywords</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2">
@@ -453,7 +484,7 @@ export default function ProfileSettingsPage({ embedded = false, onSaveActionChan
                       key={keyword} 
                       aria-label={`Add keyword ${keyword}`}
                       disabled={keywords.includes(keyword) || keywords.length >= 20}
-                      className={`inline-flex items-center rounded-md border px-3 text-sm hover-elevate ${keywords.includes(keyword) ? 'bg-primary/10 border-primary' : ''}`}
+                      className={`control-touch-target inline-flex min-h-8 min-w-8 items-center rounded-md border px-2.5 text-[0.8125rem] hover-elevate ${keywords.includes(keyword) ? 'bg-primary/10 border-primary' : ''}`}
                       onClick={() => addAiKeywordToProfile(keyword)}
                       data-testid={`badge-ai-keyword-${keyword}`}
                     >

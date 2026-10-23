@@ -3,7 +3,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Field, fieldLabelRowClassName } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { NativeSelect } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -64,11 +67,11 @@ export default function PluginsPage({ embedded = false }: SettingsPageProps = {}
     });
   }
   return <div className={embedded ? "" : "flex h-full flex-col overflow-hidden"}>
-    {!embedded && <PageHeader title="Publishing preferences" subtitle="Choose your posting platforms and defaults." />}
+    {!embedded && <PageHeader title="Publishing preferences" help="Choose your posting platforms and defaults." />}
     <Body className={embedded ? "" : "flex-1 overflow-y-auto p-4 sm:p-6"}>
       <div className="mx-auto w-full max-w-5xl space-y-6">
         {loading && <output>Loading publishing preferences…</output>}
-        {!loading && unavailable && <div role="alert">Publishing preferences could not be loaded. <Button className="min-h-11" variant="outline" onClick={() => { void profileQuery.refetch(); void integrationsQuery.refetch(); }}>Retry</Button></div>}
+        {!loading && unavailable && <div role="alert">Publishing preferences could not be loaded. <Button variant="outline" onClick={() => { void profileQuery.refetch(); void integrationsQuery.refetch(); }}>Retry</Button></div>}
         {!loading && !unavailable && <form className="space-y-6" onSubmit={(event) => {
           event.preventDefault();
           if (valid && (dirty || needsRepair) && !mutation.isPending) {
@@ -77,25 +80,25 @@ export default function PluginsPage({ embedded = false }: SettingsPageProps = {}
             mutation.mutate(submitted);
           }
         }}>
-          <fieldset disabled={mutation.isPending} className="space-y-6">
-            <Card><CardHeader><CardTitle>Publishing defaults</CardTitle></CardHeader><CardContent className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2"><Label htmlFor="default-platform">Default platform</Label><select id="default-platform" className="h-11 w-full rounded-md border bg-background px-3 text-sm" value={effectiveDefault} onChange={(event) => setDraft({ ...draft, defaultPlatform: event.target.value })}><option value="" disabled>Choose an enabled platform</option>{available.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                <div className="space-y-2"><Label htmlFor="default-tone">Default tone</Label><select id="default-tone" className="h-11 w-full rounded-md border bg-background px-3 text-sm" value={draft.defaultTone} onChange={(event) => setDraft({ ...draft, defaultTone: event.target.value })}>{["professional", "authoritative", "contrarian", "ai-recommended"].map((tone) => <option key={tone} value={tone}>{tone}</option>)}</select></div>
-                <div className="space-y-2"><Label htmlFor="publish-time">Preferred time</Label><Input id="publish-time" className="min-h-11" required type="time" value={draft.preferredPublishTime} onChange={(event) => setDraft({ ...draft, preferredPublishTime: event.target.value })} /></div>
-                <div className="space-y-2"><Label htmlFor="publish-timezone">Timezone</Label><Input id="publish-timezone" className="min-h-11" required value={draft.timezone} aria-invalid={!timezoneValid} aria-describedby="timezone-help" onChange={(event) => setDraft({ ...draft, timezone: event.target.value })} /><p id="timezone-help" className="text-sm text-muted-foreground">Use an IANA timezone, such as UTC or Asia/Kolkata.</p></div>
+          <fieldset disabled={mutation.isPending} className="min-w-0 space-y-6">
+            <Card><CardHeader><CardTitle help="These preferences control draft destinations, not account connections. Existing drafts are unchanged.">Publishing defaults</CardTitle></CardHeader><CardContent className="space-y-4">
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,16em),1fr))] gap-4">
+                <Field id="default-platform" label="Default platform" render={(controlProps) => <NativeSelect {...controlProps} value={effectiveDefault} onChange={(event) => setDraft({ ...draft, defaultPlatform: event.target.value })}><option value="" disabled>Choose an enabled platform</option>{available.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</NativeSelect>} />
+                <Field id="default-tone" label="Default tone" render={(controlProps) => <NativeSelect {...controlProps} value={draft.defaultTone} onChange={(event) => setDraft({ ...draft, defaultTone: event.target.value })}>{["professional", "authoritative", "contrarian", "ai-recommended"].map((tone) => <option key={tone} value={tone}>{tone}</option>)}</NativeSelect>} />
+                <Field id="publish-time" label="Preferred time" render={(controlProps) => <Input {...controlProps} required type="time" value={draft.preferredPublishTime} onChange={(event) => setDraft({ ...draft, preferredPublishTime: event.target.value })} />} />
+                <div className="min-w-0 space-y-2"><div className={fieldLabelRowClassName}><Label htmlFor="publish-timezone">Timezone</Label><InfoTooltip label="Timezone" descriptionId="timezone-help">Use an IANA timezone, such as UTC or Asia/Kolkata.</InfoTooltip></div><Input id="publish-timezone" required value={draft.timezone} aria-invalid={!timezoneValid} aria-describedby="timezone-help" onChange={(event) => setDraft({ ...draft, timezone: event.target.value })} /></div>
               </div>
-              <label className="flex min-h-11 items-center gap-3" htmlFor="publish-review"><span className="flex h-11 w-11 items-center justify-center"><input id="publish-review" type="checkbox" role="switch" className="h-5 w-5 accent-primary" checked={draft.requirePublishReview} onChange={(event) => setDraft({ ...draft, requirePublishReview: event.target.checked })} /></span>Require review before publishing</label>
+              <label className="flex min-h-11 items-center gap-3" htmlFor="publish-review"><span className="flex h-11 w-11 shrink-0 items-center justify-center"><input id="publish-review" type="checkbox" role="switch" className="h-5 w-5 accent-primary" checked={draft.requirePublishReview} onChange={(event) => setDraft({ ...draft, requirePublishReview: event.target.checked })} /></span>Require review before publishing</label>
               {!effectiveDefault && <p role="alert" className="text-sm text-destructive">Enable at least one available platform before saving publishing defaults.</p>}
               {needsRepair && effectiveDefault && <p className="text-sm text-muted-foreground">Your previous default is unavailable or unset. Save to use {PLATFORMS.find((item) => item.value === effectiveDefault)?.label} and the available platforms shown here.</p>}
             </CardContent></Card>
-            <div className="space-y-2"><p className="text-sm text-muted-foreground">These preferences control draft destinations, not account connections. Existing drafts are unchanged.</p><Label htmlFor="platform-search">Find a platform</Label><Input id="platform-search" className="min-h-11 max-w-sm" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {PLATFORMS.filter((item) => item.label.toLowerCase().includes(search.toLowerCase())).map((platform) => <Card key={platform.value} data-testid={`card-plugin-${platform.value}`}><CardContent className="p-4"><Label htmlFor={`platform-${platform.value}`} className="flex min-h-11 items-center justify-between gap-3"><span><span className="block text-sm font-medium">{platform.label}</span><span className="text-xs text-muted-foreground">{disabled.has(platform.value) ? "Unavailable platform-wide" : `${platform.charLimit} char limit`}</span></span><span className="flex h-11 w-11 shrink-0 items-center justify-center"><input id={`platform-${platform.value}`} type="checkbox" role="switch" className="h-5 w-5 accent-primary" checked={draft.enabledPlatforms.includes(platform.value) && !disabled.has(platform.value)} disabled={disabled.has(platform.value)} onChange={() => toggle(platform.value)} data-testid={`switch-plugin-${platform.value}`} /></span></Label></CardContent></Card>)}
+            <Field id="platform-search" label="Find a platform" className="max-w-sm" render={(controlProps) => <Input {...controlProps} value={search} onChange={(event) => setSearch(event.target.value)} />} />
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,18em),1fr))] gap-3">
+              {PLATFORMS.filter((item) => item.label.toLowerCase().includes(search.toLowerCase())).map((platform) => <Card key={platform.value} data-testid={`card-plugin-${platform.value}`}><CardContent className="p-4"><Label htmlFor={`platform-${platform.value}`} className="flex min-h-11 items-center justify-between gap-3"><span className="min-w-0 [overflow-wrap:anywhere]"><span className="block text-sm font-medium">{platform.label}</span><span className="text-xs text-muted-foreground">{disabled.has(platform.value) ? "Unavailable platform-wide" : `${platform.charLimit} char limit`}</span></span><span className="flex h-11 w-11 shrink-0 items-center justify-center"><input id={`platform-${platform.value}`} type="checkbox" role="switch" className="h-5 w-5 accent-primary" checked={draft.enabledPlatforms.includes(platform.value) && !disabled.has(platform.value)} disabled={disabled.has(platform.value)} onChange={() => toggle(platform.value)} data-testid={`switch-plugin-${platform.value}`} /></span></Label></CardContent></Card>)}
             </div>
           </fieldset>
           {mutation.isError && <p role="alert" className="text-sm text-destructive">{mutation.error.message}</p>}
-          <div className="flex flex-wrap gap-3"><Button className="min-h-11" type="submit" disabled={!(dirty || needsRepair) || !valid || mutation.isPending} data-testid="button-save-plugins">{mutation.isPending ? "Saving…" : "Save Publishing Preferences"}</Button><Button className="min-h-11" type="button" variant="outline" disabled={!dirty || mutation.isPending} onClick={reset}>Discard changes</Button></div>
+          <div className="flex flex-wrap gap-3"><Button type="submit" disabled={!(dirty || needsRepair) || !valid || mutation.isPending} data-testid="button-save-plugins">{mutation.isPending ? "Saving…" : "Save Publishing Preferences"}</Button><Button type="button" variant="outline" disabled={!dirty || mutation.isPending} onClick={reset}>Discard changes</Button></div>
         </form>}
       </div>
     </Body>

@@ -1,7 +1,8 @@
 import { Link, useLocation } from "wouter";
 import { ChevronDown, LogOut, ShieldAlert, ArrowLeft } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { signOut, useAuth, useIsSignedIn } from "@/lib/auth";
+import { signOut, useAuth } from "@/lib/auth";
+import { useIsSignedIn } from "@/lib/dev-auth";
 import type { User as DbUser } from "@shared/models/auth";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -14,7 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const PAGE_TITLES: Record<string, string> = {
-  "/admin": "Overview",
+  "/admin": "Command Center",
   "/admin/tenants": "Tenants",
   "/admin/users": "Users",
   "/admin/integrations": "Integrations",
@@ -22,6 +23,10 @@ const PAGE_TITLES: Record<string, string> = {
   "/admin/engine-runs": "Pipeline",
   "/admin/feature-flags": "Feature Flags",
   "/admin/monitoring": "Monitoring",
+  "/admin/email-announcements": "Email Announcements",
+  "/admin/email-deliveries": "Email Deliveries",
+  "/admin/operations": "Operations",
+  "/admin/search": "Platform Search",
 };
 
 // Same shape as the tenant app's DashboardNavbar, branded for the admin
@@ -46,14 +51,14 @@ export function AdminNavbar() {
     ? `${firstName[0]}${lastName[0]}`
     : primaryEmail?.[0]?.toUpperCase() || "U";
 
-  const pageTitle = PAGE_TITLES[location] ?? "Overview";
+  const pageTitle = PAGE_TITLES[location] ?? (location.startsWith("/admin/tenants/") ? "Tenant 360" : location.startsWith("/admin/users/") ? "Account investigation" : "Admin");
 
   return (
-    <header className="flex items-center justify-between gap-4 px-3 py-2.5 border-b bg-background sticky top-0 z-10">
+    <header className="flex items-center justify-between gap-4 px-3 py-2.5 border-b bg-card text-card-foreground sticky top-0 z-10">
       <div className="flex items-center gap-3">
         <SidebarTrigger data-testid="button-admin-sidebar-toggle" />
         <Link href="/admin" className="flex items-center gap-1.5 shrink-0" data-testid="link-admin-navbar-logo">
-          <ShieldAlert className="w-5 h-5 text-secondary" />
+          <ShieldAlert className="w-5 h-5 text-primary" />
           <span className="font-bold text-base hidden sm:inline">Super Admin</span>
         </Link>
         <span className="text-sm text-muted-foreground hidden md:inline" data-testid="text-admin-navbar-title">
@@ -64,7 +69,8 @@ export function AdminNavbar() {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 hover-elevate"
+            className="flex min-h-11 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted ring-offset-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-label="Account menu"
             data-testid="button-admin-navbar-account"
           >
             <Avatar className="h-7 w-7">

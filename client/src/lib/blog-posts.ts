@@ -1,19 +1,101 @@
+import { FREE_TOOLS, type FreeTool } from "../../../shared/free-tools";
+import { BLOG_GUIDES } from "./blog-guides";
+
 export interface BlogPost {
   slug: string;
   title: string;
+  /** Shorter search title, without the brand, when `title` would be truncated in results. */
+  seoTitle?: string;
   excerpt: string;
   category: string;
   date: string;
+  /** Last substantive edit, when later than `date`. */
+  updated?: string;
   readTime: string;
   author: string;
   authorRole: string;
   isGuide?: boolean;
+  /**
+   * A direct two- or three-sentence answer shown first. Search and AI answer engines quote pages
+   * that answer the question up front.
+   */
+  summary?: string;
+  /** Paragraphs; an entry starting with "## " is a section heading. */
   content: string[];
+  faqs?: ReadonlyArray<{ question: string; answer: string }>;
+  /** Product pages (role, industry, use case) the article should link to. */
+  relatedPages?: readonly string[];
+  /** Free tools (paths from shared/free-tools.ts) most useful alongside the article, shown first. */
+  relatedTools?: readonly string[];
 }
 
-export const BLOG_POSTS: BlogPost[] = [
+const SITE_URL = "https://www.thesocialpundit.com";
+
+export const HEADING_PREFIX = "## ";
+
+/** The search-result title, brand included. */
+export function blogPostSeoTitle(post: BlogPost) {
+  return `${post.seoTitle ?? post.title} | TheSocialPundit`;
+}
+
+export function isHeading(block: string) {
+  return block.startsWith(HEADING_PREFIX);
+}
+
+/** Section headings, with stable anchors for the table of contents. */
+export function headingAnchor(block: string) {
+  return block.slice(HEADING_PREFIX.length).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+/** Article, breadcrumb and FAQ structured data. Shared so the prerendered page and the app agree. */
+export function blogPostJsonLd(post: BlogPost): Array<Record<string, unknown>> {
+  const url = `${SITE_URL}/blog/${post.slug}`;
+  const schema: Array<Record<string, unknown>> = [
+    {
+      "@context": "https://schema.org",
+      "@type": "Article",
+      headline: post.seoTitle ?? post.title,
+      description: post.excerpt,
+      datePublished: post.date,
+      dateModified: post.updated ?? post.date,
+      inLanguage: "en",
+      image: `${SITE_URL}/og-image.jpg`,
+      articleSection: post.category,
+      wordCount: post.content.join(" ").split(/\s+/).length,
+      mainEntityOfPage: url,
+      author: { "@type": "Organization", name: post.author, url: `${SITE_URL}/about` },
+      publisher: {
+        "@type": "Organization",
+        "@id": `${SITE_URL}/#organization`,
+        name: "TheSocialPundit",
+        url: SITE_URL,
+        logo: { "@type": "ImageObject", url: `${SITE_URL}/logo.png` },
+      },
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Home", item: `${SITE_URL}/` },
+        { "@type": "ListItem", position: 2, name: "Journal", item: `${SITE_URL}/blog` },
+        { "@type": "ListItem", position: 3, name: post.seoTitle ?? post.title, item: url },
+      ],
+    },
+  ];
+  if (post.faqs?.length) {
+    schema.push({
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: post.faqs.map(faq => ({ "@type": "Question", name: faq.question, acceptedAnswer: { "@type": "Answer", text: faq.answer } })),
+    });
+  }
+  return schema;
+}
+
+const ARTICLES: BlogPost[] = [
   {
     slug: "one-voice-ten-platforms",
+    seoTitle: "Guide to Multi-Platform Social Posting",
     title: "One Voice, Ten Platforms: A Practical Guide to Multi-Platform Posting",
     excerpt:
       "Your audience isn't only on LinkedIn anymore. Here's how to show up consistently on ten platforms without sounding like ten different people.",
@@ -33,6 +115,7 @@ export const BLOG_POSTS: BlogPost[] = [
   },
   {
     slug: "15-minute-content-calendar",
+    seoTitle: "The 15-Minute Content Calendar",
     title: "The 15-Minute Content Calendar for Busy Professionals",
     excerpt:
       "You don't need a content team to post consistently. You need a repeatable 15-minute weekly ritual — here's exactly what it looks like.",
@@ -52,6 +135,7 @@ export const BLOG_POSTS: BlogPost[] = [
   },
   {
     slug: "ai-content-still-sound-like-you",
+    seoTitle: "Can AI-Written Posts Still Sound Like You?",
     title: "Can AI-Generated Posts Still Sound Like You? What We Learned Building TheSocialPundit",
     excerpt:
       "Generic AI content is easy to spot and easy to ignore. Here's the difference between AI that writes for you and AI that writes as you.",
@@ -70,6 +154,7 @@ export const BLOG_POSTS: BlogPost[] = [
   },
   {
     slug: "linkedin-algorithm-2026",
+    seoTitle: "LinkedIn Algorithm 2026: What Changed",
     title: "What Changed in the LinkedIn Algorithm in 2026 (And What Didn't)",
     excerpt:
       "Dwell time matters more than ever, external links are still quietly penalized, and comments in the first hour remain the single biggest lever.",
@@ -88,6 +173,7 @@ export const BLOG_POSTS: BlogPost[] = [
   },
   {
     slug: "generic-ai-content-fails",
+    seoTitle: "Why Generic AI Content Fails",
     title: "Why Generic AI Content Fails — And How Industry Curation Fixes It",
     excerpt:
       "\"Write me a post about AI\" produces content anyone could have written. The fix isn't a better prompt — it's better source material.",
@@ -106,6 +192,7 @@ export const BLOG_POSTS: BlogPost[] = [
   },
   {
     slug: "personal-brand-vs-company-brand",
+    seoTitle: "Personal Brand vs Company Brand",
     title: "Personal Brand vs. Company Brand: Why Executives Need Both",
     excerpt:
       "A strong company page builds trust in the business. A strong personal voice builds trust in the people running it. Neither replaces the other.",
@@ -124,6 +211,7 @@ export const BLOG_POSTS: BlogPost[] = [
   },
   {
     slug: "beyond-linkedin-reddit-mastodon",
+    seoTitle: "Beyond LinkedIn: Reddit and Mastodon",
     title: "Beyond LinkedIn: Should Professionals Post on Reddit and Mastodon?",
     excerpt:
       "Different platforms, different unwritten rules. Here's how to tell when a channel is worth your time — and how to not get banned in week one.",
@@ -142,6 +230,7 @@ export const BLOG_POSTS: BlogPost[] = [
   },
   {
     slug: "why-consistency-beats-virality",
+    seoTitle: "Why Consistency Beats Virality",
     title: "Why Consistency Beats Virality for Professional Branding",
     excerpt:
       "One viral post gets you a week of attention. Fifty ordinary posts over a year get you a reputation. Only one of those compounds.",
@@ -160,8 +249,18 @@ export const BLOG_POSTS: BlogPost[] = [
   },
 ];
 
+/** Newest first: the journal features the first post. */
+export const BLOG_POSTS: BlogPost[] = [...BLOG_GUIDES, ...ARTICLES]
+  .sort((a, b) => b.date.localeCompare(a.date));
+
 export function getBlogPost(slug: string): BlogPost | undefined {
   return BLOG_POSTS.find((post) => post.slug === slug);
+}
+
+/** Two free tools to suggest under an article: its own picks first, then the rest in hub order. */
+export function blogPostTools(post: BlogPost, count = 2): FreeTool[] {
+  const paths = [...new Set([...(post.relatedTools ?? []), ...FREE_TOOLS.map(tool => tool.path)])];
+  return paths.flatMap(path => FREE_TOOLS.filter(tool => tool.path === path)).slice(0, count);
 }
 
 export function getRelatedPosts(slug: string, count = 3): BlogPost[] {

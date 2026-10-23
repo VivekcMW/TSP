@@ -1,5 +1,6 @@
 import type { User } from "@shared/models/auth";
 import type { SocialAccount } from "@shared/schema";
+import { effectivePlatformRole } from "@shared/admin-access";
 
 // Kept as the seam between a `users` row and its JSON representation. The
 // password-auth columns it used to strip (password_hash, reset_token,
@@ -7,7 +8,7 @@ import type { SocialAccount } from "@shared/schema";
 // currently nothing to remove — reinstate the destructuring here if a
 // sensitive column is ever added.
 export function toSafeUser(user: User) {
-  return user;
+  return { ...user, platformRole: effectivePlatformRole(user) };
 }
 
 // Strips OAuth access/refresh tokens before a row ever reaches a JSON response.
