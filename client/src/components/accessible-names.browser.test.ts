@@ -18,12 +18,18 @@ const fixture = `
   import { DashboardNavbar } from "@/components/dashboard/navbar";
   import { PlatformStrip } from "@/components/landing/platform-strip";
   import { DecorativeIcons } from "@/components/decorative-icons";
+  import { AppTourProvider } from "@/components/app-tour";
+  import { HelpProvider } from "@/components/help-panel";
   import { SidebarProvider } from "@/components/ui/sidebar";
   const h = React.createElement;
   const client = new QueryClient({ defaultOptions: { queries: { enabled: false } } });
   createRoot(document.getElementById("root")).render(
     h(QueryClientProvider, { client }, h(Router, null,
-      h(DecorativeIcons, null, h(SiteHeader), h(SidebarProvider, null, h(DashboardNavbar)), h(PlatformStrip)))));
+      h(DecorativeIcons, null,
+        h(SiteHeader),
+        h(AppTourProvider, { scope: null, enabled: false },
+          h(HelpProvider, null, h(SidebarProvider, null, h(DashboardNavbar)))),
+        h(PlatformStrip)))));
 `;
 
 let browser: Browser;

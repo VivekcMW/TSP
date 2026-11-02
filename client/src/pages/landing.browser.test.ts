@@ -91,7 +91,9 @@ describe("landing page", () => {
   it("gives every editorial photo alt text, sizes and reserved space; all load below the fold", async () => {
     const page = await openLanding(1440);
     try {
-      const images = await page.locator("img").evaluateAll(list => list.map(image => ({
+      // Editorial photos only. Decorative brand marks (logo) are aria-hidden
+      // chrome with empty alt — WCAG-correct, but not editorial content.
+      const images = await page.locator("img:not([aria-hidden='true'])").evaluateAll(list => list.map(image => ({
         alt: image.getAttribute("alt"), width: image.getAttribute("width"), height: image.getAttribute("height"),
         srcset: image.getAttribute("srcset"), loading: image.getAttribute("loading"), priority: image.getAttribute("fetchpriority"),
       })));
