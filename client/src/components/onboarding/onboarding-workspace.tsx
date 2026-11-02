@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Send, Sparkles, Zap } from "lucide-react";
+import { Send, Sparkles } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -280,7 +280,7 @@ export function OnboardingWorkspace({ onComplete, isPending = false, userIndustr
       <header className="shrink-0 border-b bg-card/95 px-4 py-3 backdrop-blur sm:px-6">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4">
         <Link href="/"><span className="flex cursor-pointer items-center gap-2" data-testid="link-logo-onboarding">
-          <Zap className="h-6 w-6 fill-primary text-primary" /><span className="font-heading text-lg font-bold text-primary">TheSocialPundit</span>
+          <img src="/logo-mark.png" alt="" className="h-7 w-7 rounded-md" aria-hidden="true" /><span className="font-heading text-lg font-bold text-primary">TheSocialPundit</span>
         </span></Link>
           <div className="flex items-center gap-2">
           <div className="hidden items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground sm:flex">

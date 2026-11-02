@@ -1,5 +1,4 @@
 import { Link } from "wouter";
-import { Zap } from "lucide-react";
 import { Reveal } from "@/components/motion/reveal";
 import { fadeIn } from "@/lib/motion";
 import { openCookieSettings } from "@/lib/analytics-consent";
@@ -10,8 +9,8 @@ export function SiteFooter() {
       <Reveal variants={fadeIn} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
           <div className="col-span-2">
-            <Link href="/" className="flex items-center gap-1" data-testid="link-footer-logo">
-              <Zap className="w-6 h-6 text-primary fill-primary" />
+            <Link href="/" className="flex items-center gap-2" data-testid="link-footer-logo">
+              <img src="/logo-mark.png" alt="" className="h-7 w-7 rounded-md" aria-hidden="true" />
               <span className="text-lg font-bold text-foreground">TheSocialPundit</span>
             </Link>
             <p className="mt-4 font-serif italic text-foreground text-base">

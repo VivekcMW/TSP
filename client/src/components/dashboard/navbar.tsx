@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
-import { ChevronDown, CircleHelp, CreditCard, LogOut, Settings, Zap } from "lucide-react";
+import { ChevronDown, CircleHelp, CreditCard, LogOut, Settings } from "lucide-react";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { useQuery } from "@tanstack/react-query";
 import { signOut, useAuth } from "@/lib/auth";
@@ -77,7 +77,7 @@ export function DashboardNavbar() {
       <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
         <SidebarTrigger className="shrink-0" aria-label={isMobile ? "Open navigation" : "Expand or collapse sidebar"} data-testid="button-navbar-navigation" />
         <Link href="/dashboard" className="flex min-w-0 max-w-full items-center gap-1.5" aria-label="TheSocialPundit dashboard" data-testid="link-navbar-logo">
-          <Zap className="w-5 h-5 shrink-0 text-primary fill-primary" />
+          <img src="/logo-mark.png" alt="" className="h-6 w-6 shrink-0 rounded-md" aria-hidden="true" />
           <span className="min-w-0 [overflow-wrap:anywhere] font-bold text-base text-primary hidden sm:inline">TheSocialPundit</span>
         </Link>
         <span className="min-w-0 [overflow-wrap:anywhere] text-sm text-muted-foreground hidden md:inline" data-testid="text-navbar-title">

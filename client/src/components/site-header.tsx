@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "wouter";
 import { useIsSignedIn } from "@/lib/dev-auth";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowRight, Compass, FileText, Menu, PenLine, Sparkles, X, Zap } from "lucide-react";
+import { ArrowRight, Compass, FileText, Menu, PenLine, Sparkles, X } from "lucide-react";
 import {
   NavigationMenu, NavigationMenuContent, NavigationMenuItem, NavigationMenuLink, NavigationMenuList, NavigationMenuTrigger,
 } from "@/components/ui/navigation-menu";
@@ -56,9 +56,7 @@ export function SiteHeader() {
         <div className="flex h-16 items-center justify-between gap-4">
           <div className="flex items-center gap-8">
             <Link href="/" className="flex items-center gap-2" data-testid="link-logo">
-              <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm">
-                <Zap className="h-4 w-4 fill-current" aria-hidden="true" />
-              </span>
+              <img src="/logo-mark.png" alt="" className="h-8 w-8 rounded-lg shadow-sm" aria-hidden="true" />
               <span className="text-lg font-bold tracking-tight text-foreground">TheSocialPundit</span>
             </Link>
 
