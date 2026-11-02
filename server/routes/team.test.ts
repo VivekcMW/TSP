@@ -12,6 +12,7 @@ import { installSupertestTransport } from "../../test/supertest-transport";
  */
 const m = vi.hoisted(() => ({
   tenantRow: vi.fn(),
+  flagRow: vi.fn(),
   listMemberships: vi.fn(),
   listTenantMembers: vi.fn(),
   listPendingInvitations: vi.fn(),
@@ -51,7 +52,12 @@ vi.mock("../storage", () => ({
 }));
 vi.mock("../services/email", () => ({ sendAppEmail: m.sendAppEmail }));
 vi.mock("../services/email/templates", () => ({ emailTemplates: { teamInvitation: m.teamInvitation } }));
-vi.mock("../db", () => ({ db: { select: () => ({ from: () => ({ where: () => ({ limit: async () => m.tenantRow() }) }) }) } }));
+vi.mock("../db", () => ({ db: { select: (fields: Record<string, unknown> = {}) => ({
+  // The team routes select tenant { name, kind }; the feature-flag gate selects
+  // { enabled, expiresAt, tenantIds }. Route by the requested shape.
+  from: () => ({ where: () => ({ limit: async () =>
+    "enabled" in fields ? m.flagRow() : m.tenantRow() }) }),
+}) } }));
 // Tripwires: this suite must never touch Postgres/Redis/providers directly.
 vi.mock("pg", () => { throw new Error("Postgres forbidden in team route tests"); });
 vi.mock("ioredis", () => { throw new Error("Redis forbidden in team route tests"); });
@@ -72,6 +78,9 @@ beforeEach(() => {
   for (const mock of Object.values(m)) if (typeof mock === "function" && "mockReset" in mock) (mock as ReturnType<typeof vi.fn>).mockReset();
   clearFeatureFlagCache();
   m.tenantRow.mockResolvedValue([{ name: "Acme Co", kind: "team" }]);
+  // No flag row → requireFeatureEnabled falls back to enabled (matches the
+  // operator kill-switch contract: a missing flag means the feature is on).
+  m.flagRow.mockResolvedValue([]);
   m.listMemberships.mockResolvedValue([{ tenantId: "tenant-1", name: "Acme Co", kind: "team", status: "active", role: "owner" }]);
   dbUser = { id: "user-1", name: "Jamie Author", email: "jamie@example.test" };
   tenant = { tenantId: "tenant-1", userId: "user-1", role: "owner", platformRole: null, viaPlatformRole: false };
@@ -99,7 +108,7 @@ it("denies listing members to a plain member role", async () => {
 
 it("returns 503 instead of the handler when the team_workspaces flag is disabled", async () => {
   asRole("manager");
-  m.tenantRow.mockResolvedValueOnce([{ enabled: false }]);
+  m.flagRow.mockResolvedValueOnce([{ enabled: false }]);
   const response = await request(app).get("/api/team/members");
   expect(response.status).toBe(503);
   expect(response.body.code).toBe("feature_disabled");
