@@ -287,6 +287,32 @@ describe("full App integration security (real router, Settings and Create provid
     expect(new URL(page.url()).pathname).toBe("/dashboard");
   });
 
+  it("can skip a first-run tour before checking legacy workspace routes", async () => {
+    await open("/dashboard");
+    await page.evaluate(() => {
+      const security = (window as Window & { security?: { setSession: (id: string | null) => void } }).security;
+      if (!security) throw new Error("Fixture session controls are unavailable");
+      security.setSession(null);
+    });
+    await browserExpect(page.getByText("Public page")).toBeVisible();
+    await page.evaluate(() => {
+      localStorage.removeItem("tsp-app-tour:v3:a:tenant-a");
+      const security = (window as Window & { security?: { setSession: (id: string | null) => void } }).security;
+      if (!security) throw new Error("Fixture session controls are unavailable");
+      security.setSession("a");
+    });
+    await browserExpect(page).toHaveURL(`${origin}/dashboard/settings?tab=integrations`);
+    await page.getByRole("button", { name: "Skip tour" }).click();
+    await browserExpect(page.getByTestId("dialog-app-tour")).toHaveCount(0);
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem("tsp-app-tour:v3:a:tenant-a") ?? "{}").dismissed)).toBe(true);
+
+    for (const route of ["/dashboard/performance", "/dashboard/analytics"]) {
+      await page.goto(origin + route);
+      await browserExpect(page).toHaveURL(`${origin}/dashboard`);
+      await browserExpect(page.getByTestId("route-page")).toHaveText("@/pages/overview");
+    }
+  });
+
   it("preserves the old Published view while the destination view wins", async () => {
     await open("/dashboard/published?view=drafts&provider=twitter");
     await browserExpect(page.getByTestId("route-page")).toHaveText("@/pages/drafts");
