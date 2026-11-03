@@ -22,10 +22,12 @@ let errors: string[];
 let apiCalls: { method: string; pathname: string }[];
 let creations: Map<string, { revision: number; state: CreationSession | null }>;
 
+const logoFile = path.resolve(import.meta.dirname, "../../client/public/logo-mark.png");
 const workspacePages = new Set(["overview", "dashboard", "drafts", "calendar", "settings", "create-post"].map(name => `@/pages/${name}`));
 
 beforeAll(async () => {
   const root = path.resolve(import.meta.dirname, "../..");
+  const logo = await readFile(logoFile);
   const bundles = new Map<string, string>();
   // Keep the original security fixture; UX tests additionally use the real shell
   // and all six workspace pages, not a component-only layout approximation.
@@ -74,6 +76,7 @@ beforeAll(async () => {
     const bundle = bundles.get(url.pathname);
     if (bundle) { res.setHeader("Content-Type", "text/javascript"); res.end(bundle); return; }
     if (url.pathname === "/workspace.css") { res.setHeader("Content-Type", "text/css"); res.end(css); return; }
+    if (url.pathname === "/logo-mark.png") { res.setHeader("Content-Type", "image/png"); res.end(logo); return; }
     if (!/^\/dashboard(?:\/|$)/.test(url.pathname)) { res.writeHead(404); res.end(); return; }
     const workspace = url.searchParams.get("fixture") === "workspace";
     res.setHeader("Content-Type", "text/html");
@@ -92,12 +95,19 @@ beforeEach(async () => {
   creations = new Map();
   page = await browser.newPage({ reducedMotion: "reduce", hasTouch: true, serviceWorkers: "block" });
   page.setDefaultTimeout(5000);
+  // These journeys represent existing users, not the first-run tour.
+  await page.addInitScript(() => {
+    const progress = JSON.stringify({ step: 3, dismissed: true, completed: false });
+    for (const scope of ["a:tenant-a", "a:tenant-b", "b:tenant-b"]) {
+      localStorage.setItem(`tsp-app-tour:v3:${scope}`, progress);
+    }
+  });
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/*", async route => {
     const url = new URL(route.request().url());
     if (url.origin !== origin) { errors.push(`External request: ${url.origin}`); return route.abort(); }
     if (!url.pathname.startsWith("/api/")) {
-      if (["/fixture.js", "/workspace.js", "/workspace.css"].includes(url.pathname) || /^\/dashboard(?:\/|$)/.test(url.pathname)) return route.continue();
+      if (["/fixture.js", "/workspace.js", "/workspace.css", "/logo-mark.png"].includes(url.pathname) || /^\/dashboard(?:\/|$)/.test(url.pathname)) return route.continue();
       errors.push(`Unmocked asset: ${url.pathname}`);
       return route.abort();
     }
@@ -142,6 +152,14 @@ async function open(route = "/dashboard/settings?tab=content") {
   await browserExpect(page.getByTestId("shell")).toBeVisible();
 }
 async function refetch(key: string) { await page.evaluate(key => (window as any).security.refetch(key), key); }
+
+it("serves the real logo asset in the isolated browser fixture", async () => {
+  const response = await page.goto(`${origin}/logo-mark.png`);
+  if (!response) throw new Error("Logo request did not return a response");
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toBe("image/png");
+  expect(await response.body()).toEqual(await readFile(logoFile));
+});
 
 describe("full App integration security (real router, Settings and Create provider)", () => {
   it.each(["/api/profile", "/api/me"])("keeps dirty Settings mounted after a background %s 500 and recovery", async key => {
@@ -335,7 +353,7 @@ async function actualRouteActions(surface: ActualRoute) {
   const headerAction = surface.key === "home" ? main.getByTestId("button-overview-instant-review")
     : surface.key === "discover" ? main.getByTestId("button-refresh-inbox")
     : surface.key === "calendar" ? main.getByRole("button", { name: "Schedule draft", exact: true })
-    : page.getByTestId("button-global-create");
+    : page.getByTestId("button-navbar-help");
   await expectReachableAction(headerAction);
   // Home links the calendar from the pipeline and from Upcoming publishing; check the card's.
   if (surface.key === "home") await expectReachableAction(main.getByTestId("card-upcoming-publishing").getByRole("link", { name: "Open calendar", exact: true }));
@@ -519,7 +537,7 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
       const duration = animation.effect?.getComputedTiming().duration;
       return animation.playState === "running" && typeof duration === "number" && duration > 32;
     }).length)).toBe(0);
-    const action = page.getByTestId("button-global-create");
+    const action = page.getByTestId("button-navbar-help");
     await action.focus(); await page.keyboard.press("Tab"); await page.keyboard.press("Shift+Tab");
     await browserExpect(action).toBeFocused();
     await browserExpect.poll(() => action.evaluate(element => {
@@ -630,7 +648,11 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
     await browserExpect(marketing).not.toBeChecked();
     await browserExpect(marketing).toHaveAccessibleDescription("Optional offers, independent of other notifications.");
     await browserExpect(save).toBeDisabled();
-    await browserExpect(panel.getByRole("switch")).toHaveCount(7);
+    const switchNames = ["Daily Digest", "Weekly Summary", "Posting reminders", "New Content Alerts",
+      "Product Updates", "Marketing", "Publishing Updates", "Account Alerts"];
+    await browserExpect(panel.getByRole("switch")).toHaveCount(switchNames.length);
+    for (const name of switchNames) await browserExpect(panel.getByRole("switch", { name, exact: true })).toHaveCount(1);
+    await browserExpect(panel.getByRole("switch", { name: "Weekly Summary", exact: true })).not.toBeChecked();
     const checkedStates = () => panel.getByRole("switch").evaluateAll(elements => elements.map(element => (element as HTMLInputElement).checked));
     const initialStates = await checkedStates();
     const descriptionId = (await digest.getAttribute("aria-describedby"))!;
@@ -861,10 +883,9 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
     await browserExpect(savedToast).toBeVisible();
     // A visible notification must not intercept the persistent navigation.
     // Do not dismiss it, wait for its timer, or force the subsequent click.
-    await expectReachableAction(page.getByTestId("button-global-create"));
+    await expectReachableAction(page.getByTestId("link-navbar-logo"));
     await browserExpect(savedToast).toBeVisible();
-    await page.getByTestId("button-global-create").click();
-    await expectWorkspaceLandmarks("Create post");
+    await navigateHomeAndResumeCreation();
     const revisionReview = card.getByRole("region", { name: "Draft revision review", exact: true });
     await browserExpect(revisionReview.getByRole("alert")).toContainText("Draft changed elsewhere. Nothing was overwritten.");
     await browserExpect(card.getByTestId("latest-draft-content")).toHaveText(remoteText);
@@ -966,28 +987,28 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
     expect(api.count("POST", "/api/drafts")).toBe(0);
   });
 
-  it.each([375, 1440].flatMap(width => ["navbar", "home"].map(entry => ({ width, entry }))))(
-    "actual $entry New cancels/accepts, while both Home and navbar Resume retain the Idea at $width px",
-    async ({ width, entry }) => {
+  it.each([375, 1440])(
+    "Home New cancels/accepts while Resume retains the Idea at %s px",
+    async width => {
       await openLoadedActualApp(api, actualAppRoutes[6], width);
       await page.getByTestId("link-navbar-logo").click();
       await expectWorkspaceLandmarks("Home");
-      await browserExpect(page.getByTestId("button-global-create")).toHaveText("Resume creation");
-      await page.getByRole("main").getByRole("button", { name: "Resume creation", exact: true }).click();
+      await browserExpect(page.getByTestId("button-global-create")).toHaveCount(0);
+      await resumeCreationFromHome();
       await expectDocumentSurface();
       await browserExpect(page.getByRole("textbox", { name: "Document title", exact: true })).toHaveValue(LONG_TITLE);
       await browserExpect(page.getByRole("textbox", { name: "Document text", exact: true })).toHaveText(LONG_TEXT);
-      if (entry === "home") await page.getByTestId("link-navbar-logo").click();
-      const newPost = entry === "home" ? page.getByTestId("button-overview-instant-review") : page.getByTestId("button-global-create");
+      await page.getByTestId("link-navbar-logo").click();
+      const newPost = page.getByTestId("button-overview-instant-review");
       await browserExpect(newPost).toHaveText("New post");
       decisions.push(false); await newPost.click();
       expect(confirmations).toHaveLength(1);
       expect(confirmations[0]).toContain("Start a new post?");
-      expect(new URL(page.url()).pathname).toBe(entry === "home" ? "/dashboard" : "/dashboard/create");
-      if (entry === "home") await page.getByTestId("button-global-create").click();
+      expect(new URL(page.url()).pathname).toBe("/dashboard");
+      await resumeCreationFromHome();
       await expectDocumentSurface();
       await browserExpect(page.getByRole("textbox", { name: "Document text", exact: true })).toHaveText(LONG_TEXT);
-      if (entry === "home") await page.getByTestId("link-navbar-logo").click();
+      await page.getByTestId("link-navbar-logo").click();
       decisions.push(true); await newPost.click();
       await expectFreshArticle();
       expect(confirmations).toHaveLength(2);
@@ -1042,6 +1063,17 @@ async function openWorkspace(route: string, width: number) {
   await browserExpect(page.getByTestId("link-navbar-logo")).toBeVisible();
   await browserExpect(page.getByRole("heading", { level: 1, name: workspaceRoutes.find(item => item.route === url.pathname)!.heading, exact: true })).toBeVisible();
   await browserExpect(page.getByTestId("route-page")).toHaveCount(0);
+}
+
+async function resumeCreationFromHome() {
+  await page.getByRole("main").getByRole("button", { name: "Resume creation", exact: true }).click();
+  await expectWorkspaceLandmarks("Create post");
+}
+
+async function navigateHomeAndResumeCreation() {
+  await page.getByTestId("link-navbar-logo").click();
+  await expectWorkspaceLandmarks("Home");
+  await resumeCreationFromHome();
 }
 
 async function expectOnScreen(control: Locator, minSize = 0) {
@@ -1189,7 +1221,9 @@ describe("UX-01 real App navigation (mocked APIs, Chromium touch emulation)", ()
     await page.getByTestId("button-navbar-account").click();
     await page.getByTestId("link-navbar-settings").click();
     await browserExpect(page.getByRole("heading", { name: "Settings", exact: true, level: 1 })).toBeVisible();
-    await page.getByTestId("button-global-create").click();
+    await page.getByTestId("link-navbar-logo").click();
+    await expectWorkspaceLandmarks("Home");
+    await page.getByTestId("button-overview-instant-review").click();
     await browserExpect(page.getByRole("heading", { name: "Create post", exact: true, level: 1 })).toBeVisible();
     await browserExpect(page.getByRole("dialog", { name: "Sidebar", exact: true })).toHaveCount(0);
     await browserExpect(sidebar.getByRole("link", { name: /Performance|Analytics/ })).toHaveCount(0);
@@ -1282,7 +1316,7 @@ describe("UX-02 real App Idea toolbar (local clipping, not just document width)"
     await page.getByRole("button", { name: "Close", exact: true }).click();
     await page.getByTestId("nav-content").click();
     await browserExpect(page.getByRole("heading", { name: "Content", exact: true, level: 1 })).toBeVisible();
-    await page.getByTestId("button-global-create").click();
+    await navigateHomeAndResumeCreation();
     await openNotes();
     await browserExpect(page.getByLabel("Article title", { exact: true })).toHaveValue("Retained idea");
     await browserExpect(editor).toHaveText(pasted);
@@ -1532,15 +1566,19 @@ describe("UX-03 real App semantics and Create entry (actual CSS, mocked boundari
   });
 
   it.each([375, 1440].flatMap(width => [
-    { entry: "global Create from Content", route: "/dashboard/content", testId: "button-global-create" },
-    { entry: "global Create from empty Discover", route: "/dashboard/discover", testId: "button-global-create" },
-    { entry: "Home header Create", route: "/dashboard", testId: "button-overview-instant-review" },
-    { entry: "Home empty next action", route: "/dashboard", testId: "card-personalized-briefing" },
-  ].map(item => ({ ...item, width }))))("opens a fresh Article board through $entry at $width px", async ({ route, testId, width }) => {
+    { entry: "Home Create after visiting Content", route: "/dashboard/content", testId: "button-overview-instant-review", viaHome: true },
+    { entry: "Home Create after visiting empty Discover", route: "/dashboard/discover", testId: "button-overview-instant-review", viaHome: true },
+    { entry: "Home header Create", route: "/dashboard", testId: "button-overview-instant-review", viaHome: false },
+    { entry: "Home empty next action", route: "/dashboard", testId: "card-personalized-briefing", viaHome: false },
+  ].map(item => ({ ...item, width }))))("opens a fresh Article board through $entry at $width px", async ({ route, testId, viaHome, width }) => {
     const dialogs = recordDialogs();
     await openWorkspace(route, width);
     expect(new URL(page.url()).pathname).toBe(route);
     await browserExpect(page.getByRole("group", { name: "Create from", exact: true })).toHaveCount(0);
+    if (viaHome) {
+      await page.getByTestId("link-navbar-logo").click();
+      await expectWorkspaceLandmarks("Home");
+    }
     const entry = testId === "card-personalized-briefing"
       ? page.getByTestId(testId).getByRole("button", { name: "Create post", exact: true })
       : page.getByTestId(testId);
@@ -1594,7 +1632,7 @@ describe("UX-03 real App semantics and Create entry (actual CSS, mocked boundari
     expectNoCreationRequests();
   });
 
-  it.each([375, 1440])("resumes the selected Idea and its inputs through global Create at %s px", async width => {
+  it.each([375, 1440])("resumes the selected Idea and its inputs from Home at %s px", async width => {
     const dialogs = recordDialogs();
     await openWorkspace("/dashboard/create", width);
     await expectDocumentSurface();
@@ -1606,7 +1644,7 @@ describe("UX-03 real App semantics and Create entry (actual CSS, mocked boundari
     await browserExpect(page).toHaveURL(origin + "/dashboard");
     await expectWorkspaceLandmarks("Home");
     await browserExpect(page.getByTestId("editor-manual-article")).toHaveCount(0);
-    await page.getByTestId("button-global-create").click();
+    await resumeCreationFromHome();
     await browserExpect(page).toHaveURL(origin + "/dashboard/create");
     await expectWorkspaceLandmarks("Create post");
     await expectDocumentSurface();

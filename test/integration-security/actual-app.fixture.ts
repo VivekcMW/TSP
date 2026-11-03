@@ -88,7 +88,7 @@ export async function installActualAppApi(page: Page, origin: string, errors: st
     ["/api/team/context", () => ({ tenantId: state.tenantId, tenantName: "Personal workspace", tenantKind: "personal", role: "owner", memberships: [] })],
     ["/api/billing", () => ({ configured: false, keyId: null, plans: [], currentPlan: null,
       subscription: { status: "active", cancelAtPeriodEnd: false, currentPeriodEnd: "2099-10-17T00:00:00.000Z" }, payments: [], paymentMethods: [] })],
-    ["/api/email-preferences", () => ({ dailyDigest: true, reminders: true, contentAlerts: false, productUpdates: true, marketing: false,
+    ["/api/email-preferences", () => ({ dailyDigest: true, weeklySummary: false, reminders: true, contentAlerts: false, productUpdates: true, marketing: false,
       publishing: true, accountAlerts: true, digestTimezone: "Asia/Kolkata", digestTime: "09:00", remindersPausedUntil: null })],
     ["/api/editorial/voice", () => ({ enabled: false, revision: 0, samples: [] })],
     ["/api/invitations/template", () => ({ enabled: false, subject: "An invitation from {InviterName}", body: `Hi {FirstName}, ${LONG_TEXT}\n{link}` })],

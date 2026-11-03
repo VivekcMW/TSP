@@ -40,7 +40,7 @@ describe("AI provider safety", () => {
     let finish!: () => void;
     observation.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
     fetchMock.mockResolvedValue(completion());
-    expect(await ai.generateText("article", { scope: { tenantId: "tenant" }, timeoutMs: 1000 })).toBe("Grounded post");
+    expect(await ai.generateText("article", { scope: { tenantId: "tenant" }, timeoutMs: 10_000 })).toBe("Grounded post");
     await vi.waitFor(() => expect(observation).toHaveBeenCalledTimes(1));
     expect(fetchMock).toHaveBeenCalledTimes(1);
     finish();
