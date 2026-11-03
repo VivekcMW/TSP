@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { ADMIN_EMAILS } from "../shared/admin-access";
+import { ADMIN_TENANT_PAGE_SIZE, type AdminMonitoring, type TenantDirectory } from "../shared/admin";
 
 const publicRoutes = [
   "/", "/pricing", "/how-it-works", "/blog",
@@ -11,23 +13,23 @@ const publicRoutes = [
 ];
 
 const workspaceRoutes = [
-  "/dashboard",
-  "/dashboard/discover",
-  "/dashboard/content",
-  "/dashboard/calendar",
-  "/dashboard/settings",
-  "/dashboard/create",
+  { path: "/dashboard", heading: "Home" },
+  { path: "/dashboard/discover", heading: "Discover" },
+  { path: "/dashboard/content", heading: "Content" },
+  { path: "/dashboard/calendar", heading: "Calendar" },
+  { path: "/dashboard/settings", heading: "Settings" },
+  { path: "/dashboard/create", heading: "Create post" },
 ];
 
 const adminRoutes = [
-  "/admin",
-  "/admin/tenants",
-  "/admin/users",
-  "/admin/integrations",
-  "/admin/audit-log",
-  "/admin/engine-runs",
-  "/admin/feature-flags",
-  "/admin/monitoring",
+  { path: "/admin", heading: "Command Center", readyText: "Customer investigation" },
+  { path: "/admin/tenants", heading: "Tenants", readyText: "No workspaces on this page." },
+  { path: "/admin/users", heading: "Users", readyText: "No records on this page." },
+  { path: "/admin/integrations", heading: "Integration Management", readyText: "No integrations configured yet." },
+  { path: "/admin/audit-log", heading: "Audit Log", readyText: "No records on this page." },
+  { path: "/admin/engine-runs", heading: "Pipeline", readyText: "No engine runs recorded yet" },
+  { path: "/admin/feature-flags", heading: "Feature Flags", readyText: "No feature flags yet." },
+  { path: "/admin/monitoring", heading: "Platform Monitoring", readyText: "No failures in the returned sample." },
 ];
 
 const publicViewports = [
@@ -44,10 +46,16 @@ const workspaceViewports = [
   { width: 1440, height: 900 },
 ];
 
-async function expectConsistentSurface(page: Page, path: string, workspace: boolean) {
+async function expectConsistentSurface(page: Page, path: string, workspace: boolean, expected?: { heading: string; readyText?: string }) {
   await page.goto(path, { waitUntil: "domcontentloaded" });
+  if (workspace) await expect(page).toHaveURL(url => url.pathname === path);
   await expect(page.locator("h1:visible"), `${path} must expose one visible page heading`).toHaveCount(1);
   await expect(page.locator("main:visible"), `${path} must expose one visible main landmark`).toHaveCount(1);
+  if (expected) {
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(expected.heading);
+    if (expected.readyText) await expect(page.locator("main").getByText(expected.readyText)).toBeVisible();
+    await expect(page).toHaveURL(url => url.pathname === path);
+  }
   await expect.poll(() => page.evaluate(() => ({
     bodyFont: getComputedStyle(document.body).fontFamily.toLowerCase(),
     touchTarget: getComputedStyle(document.documentElement).getPropertyValue("--touch-target").trim(),
@@ -148,20 +156,25 @@ async function mockAdminApi(page: Page) {
   await page.route("**/api/me", async route => {
     const response = await route.fetch();
     const user = await response.json();
-    await route.fulfill({ response, json: { ...user, platformRole: "platform_admin" } });
+    await route.fulfill({ response, json: { ...user, email: ADMIN_EMAILS[0], emailVerified: true, platformRole: "platform_admin" } });
   });
   await page.route("**/api/admin/**", async route => {
     const pathname = new URL(route.request().url()).pathname;
-    if (pathname === "/api/admin/usage") {
-      return route.fulfill({ json: { tenants: 3, users: 5, inboxItems: 24, drafts: 8, engineRuns: 4 } });
+    if (route.request().method() !== "GET") {
+      throw new Error(`Unexpected admin fixture request: ${route.request().method()} ${pathname}`);
+    }
+    if (["/api/admin/tenant-directory", "/api/admin/users-directory", "/api/admin/audit-directory"].includes(pathname)) {
+      const emptyPage = { items: [], total: 0, page: 1, pageSize: ADMIN_TENANT_PAGE_SIZE } satisfies TenantDirectory;
+      return route.fulfill({ json: emptyPage });
     }
     if (pathname === "/api/admin/monitoring") {
       const counts = { waiting: 0, active: 0, completed: 4, failed: 0, delayed: 0, paused: 0 };
-      return route.fulfill({ json: {
+      const monitoring = {
         generatedAt: new Date(0).toISOString(),
+        environment: "production",
         tenantCount: 3,
         queue: { configured: true, reachable: true, queuesReady: true },
-        scheduler: { enabled: true, designated: true },
+        scheduler: { enabled: true, designated: true, production: true },
         jobs: { inbox: counts, publishing: counts },
         scheduled: 0,
         publishing: 0,
@@ -169,9 +182,14 @@ async function mockAdminApi(page: Page) {
         overdue: 0,
         recentFailures: [],
         engineFailures: [],
-      } });
+        tenantSignals: [],
+      } satisfies AdminMonitoring;
+      return route.fulfill({ json: monitoring });
     }
-    return route.fulfill({ json: [] });
+    if (["/api/admin/integrations", "/api/admin/engine-runs", "/api/admin/feature-flags"].includes(pathname)) {
+      return route.fulfill({ json: [] });
+    }
+    throw new Error(`Unexpected admin fixture request: GET ${pathname}`);
   });
 }
 
@@ -184,26 +202,46 @@ test.describe("public consistency", () => {
       }
     });
   }
+
+  test("formatter preview can expand and collapse with a 44px touch target", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 760 });
+    await page.goto("/tools/linkedin-post-formatter");
+    const preview = page.getByTestId("text-formatter-preview");
+    for (const name of ["…see more", "show less"]) {
+      const button = page.getByRole("button", { name, exact: true });
+      await expect(button).toBeVisible();
+      const box = await button.boundingBox();
+      if (!box) throw new Error(`Missing ${name} button bounds`);
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      await button.click();
+      if (name === "…see more") await expect(preview).toContainText("What's stopping you from posting weekly?");
+      else await expect(preview).not.toContainText("What's stopping you from posting weekly?");
+    }
+  });
 });
 
 test.describe("workspace consistency", () => {
-  for (const path of workspaceRoutes) {
-    test(`${path} is responsive and visually consistent`, async ({ page }) => {
+  for (const route of workspaceRoutes) {
+    test(`${route.path} is responsive and visually consistent`, async ({ page }) => {
+      await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
+      await page.getByRole("button", { name: "Skip tour", exact: true }).click();
+      await expect(page.getByTestId("dialog-app-tour")).toHaveCount(0);
       for (const viewport of workspaceViewports) {
         await page.setViewportSize(viewport);
-        await expectConsistentSurface(page, path, true);
+        await expectConsistentSurface(page, route.path, true, route);
       }
     });
   }
 });
 
 test.describe("admin consistency", () => {
-  for (const path of adminRoutes) {
-    test(`${path} is responsive and visually consistent`, async ({ page }) => {
+  for (const route of adminRoutes) {
+    test(`${route.path} is responsive and visually consistent`, async ({ page }) => {
       await mockAdminApi(page);
       for (const viewport of workspaceViewports) {
         await page.setViewportSize(viewport);
-        await expectConsistentSurface(page, path, true);
+        await expectConsistentSurface(page, route.path, true, route);
       }
     });
   }
