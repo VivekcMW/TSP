@@ -83,7 +83,9 @@ summary. The candidate job also sends a request with the candidate browser
 `Origin` and fails unless that exact origin is allowed by CORS and Better Auth.
 If it fails at that gate, follow the candidate-only `ALLOWED_ORIGINS` procedure
 below and rerun; the tag URL remains stable while each attempt gets a distinct
-revision.
+revision. The authenticated route checks sign in with the dedicated test account,
+skip the first-run tour in the fresh browser context, and verify the intended
+workspace destinations and legacy redirects.
 
 Only after CI and live acceptance pass should an approver run `promote` with
 the same SHA, the exact candidate revision from the successful candidate job,
@@ -119,11 +121,13 @@ not exercise module loading or browser `Origin` headers.
 
 The tagged origin is not automatically in the production CORS allowlist. For
 browser QA, add that exact HTTPS origin to a **candidate-only** `ALLOWED_ORIGINS`
-binding while retaining the production origins. Do not modify the shared
-secret's latest version. Cloud Run CLI update flags reject changing an existing
-secret binding to a literal; a declarative service replacement or the regional
-Cloud Run API can make that change atomically. Preserve the existing production
-traffic allocation and both disabled-worker flags during the replacement.
+binding while retaining the production origins. First record the existing
+binding from the currently serving revision, including whether it is a literal
+or a Secret Manager reference. Do not modify a shared secret's latest version.
+If the existing binding is a secret, Cloud Run CLI update flags reject changing
+it to a literal; a declarative service replacement or the regional Cloud Run API
+can make that change atomically. Preserve the existing production traffic
+allocation and both disabled-worker flags during the replacement.
 Verify JavaScript and CSS return 200 with the candidate `Origin` header.
 
 Once candidate checks and CI pass, move traffic to the checked
@@ -158,9 +162,12 @@ After deployment, check signed WebSub delivery latency as well as readiness:
 healthy database probes do not detect a stalled feed parser.
 
 If validation created a configuration-only successor, update `CANDIDATE` to
-that exact checked revision before moving traffic. Restore the original
-`ALLOWED_ORIGINS` Secret Manager binding in the final revision; do not carry the
-candidate-only literal allowlist into production.
+that exact checked revision before moving traffic. Before automated promotion,
+restore the original `ALLOWED_ORIGINS` binding, including its type and value, in
+the service template while preserving the validated candidate and production
+traffic. The final revision inherits that template; `PRODUCTION_ALLOWED_ORIGINS`
+is a validation input and does not update Cloud Run. Do not carry the
+candidate-only allowlist into production.
 
 ```bash
 gcloud run services update-traffic tsp-app --region asia-south1 --to-revisions "$CANDIDATE=100"
