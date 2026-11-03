@@ -84,8 +84,10 @@ summary. The candidate job also sends a request with the candidate browser
 If it fails at that gate, follow the candidate-only `ALLOWED_ORIGINS` procedure
 below and rerun; the tag URL remains stable while each attempt gets a distinct
 revision. The authenticated route checks sign in with the dedicated test account,
-skip the first-run tour in the fresh browser context, and verify the intended
-workspace destinations and legacy redirects.
+wait for the first-run tour's Integrations redirect and target, dismiss the tour
+with the keyboard in the fresh browser context, and verify the intended
+workspace destinations and legacy redirects. Keyboard dismissal avoids a pointer
+race if the tour moves while connection statuses load.
 
 Only after CI and live acceptance pass should an approver run `promote` with
 the same SHA, the exact candidate revision from the successful candidate job,

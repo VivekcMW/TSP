@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { skipFirstWorkspaceTour } from "./app-tour";
 
 const publicRoutes = [
   { path: "/", heading: /Turn what you know into influence/i },
@@ -77,8 +78,7 @@ test("authenticated workspace routes load without overflow", async ({ page }) =>
   await fields.nth(1).fill(process.env.E2E_TEST_PASSWORD!);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(url => url.origin === origin && (url.pathname === "/dashboard" || url.pathname.startsWith("/dashboard/")));
-  await page.getByRole("button", { name: "Skip tour" }).click();
-  await expect(page.getByTestId("dialog-app-tour")).toHaveCount(0);
+  await skipFirstWorkspaceTour(page);
 
   const routes = [
     { path: "/dashboard", destination: "/dashboard", heading: "Home" },

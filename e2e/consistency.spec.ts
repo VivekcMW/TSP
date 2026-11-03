@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN_EMAILS } from "../shared/admin-access";
 import { ADMIN_TENANT_PAGE_SIZE, type AdminMonitoring, type TenantDirectory } from "../shared/admin";
+import { skipFirstWorkspaceTour } from "./app-tour";
 
 const publicRoutes = [
   "/", "/pricing", "/how-it-works", "/blog",
@@ -222,11 +223,54 @@ test.describe("public consistency", () => {
 });
 
 test.describe("workspace consistency", () => {
+  test("tour dismissal works while the Integrations target is loading and moving", async ({ page }) => {
+    let releaseSummary!: () => void;
+    let reportSummaryRequest!: () => void;
+    const summaryReleased = new Promise<void>(resolve => { releaseSummary = resolve; });
+    const summaryRequested = new Promise<void>(resolve => { reportSummaryRequest = resolve; });
+    await page.route("**/api/analytics/summary", async route => {
+      reportSummaryRequest();
+      await summaryReleased;
+      await route.continue();
+    });
+
+    try {
+      await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
+      await summaryRequested;
+      await expect(page.getByTestId("app-tour-arrow")).toBeVisible();
+      await expect(page.getByTestId("button-connect-linkedin")).toHaveCount(0);
+      await page.evaluate(() => {
+        const skip = document.querySelector<HTMLElement>('[data-testid="button-app-tour-skip"]');
+        const popover = skip?.closest<HTMLElement>("[data-radix-popper-content-wrapper]");
+        if (!skip || !popover) throw new Error("Tour skip button or popover is missing");
+        // A late anchor update can move the popover between pointer down and pointer up.
+        const movePopover = () => {
+          if (document.documentElement.dataset.tourMoved !== undefined) return;
+          const previousTop = popover.getBoundingClientRect().top;
+          popover.style.setProperty("transition", "none", "important");
+          popover.style.setProperty("translate", "0px 120px", "important");
+          const nextTop = popover.getBoundingClientRect().top;
+          document.documentElement.dataset.tourMoved = String(nextTop >= previousTop + 119);
+        };
+        skip.addEventListener("focus", movePopover, { once: true });
+        skip.addEventListener("pointerdown", movePopover, { once: true });
+      });
+      await skipFirstWorkspaceTour(page);
+      await expect(page.locator("html")).toHaveAttribute("data-tour-moved", "true");
+      const summaryResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/analytics/summary");
+      releaseSummary();
+      expect((await summaryResponse).ok()).toBe(true);
+      await expect(page.getByTestId("dialog-app-tour")).toHaveCount(0);
+      await expect(page).toHaveURL(url => url.pathname === "/dashboard/settings" && url.searchParams.get("tab") === "integrations");
+    } finally {
+      releaseSummary();
+    }
+  });
+
   for (const route of workspaceRoutes) {
     test(`${route.path} is responsive and visually consistent`, async ({ page }) => {
       await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
-      await page.getByRole("button", { name: "Skip tour", exact: true }).click();
-      await expect(page.getByTestId("dialog-app-tour")).toHaveCount(0);
+      await skipFirstWorkspaceTour(page);
       for (const viewport of workspaceViewports) {
         await page.setViewportSize(viewport);
         await expectConsistentSurface(page, route.path, true, route);
