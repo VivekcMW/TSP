@@ -1237,6 +1237,41 @@ export type SavedSearch = typeof savedSearches.$inferSelect;
 // ── Phase 3A (end) ──
 
 // ── Phase 3 — topic discovery: strategy, ideas, check-ins (begin) ──
+import { date as pgDate } from "drizzle-orm/pg-core";
+import type { CheckinAnswers, ContentStrategy, IdeaState, TopicIdea } from "./topic-ideas";
+
+/** One content strategy per tenant member; `revision` guards concurrent saves (migration 0061). */
+export const contentStrategies = pgTable("content_strategies", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  strategy: jsonb("strategy").$type<ContentStrategy>().notNull(),
+  revision: integer("revision").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [primaryKey({ columns: [table.tenantId, table.userId] })]);
+
+/** Weekly experience check-in; week_start is the Monday in the profile time zone (migration 0061). */
+export const experienceCheckins = pgTable("experience_checkins", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  weekStart: pgDate("week_start", { mode: "string" }).notNull(),
+  answers: jsonb("answers").$type<CheckinAnswers>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [primaryKey({ columns: [table.tenantId, table.userId, table.weekStart] })]);
+
+/** Saved / dismissed / drafted topic ideas by stable idea id; saved ideas keep a snapshot (migration 0061). */
+export const topicIdeaStates = pgTable("topic_idea_states", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  ideaId: varchar("idea_id", { length: 16 }).notNull(),
+  state: varchar("state", { length: 16 }).$type<IdeaState>().notNull(),
+  idea: jsonb("idea").$type<TopicIdea>(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  primaryKey({ columns: [table.tenantId, table.userId, table.ideaId] }),
+  index("idx_topic_idea_states_recent").on(table.tenantId, table.userId, table.updatedAt.desc()),
+]);
 // ── Phase 3 (end) ──
 
 // ── Phase 4 — triage feedback: dismiss reasons, calibration (begin) ──

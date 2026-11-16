@@ -299,7 +299,7 @@ function useComposerActions(onConnectLinkedIn: () => void) {
     openForStory: (source, inline) => {
       opened();
       const existing = ref.current.find(compose => compose.source?.id === source.id);
-      if (existing) { patch(existing.key, { mode: inline ? "inline" : existing.mode, minimized: false, focusToken: Date.now() }); return; }
+      if (existing) { patch(existing.key, { mode: inline ? "inline" : "float", minimized: false, focusToken: Date.now() }); return; }
       const compose = create({ source, mode: inline ? "inline" : "float", focusToken: Date.now() });
       if (inline) commit([...ref.current, compose]); else addWindow(compose);
     },
