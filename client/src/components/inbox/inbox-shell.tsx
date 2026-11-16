@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { Link, useLocation, useSearch } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
-  Archive, CalendarDays, FileText, Inbox, Linkedin, Menu, Pencil, Plus, Rss, Search, Send, Settings, Star, Tag, X, CalendarClock,
+  AlertTriangle, Archive, CalendarDays, Clock, FileText, Inbox, Linkedin, Menu, Pencil, Plus, Rss, Search, Send, Settings, Sparkles, Star, StickyNote, Tag, Trash2, X, CalendarClock,
 } from "lucide-react";
 import { useIsSignedIn } from "@/lib/dev-auth";
 import { ComposerProvider, useComposer } from "@/components/inbox/composer";
@@ -12,14 +12,19 @@ import { SourcesManagerContent } from "@/components/dashboard/sources-manager";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { ToastAction } from "@/components/ui/toast";
 import { setClassicLayoutPreference } from "@/hooks/use-client-features";
+import { usePostRows } from "@/hooks/use-post-rows";
+import { useToast } from "@/hooks/use-toast";
 import { ignoreInboxShortcut, INBOX_SHORTCUTS } from "@/lib/inbox-shortcuts";
 import { inboxStatusQuery, LINKEDIN_STATUS_KEY, linkedInPostingState, type LinkedInConnectionStatus } from "@/lib/inbox-queries";
+import { postCounts } from "@/lib/post-folders";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { inboxHref, parseInboxLocation, topicLabels } from "@shared/inbox-view";
-import type { UserProfile } from "@shared/schema";
+import { inboxHref, parseInboxLocation, topicLabels, type InboxFolder } from "@shared/inbox-view";
+import type { UserNote, UserProfile } from "@shared/schema";
 
-type Connector = "linkedin" | "sources" | "more";
+type Connector = "linkedin" | "notes" | "sources" | "more";
 interface InboxShellContextValue { query: string; setQuery: (query: string) => void; openShortcuts: () => void }
 const InboxShellContext = createContext<InboxShellContextValue>({ query: "", setQuery: () => {}, openShortcuts: () => {} });
 export const useInboxShell = () => useContext(InboxShellContext);
@@ -30,7 +35,7 @@ const isInboxPath = (path: string) => path === "/dashboard" || path === "/dashbo
 export function InboxShell({ children }: Readonly<{ children: ReactNode }>) {
   const [panel, setPanel] = useState<Connector | null>(null);
   return (
-    <ComposerProvider onConnectLinkedIn={() => setPanel("linkedin")}>
+    <ComposerProvider onConnectLinkedIn={() => setPanel("linkedin")} sidePanelOpen={panel !== null}>
       <ShellFrame panel={panel} setPanel={setPanel}>{children}</ShellFrame>
     </ComposerProvider>
   );
@@ -123,17 +128,22 @@ function InboxNav({ collapsed, location, search, signedIn, onCompose }: Readonly
   const profile = useQuery<UserProfile>({ queryKey: ["/api/profile"], enabled: signedIn });
   const active = useQuery(inboxStatusQuery("active", signedIn));
   const saved = useQuery(inboxStatusQuery("saved", signedIn));
+  const { rows: posts } = usePostRows(signedIn);
+  const postCount = postCounts(posts);
   const unread = (active.data ?? []).filter(item => item.status === "active" && !item.readAt).length;
   const current = isInboxPath(location) ? parseInboxLocation(search) : null;
-  const view = new URLSearchParams(search).get("view");
   const labels = topicLabels(profile.data?.keywords);
+  const at = (folder: InboxFolder) => current?.folder === folder;
   const folders: Array<{ label: string; href: string; icon: typeof Inbox; count?: number; strong?: boolean; active: boolean }> = [
-    { label: "For you", href: inboxHref(), icon: Inbox, count: unread, strong: unread > 0, active: current?.folder === "inbox" && !current.label },
-    { label: "Shortlist", href: inboxHref({ folder: "shortlist" }), icon: Star, count: saved.data?.length, active: current?.folder === "shortlist" },
-    { label: "Drafts", href: "/dashboard/content?view=ready", icon: FileText, active: location === "/dashboard/content" && (view === "ready" || !view) },
-    { label: "Scheduled", href: "/dashboard/content?view=scheduled", icon: CalendarClock, active: location === "/dashboard/content" && view === "scheduled" },
-    { label: "Posted", href: "/dashboard/content?view=published", icon: Send, active: location === "/dashboard/content" && view === "published" },
-    { label: "Not relevant", href: inboxHref({ folder: "dismissed" }), icon: Archive, active: current?.folder === "dismissed" },
+    { label: "For you", href: inboxHref(), icon: Inbox, count: unread, strong: unread > 0, active: at("inbox") && !current?.label },
+    { label: "Shortlist", href: inboxHref({ folder: "shortlist" }), icon: Star, count: saved.data?.length, active: at("shortlist") },
+    { label: "Snoozed", href: inboxHref({ folder: "snoozed" }), icon: Clock, active: at("snoozed") },
+    { label: "Drafts", href: inboxHref({ folder: "drafts" }), icon: FileText, count: postCount.drafts, active: at("drafts") },
+    { label: "Scheduled", href: inboxHref({ folder: "scheduled" }), icon: CalendarClock, count: postCount.scheduled, active: at("scheduled") },
+    { label: "Posted", href: inboxHref({ folder: "posted" }), icon: Send, active: at("posted") },
+    // Like Gmail's Outbox: only shown while something needs checking.
+    ...(postCount.outbox || at("outbox") ? [{ label: "Outbox", href: inboxHref({ folder: "outbox" }), icon: AlertTriangle, count: postCount.outbox, strong: postCount.outbox > 0, active: at("outbox") }] : []),
+    { label: "Not relevant", href: inboxHref({ folder: "dismissed" }), icon: Archive, active: at("dismissed") },
     { label: "Calendar", href: "/dashboard/calendar", icon: CalendarDays, active: location === "/dashboard/calendar" },
   ];
   const item = "flex h-9 w-full items-center gap-3 pr-3 text-sm transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
@@ -188,6 +198,7 @@ function PostingStatusChip({ signedIn, onOpen }: Readonly<{ signedIn: boolean; o
 
 const RAIL: Array<{ id: Connector | "plan"; label: string; icon: typeof Inbox }> = [
   { id: "plan", label: "Plan (Calendar)", icon: CalendarDays },
+  { id: "notes", label: "Notes", icon: StickyNote },
   { id: "linkedin", label: "LinkedIn connection", icon: Linkedin },
   { id: "sources", label: "Sources you follow", icon: Rss },
   { id: "more", label: "More connectors", icon: Plus },
@@ -210,7 +221,7 @@ function ConnectorPanel({ panel, onClose }: Readonly<{ panel: Connector; onClose
   const signedIn = useIsSignedIn();
   const status = useQuery<LinkedInConnectionStatus>({ queryKey: LINKEDIN_STATUS_KEY, enabled: signedIn && panel === "linkedin", staleTime: 30_000 });
   const state = linkedInPostingState(status.data);
-  const title = { linkedin: "LinkedIn connection", sources: "Sources you follow", more: "More connectors" }[panel];
+  const title = { linkedin: "LinkedIn connection", notes: "Notes", sources: "Sources you follow", more: "More connectors" }[panel];
   return (
     <aside aria-label={title} className="mb-2 ml-2 flex w-80 shrink-0 flex-col overflow-hidden rounded-md border bg-card" data-testid={`panel-connector-${panel}`}>
       <div className="flex h-12 shrink-0 items-center justify-between border-b pl-4 pr-1">
@@ -226,15 +237,90 @@ function ConnectorPanel({ panel, onClose }: Readonly<{ panel: Connector; onClose
           <Button asChild variant={state === "ready" ? "outline" : "default"} className="w-full"><Link href="/dashboard/settings?tab=integrations">{state === "ready" ? "Manage connection" : "Connect LinkedIn"}</Link></Button>
           <p className="text-xs text-muted-foreground">Signing in with LinkedIn does not give permission to post. Reconnecting never posts automatically.</p>
         </>}
+        {panel === "notes" && <NotesPanel />}
         {panel === "sources" && <SourcesManagerContent />}
         {panel === "more" && <>
           <p className="text-muted-foreground">LinkedIn is the focus today. Other platforms stay available in Settings and will return here later.</p>
           <Button asChild variant="outline" className="w-full"><Link href="/dashboard/settings?tab=integrations">Open integrations</Link></Button>
-          {["Notes for your experiences", "Newsletter forwarding", "Save from any page"].map(name => <div key={name} className="rounded-md border p-3">
+          {["Newsletter forwarding", "Save from any page"].map(name => <div key={name} className="rounded-md border p-3">
             <p className="font-medium">{name}</p><p className="text-xs text-muted-foreground">Coming in a later phase.</p>
           </div>)}
         </>}
       </div>
     </aside>
   );
+}
+
+const NOTES_KEY = ["/api/notes"] as const;
+const NOTE_LIMIT = 1000;
+
+/** Keep-style notes: your own experiences and results, inserted into a post or used for Help me write. */
+function NotesPanel() {
+  const signedIn = useIsSignedIn();
+  const composer = useComposer();
+  const { toast } = useToast();
+  const notes = useQuery<UserNote[]>({ queryKey: NOTES_KEY, enabled: signedIn });
+  const [text, setText] = useState("");
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
+  const failed = (title: string) => (error: unknown) => toast({ title, description: error instanceof Error ? error.message : "Try again.", variant: "destructive" });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: NOTES_KEY });
+  const create = useMutation({
+    mutationFn: async (value: string) => (await apiRequest("POST", "/api/notes", { text: value })).json() as Promise<UserNote>,
+    onSuccess: () => { void refresh(); }, onError: failed("Couldn't save the note"),
+  });
+  const update = useMutation({
+    mutationFn: async (note: { id: string; text: string }) => (await apiRequest("PATCH", `/api/notes/${encodeURIComponent(note.id)}`, { text: note.text })).json(),
+    onSuccess: () => { setEditing(null); void refresh(); }, onError: failed("Couldn't update the note"),
+  });
+  const remove = useMutation({
+    mutationFn: async (note: UserNote) => { await apiRequest("DELETE", `/api/notes/${encodeURIComponent(note.id)}`); return note; },
+    onSuccess: note => {
+      void refresh();
+      toast({ title: "Note deleted", action: <ToastAction altText="Undo" onClick={() => create.mutate(note.text)}>Undo</ToastAction> });
+    },
+    onError: failed("Couldn't delete the note"),
+  });
+  const insert = (note: UserNote, into: "body" | "take") => {
+    const where = composer.insertNote(note.text, into);
+    toast({ title: into === "take" ? (where === "existing" ? "Added to Your take" : "Started a post from this note") : (where === "existing" ? "Added to your draft" : "Started a new post with this note"),
+      description: into === "take" ? "Use Help me write to turn it into a post." : undefined });
+  };
+  const draftText = text.trim();
+  // Clear only what was saved: Undo re-creates notes through the same mutation, and typing may continue meanwhile.
+  const save = () => { if (draftText && !create.isPending) create.mutate(draftText, { onSuccess: () => setText(current => current.trim() === draftText ? "" : current) }); };
+
+  return <div className="space-y-3">
+    <p className="text-muted-foreground">Jot down experiences, results and opinions. Add one to a post, or use it for Help me write.</p>
+    <div className="rounded-md border p-2 focus-within:border-input">
+      <textarea value={text} onChange={event => setText(event.target.value)} maxLength={NOTE_LIMIT} rows={3} aria-label="New note" placeholder="Take a note…"
+        onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); save(); } }}
+        className="w-full resize-none bg-transparent text-sm outline-none" data-testid="input-new-note" />
+      <div className="flex items-center justify-end gap-2">
+        {text.length > NOTE_LIMIT - 100 && <span className="text-[11px] tabular-nums text-muted-foreground">{text.length}/{NOTE_LIMIT}</span>}
+        <Button size="sm" disabled={!draftText || create.isPending} onClick={save} data-testid="button-save-note">{create.isPending ? "Saving…" : "Save note"}</Button>
+      </div>
+    </div>
+    {notes.isLoading ? <p className="text-xs text-muted-foreground">Loading notes…</p>
+      : notes.isError ? <div role="alert" className="text-xs"><p>Notes could not be loaded.</p><Button size="sm" variant="outline" className="mt-2" onClick={() => void notes.refetch()}>Try again</Button></div>
+      : notes.data?.length ? <ul className="space-y-2" aria-label="Your notes">{notes.data.map(note => <li key={note.id} className="rounded-md border bg-card p-3" data-testid={`note-${note.id}`}>
+          {editing?.id === note.id ? <>
+            <textarea value={editing.text} onChange={event => setEditing({ id: note.id, text: event.target.value })} maxLength={NOTE_LIMIT} rows={4} aria-label="Edit note" autoFocus
+              className="w-full resize-none rounded border bg-background p-2 text-sm outline-none focus:border-input" />
+            <div className="mt-2 flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+              <Button size="sm" disabled={!editing.text.trim() || update.isPending} onClick={() => update.mutate({ id: note.id, text: editing.text.trim() })}>Save</Button>
+            </div>
+          </> : <>
+            <p className="whitespace-pre-wrap break-words text-sm">{note.text}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-1">
+              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => insert(note, "body")} data-testid={`button-insert-note-${note.id}`}>Add to post</Button>
+              <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => insert(note, "take")} title="Put this note in Your take for Help me write"><Sparkles className="mr-1 h-3.5 w-3.5" aria-hidden="true" />Use as take</Button>
+              <span className="ml-auto" />
+              <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Edit note" onClick={() => setEditing({ id: note.id, text: note.text })}><Pencil className="h-3.5 w-3.5" aria-hidden="true" /></Button>
+              <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Delete note" disabled={remove.isPending} onClick={() => remove.mutate(note)}><Trash2 className="h-3.5 w-3.5" aria-hidden="true" /></Button>
+            </div>
+          </>}
+        </li>)}</ul>
+      : <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">No notes yet. Try a recent win, a lesson learned or a number you can share.</p>}
+  </div>;
 }

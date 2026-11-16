@@ -23,7 +23,8 @@ export function storeUndoSeconds(seconds: number) {
 }
 
 const revision = (value: unknown): string | null => value instanceof Date ? value.toISOString() : typeof value === "string" ? value : null;
-const toSaved = (draft: Draft): SavedDraft => ({ id: draft.id, content: draft.content, updatedAt: revision(draft.updatedAt) });
+export const toSavedDraft = (draft: Pick<Draft, "id" | "content" | "updatedAt">): SavedDraft => ({ id: draft.id, content: draft.content, updatedAt: revision(draft.updatedAt) });
+const toSaved = toSavedDraft;
 
 /** Create once, then revision-checked PATCHes; never overwrites a draft edited elsewhere. */
 export async function saveLinkedInDraft(previous: SavedDraft | undefined, content: string, tone: DraftTone, inboxItemId?: string): Promise<SavedDraft> {
@@ -72,14 +73,16 @@ export async function cancelLinkedInSchedule(draftId: string): Promise<void> {
   await apiRequest("DELETE", `/api/drafts/${encodeURIComponent(draftId)}/schedule`);
 }
 
+export type PostingResultKind = "queued" | "published" | "simulated" | "failed" | "unknown";
+
 /** Never claims publication without a provider outcome: queued and simulated are reported as such. */
-export function postingOutcome(result: PublishResult): { tone: "success" | "info" | "error"; title: string; description: string } {
+export function postingOutcome(result: PublishResult): { kind: PostingResultKind; tone: "success" | "info" | "error"; title: string; description: string } {
   const status = result.results?.find(item => item.platform === "linkedin")?.status ?? result.results?.[0]?.status;
-  if (result.jobIds?.length) return { tone: "info", title: "Sending to LinkedIn", description: "Your post is queued. Check Posted for the delivery result." };
-  if (status === "published") return { tone: "success", title: "Posted to LinkedIn", description: "LinkedIn returned a post receipt. Find it in Posted." };
-  if (status === "simulated") return { tone: "info", title: "Simulated — nothing was posted", description: "Publishing is in sandbox mode, so LinkedIn was not contacted." };
-  if (status === "failed" || status === "skipped") return { tone: "error", title: "Not posted", description: "LinkedIn did not accept the post. Your draft is kept in Drafts." };
-  return { tone: "error", title: "Delivery not confirmed", description: "Check Posted before trying again so the post is not duplicated." };
+  if (result.jobIds?.length) return { kind: "queued", tone: "info", title: "Sending to LinkedIn", description: "Your post is queued. Check Posted for the delivery result." };
+  if (status === "published") return { kind: "published", tone: "success", title: "Posted to LinkedIn", description: "LinkedIn returned a post receipt. Find it in Posted." };
+  if (status === "simulated") return { kind: "simulated", tone: "info", title: "Simulated — nothing was posted", description: "Publishing is in sandbox mode, so LinkedIn was not contacted." };
+  if (status === "failed" || status === "skipped") return { kind: "failed", tone: "error", title: "Not posted", description: "LinkedIn did not accept the post. Your draft is kept in Drafts." };
+  return { kind: "unknown", tone: "error", title: "Delivery not confirmed", description: "Check Posted before trying again so the post is not duplicated." };
 }
 
 /** 9:00 local time on the next day, or the next weekday when weekdays only. */

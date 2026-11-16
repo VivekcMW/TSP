@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inboxHref, inboxTimeLabel, matchesLabel, parseInboxLocation, selectionAfterRemoval, topicLabels, topPicks } from "./inbox-view";
+import { inboxHref, inboxTimeLabel, matchesLabel, parseInboxLocation, selectionAfterRemoval, snoozeLabel, snoozePresets, topicLabels, topPicks } from "./inbox-view";
 
 const row = (id: string, source: string, score: number) => ({ id, headline: id, source, relevanceScore: String(score) });
 
@@ -12,6 +12,37 @@ describe("Inbox locations", () => {
     expect(inboxHref({ folder: "inbox", tab: "signals", label: "AI" })).toBe("/dashboard?tab=signals&label=AI");
     expect(inboxHref({ folder: "dismissed" })).toBe("/dashboard?folder=dismissed");
     expect(inboxHref()).toBe("/dashboard");
+  });
+
+  it("parses post folders and never applies topic labels to your own posts", () => {
+    expect(parseInboxLocation("?folder=drafts&label=AI")).toEqual({ folder: "drafts", tab: "stories", label: null });
+    expect(parseInboxLocation("?folder=snoozed&label=AI")).toEqual({ folder: "snoozed", tab: "stories", label: "AI" });
+    expect(inboxHref({ folder: "posted" })).toBe("/dashboard?folder=posted");
+  });
+});
+
+describe("Snooze", () => {
+  // 2026-11-16 is a Monday.
+  const at = (day: number, hour: number) => new Date(2026, 10, day, hour, 30);
+  const presets = (now: Date) => snoozePresets(now).map(preset => [preset.id, preset.until.toString()]);
+
+  it("offers Gmail's presets in local time and drops ones that would repeat or have passed", () => {
+    expect(presets(at(16, 9))).toEqual([
+      ["later", new Date(2026, 10, 16, 18).toString()], ["tomorrow", new Date(2026, 10, 17, 8).toString()],
+      ["weekend", new Date(2026, 10, 21, 8).toString()], ["next-week", new Date(2026, 10, 23, 8).toString()],
+    ]);
+    expect(presets(at(20, 17)).map(([id]) => id)).toEqual(["tomorrow", "next-week"]);
+    expect(presets(at(22, 10))).toEqual([["later", new Date(2026, 10, 22, 18).toString()], ["tomorrow", new Date(2026, 10, 23, 8).toString()]]);
+    expect(presets(at(21, 10)).map(([id, until]) => [id, until])).toContainEqual(["next-week", new Date(2026, 10, 23, 8).toString()]);
+  });
+
+  it("labels return times relative to today", () => {
+    const now = at(16, 9);
+    expect(snoozeLabel(new Date(2026, 10, 16, 18), now, "en-US")).toBe("Today, 6:00 PM");
+    expect(snoozeLabel(new Date(2026, 10, 17, 8), now, "en-US")).toBe("Tomorrow, 8:00 AM");
+    expect(snoozeLabel(new Date(2026, 10, 21, 8), now, "en-US")).toBe("Sat, 8:00 AM");
+    expect(snoozeLabel(new Date(2026, 11, 1, 8), now, "en-US")).toBe("Dec 1, 8:00 AM");
+    expect(snoozeLabel(new Date(2027, 0, 4, 8), now, "en-US")).toBe("Jan 4, 2027, 8:00 AM");
   });
 });
 

@@ -1,28 +1,35 @@
 import { addedAt, sortDiscoverRows, type DiscoverRow } from "./discover";
 
 /** Gmail-style Inbox navigation for the LinkedIn workspace. Pure so URLs and ranking stay testable. */
-export const INBOX_FOLDERS = ["inbox", "shortlist", "dismissed"] as const;
+export const STORY_FOLDERS = ["inbox", "shortlist", "snoozed", "dismissed"] as const;
+export type StoryFolder = typeof STORY_FOLDERS[number];
+/** Your own LinkedIn posts, like Gmail's Drafts / Scheduled / Sent / Outbox. */
+export const POST_FOLDERS = ["drafts", "scheduled", "posted", "outbox"] as const;
+export type PostFolder = typeof POST_FOLDERS[number];
+export const INBOX_FOLDERS = [...STORY_FOLDERS, ...POST_FOLDERS] as const;
 export type InboxFolder = typeof INBOX_FOLDERS[number];
 export const INBOX_TABS = ["top", "stories", "signals"] as const;
 export type InboxTab = typeof INBOX_TABS[number];
 export const TOP_PICKS_LIMIT = 5;
 export const MAX_TOPIC_LABELS = 5;
 
-/** Server inbox status behind each folder. */
-export const FOLDER_STATUS: Record<InboxFolder, "active" | "saved" | "dismissed"> = {
-  inbox: "active", shortlist: "saved", dismissed: "dismissed",
+/** Server inbox status behind each story folder. Snoozed stories stay active but are hidden from For you. */
+export const FOLDER_STATUS: Record<StoryFolder, "active" | "saved" | "dismissed"> = {
+  inbox: "active", shortlist: "saved", snoozed: "active", dismissed: "dismissed",
 };
 
 export interface InboxLocation { folder: InboxFolder; tab: InboxTab; label: string | null }
 
 const oneOf = <T extends string>(values: readonly T[], value: string | null): value is T => value !== null && (values as readonly string[]).includes(value);
+export const isPostFolder = (folder: InboxFolder): folder is PostFolder => oneOf(POST_FOLDERS, folder);
 
 export function parseInboxLocation(search: string): InboxLocation {
   const params = new URLSearchParams(search);
   const folder = params.get("folder");
   const tab = params.get("tab");
-  const label = params.get("label")?.trim().slice(0, 100) || null;
   const resolved: InboxFolder = oneOf(INBOX_FOLDERS, folder) ? folder : "inbox";
+  // Topic labels filter stories, never your own posts.
+  const label = isPostFolder(resolved) ? null : params.get("label")?.trim().slice(0, 100) || null;
   // Tabs only exist in For you; other folders are a single list.
   return { folder: resolved, tab: resolved === "inbox" && oneOf(INBOX_TABS, tab) ? tab : resolved === "inbox" ? "top" : "stories", label };
 }
@@ -92,4 +99,36 @@ export function selectionAfterRemoval(orderedIds: readonly string[], removed: Re
   const after = orderedIds.slice(index + 1).find(id => !removed.has(id));
   if (after) return after;
   return [...orderedIds.slice(0, Math.max(0, index))].reverse().find(id => !removed.has(id)) ?? null;
+}
+
+export interface SnoozePreset { id: "later" | "tomorrow" | "weekend" | "next-week"; label: string; until: Date }
+
+/** Gmail's snooze menu in local time: later today 6 PM, tomorrow 8 AM, Saturday 8 AM, next Monday 8 AM. */
+export function snoozePresets(now: Date = new Date()): SnoozePreset[] {
+  const at = (days: number, hour: number) => {
+    const date = new Date(now);
+    date.setDate(date.getDate() + days);
+    date.setHours(hour, 0, 0, 0);
+    return date;
+  };
+  const day = now.getDay();
+  const presets: SnoozePreset[] = [];
+  if (now.getHours() < 17) presets.push({ id: "later", label: "Later today", until: at(0, 18) });
+  presets.push({ id: "tomorrow", label: "Tomorrow", until: at(1, 8) });
+  // Monday–Thursday only; on Friday Saturday is already "Tomorrow".
+  if (day >= 1 && day <= 4) presets.push({ id: "weekend", label: "This weekend", until: at(6 - day, 8) });
+  // On Sunday, next Monday is already "Tomorrow".
+  if (day !== 0) presets.push({ id: "next-week", label: "Next week", until: at(8 - day, 8) });
+  return presets;
+}
+
+/** "Today, 6:00 PM", "Tomorrow, 8:00 AM", "Sat, 8:00 AM" within a week, else the date. */
+export function snoozeLabel(until: Date, now: Date = new Date(), locale?: string): string {
+  const time = until.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+  const startOf = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const days = Math.round((startOf(until) - startOf(now)) / 86_400_000);
+  if (days === 0) return `Today, ${time}`;
+  if (days === 1) return `Tomorrow, ${time}`;
+  if (days > 1 && days < 7) return `${until.toLocaleDateString(locale, { weekday: "short" })}, ${time}`;
+  return `${until.toLocaleDateString(locale, { month: "short", day: "numeric", ...(until.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }) })}, ${time}`;
 }

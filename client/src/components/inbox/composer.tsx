@@ -14,13 +14,14 @@ import { editorialRequest } from "@/lib/editorial-request";
 import type { ReviewResponse } from "@/lib/editorial";
 import { invalidatePublishingQueries } from "@/lib/publishing";
 import { CREATE_TONES, type CreateTone } from "@/components/dashboard/create-post-state";
+import { useAppTourReporter, type TourOutcome } from "@/components/app-tour";
 import { LINKEDIN_STATUS_KEY, linkedInPostingState, type LinkedInConnectionStatus } from "@/lib/inbox-queries";
 import {
   cancelLinkedInSchedule, approveLinkedInDraft, definitelyNotAdmitted, generationRequest, LINKEDIN_CHARACTER_LIMIT, nextMorning, postingOutcome, publishApprovedDraft, readUndoSeconds,
-  saveLinkedInDraft, scheduleLabel, scheduleLinkedInDraft, storeUndoSeconds, UNDO_WINDOW_OPTIONS, type ComposeSource, type SavedDraft,
+  saveLinkedInDraft, scheduleLabel, scheduleLinkedInDraft, storeUndoSeconds, toSavedDraft, UNDO_WINDOW_OPTIONS, type ComposeSource, type PostingResultKind, type SavedDraft,
 } from "@/lib/linkedin-compose";
 import { cn } from "@/lib/utils";
-import type { UserProfile } from "@shared/schema";
+import type { Draft, UserProfile } from "@shared/schema";
 
 export interface Compose {
   key: string;
@@ -42,10 +43,15 @@ export interface Compose {
   focusToken?: number;
 }
 interface Pending { compose: Compose; left: number }
+export type OpenableDraft = Pick<Draft, "id" | "content" | "updatedAt" | "tone">;
 interface ComposerValue {
   inlineFor: (sourceId: string) => Compose | undefined;
   openForStory: (source: ComposeSource, inline: boolean) => void;
   openBlank: (angle?: string) => void;
+  /** Continue a saved LinkedIn draft; edits stay revision-checked against it. */
+  openDraft: (draft: OpenableDraft) => void;
+  /** Adds text to the compose you last used if it is on screen, else starts a new one. */
+  insertNote: (text: string, into: "body" | "take") => "existing" | "new";
 }
 const ComposerContext = createContext<ComposerValue | null>(null);
 export function useComposer(): ComposerValue {
@@ -58,10 +64,16 @@ const MAX_WINDOWS = 2;
 const toneKeyFor = (value?: string | null): CreateTone => CREATE_TONES.find(tone => tone.value === value)?.key ?? "thoughtLeader";
 const toneValue = (key: CreateTone) => CREATE_TONES.find(tone => tone.key === key)!.value;
 const message = (error: unknown, fallback: string) => error instanceof Error && error.message ? error.message : fallback;
+const TOUR_OUTCOME: Partial<Record<PostingResultKind, TourOutcome>> = { published: "published", simulated: "simulated", failed: "attention", unknown: "attention" };
+const joinText = (current: string, addition: string) => current.trim() ? `${current.replace(/\s+$/, "")}\n\n${addition}` : addition;
 
 function useComposerActions(onConnectLinkedIn: () => void) {
   const signedIn = Boolean(useIsSignedIn());
   const { toast } = useToast();
+  const reportTour = useAppTourReporter();
+  const tour = useRef(reportTour);
+  tour.current = reportTour;
+  const lastActive = useRef<string | null>(null);
   const profile = useQuery<UserProfile>({ queryKey: ["/api/profile"], enabled: signedIn });
   const linkedIn = useQuery<LinkedInConnectionStatus>({ queryKey: LINKEDIN_STATUS_KEY, enabled: signedIn, staleTime: 30_000 });
   const ready = linkedInPostingState(linkedIn.data) === "ready";
@@ -105,6 +117,7 @@ function useComposerActions(onConnectLinkedIn: () => void) {
       try {
         const draft = await saveLinkedInDraft(compose.draft, compose.body, toneValue(compose.tone), compose.source?.id);
         patch(key, { draft, saving: false });
+        tour.current?.("draft-saved", draft.id);
         void invalidatePublishingQueries();
       } catch (error) {
         const conflict = error instanceof Error && /409|changed|revision/i.test(error.message);
@@ -161,6 +174,8 @@ function useComposerActions(onConnectLinkedIn: () => void) {
     try {
       const outcome = postingOutcome(await publishApprovedDraft(approved));
       toast({ title: outcome.title, description: outcome.description, variant: outcome.tone === "error" ? "destructive" : undefined });
+      const tourOutcome = TOUR_OUTCOME[outcome.kind];
+      if (tourOutcome) tour.current?.("publishing-result", approved.id, tourOutcome);
     } catch (error) {
       if (definitelyNotAdmitted(error)) {
         toast({ title: "Not posted", description: `${message(error, "LinkedIn posting was refused.")} Your draft is open again.`, variant: "destructive" });
@@ -168,6 +183,7 @@ function useComposerActions(onConnectLinkedIn: () => void) {
       } else {
         // Admission may have committed; the scheduler could still deliver it. Never invite a second post.
         toast({ title: "Delivery not confirmed", description: "Check Posted before trying again so the post is not duplicated.", variant: "destructive" });
+        tour.current?.("publishing-result", approved.id, "attention");
       }
     } finally { void invalidatePublishingQueries(); }
   }, [commit, requireReview, toast]);
@@ -239,6 +255,7 @@ function useComposerActions(onConnectLinkedIn: () => void) {
       await scheduleLinkedInDraft(draft, at, requireReview);
       remove(key);
       const id = draft.id;
+      tour.current?.("publishing-result", id, "scheduled");
       toast({ title: `Scheduled for ${scheduleLabel(at)}`, description: "Nothing posts before then. Change it in Scheduled.",
         action: <ToastAction altText="Undo schedule" onClick={() => { void cancelLinkedInSchedule(id).then(() => {
           toast({ title: "Schedule cancelled", description: "The post is back in Drafts." }); void invalidatePublishingQueries();
@@ -268,27 +285,64 @@ function useComposerActions(onConnectLinkedIn: () => void) {
     toast({ title: "Draft discarded" });
   };
 
+  const opened = () => tour.current?.("create-opened");
+  const onScreen = (compose: Compose) => {
+    if (compose.minimized) return false;
+    if (compose.mode === "float") return true;
+    // An inline compose stays mounted under a hidden reading pane (list view on narrow screens).
+    const element = document.querySelector<HTMLElement>(`[data-compose-key="${CSS.escape(compose.key)}"]`);
+    if (!element) return false;
+    return typeof element.checkVisibility === "function" ? element.checkVisibility() : element.getClientRects().length > 0;
+  };
   const value: ComposerValue = {
     inlineFor: sourceId => composes.find(compose => compose.mode === "inline" && compose.source?.id === sourceId),
     openForStory: (source, inline) => {
+      opened();
       const existing = ref.current.find(compose => compose.source?.id === source.id);
       if (existing) { patch(existing.key, { mode: inline ? "inline" : existing.mode, minimized: false, focusToken: Date.now() }); return; }
       const compose = create({ source, mode: inline ? "inline" : "float", focusToken: Date.now() });
       if (inline) commit([...ref.current, compose]); else addWindow(compose);
     },
     openBlank: angle => {
+      opened();
       const blank = ref.current.find(compose => compose.mode === "float" && !compose.source && !compose.body.trim() && !compose.take.trim());
       if (blank) { patch(blank.key, { minimized: false, focusToken: Date.now(), ...(angle ? { angle } : {}) }); return; }
       addWindow(create({ mode: "float", angle: angle ?? "", focusToken: Date.now() }));
     },
+    openDraft: draft => {
+      if (pendingRef.current?.pending.compose.draft?.id === draft.id) {
+        toast({ title: "This post is about to send", description: "Undo it first if you want to edit it." });
+        return;
+      }
+      opened();
+      const existing = ref.current.find(compose => compose.draft?.id === draft.id);
+      if (existing) { patch(existing.key, { mode: "float", minimized: false, focusToken: Date.now() }); return; }
+      addWindow(create({ mode: "float", body: draft.content, draft: toSavedDraft(draft), tone: toneKeyFor(draft.tone), focusToken: Date.now() }));
+    },
+    insertNote: (text, into) => {
+      const last = ref.current.find(compose => compose.key === lastActive.current);
+      const target = last && onScreen(last) ? last : [...ref.current].reverse().find(compose => compose.mode === "float" && !compose.minimized);
+      if (!target) {
+        opened();
+        const compose = create({ mode: "float", focusToken: Date.now(), ...(into === "take" ? { take: text.slice(0, 2000) } : { body: text }) });
+        addWindow(compose);
+        if (into === "body") scheduleSave(compose.key);
+        return "new";
+      }
+      if (into === "take") update(target.key, { take: joinText(target.take, text).slice(0, 2000) });
+      else update(target.key, { body: joinText(target.body, text) });
+      patch(target.key, { focusToken: Date.now() });
+      return "existing";
+    },
   };
   return { value, composes, pending, undoSeconds, ready, update, generate, post, schedule, close, discard, patch, finishPending,
+    touch: (key: string) => { lastActive.current = key; },
     setUndoSeconds: (seconds: number) => { storeUndoSeconds(seconds); setUndoSeconds(seconds); },
     stop: (key: string) => generations.current.get(key)?.abort() };
 }
 
 /** Gmail-style compose windows and inline replies, with one-click LinkedIn posting behind an undo window. */
-export function ComposerProvider({ children, onConnectLinkedIn }: Readonly<{ children: ReactNode; onConnectLinkedIn: () => void }>) {
+export function ComposerProvider({ children, onConnectLinkedIn, sidePanelOpen = false }: Readonly<{ children: ReactNode; onConnectLinkedIn: () => void; sidePanelOpen?: boolean }>) {
   const actions = useComposerActions(onConnectLinkedIn);
   const floats = actions.composes.filter(compose => compose.mode === "float");
   const maximized = floats.find(compose => compose.maximized && !compose.minimized);
@@ -296,7 +350,8 @@ export function ComposerProvider({ children, onConnectLinkedIn }: Readonly<{ chi
     <ComposerContext.Provider value={actions.value}>
       <ActionsContext.Provider value={actions}>
         {children}
-        {floats.length > 0 && <div className="pointer-events-none fixed bottom-0 right-4 z-40 flex items-end gap-3 max-lg:left-0 max-lg:right-0 md:right-[4.5rem]" aria-label="Compose windows">
+        {/* Like Gmail, compose windows sit left of an open side panel (rail 3.5rem + panel 20.5rem). */}
+        {floats.length > 0 && <div className={cn("pointer-events-none fixed bottom-0 right-4 z-40 flex items-end gap-3 max-lg:left-0 max-lg:right-0", sidePanelOpen ? "md:right-[25rem]" : "md:right-[4.5rem]")} aria-label="Compose windows">
           {floats.map(compose => <ComposeCard key={compose.key} compose={compose} />)}
         </div>}
         {maximized && <div className="fixed inset-0 z-30 bg-foreground/30" aria-hidden="true" onClick={() => actions.patch(maximized.key, { maximized: false })} />}
@@ -322,7 +377,7 @@ function ComposeCard({ compose }: Readonly<{ compose: Compose }>) {
   const over = compose.body.length > LINKEDIN_CHARACTER_LIMIT;
   const empty = !compose.body.trim();
   const tone = CREATE_TONES.find(item => item.key === compose.tone)!;
-  const title = compose.angle.trim() || compose.source?.headline || "New LinkedIn post";
+  const title = compose.angle.trim() || compose.source?.headline || (compose.draft ? "LinkedIn draft" : "New LinkedIn post");
   const tomorrow = useMemo(() => nextMorning(new Date()), [picking]);
   const weekday = useMemo(() => nextMorning(new Date(), true), [picking]);
   useEffect(() => {
@@ -340,6 +395,7 @@ function ComposeCard({ compose }: Readonly<{ compose: Compose }>) {
 
   return (
     <section role={float ? "dialog" : "region"} aria-label={float ? `Compose: ${title}` : "Draft my take"} onKeyDown={onKeyDown} data-testid={`compose-${compose.mode}`}
+      data-compose-key={compose.key} onFocusCapture={() => actions.touch(compose.key)}
       className={cn("pointer-events-auto flex min-w-0 flex-col overflow-hidden border bg-card shadow-lg",
         float ? "rounded-t-md" : "mt-5 rounded-md shadow-sm",
         float && (compose.minimized ? "w-72" : compose.maximized ? "fixed inset-x-[8vw] bottom-[6vh] top-[6vh] z-40 rounded-md" : "h-[min(36rem,85vh)] w-[32rem] max-lg:h-[85vh] max-lg:w-full"))}>

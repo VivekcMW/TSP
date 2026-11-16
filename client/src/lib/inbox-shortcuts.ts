@@ -14,6 +14,8 @@ export const INBOX_SHORTCUTS: ReadonlyArray<readonly [key: string, action: strin
   ["r", "Draft my take"],
   ["s", "Save to Shortlist or move back"],
   ["e", "Mark not relevant"],
+  ["b", "Snooze the story"],
+  ["Shift + u", "Mark as unread"],
   ["x", "Select the item"],
   ["u", "Back to the list"],
   ["/", "Search"],

@@ -1,8 +1,18 @@
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { ArrowRight, Minimize2, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+export interface AppTourStep {
+  readonly title: string;
+  readonly description: string;
+  readonly path: string;
+  readonly targets: readonly string[];
+}
+
+/** "classic" walks Discover → Create → Content; "inbox" walks the Gmail-style LinkedIn Inbox and composer. */
+export type AppTourVariant = "classic" | "inbox";
 
 export const APP_TOUR_STEPS = [
   {
@@ -98,24 +108,151 @@ export type TourEvent = "focus-submitted" | "setup-started" | "setup-saved" | "c
   "document-ready" | "platforms-opened" | "versions-ready" | "draft-saved" | "draft-opened" |
   "publishing-opened" | "publishing-result";
 export type TourOutcome = "scheduled" | "published" | "manual" | "simulated" | "attention";
-const STEP_EVENTS: readonly TourEvent[] = [
-  "focus-submitted", "setup-started", "setup-saved", "connected", "create-opened", "document-ready",
-  "platforms-opened", "versions-ready", "draft-saved", "draft-opened", "publishing-opened", "publishing-result",
-];
 interface AppTourContextValue {
   openTour: () => void;
-  /** Starts the tour at a step available in this phase; returns false otherwise. */
+  /**
+   * Starts the tour at a step available in this phase; returns false otherwise. `step` is a classic
+   * step index (as used by help content); other variants start at their equivalent step.
+   */
   startTourAt: (step: number) => boolean;
   canStartAt: (step: number) => boolean;
   report: (event: TourEvent, draftId?: string, outcome?: TourOutcome) => void;
+  /** Current step index within the active variant. */
   step: number;
   active: boolean;
   draftId?: string;
 }
 
 const AppTourContext = createContext<AppTourContextValue | null>(null);
-const TOUR_STORAGE_PREFIX = "tsp-app-tour:v3:";
+/** Steps before this are onboarding (setup phase); every variant shares them and the connection step. */
 const FIRST_WORKSPACE_STEP = 3;
+
+type TourStepAction =
+  | { kind: "report"; label: string; event: TourEvent }
+  | { kind: "navigate"; label: string; href: string }
+  | { kind: "open-draft"; label: string };
+
+interface TourVariantConfig {
+  storagePrefix: string;
+  steps: readonly AppTourStep[];
+  /** Event completing each step, index-aligned; the final step has none. */
+  stepEvents: readonly TourEvent[];
+  /** From this step on, reports must carry the draft the tour is bound to (the first draft reported binds it). */
+  draftBindingFromStep: number;
+  /** Once these steps are done their target disappears, so the spotlight moves to the next step's controls. */
+  lookaheadSteps: readonly number[];
+  /** From this step on, Calendar also counts as being on the step's page. */
+  calendarFromStep?: number;
+  /** Steps whose query string selects what to show, so advancing navigates when only the query differs. */
+  queryRoutedSteps: readonly number[];
+  /** Dialogs the guide renders inside, so it stays usable within their focus trap. */
+  dialogContainer: string;
+  path: (step: number, draftId?: string, outcome?: TourOutcome) => string;
+  /** Extra button shown while a step is not done yet. */
+  actions: Readonly<Partial<Record<number, TourStepAction>>>;
+  outcomeMessages: Readonly<Record<TourOutcome, string>>;
+  /** Maps a classic step index (help content "Show me") to this variant's equivalent step. */
+  fromClassicStep: (step: number) => number | undefined;
+  /** Adopts classic progress (written by onboarding) when this variant has none of its own yet. */
+  handoff?: (classic: TourProgress) => TourProgress;
+}
+
+const CONTINUE_WITHOUT_CONNECTING: TourStepAction = { kind: "report", label: "Continue without connecting", event: "connected" };
+const CLASSIC_DRAFT_STEP = 9;
+
+const CLASSIC_TOUR: TourVariantConfig = {
+  storagePrefix: "tsp-app-tour:v3:",
+  steps: APP_TOUR_STEPS,
+  stepEvents: [
+    "focus-submitted", "setup-started", "setup-saved", "connected", "create-opened", "document-ready",
+    "platforms-opened", "versions-ready", "draft-saved", "draft-opened", "publishing-opened", "publishing-result",
+  ],
+  draftBindingFromStep: CLASSIC_DRAFT_STEP,
+  lookaheadSteps: [6, 10],
+  calendarFromStep: 10,
+  queryRoutedSteps: [],
+  dialogContainer: '[role="dialog"]:not([data-testid="dialog-app-tour"])',
+  path: (step, draftId) => step >= CLASSIC_DRAFT_STEP && draftId
+    ? `${APP_TOUR_STEPS[step].path}?draft=${encodeURIComponent(draftId)}` : APP_TOUR_STEPS[step].path,
+  actions: {
+    3: CONTINUE_WITHOUT_CONNECTING,
+    4: { kind: "navigate", label: "Use my own idea", href: "/dashboard/create" },
+    9: { kind: "open-draft", label: "Open saved draft" },
+  },
+  outcomeMessages: {
+    scheduled: "Schedule confirmed. This post is planned for future delivery, not published yet. Review it in Calendar or Content.",
+    published: "Publication confirmed by the application's live delivery status. Review the publishing receipt in Content.",
+    manual: "Text copied and platform opened. Finish publishing there yourself; the application has not verified publication.",
+    simulated: "Demo only. No live publication was confirmed. Review the simulation status in Content.",
+    attention: "Delivery needs attention or is unverified. Inspect the target status before retrying; do not send a duplicate.",
+  },
+  fromClassicStep: step => step,
+};
+
+export const INBOX_TOUR_STEPS: readonly AppTourStep[] = [
+  ...APP_TOUR_STEPS.slice(0, FIRST_WORKSPACE_STEP + 1),
+  {
+    title: "Find a story in your Inbox",
+    description: "Open a story and choose Draft my take, or press Compose to write from your own idea. The guide advances when the composer opens.",
+    path: "/dashboard",
+    targets: ['[data-testid^="button-generate-"]', '[data-testid="button-refresh-inbox"]', '[data-testid="button-inbox-compose"]',
+      '[data-testid="button-inbox-compose-mobile"]'],
+  },
+  {
+    title: "Draft your take",
+    description: "Write your post, or use Help me write and review the suggestion. Your draft saves automatically; nothing is posted by saving. The guide waits for a successful save.",
+    path: "/dashboard",
+    targets: ['[data-testid="compose-body"]', '[data-testid="button-help-me-write"]'],
+  },
+  {
+    title: "Post in one click, or schedule",
+    description: "Press Post when ready. Post holds your post for a short undo window before sending it to LinkedIn. To pick a time instead, open the arrow menu next to Post for schedule options. Without a LinkedIn connection the button says Connect LinkedIn. The guide waits for the actual result, or you can select Next to skip.",
+    path: "/dashboard",
+    targets: ['[data-testid="button-compose-post"]', '[aria-label="Schedule options"]'],
+  },
+  {
+    title: "Find it in your folders",
+    description: "Drafts keeps posts you have not sent, Scheduled holds planned posts until they are sent, and Posted lists what you sent with its delivery status. A schedule is a future plan, and a demo or unverified delivery is never called published.",
+    path: "/dashboard?folder=drafts",
+    targets: ['[data-testid="nav-folder-posted"]', '[data-testid="nav-folder-scheduled"]', '[data-testid="nav-folder-drafts"]',
+      '[aria-label="Open folders"]'],
+  },
+];
+
+const INBOX_FINAL_STEP = INBOX_TOUR_STEPS.length - 1;
+// Discover → Inbox story, Create/versions/save → Draft your take, Content publishing → Post, result → folders.
+const CLASSIC_TO_INBOX_STEP: readonly number[] = [0, 1, 2, 3, 4, 5, 5, 5, 5, 6, 6, 6, 7];
+
+function inboxFolder(outcome?: TourOutcome) {
+  if (outcome === "scheduled") return "scheduled";
+  return outcome === "published" || outcome === "simulated" || outcome === "attention" ? "posted" : "drafts";
+}
+
+const INBOX_TOUR: TourVariantConfig = {
+  storagePrefix: "tsp-app-tour:inbox-v1:",
+  steps: INBOX_TOUR_STEPS,
+  stepEvents: ["focus-submitted", "setup-started", "setup-saved", "connected", "create-opened", "draft-saved", "publishing-result"],
+  draftBindingFromStep: 6,
+  lookaheadSteps: [4],
+  queryRoutedSteps: [INBOX_FINAL_STEP],
+  // The floating composer is a non-modal dialog; only render inside modal Radix dialogs.
+  dialogContainer: '[role="dialog"][data-state="open"]:not([data-testid="dialog-app-tour"])',
+  path: (step, _draftId, outcome) => step === INBOX_FINAL_STEP ? `/dashboard?folder=${inboxFolder(outcome)}` : INBOX_TOUR_STEPS[step].path,
+  actions: { 3: CONTINUE_WITHOUT_CONNECTING },
+  outcomeMessages: {
+    scheduled: "Schedule confirmed. This post is planned for future delivery, not published yet. Find it in the Scheduled folder.",
+    published: "Publication confirmed by the app's live delivery status. Find the post and its receipt in the Posted folder.",
+    manual: "Text copied and LinkedIn opened. Finish posting there yourself; the app has not verified it, so the post stays in Drafts.",
+    simulated: "Demo only. Nothing went live on LinkedIn. Check its simulation status in the Posted folder.",
+    attention: "Delivery needs attention or is unverified. Check its status in the Posted folder before retrying; do not send a duplicate.",
+  },
+  fromClassicStep: step => CLASSIC_TO_INBOX_STEP[step],
+  handoff: classic => classic.step <= FIRST_WORKSPACE_STEP
+    ? { step: classic.step, ready: classic.ready === true, dismissed: classic.dismissed, completed: classic.completed }
+    : { step: FIRST_WORKSPACE_STEP + 1, ready: false, dismissed: classic.dismissed, completed: classic.completed },
+};
+
+const TOUR_VARIANTS: Readonly<Record<AppTourVariant, TourVariantConfig>> = { classic: CLASSIC_TOUR, inbox: INBOX_TOUR };
 
 interface TargetBounds {
   left: number;
@@ -192,18 +329,18 @@ function useTourTarget(open: boolean, targets: readonly string[]) {
   return { anchor, bounds, target };
 }
 
-function storageKey(scope: string) {
-  return `${TOUR_STORAGE_PREFIX}${scope}`;
+function storageKey(config: TourVariantConfig, scope: string) {
+  return `${config.storagePrefix}${scope}`;
 }
 
-function readProgress(scope: string): TourProgress | null {
+function readProgress(config: TourVariantConfig, scope: string): TourProgress | null {
   try {
-    const raw = window.localStorage.getItem(storageKey(scope));
+    const raw = window.localStorage.getItem(storageKey(config, scope));
     if (!raw) return null;
     const value: unknown = JSON.parse(raw);
     if (!value || typeof value !== "object") throw new Error("Invalid tour progress");
     const progress = value as Partial<TourProgress>;
-    if (typeof progress.step !== "number" || !Number.isInteger(progress.step) || progress.step < 0 || progress.step >= APP_TOUR_STEPS.length) throw new Error("Invalid tour step");
+    if (typeof progress.step !== "number" || !Number.isInteger(progress.step) || progress.step < 0 || progress.step >= config.steps.length) throw new Error("Invalid tour step");
     if (typeof progress.dismissed !== "boolean" || typeof progress.completed !== "boolean") throw new Error("Invalid tour status");
     if (progress.ready !== undefined && typeof progress.ready !== "boolean") throw new Error("Invalid tour readiness");
     const outcomes: readonly string[] = ["scheduled", "published", "manual", "simulated", "attention"];
@@ -216,11 +353,34 @@ function readProgress(scope: string): TourProgress | null {
   }
 }
 
-function writeProgress(scope: string, progress: TourProgress) {
+function writeProgress(config: TourVariantConfig, scope: string, progress: TourProgress) {
   try {
-    window.localStorage.setItem(storageKey(scope), JSON.stringify(progress));
+    window.localStorage.setItem(storageKey(config, scope), JSON.stringify(progress));
   } catch {
     console.warn("App tour progress could not be saved. It may restart after reloading.");
+  }
+}
+
+/**
+ * Reads this variant's progress. A variant without progress of its own adopts the classic progress once
+ * (onboarding always writes classic), so indices of different variants are never mixed.
+ */
+function loadProgress(config: TourVariantConfig, scope: string): TourProgress | null {
+  const saved = readProgress(config, scope);
+  if (saved || !config.handoff) return saved;
+  const classic = readProgress(CLASSIC_TOUR, scope);
+  if (!classic) return null;
+  const adopted = config.handoff(classic);
+  writeProgress(config, scope, adopted);
+  return adopted;
+}
+
+/** Dismissing or finishing the tour in one layout must not let the other layout reopen it. */
+function shareDismissal(current: TourVariantConfig, scope: string, completed: boolean) {
+  for (const other of Object.values(TOUR_VARIANTS)) {
+    if (other === current) continue;
+    const saved = readProgress(other, scope);
+    writeProgress(other, scope, { ...(saved ?? { step: FIRST_WORKSPACE_STEP }), ready: saved?.ready ?? false, dismissed: true, completed: Boolean(saved?.completed) || completed });
   }
 }
 
@@ -247,13 +407,25 @@ export function AppTourButton() {
   return <Button variant="outline" size="sm" onClick={context.openTour}>App tour</Button>;
 }
 
-export function AppTourProvider({ children, scope, enabled, phase = "workspace" }: Readonly<{
+type AppTourProviderProps = Readonly<{
   children: ReactNode;
   scope: string | null;
   enabled: boolean;
   phase?: "setup" | "workspace";
-}>) {
+  variant?: AppTourVariant;
+}>;
+
+export function AppTourProvider(props: AppTourProviderProps) {
+  // Variants have different steps and storage; switching remounts so nothing carries over by index.
+  return <VariantTourProvider key={props.variant ?? "classic"} {...props} />;
+}
+
+function VariantTourProvider({ children, scope, enabled, phase = "workspace", variant = "classic" }: AppTourProviderProps) {
+  const config = TOUR_VARIANTS[variant];
+  const { steps } = config;
+  const lastStep = steps.length - 1;
   const [location, setLocation] = useLocation();
+  const search = useSearch();
   const [isOpen, setIsOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const firstStep = phase === "setup" ? 0 : FIRST_WORKSPACE_STEP;
@@ -268,7 +440,7 @@ export function AppTourProvider({ children, scope, enabled, phase = "workspace" 
   useEffect(() => {
     if (!enabled || !scope || initializedScope.current === scope) return;
     initializedScope.current = scope;
-    const saved = readProgress(scope);
+    const saved = loadProgress(config, scope);
     const nextIndex = phase === "setup" ? Math.min(saved?.step ?? 0, FIRST_WORKSPACE_STEP - 1)
       : saved?.step === 2 && saved.ready ? 2 : Math.max(saved?.step ?? FIRST_WORKSPACE_STEP, FIRST_WORKSPACE_STEP);
     setStepIndex(nextIndex);
@@ -281,18 +453,18 @@ export function AppTourProvider({ children, scope, enabled, phase = "workspace" 
     const shouldStart = !awaitingSetup && (!saved || (!saved.dismissed && !saved.completed));
     setIsOpen(shouldStart);
     openRef.current = shouldStart;
-    if (shouldStart && phase === "workspace") setLocation(tourPath(nextIndex, saved?.draftId));
-  }, [enabled, scope, setLocation, phase]);
+    if (shouldStart && phase === "workspace") setLocation(config.path(nextIndex, saved?.draftId, saved?.outcome));
+  }, [enabled, scope, setLocation, phase, config]);
 
   const persist = useCallback((progress: TourProgress) => {
     progressRef.current = progress;
-    if (scope) writeProgress(scope, progress);
-  }, [scope]);
+    if (scope) writeProgress(config, scope, progress);
+  }, [scope, config]);
 
   const report = useCallback((event: TourEvent, savedDraftId?: string, result?: TourOutcome) => {
     const current = progressRef.current;
-    if (!openRef.current || current.ready || STEP_EVENTS[current.step] !== event) return;
-    if (current.step >= 9 && (!savedDraftId || (current.draftId && savedDraftId !== current.draftId))) return;
+    if (!openRef.current || current.ready || config.stepEvents[current.step] !== event) return;
+    if (current.step >= config.draftBindingFromStep && (!savedDraftId || (current.draftId && savedDraftId !== current.draftId))) return;
     if (event === "draft-saved" && !savedDraftId) return;
     if (event === "publishing-result" && !result) return;
     const next = { ...current, ready: true,
@@ -302,30 +474,32 @@ export function AppTourProvider({ children, scope, enabled, phase = "workspace" 
     setReady(true);
     setDraftId(next.draftId);
     setOutcome(next.outcome);
-  }, [persist]);
+  }, [persist, config]);
 
   const advance = useCallback(() => {
     const current = progressRef.current;
-    if (!openRef.current || current.step >= APP_TOUR_STEPS.length - 1) return;
+    if (!openRef.current || current.step >= lastStep) return;
     const next = { ...current, step: current.step + 1, ready: false };
     persist(next);
     setMinimized(false);
     setReady(false);
     if (phase === "setup" && next.step >= FIRST_WORKSPACE_STEP) {
       // The workspace provider resumes the tour once onboarding is saved.
-      if (current.ready) setLocation(tourPath(next.step, next.draftId));
+      if (current.ready) setLocation(config.path(next.step, next.draftId, next.outcome));
       else { setIsOpen(false); openRef.current = false; }
       return;
     }
     setStepIndex(next.step);
-    const nextPath = tourPath(next.step, next.draftId);
-    const onCalendar = next.step >= 10 && location === "/dashboard/calendar";
-    if (phase === "workspace" && !onCalendar && location !== nextPath.split("?")[0]) setLocation(nextPath);
-  }, [persist, setLocation, phase, location]);
+    const nextPath = config.path(next.step, next.draftId, next.outcome);
+    const [nextPathname, nextSearch = ""] = nextPath.split("?");
+    const onCalendar = config.calendarFromStep !== undefined && next.step >= config.calendarFromStep && location === "/dashboard/calendar";
+    const searchChanged = config.queryRoutedSteps.includes(next.step) && search !== nextSearch;
+    if (phase === "workspace" && !onCalendar && (location !== nextPathname || searchChanged)) setLocation(nextPath);
+  }, [persist, setLocation, phase, location, search, config, lastStep]);
 
   const openTour = useCallback(() => {
     setMinimized(false);
-    const saved = scope ? readProgress(scope) : null;
+    const saved = scope ? loadProgress(config, scope) : null;
     const requested = saved?.completed ? firstStep : (saved?.step ?? firstStep);
     const nextIndex = phase === "setup" ? (requested < FIRST_WORKSPACE_STEP ? requested : 0)
       : requested === 2 && saved?.ready ? 2 : Math.max(requested, FIRST_WORKSPACE_STEP);
@@ -338,15 +512,19 @@ export function AppTourProvider({ children, scope, enabled, phase = "workspace" 
     persist(next);
     setIsOpen(true);
     openRef.current = true;
-    if (phase === "workspace") setLocation(tourPath(nextIndex, next.draftId));
-  }, [persist, scope, setLocation, firstStep, phase]);
+    if (phase === "workspace") setLocation(config.path(nextIndex, next.draftId, next.outcome));
+  }, [persist, scope, setLocation, firstStep, phase, config]);
 
-  const canStartAt = useCallback((step: number) => Boolean(scope) && enabled && step >= 0 && step < APP_TOUR_STEPS.length
-    && (phase === "setup" ? step < FIRST_WORKSPACE_STEP : step >= FIRST_WORKSPACE_STEP), [scope, enabled, phase]);
+  const canStartAt = useCallback((classicStep: number) => {
+    const step = config.fromClassicStep(classicStep);
+    return step !== undefined && Boolean(scope) && enabled && step >= 0 && step < steps.length
+      && (phase === "setup" ? step < FIRST_WORKSPACE_STEP : step >= FIRST_WORKSPACE_STEP);
+  }, [scope, enabled, phase, config, steps]);
 
-  const startTourAt = useCallback((step: number) => {
-    if (!canStartAt(step)) return false;
-    const saved = scope ? readProgress(scope) : null;
+  const startTourAt = useCallback((classicStep: number) => {
+    const step = config.fromClassicStep(classicStep);
+    if (step === undefined || !canStartAt(classicStep)) return false;
+    const saved = scope ? loadProgress(config, scope) : null;
     const draft = saved && !saved.completed ? saved.draftId : undefined;
     const next: TourProgress = { step, ready: false, dismissed: false, completed: false, draftId: draft };
     persist(next);
@@ -357,31 +535,34 @@ export function AppTourProvider({ children, scope, enabled, phase = "workspace" 
     setOutcome(undefined);
     setIsOpen(true);
     openRef.current = true;
-    if (phase === "workspace") setLocation(tourPath(step, draft));
+    if (phase === "workspace") setLocation(config.path(step, draft));
     return true;
-  }, [canStartAt, persist, scope, setLocation, phase]);
+  }, [canStartAt, persist, scope, setLocation, phase, config]);
 
   const dismiss = useCallback((completed = false) => {
     setIsOpen(false);
     openRef.current = false;
     persist({ ...progressRef.current, dismissed: true, completed });
-  }, [persist]);
+    if (scope) shareDismissal(config, scope, completed);
+  }, [persist, scope, config]);
 
   const handleOpenChange = (open: boolean) => {
     if (!open && openRef.current) dismiss();
   };
 
-  const activeStep = APP_TOUR_STEPS[stepIndex];
-  const targets = ready && (stepIndex === 6 || stepIndex === 10) ? APP_TOUR_STEPS[stepIndex + 1].targets : activeStep.targets;
+  const activeStep = steps[stepIndex];
+  const targets = ready && config.lookaheadSteps.includes(stepIndex) ? steps[stepIndex + 1].targets : activeStep.targets;
   const { anchor, bounds, target } = useTourTarget(isOpen, targets);
   const titleId = useId();
   const descriptionId = useId();
   const contextValue = useMemo(() => ({ openTour, startTourAt, canStartAt, report, step: stepIndex, draftId, active: isOpen }),
     [openTour, startTourAt, canStartAt, report, stepIndex, draftId, isOpen]);
-  const expectedPath = tourPath(stepIndex, draftId);
-  const onStepPage = location === expectedPath.split("?")[0] || (stepIndex >= 10 && location === "/dashboard/calendar")
+  const expectedPath = config.path(stepIndex, draftId, outcome);
+  const onStepPage = location === expectedPath.split("?")[0]
+    || (config.calendarFromStep !== undefined && stepIndex >= config.calendarFromStep && location === "/dashboard/calendar")
     || (stepIndex === 2 && ready);
-  const container = target?.closest<HTMLElement>('[role="dialog"]:not([data-testid="dialog-app-tour"])') ?? undefined;
+  const container = target?.closest<HTMLElement>(config.dialogContainer) ?? undefined;
+  const action = ready ? undefined : config.actions[stepIndex];
 
   return <AppTourContext.Provider value={contextValue}>
     {children}
@@ -395,8 +576,8 @@ export function AppTourProvider({ children, scope, enabled, phase = "workspace" 
       </Popover.Portal>
       <Popover.Portal container={container}>
       {minimized ? <Button className="fixed right-4 top-4 z-[70] shadow-xl" onClick={() => setMinimized(false)}
-        aria-label={`Show guide, step ${stepIndex + 1} of ${APP_TOUR_STEPS.length}`}>
-        <Sparkles aria-hidden="true" className="h-4 w-4" />Show guide ({stepIndex + 1}/{APP_TOUR_STEPS.length})
+        aria-label={`Show guide, step ${stepIndex + 1} of ${steps.length}`}>
+        <Sparkles aria-hidden="true" className="h-4 w-4" />Show guide ({stepIndex + 1}/{steps.length})
       </Button> : <Popover.Content
         key={stepIndex}
         data-testid="dialog-app-tour"
@@ -430,7 +611,7 @@ export function AppTourProvider({ children, scope, enabled, phase = "workspace" 
           <h2 id={titleId} className="pr-7 text-lg font-semibold">{activeStep.title}</h2>
           <p id={descriptionId} className="text-sm leading-relaxed text-muted-foreground">{activeStep.description}</p>
         </div>
-        {outcome && stepIndex === APP_TOUR_STEPS.length - 1 && <p role="status" className="mt-3 text-sm font-medium" data-testid="app-tour-outcome">{OUTCOME_MESSAGES[outcome]}</p>}
+        {outcome && stepIndex === lastStep && <p role="status" className="mt-3 text-sm font-medium" data-testid="app-tour-outcome">{config.outcomeMessages[outcome]}</p>}
         <Button variant="ghost" size="icon" aria-label="Minimize guide" title="Minimize guide to use the controls underneath" className="absolute right-10 top-2" onClick={() => setMinimized(true)}>
           <Minimize2 aria-hidden="true" className="h-4 w-4" />
         </Button>
@@ -438,28 +619,28 @@ export function AppTourProvider({ children, scope, enabled, phase = "workspace" 
           <X aria-hidden="true" className="h-4 w-4" />
         </Button>
         {!target && <p role="status" className="mt-3 text-sm text-muted-foreground">Waiting for this control to appear. Follow the app's loading or error messages, or pause this guide and resume later.</p>}
-        {ready && stepIndex < APP_TOUR_STEPS.length - 1 && <p role="status" className="mt-3 text-sm font-medium text-primary">Done. Select Next to continue.</p>}
+        {ready && stepIndex < lastStep && <p role="status" className="mt-3 text-sm font-medium text-primary">Done. Select Next to continue.</p>}
         {phase === "setup" && stepIndex === FIRST_WORKSPACE_STEP - 1 && !ready && <p className="mt-3 text-sm text-muted-foreground">Finish setup to open your workspace. If you select Next now, the tour continues there after setup is saved.</p>}
         <div className="my-4 space-y-2" aria-label="Tour progress">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Step {stepIndex + 1} of {APP_TOUR_STEPS.length}</span>
-            <span>{Math.round(((stepIndex + 1) / APP_TOUR_STEPS.length) * 100)}% complete</span>
+            <span>Step {stepIndex + 1} of {steps.length}</span>
+            <span>{Math.round(((stepIndex + 1) / steps.length) * 100)}% complete</span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={1} aria-valuemax={APP_TOUR_STEPS.length} aria-valuenow={stepIndex + 1} aria-label="Tour progress">
-            <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${((stepIndex + 1) / APP_TOUR_STEPS.length) * 100}%` }} />
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={1} aria-valuemax={steps.length} aria-valuenow={stepIndex + 1} aria-label="Tour progress">
+            <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${((stepIndex + 1) / steps.length) * 100}%` }} />
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Button variant="ghost" onClick={() => dismiss()} data-testid="button-app-tour-skip">Skip tour</Button>
           <div className="flex flex-wrap justify-end gap-2">
             {!onStepPage && phase !== "setup" && <Button size="sm" onClick={() => setLocation(expectedPath)}>Return to this step</Button>}
-            {stepIndex === 3 && !ready && <Button size="sm" onClick={() => report("connected")}>Continue without connecting</Button>}
-            {stepIndex === 4 && !ready && <Button size="sm" variant="outline" onClick={() => setLocation("/dashboard/create")}>Use my own idea</Button>}
-            {stepIndex === 9 && draftId && !ready && <Button size="sm" variant="outline" onClick={() => setLocation(expectedPath)}>Open saved draft</Button>}
-            {stepIndex < APP_TOUR_STEPS.length - 1 && <Button size="sm" onClick={advance} data-testid="button-app-tour-next">
+            {action?.kind === "report" && <Button size="sm" onClick={() => report(action.event)}>{action.label}</Button>}
+            {action?.kind === "navigate" && <Button size="sm" variant="outline" onClick={() => setLocation(action.href)}>{action.label}</Button>}
+            {action?.kind === "open-draft" && draftId && <Button size="sm" variant="outline" onClick={() => setLocation(expectedPath)}>{action.label}</Button>}
+            {stepIndex < lastStep && <Button size="sm" onClick={advance} data-testid="button-app-tour-next">
               Next<ArrowRight aria-hidden="true" className="h-4 w-4" />
             </Button>}
-            {stepIndex === APP_TOUR_STEPS.length - 1 && <Button size="sm" onClick={() => dismiss(true)}>Finish tour</Button>}
+            {stepIndex === lastStep && <Button size="sm" onClick={() => dismiss(true)}>Finish tour</Button>}
           </div>
         </div>
         {target && <Popover.Arrow aria-hidden="true" data-testid="app-tour-arrow" width={18} height={9} className="fill-card" />}
@@ -468,16 +649,3 @@ export function AppTourProvider({ children, scope, enabled, phase = "workspace" 
     </Popover.Root>
   </AppTourContext.Provider>;
 }
-
-function tourPath(step: number, draftId?: string) {
-  const path = APP_TOUR_STEPS[step].path;
-  return step >= 9 && draftId ? `${path}?draft=${encodeURIComponent(draftId)}` : path;
-}
-
-const OUTCOME_MESSAGES: Record<TourOutcome, string> = {
-  scheduled: "Schedule confirmed. This post is planned for future delivery, not published yet. Review it in Calendar or Content.",
-  published: "Publication confirmed by the application's live delivery status. Review the publishing receipt in Content.",
-  manual: "Text copied and platform opened. Finish publishing there yourself; the application has not verified publication.",
-  simulated: "Demo only. No live publication was confirmed. Review the simulation status in Content.",
-  attention: "Delivery needs attention or is unverified. Inspect the target status before retrying; do not send a duplicate.",
-};

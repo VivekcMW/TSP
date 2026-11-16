@@ -62,6 +62,7 @@ function AuthenticatedLayout({ children, inbox }: { children: ReactNode; inbox: 
       key={JSON.stringify([user?.id, profile?.tenantId])}
       scope={tourUserId && profile?.tenantId ? `${tourUserId}:${profile.tenantId}` : null}
       enabled={Boolean(tourUserId && profile?.onboardingStatus === "completed")}
+      variant={inbox ? "inbox" : "classic"}
     >
     <HelpProvider>
     <CreatePostProvider key={JSON.stringify([user?.id, profile?.tenantId])}>

@@ -8,6 +8,9 @@ export interface DiscoverVisit { previousVisitAt: string | null; currentVisitAt:
 
 /** Shared with Discover: ["/api/inbox", "active"] is the same cache entry in both layouts. */
 export const inboxStatusKey = (status: InboxStatus) => ["/api/inbox", status] as const;
+/** Active stories snoozed until later; hidden from the default active list. */
+export const SNOOZED_KEY = ["/api/inbox", "snoozed"] as const;
+export const INBOX_LIST_KEYS = [inboxStatusKey("active"), inboxStatusKey("saved"), inboxStatusKey("dismissed"), SNOOZED_KEY] as const;
 export const DISCOVER_VISIT_KEY = ["discover-visit"] as const;
 export const LINKEDIN_STATUS_KEY = ["/api/integrations/linkedin/status"] as const;
 
@@ -27,6 +30,13 @@ export async function fetchInboxStatus(status: InboxStatus, signal?: AbortSignal
 export const inboxStatusQuery = (status: InboxStatus, enabled = true) => ({
   queryKey: inboxStatusKey(status),
   queryFn: ({ signal }: { signal: AbortSignal }) => fetchInboxStatus(status, signal),
+  enabled,
+});
+
+export const snoozedQuery = (enabled = true) => ({
+  queryKey: SNOOZED_KEY,
+  queryFn: async ({ signal }: { signal: AbortSignal }): Promise<InboxRow[]> =>
+    (await apiRequest("GET", "/api/inbox?status=active&snoozed=only", undefined, { signal })).json(),
   enabled,
 });
 

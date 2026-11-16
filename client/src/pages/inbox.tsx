@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Archive, ArrowLeft, ExternalLink, Inbox, RefreshCw, Reply, Star, TrendingUp, X } from "lucide-react";
+import { AlarmClock, Archive, ArrowLeft, CalendarClock, Clock, ExternalLink, Inbox, Mail, RefreshCw, Reply, Star, TrendingUp, X } from "lucide-react";
 import { useIsSignedIn } from "@/lib/dev-auth";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { InlineCompose, useComposer, type Compose } from "@/components/inbox/composer";
+import { PostFolderView } from "@/components/inbox/post-folder-view";
 import type { ComposeSource } from "@/lib/linkedin-compose";
 import { useInboxShell } from "@/components/inbox/inbox-shell";
 import { refreshJobMessage, useInboxRefreshJob } from "@/hooks/use-inbox-refresh-job";
@@ -16,21 +19,37 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { articleDateLabel } from "@/lib/article-date-label";
 import { relevanceSummary } from "@/lib/relevance-summary";
 import { ignoreInboxShortcut } from "@/lib/inbox-shortcuts";
-import { inboxStatusKey, inboxStatusQuery, recordVisitQuery, type InboxRow, type InboxStatus } from "@/lib/inbox-queries";
+import { INBOX_LIST_KEYS, inboxStatusKey, inboxStatusQuery, recordVisitQuery, SNOOZED_KEY, snoozedQuery, type InboxRow, type InboxStatus } from "@/lib/inbox-queries";
 import { cn } from "@/lib/utils";
 import { DEFAULT_DISCOVER_FILTERS, filterDiscoverRows, isNew, sortDiscoverRows } from "@shared/discover";
-import { FOLDER_STATUS, inboxHref, inboxTimeLabel, matchesLabel, parseInboxLocation, selectionAfterRemoval, topPicks, type InboxFolder, type InboxTab } from "@shared/inbox-view";
+import {
+  FOLDER_STATUS, inboxHref, inboxTimeLabel, isPostFolder, matchesLabel, parseInboxLocation, selectionAfterRemoval, snoozeLabel, snoozePresets, topPicks,
+  type InboxTab, type StoryFolder,
+} from "@shared/inbox-view";
 import type { PersonalTrend } from "@shared/article-quality";
 
-const FOLDER_TITLES: Record<InboxFolder, { title: string; note: string }> = {
+const FOLDER_TITLES: Record<StoryFolder, { title: string; note: string }> = {
   inbox: { title: "For you", note: "" },
   shortlist: { title: "Shortlist", note: "Stories you saved to write about. Move one back to For you when you want it in your feed." },
+  snoozed: { title: "Snoozed", note: "Snoozed stories return to For you at the time you chose. Unsnooze one to bring it back now." },
   dismissed: { title: "Not relevant", note: "Hidden from For you. Move a story back if you change your mind." },
 };
 const MOVE_LABEL: Record<InboxStatus, string> = { saved: "Saved to Shortlist", dismissed: "Marked not relevant", active: "Moved to For you" };
 const TABS: Array<{ id: InboxTab; label: string }> = [{ id: "top", label: "Top picks" }, { id: "stories", label: "Stories" }, { id: "signals", label: "Signals" }];
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]?.toUpperCase()).join("") || "?";
 const sourceOf = (row: InboxRow): ComposeSource => ({ id: row.id, headline: row.headline, source: row.source, articleUrl: row.articleUrl });
+const snoozedUntil = (row: InboxRow) => row.snoozedUntil ? new Date(row.snoozedUntil) : null;
+/** An ended snooze keeps its past time on the server; only a time the server would accept again can be restored. */
+const restorableSnooze = (row: InboxRow) => {
+  const until = snoozedUntil(row);
+  return until && until.getTime() > Date.now() + 60_000 ? until : null;
+};
+const SNOOZE_MAX_DAYS = 90;
+// Gmail-style row tools appear for a real mouse or keyboard focus only: on touch screens they would cover
+// the row, so a tap would hit an action instead of opening the story. Actions stay in the reading pane.
+const ROW_TOOLS_SHOW = "sm:[@media(hover:hover)]:group-hover:flex group-has-[:focus-visible]:flex has-[[data-state=open]]:flex";
+const ROW_TOOLS_COVER = "sm:[@media(hover:hover)]:group-hover:invisible group-has-[:focus-visible]:invisible";
+type SnoozeTarget = { id: string; until: Date | null };
 
 function velocityLabel(trend: PersonalTrend) {
   if (trend.velocityPercent === null) return "New this week";
@@ -38,19 +57,27 @@ function velocityLabel(trend: PersonalTrend) {
   return `${trend.velocityPercent > 0 ? "+" : "−"}${Math.abs(trend.velocityPercent)}% vs last week`;
 }
 
-/** Gmail-style Inbox: folders of Discover stories with a reading pane, triage and shortcuts. */
+/** Gmail-style Inbox: story folders with a reading pane, and your own posts in Drafts / Scheduled / Posted / Outbox. */
 export default function InboxPage() {
+  const { folder, tab, label } = parseInboxLocation(useSearch());
+  return isPostFolder(folder) ? <PostFolderView folder={folder} /> : <StoryFolderView folder={folder} tab={tab} label={label} />;
+}
+
+function StoryFolderView({ folder, tab, label }: Readonly<{ folder: StoryFolder; tab: InboxTab; label: string | null }>) {
   const signedIn = Boolean(useIsSignedIn());
-  const search = useSearch();
   const [, navigate] = useLocation();
-  const { folder, tab, label } = parseInboxLocation(search);
   const { query } = useInboxShell();
   const composer = useComposer();
   const { toast } = useToast();
   const status = FOLDER_STATUS[folder];
   const showSignals = folder === "inbox" && tab === "signals";
+  const snoozedFolder = folder === "snoozed";
+  const canSnooze = status === "active";
 
-  const list = useQuery(inboxStatusQuery(status, signedIn));
+  const statusList = useQuery(inboxStatusQuery(status, signedIn && !snoozedFolder));
+  const snoozedList = useQuery(snoozedQuery(signedIn && snoozedFolder));
+  const list = snoozedFolder ? snoozedList : statusList;
+  const listKey = useMemo(() => snoozedFolder ? SNOOZED_KEY : inboxStatusKey(status), [snoozedFolder, status]);
   const visit = useQuery(recordVisitQuery(signedIn));
   const trends = useQuery<PersonalTrend[]>({ queryKey: ["/api/trends"], enabled: signedIn && showSignals });
   const refresh = useInboxRefreshJob();
@@ -61,6 +88,7 @@ export default function InboxPage() {
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [readingOpen, setReadingOpen] = useState(false);
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
+  const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
   const busy = useRef(false);
 
   useEffect(() => { setChecked(new Set()); setReadingOpen(false); }, [folder, tab, label]);
@@ -68,8 +96,9 @@ export default function InboxPage() {
   const rows = useMemo(() => {
     const inFolder = (list.data ?? []).filter(item => item.status === status);
     const matching = filterDiscoverRows(inFolder, { ...DEFAULT_DISCOVER_FILTERS, search: query }, { locallyRead }).filter(row => matchesLabel(row, label));
+    if (snoozedFolder) return [...matching].sort((a, b) => (snoozedUntil(a)?.getTime() ?? 0) - (snoozedUntil(b)?.getTime() ?? 0));
     return folder === "inbox" && tab === "top" && !query.trim() && !label ? topPicks(matching) : sortDiscoverRows(matching, "added");
-  }, [list.data, status, query, locallyRead, label, folder, tab]);
+  }, [list.data, status, query, locallyRead, label, folder, tab, snoozedFolder]);
   const signals = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return (trends.data ?? []).filter(trend => !needle || trend.topic.toLocaleLowerCase().includes(needle));
@@ -86,9 +115,68 @@ export default function InboxPage() {
     mutationFn: async (id: string) => (await apiRequest("POST", `/api/inbox/${id}/read`)).json() as Promise<{ id: string; readAt: string }>,
     onSuccess: ({ id, readAt }) => {
       const stamp = (current?: InboxRow[]) => current?.map(item => item.id === id && !item.readAt ? { ...item, readAt: readAt as unknown as Date } : item);
-      for (const key of [["/api/inbox"], inboxStatusKey("active"), inboxStatusKey("saved"), inboxStatusKey("dismissed")]) queryClient.setQueryData<InboxRow[]>(key, stamp);
+      for (const key of [["/api/inbox"], ...INBOX_LIST_KEYS]) queryClient.setQueryData<InboxRow[]>(key, stamp);
     },
   });
+
+  const markUnread = useCallback(async (ids: string[]) => {
+    if (busy.current || !ids.length) return;
+    busy.current = true;
+    const done = new Set<string>();
+    let failure: string | null = null;
+    try {
+      for (const id of ids) {
+        try { await apiRequest("DELETE", `/api/inbox/${id}/read`); done.add(id); }
+        catch (error) { failure = error instanceof Error ? error.message : "The story could not be marked unread."; break; }
+      }
+      if (done.size) {
+        setLocallyRead(current => new Set([...current].filter(id => !done.has(id))));
+        const clear = (current?: InboxRow[]) => current?.map(item => done.has(item.id) ? { ...item, readAt: null } : item);
+        for (const key of [["/api/inbox"], ...INBOX_LIST_KEYS]) queryClient.setQueryData<InboxRow[]>(key, clear);
+        setChecked(new Set());
+        setReadingOpen(false);
+      }
+      if (failure) toast({ title: done.size ? `Marked ${done.size} of ${ids.length} unread` : "Couldn't mark as unread", description: failure, variant: "destructive" });
+      else toast({ title: done.size > 1 ? `Marked ${done.size} stories as unread` : "Marked as unread" });
+    } finally { busy.current = false; }
+  }, [toast]);
+
+  /** Snooze or unsnooze; Undo restores each story's previous snooze time. */
+  const setSnooze = useCallback(async (targets: SnoozeTarget[], undoable = true) => {
+    if (busy.current || !targets.length) return;
+    busy.current = true;
+    const order = rows.map(row => row.id);
+    const before = new Map((list.data ?? []).map(row => [row.id, restorableSnooze(row)]));
+    const done: SnoozeTarget[] = [];
+    let failure: string | null = null;
+    try {
+      for (const target of targets) {
+        try {
+          if (target.until) await apiRequest("POST", `/api/inbox/${target.id}/snooze`, { until: target.until.toISOString() });
+          else await apiRequest("DELETE", `/api/inbox/${target.id}/snooze`);
+          done.push(target);
+        } catch (error) { failure = error instanceof Error ? error.message : "The story could not be snoozed."; break; }
+      }
+      if (done.length) {
+        // Snoozing leaves For you; unsnoozing leaves Snoozed. Changing a snooze time keeps it in place.
+        const removed = new Set(done.filter(target => snoozedFolder ? !target.until : Boolean(target.until)).map(target => target.id));
+        if (removed.size) {
+          queryClient.setQueryData<InboxRow[]>(listKey, current => current?.filter(item => !removed.has(item.id)));
+          setSelectedId(current => selectionAfterRemoval(order, removed, current));
+          setChecked(current => new Set([...current].filter(id => !removed.has(id))));
+          setReadingOpen(false);
+        }
+        void queryClient.invalidateQueries({ queryKey: ["/api/inbox"] });
+      }
+      const snoozing = done.find(target => target.until)?.until;
+      const undo = undoable && done.length ? { action: <ToastAction altText="Undo" onClick={() => void setSnooze(done.map(target => ({ id: target.id, until: before.get(target.id) ?? null })), false)}>Undo</ToastAction> } : {};
+      const title = snoozing ? `Snoozed until ${snoozeLabel(snoozing)}` : "Moved to For you";
+      if (failure) toast({ title: done.length ? `Updated ${done.length} of ${targets.length}` : "Couldn't snooze the story", description: failure, variant: "destructive", ...undo });
+      else if (done.length) toast({ title: done.length > 1 ? `${title}: ${done.length} stories` : title, ...undo });
+    } finally { busy.current = false; }
+  }, [rows, list.data, snoozedFolder, listKey, toast]);
+  const snooze = useCallback((ids: string[], until: Date) => void setSnooze(ids.map(id => ({ id, until }))), [setSnooze]);
+  const unsnooze = useCallback((ids: string[]) => void setSnooze(ids.map(id => ({ id, until: null }))), [setSnooze]);
 
   const open = useCallback((row: InboxRow) => {
     setSelectedId(row.id);
@@ -99,32 +187,40 @@ export default function InboxPage() {
     }
   }, [locallyRead, markRead]);
 
-  const triage = useCallback(async (ids: string[], to: InboxStatus, undoable = true) => {
+  /** `resnooze` restores snoozes that a move out of Snoozed cleared (the server clears a snooze on any status change). */
+  const triage = useCallback(async (ids: string[], to: InboxStatus, undoable = true, resnooze?: ReadonlyMap<string, Date>) => {
     if (busy.current || !ids.length) return;
     busy.current = true;
     const from = status;
     const order = rows.map(row => row.id);
+    const snoozes = new Map<string, Date>();
+    if (snoozedFolder) for (const row of list.data ?? []) { const until = restorableSnooze(row); if (until) snoozes.set(row.id, until); }
     const done: string[] = [];
     let failure: string | null = null;
     try {
       for (const id of ids) {
         try { await apiRequest("PATCH", `/api/inbox/${id}`, { status: to }); done.push(id); }
         catch (error) { failure = error instanceof Error ? error.message : "The story could not be moved."; break; }
+        const until = resnooze?.get(id);
+        if (until && until.getTime() > Date.now() + 60_000) {
+          try { await apiRequest("POST", `/api/inbox/${id}/snooze`, { until: until.toISOString() }); }
+          catch (error) { failure = `Moved back, but the snooze could not be restored. ${error instanceof Error ? error.message : ""}`.trim(); break; }
+        }
       }
       if (done.length) {
         const removed = new Set(done);
-        queryClient.setQueryData<InboxRow[]>(inboxStatusKey(from), current => current?.filter(item => !removed.has(item.id)));
+        queryClient.setQueryData<InboxRow[]>(listKey, current => current?.filter(item => !removed.has(item.id)));
         void queryClient.invalidateQueries({ queryKey: ["/api/inbox"] });
         setSelectedId(current => selectionAfterRemoval(order, removed, current));
         setChecked(current => new Set([...current].filter(id => !removed.has(id))));
         setReadingOpen(false);
       }
-      const undo = undoable && done.length ? { action: <ToastAction altText="Undo" onClick={() => void triage(done, from, false)}>Undo</ToastAction> } : {};
+      const undo = undoable && done.length ? { action: <ToastAction altText="Undo" onClick={() => void triage(done, from, false, snoozes)}>Undo</ToastAction> } : {};
       // One toast only (the toaster shows one at a time): a partial failure must keep Undo for what moved.
       if (failure) toast({ title: done.length ? `Moved ${done.length} of ${ids.length}` : "Couldn't move the story", description: failure, variant: "destructive", ...undo });
       else if (done.length) toast({ title: done.length > 1 ? `${MOVE_LABEL[to]}: ${done.length} stories` : MOVE_LABEL[to], ...undo });
     } finally { busy.current = false; }
-  }, [rows, status, toast]);
+  }, [rows, status, listKey, toast, snoozedFolder, list.data]);
 
   const draft = useCallback((row: InboxRow) => { open(row); composer.openForStory(sourceOf(row), true); }, [open, composer]);
   const shortlistTarget: InboxStatus = status === "saved" ? "active" : "saved";
@@ -151,6 +247,8 @@ export default function InboxPage() {
         r: () => { if (current) draft(current); },
         s: () => { if (current) void triage([current.id], shortlistTarget); },
         e: () => { if (current && status !== "dismissed") void triage([current.id], "dismissed"); },
+        b: () => { if (current && canSnooze) { setReadingOpen(true); setSnoozeMenuOpen(true); } },
+        U: () => { if (current && (current.readAt || locallyRead.has(current.id))) void markUnread([current.id]); },
         x: () => { if (current) setChecked(previous => { const next = new Set(previous); if (next.has(current.id)) next.delete(current.id); else next.add(current.id); return next; }); },
         u: () => setReadingOpen(false),
       };
@@ -161,7 +259,7 @@ export default function InboxPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [showSignals, rows, selectedId, open, draft, triage, shortlistTarget, status]);
+  }, [showSignals, rows, selectedId, open, draft, triage, shortlistTarget, status, canSnooze, markUnread, locallyRead]);
 
   const checkedIds = rows.filter(row => checked.has(row.id)).map(row => row.id);
   const allChecked = rows.length > 0 && checkedIds.length === rows.length;
@@ -183,6 +281,11 @@ export default function InboxPage() {
             {status !== "saved" && <Button variant="ghost" size="icon" aria-label="Save selected to Shortlist" onClick={() => void triage(checkedIds, "saved")}><Star className="h-4 w-4" aria-hidden="true" /></Button>}
             {status !== "dismissed" && <Button variant="ghost" size="icon" aria-label="Mark selected not relevant" onClick={() => void triage(checkedIds, "dismissed")}><Archive className="h-4 w-4" aria-hidden="true" /></Button>}
             {status !== "active" && <Button variant="ghost" size="icon" aria-label="Move selected to For you" onClick={() => void triage(checkedIds, "active")}><Inbox className="h-4 w-4" aria-hidden="true" /></Button>}
+            {canSnooze && <SnoozeMenu label="Snooze selected" onSnooze={until => snooze(checkedIds, until)}>
+              <Button variant="ghost" size="icon" aria-label="Snooze selected"><Clock className="h-4 w-4" aria-hidden="true" /></Button>
+            </SnoozeMenu>}
+            {snoozedFolder && <Button variant="ghost" size="icon" aria-label="Unsnooze selected" onClick={() => unsnooze(checkedIds)}><AlarmClock className="h-4 w-4" aria-hidden="true" /></Button>}
+            <Button variant="ghost" size="icon" aria-label="Mark selected as unread" onClick={() => void markUnread(checkedIds)}><Mail className="h-4 w-4" aria-hidden="true" /></Button>
             <span className="ml-1 text-xs text-muted-foreground">{checkedIds.length} selected</span>
           </> : folder === "inbox" && <Button variant="ghost" size="icon" aria-label={refreshing ? "Finding new stories" : "Find new stories"} title="Find new stories"
               onClick={() => void refresh.startRefresh()} disabled={refreshing || refresh.status === "unavailable"} data-testid="button-refresh-inbox">
@@ -222,6 +325,7 @@ export default function InboxPage() {
                 const unread = !row.readAt && !locallyRead.has(row.id);
                 const isSelected = row.id === selected?.id;
                 const snippet = relevanceSummary(row) ?? row.summary ?? "";
+                const returns = snoozedFolder ? snoozedUntil(row) : null;
                 return <li key={row.id} className={cn("group relative grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-x-1 border-b py-2.5 pl-1 pr-3 transition-shadow hover:z-[1] hover:shadow-sm", unread ? "bg-card" : "bg-muted/30", isSelected && "bg-primary/5 shadow-[inset_3px_0_0_hsl(var(--primary))]")}>
                   <span className="flex h-8 w-9 items-center justify-center"><Checkbox aria-label={`Select ${row.headline}`} checked={checked.has(row.id)} onCheckedChange={value => setChecked(current => { const next = new Set(current); if (value === true) next.add(row.id); else next.delete(row.id); return next; })} /></span>
                   <button type="button" className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted" aria-pressed={status === "saved"}
@@ -232,7 +336,9 @@ export default function InboxPage() {
                     <span className="flex items-baseline gap-2">
                       <span className={cn("min-w-0 flex-1 truncate text-sm", unread ? "font-semibold text-foreground" : "text-muted-foreground")}>{row.source}</span>
                       {isNew(row, newSince, locallyRead) && <span className="rounded bg-primary/10 px-1.5 text-[11px] font-semibold text-primary">New</span>}
-                      <span className={cn("whitespace-nowrap text-xs tabular-nums group-hover:invisible group-focus-within:invisible", unread ? "font-semibold text-foreground" : "text-muted-foreground")}>{inboxTimeLabel(row)}</span>
+                      {returns
+                        ? <span className={cn("inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium text-warning", ROW_TOOLS_COVER)}><Clock className="h-3 w-3" aria-hidden="true" />{snoozeLabel(returns)}</span>
+                        : <span className={cn("whitespace-nowrap text-xs tabular-nums", ROW_TOOLS_COVER, unread ? "font-semibold text-foreground" : "text-muted-foreground")}>{inboxTimeLabel(row)}</span>}
                     </span>
                     <span className={cn("mt-0.5 block truncate text-sm", unread && "font-semibold")}>{row.headline}</span>
                     <span className="mt-0.5 flex min-w-0 items-center gap-1.5">
@@ -240,11 +346,17 @@ export default function InboxPage() {
                       {(row.matchedKeywords ?? []).slice(0, 1).map(keyword => <span key={keyword} className="shrink-0 rounded border px-1.5 text-[11px] font-medium">{keyword}</span>)}
                     </span>
                   </button>
-                  <div className="absolute right-2 top-1.5 hidden items-center gap-0.5 rounded-md border bg-card p-0.5 shadow-sm group-hover:flex group-focus-within:flex">
+                  <div className={cn("absolute right-2 top-1.5 hidden items-center gap-0.5 rounded-md border bg-card p-0.5 shadow-sm", ROW_TOOLS_SHOW)}>
                     <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Draft my take on ${row.headline}`} onClick={() => draft(row)}><Reply className="h-4 w-4" aria-hidden="true" /></Button>
                     {status === "dismissed"
                       ? <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Move ${row.headline} to For you`} onClick={() => void triage([row.id], "active")}><Inbox className="h-4 w-4" aria-hidden="true" /></Button>
                       : <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Mark ${row.headline} not relevant`} onClick={() => void triage([row.id], "dismissed")}><Archive className="h-4 w-4" aria-hidden="true" /></Button>}
+                    {!unread && <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Mark ${row.headline} as unread`} onClick={() => void markUnread([row.id])}><Mail className="h-4 w-4" aria-hidden="true" /></Button>}
+                    {snoozedFolder
+                      ? <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Unsnooze ${row.headline}`} onClick={() => unsnooze([row.id])}><AlarmClock className="h-4 w-4" aria-hidden="true" /></Button>
+                      : canSnooze && <SnoozeMenu label={`Snooze ${row.headline}`} onSnooze={until => snooze([row.id], until)}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Snooze ${row.headline}`}><Clock className="h-4 w-4" aria-hidden="true" /></Button>
+                      </SnoozeMenu>}
                   </div>
                 </li>;
               })}</ul>
@@ -263,10 +375,55 @@ export default function InboxPage() {
             onDraft={() => { const links = new Set(selectedSignal.articles.map(article => article.link)); const story = (list.data ?? []).find(item => links.has(item.articleUrl)); if (story) composer.openForStory(sourceOf(story), false); else composer.openBlank(selectedSignal.topic); }} />
           : <EmptyPane />)
           : selected ? <StoryPane row={selected} status={status} compose={composer.inlineFor(selected.id)} onBack={() => setReadingOpen(false)} onDraft={() => draft(selected)}
-              onShortlist={() => void triage([selected.id], shortlistTarget)} onDismiss={() => void triage([selected.id], "dismissed")} onRestore={() => void triage([selected.id], "active")} />
+              onShortlist={() => void triage([selected.id], shortlistTarget)} onDismiss={() => void triage([selected.id], "dismissed")} onRestore={() => void triage([selected.id], "active")}
+              read={Boolean(selected.readAt || locallyRead.has(selected.id))} onMarkUnread={() => void markUnread([selected.id])}
+              snooze={canSnooze ? { until: snoozedFolder ? snoozedUntil(selected) : null, menuOpen: snoozeMenuOpen, onMenuOpenChange: setSnoozeMenuOpen,
+                onSnooze: until => snooze([selected.id], until), onUnsnooze: () => unsnooze([selected.id]) } : undefined} />
           : <EmptyPane />}
       </section>
     </main>
+  );
+}
+
+function SnoozeMenu({ label, open, onOpenChange, onSnooze, children }: Readonly<{
+  label: string; open?: boolean; onOpenChange?: (open: boolean) => void; onSnooze: (until: Date) => void; children: ReactNode;
+}>) {
+  const [picking, setPicking] = useState(false);
+  const now = new Date();
+  return <>
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64" aria-label={label}>
+        <DropdownMenuLabel>Snooze until…</DropdownMenuLabel>
+        {snoozePresets(now).map(preset => <DropdownMenuItem key={preset.id} onSelect={() => onSnooze(preset.until)} data-testid={`snooze-${preset.id}`}>
+          {preset.label}<span className="ml-auto pl-4 text-xs text-muted-foreground">{snoozeLabel(preset.until, now)}</span>
+        </DropdownMenuItem>)}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => setPicking(true)} data-testid="snooze-pick"><CalendarClock className="mr-2 h-4 w-4" aria-hidden="true" />Pick date & time…</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+    <SnoozePicker open={picking} onOpenChange={setPicking} onSnooze={until => { setPicking(false); onSnooze(until); }} />
+  </>;
+}
+
+function SnoozePicker({ open, onOpenChange, onSnooze }: Readonly<{ open: boolean; onOpenChange: (open: boolean) => void; onSnooze: (until: Date) => void }>) {
+  const local = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  const [value, setValue] = useState(() => local(snoozePresets()[0].until));
+  useEffect(() => { if (open) setValue(local(snoozePresets()[0].until)); }, [open]);
+  const until = new Date(value);
+  const delay = until.getTime() - Date.now();
+  const valid = Number.isFinite(delay) && delay > 60_000 && delay <= SNOOZE_MAX_DAYS * 86_400_000;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle>Snooze until</DialogTitle><DialogDescription>The story leaves For you and comes back at this time ({Intl.DateTimeFormat().resolvedOptions().timeZone}).</DialogDescription></DialogHeader>
+        <label className="block text-sm font-medium">Return on
+          <input type="datetime-local" value={value} min={local(new Date())} onChange={event => setValue(event.target.value)} className="mt-1 block h-10 w-full rounded-md border px-3" data-testid="input-snooze-until" />
+        </label>
+        {!valid && <p className="text-xs text-destructive">Choose a time between a minute and {SNOOZE_MAX_DAYS} days from now.</p>}
+        <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!valid} onClick={() => onSnooze(until)}>Snooze</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -286,8 +443,11 @@ function EmptyPane() {
   </div>;
 }
 
-function StoryPane({ row, status, compose, onBack, onDraft, onShortlist, onDismiss, onRestore }: Readonly<{
+interface PaneSnooze { until: Date | null; menuOpen: boolean; onMenuOpenChange: (open: boolean) => void; onSnooze: (until: Date) => void; onUnsnooze: () => void }
+
+function StoryPane({ row, status, compose, onBack, onDraft, onShortlist, onDismiss, onRestore, read, onMarkUnread, snooze }: Readonly<{
   row: InboxRow; status: InboxStatus; compose?: Compose; onBack: () => void; onDraft: () => void; onShortlist: () => void; onDismiss: () => void; onRestore: () => void;
+  read: boolean; onMarkUnread: () => void; snooze?: PaneSnooze;
 }>) {
   const why = relevanceSummary(row);
   const keywords = row.matchedKeywords ?? [];
@@ -300,11 +460,20 @@ function StoryPane({ row, status, compose, onBack, onDraft, onShortlist, onDismi
       {status === "dismissed"
         ? <Button variant="ghost" size="icon" aria-label="Move to For you" onClick={onRestore}><Inbox className="h-4 w-4" aria-hidden="true" /></Button>
         : <Button variant="ghost" size="icon" aria-label="Mark not relevant" onClick={onDismiss}><Archive className="h-4 w-4" aria-hidden="true" /></Button>}
+      {snooze && <SnoozeMenu label="Snooze" open={snooze.menuOpen} onOpenChange={snooze.onMenuOpenChange} onSnooze={snooze.onSnooze}>
+        <Button variant="ghost" size="icon" aria-label={snooze.until ? "Change snooze time" : "Snooze"} title="Snooze (b)"><Clock className="h-4 w-4" aria-hidden="true" /></Button>
+      </SnoozeMenu>}
+      {read && <Button variant="ghost" size="icon" aria-label="Mark as unread" title="Mark as unread (Shift+U)" onClick={onMarkUnread}><Mail className="h-4 w-4" aria-hidden="true" /></Button>}
       <a href={row.articleUrl} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex min-h-9 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground" data-testid={`link-article-${row.id}`}>
         Open original<span className="sr-only"> (opens in a new tab)</span><ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
       </a>
     </div>
     <article className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">
+      {snooze?.until && <p role="status" className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning-subtle px-3 py-2 text-sm">
+        <Clock className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+        <span className="flex-1">Snoozed until <span className="font-semibold">{snoozeLabel(snooze.until)}</span>. It returns to For you then.</span>
+        <Button size="sm" variant="outline" onClick={snooze.onUnsnooze} data-testid="button-unsnooze">Unsnooze</Button>
+      </p>}
       <h2 className="break-words text-xl font-semibold leading-snug" data-testid={`text-headline-${row.id}`}>{row.headline}</h2>
       {keywords.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Labels">{keywords.slice(0, 4).map(keyword => <span key={keyword} className="rounded border px-1.5 text-[11px] font-medium">{keyword}</span>)}</div>}
       <div className="mt-4 flex items-start gap-3">
