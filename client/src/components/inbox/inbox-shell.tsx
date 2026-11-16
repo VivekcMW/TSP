@@ -315,9 +315,10 @@ function NotesPanel() {
             <div className="mt-2 flex flex-wrap items-center gap-1">
               <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => insert(note, "body")} data-testid={`button-insert-note-${note.id}`}>Add to post</Button>
               <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => insert(note, "take")} title="Put this note in Your take for Help me write"><Sparkles className="mr-1 h-3.5 w-3.5" aria-hidden="true" />Use as take</Button>
-              <span className="ml-auto" />
-              <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Edit note" onClick={() => setEditing({ id: note.id, text: note.text })}><Pencil className="h-3.5 w-3.5" aria-hidden="true" /></Button>
-              <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Delete note" disabled={remove.isPending} onClick={() => remove.mutate(note)}><Trash2 className="h-3.5 w-3.5" aria-hidden="true" /></Button>
+              <span className="ml-auto flex">
+                <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Edit note" onClick={() => setEditing({ id: note.id, text: note.text })}><Pencil className="h-3.5 w-3.5" aria-hidden="true" /></Button>
+                <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Delete note" disabled={remove.isPending} onClick={() => remove.mutate(note)}><Trash2 className="h-3.5 w-3.5" aria-hidden="true" /></Button>
+              </span>
             </div>
           </>}
         </li>)}</ul>
