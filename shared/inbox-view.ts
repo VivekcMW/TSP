@@ -6,7 +6,10 @@ export type StoryFolder = typeof STORY_FOLDERS[number];
 /** Your own LinkedIn posts, like Gmail's Drafts / Scheduled / Sent / Outbox. */
 export const POST_FOLDERS = ["drafts", "scheduled", "posted", "outbox"] as const;
 export type PostFolder = typeof POST_FOLDERS[number];
-export const INBOX_FOLDERS = [...STORY_FOLDERS, ...POST_FOLDERS] as const;
+/** Workspace views that are neither stories nor posts (topic ideas, plan and strategy). */
+export const WORKSPACE_FOLDERS = ["ideas"] as const;
+export type WorkspaceFolder = typeof WORKSPACE_FOLDERS[number];
+export const INBOX_FOLDERS = [...STORY_FOLDERS, ...WORKSPACE_FOLDERS, ...POST_FOLDERS] as const;
 export type InboxFolder = typeof INBOX_FOLDERS[number];
 export const INBOX_TABS = ["top", "stories", "signals"] as const;
 export type InboxTab = typeof INBOX_TABS[number];
@@ -18,10 +21,13 @@ export const FOLDER_STATUS: Record<StoryFolder, "active" | "saved" | "dismissed"
   inbox: "active", shortlist: "saved", snoozed: "active", dismissed: "dismissed",
 };
 
-export interface InboxLocation { folder: InboxFolder; tab: InboxTab; label: string | null }
+/** `news` is a keyword news search (Phase 3A); `saved` the followed search it came from. Both null otherwise. */
+export interface InboxLocation { folder: InboxFolder; tab: InboxTab; label: string | null; news: string | null; saved: string | null }
+export const NEWS_QUERY_MAX = 300;
 
 const oneOf = <T extends string>(values: readonly T[], value: string | null): value is T => value !== null && (values as readonly string[]).includes(value);
 export const isPostFolder = (folder: InboxFolder): folder is PostFolder => oneOf(POST_FOLDERS, folder);
+export const isStoryFolder = (folder: InboxFolder): folder is StoryFolder => oneOf(STORY_FOLDERS, folder);
 
 export function parseInboxLocation(search: string): InboxLocation {
   const params = new URLSearchParams(search);
@@ -30,12 +36,19 @@ export function parseInboxLocation(search: string): InboxLocation {
   const resolved: InboxFolder = oneOf(INBOX_FOLDERS, folder) ? folder : "inbox";
   // Topic labels filter stories, never your own posts.
   const label = isPostFolder(resolved) ? null : params.get("label")?.trim().slice(0, 100) || null;
+  const news = params.get("news")?.trim().slice(0, NEWS_QUERY_MAX) || null;
+  const saved = news ? params.get("saved")?.trim().slice(0, 100) || null : null;
   // Tabs only exist in For you; other folders are a single list.
-  return { folder: resolved, tab: resolved === "inbox" && oneOf(INBOX_TABS, tab) ? tab : resolved === "inbox" ? "top" : "stories", label };
+  return { folder: resolved, tab: resolved === "inbox" && oneOf(INBOX_TABS, tab) ? tab : resolved === "inbox" ? "top" : "stories", label, news, saved };
 }
 
-export function inboxHref({ folder = "inbox", tab = "top", label = null }: Partial<InboxLocation> = {}): string {
+export function inboxHref({ folder = "inbox", tab = "top", label = null, news = null, saved = null }: Partial<InboxLocation> = {}): string {
   const params = new URLSearchParams();
+  if (news?.trim()) {
+    params.set("news", news.trim().slice(0, NEWS_QUERY_MAX));
+    if (saved) params.set("saved", saved);
+    return `/dashboard?${params}`;
+  }
   if (folder !== "inbox") params.set("folder", folder);
   if (folder === "inbox" && tab !== "top") params.set("tab", tab);
   if (label) params.set("label", label);

@@ -299,6 +299,10 @@ async function scoped<T>(scope: TenantScope, fn: (tx: Tx) => Promise<T>): Promis
   });
 }
 
+/** The same tenant-scoped transaction for repository modules outside this file (RLS applies). */
+export const withTenantTransaction = scoped;
+export type TenantTx = Tx;
+
 export class ScheduleConflictError extends Error {}
 
 export class InboxCapacityError extends Error {

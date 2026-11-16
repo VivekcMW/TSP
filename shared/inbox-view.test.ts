@@ -5,19 +5,27 @@ const row = (id: string, source: string, score: number) => ({ id, headline: id, 
 
 describe("Inbox locations", () => {
   it("round-trips folders, tabs and labels and rejects unknown values", () => {
-    expect(parseInboxLocation("")).toEqual({ folder: "inbox", tab: "top", label: null });
-    expect(parseInboxLocation("?tab=signals&label=Retail%20media")).toEqual({ folder: "inbox", tab: "signals", label: "Retail media" });
-    expect(parseInboxLocation("?folder=shortlist&tab=signals")).toEqual({ folder: "shortlist", tab: "stories", label: null });
-    expect(parseInboxLocation("?folder=spam&tab=promotions")).toEqual({ folder: "inbox", tab: "top", label: null });
+    expect(parseInboxLocation("")).toEqual({ folder: "inbox", tab: "top", label: null, news: null, saved: null });
+    expect(parseInboxLocation("?tab=signals&label=Retail%20media")).toEqual({ folder: "inbox", tab: "signals", label: "Retail media", news: null, saved: null });
+    expect(parseInboxLocation("?folder=shortlist&tab=signals")).toEqual({ folder: "shortlist", tab: "stories", label: null, news: null, saved: null });
+    expect(parseInboxLocation("?folder=spam&tab=promotions")).toEqual({ folder: "inbox", tab: "top", label: null, news: null, saved: null });
     expect(inboxHref({ folder: "inbox", tab: "signals", label: "AI" })).toBe("/dashboard?tab=signals&label=AI");
     expect(inboxHref({ folder: "dismissed" })).toBe("/dashboard?folder=dismissed");
     expect(inboxHref()).toBe("/dashboard");
   });
 
   it("parses post folders and never applies topic labels to your own posts", () => {
-    expect(parseInboxLocation("?folder=drafts&label=AI")).toEqual({ folder: "drafts", tab: "stories", label: null });
-    expect(parseInboxLocation("?folder=snoozed&label=AI")).toEqual({ folder: "snoozed", tab: "stories", label: "AI" });
+    expect(parseInboxLocation("?folder=drafts&label=AI")).toMatchObject({ folder: "drafts", tab: "stories", label: null });
+    expect(parseInboxLocation("?folder=snoozed&label=AI")).toMatchObject({ folder: "snoozed", tab: "stories", label: "AI" });
+    expect(parseInboxLocation("?folder=ideas")).toMatchObject({ folder: "ideas", news: null });
     expect(inboxHref({ folder: "posted" })).toBe("/dashboard?folder=posted");
+  });
+
+  it("round-trips keyword news searches and ignores a saved id without a query", () => {
+    expect(parseInboxLocation("?news=%20retail%20media%20&saved=s1")).toMatchObject({ news: "retail media", saved: "s1" });
+    expect(parseInboxLocation("?saved=s1")).toMatchObject({ news: null, saved: null });
+    expect(inboxHref({ news: "retail media", saved: "s1" })).toBe("/dashboard?news=retail+media&saved=s1");
+    expect(inboxHref({ news: "   " })).toBe("/dashboard");
   });
 });
 

@@ -12,6 +12,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { InlineCompose, useComposer, type Compose } from "@/components/inbox/composer";
 import { PostFolderView } from "@/components/inbox/post-folder-view";
+import { NewsSearchView } from "@/components/inbox/news-search-view";
+import { IdeasView } from "@/components/inbox/ideas-view";
 import type { ComposeSource } from "@/lib/linkedin-compose";
 import { useInboxShell } from "@/components/inbox/inbox-shell";
 import { refreshJobMessage, useInboxRefreshJob } from "@/hooks/use-inbox-refresh-job";
@@ -23,7 +25,7 @@ import { INBOX_LIST_KEYS, inboxStatusKey, inboxStatusQuery, recordVisitQuery, SN
 import { cn } from "@/lib/utils";
 import { DEFAULT_DISCOVER_FILTERS, filterDiscoverRows, isNew, sortDiscoverRows } from "@shared/discover";
 import {
-  FOLDER_STATUS, inboxHref, inboxTimeLabel, isPostFolder, matchesLabel, parseInboxLocation, selectionAfterRemoval, snoozeLabel, snoozePresets, topPicks,
+  FOLDER_STATUS, inboxHref, inboxTimeLabel, isPostFolder, isStoryFolder, matchesLabel, parseInboxLocation, selectionAfterRemoval, snoozeLabel, snoozePresets, topPicks,
   type InboxTab, type StoryFolder,
 } from "@shared/inbox-view";
 import type { PersonalTrend } from "@shared/article-quality";
@@ -59,8 +61,11 @@ function velocityLabel(trend: PersonalTrend) {
 
 /** Gmail-style Inbox: story folders with a reading pane, and your own posts in Drafts / Scheduled / Posted / Outbox. */
 export default function InboxPage() {
-  const { folder, tab, label } = parseInboxLocation(useSearch());
-  return isPostFolder(folder) ? <PostFolderView folder={folder} /> : <StoryFolderView folder={folder} tab={tab} label={label} />;
+  const { folder, tab, label, news, saved } = parseInboxLocation(useSearch());
+  if (news) return <NewsSearchView key={`${news}\u0000${saved ?? ""}`} query={news} savedId={saved} />;
+  if (folder === "ideas") return <IdeasView />;
+  if (isPostFolder(folder)) return <PostFolderView folder={folder} />;
+  return isStoryFolder(folder) ? <StoryFolderView folder={folder} tab={tab} label={label} /> : null;
 }
 
 function StoryFolderView({ folder, tab, label }: Readonly<{ folder: StoryFolder; tab: InboxTab; label: string | null }>) {

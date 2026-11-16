@@ -2,13 +2,18 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type D
 import { Link, useLocation, useSearch } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
-  AlertTriangle, Archive, CalendarDays, Clock, FileText, Inbox, Linkedin, Menu, Pencil, Plus, Rss, Search, Send, Settings, Sparkles, Star, StickyNote, Tag, Trash2, X, CalendarClock,
+  AlertTriangle, Archive, CalendarDays, Clock, FileText, Inbox, Lightbulb, Linkedin, Menu, Pencil, Plus, Rss, Search, Send, Settings, Sparkles, Star, StickyNote, Tag, Trash2, X, CalendarClock,
 } from "lucide-react";
 import { useIsSignedIn } from "@/lib/dev-auth";
 import { ComposerProvider, useComposer } from "@/components/inbox/composer";
 import { AccountMenu } from "@/components/dashboard/navbar";
 import { HelpButton } from "@/components/help-panel";
 import { SourcesManagerContent } from "@/components/dashboard/sources-manager";
+import { ShellSearch } from "@/components/inbox/shell-search";
+import { SavedSearchesNav } from "@/components/inbox/saved-searches-nav";
+import { PlanPanel } from "@/components/inbox/plan-panel";
+import { QuickSettingsPanel } from "@/components/inbox/quick-settings-panel";
+import { InputsPanel } from "@/components/inbox/inputs-panel";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -24,7 +29,7 @@ import { cn } from "@/lib/utils";
 import { inboxHref, parseInboxLocation, topicLabels, type InboxFolder } from "@shared/inbox-view";
 import type { UserNote, UserProfile } from "@shared/schema";
 
-type Connector = "linkedin" | "notes" | "sources" | "more";
+type Connector = "plan" | "settings" | "notes" | "linkedin" | "sources" | "more";
 interface InboxShellContextValue { query: string; setQuery: (query: string) => void; openShortcuts: () => void }
 const InboxShellContext = createContext<InboxShellContextValue>({ query: "", setQuery: () => {}, openShortcuts: () => {} });
 export const useInboxShell = () => useContext(InboxShellContext);
@@ -80,17 +85,11 @@ function ShellFrame({ children, panel, setPanel }: Readonly<{ children: ReactNod
             <img src="/logo-mark.png" alt="" className="h-7 w-7 rounded-md" aria-hidden="true" />
             <span className="hidden font-bold text-primary sm:inline">TheSocialPundit</span>
           </Link>
-          <form role="search" className="flex h-11 min-w-0 max-w-3xl flex-1 items-center gap-2 rounded-md border border-transparent bg-muted px-3 focus-within:border-input focus-within:bg-card focus-within:shadow-sm"
-            onSubmit={event => { event.preventDefault(); if (!isInboxPath(location)) navigate("/dashboard"); }}>
-            <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-            <input ref={searchRef} value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === "Escape") { setQuery(""); event.currentTarget.blur(); } }}
-              placeholder="Search stories, sources and topics" aria-label="Search your Inbox" className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" data-testid="input-inbox-search" />
-            {query && <button type="button" className="rounded p-1 text-muted-foreground hover:text-foreground" aria-label="Clear search" onClick={() => setQuery("")}><X className="h-4 w-4" aria-hidden="true" /></button>}
-          </form>
+          <ShellSearch query={query} setQuery={setQuery} inputRef={searchRef} />
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <PostingStatusChip signedIn={signedIn} onOpen={() => setPanel("linkedin")} />
             <HelpButton />
-            <Button variant="ghost" size="icon" asChild><Link href="/dashboard/settings" aria-label="Settings"><Settings className="h-5 w-5" aria-hidden="true" /></Link></Button>
+            <Button variant="ghost" size="icon" aria-label="Quick settings" title="Quick settings" aria-pressed={panel === "settings"} onClick={() => setPanel(current => current === "settings" ? null : "settings")} data-testid="button-quick-settings"><Settings className="h-5 w-5" aria-hidden="true" /></Button>
             <AccountMenu layoutSwitch={{ label: "Switch to classic layout", onSelect: () => setClassicLayoutPreference(true) }} />
           </div>
         </header>
@@ -133,9 +132,10 @@ function InboxNav({ collapsed, location, search, signedIn, onCompose }: Readonly
   const unread = (active.data ?? []).filter(item => item.status === "active" && !item.readAt).length;
   const current = isInboxPath(location) ? parseInboxLocation(search) : null;
   const labels = topicLabels(profile.data?.keywords);
-  const at = (folder: InboxFolder) => current?.folder === folder;
+  const at = (folder: InboxFolder) => current?.folder === folder && !current.news;
   const folders: Array<{ label: string; href: string; icon: typeof Inbox; count?: number; strong?: boolean; active: boolean }> = [
     { label: "For you", href: inboxHref(), icon: Inbox, count: unread, strong: unread > 0, active: at("inbox") && !current?.label },
+    { label: "Ideas", href: inboxHref({ folder: "ideas" }), icon: Lightbulb, active: at("ideas") && !current?.news },
     { label: "Shortlist", href: inboxHref({ folder: "shortlist" }), icon: Star, count: saved.data?.length, active: at("shortlist") },
     { label: "Snoozed", href: inboxHref({ folder: "snoozed" }), icon: Clock, active: at("snoozed") },
     { label: "Drafts", href: inboxHref({ folder: "drafts" }), icon: FileText, count: postCount.drafts, active: at("drafts") },
@@ -163,6 +163,7 @@ function InboxNav({ collapsed, location, search, signedIn, onCompose }: Readonly
           </Link>
         </li>)}
       </ul>
+      <SavedSearchesNav collapsed={collapsed} currentSavedId={current?.saved ?? null} itemClassName={item} />
       {!collapsed && <>
         <div className="mt-4 flex items-center justify-between pl-6 pr-1 text-sm font-semibold">
           <span>Labels</span>
@@ -196,8 +197,8 @@ function PostingStatusChip({ signedIn, onOpen }: Readonly<{ signedIn: boolean; o
   );
 }
 
-const RAIL: Array<{ id: Connector | "plan"; label: string; icon: typeof Inbox }> = [
-  { id: "plan", label: "Plan (Calendar)", icon: CalendarDays },
+const RAIL: Array<{ id: Exclude<Connector, "settings">; label: string; icon: typeof Inbox }> = [
+  { id: "plan", label: "Plan", icon: CalendarDays },
   { id: "notes", label: "Notes", icon: StickyNote },
   { id: "linkedin", label: "LinkedIn connection", icon: Linkedin },
   { id: "sources", label: "Sources you follow", icon: Rss },
@@ -207,12 +208,10 @@ const RAIL: Array<{ id: Connector | "plan"; label: string; icon: typeof Inbox }>
 function ConnectorRail({ panel, onToggle }: Readonly<{ panel: Connector | null; onToggle: (panel: Connector) => void }>) {
   return (
     <aside aria-label="Connectors" className="hidden w-14 shrink-0 flex-col items-center gap-1 pt-1 md:flex">
-      {RAIL.map(entry => entry.id === "plan"
-        ? <Button key={entry.id} variant="ghost" size="icon" asChild><Link href="/dashboard/calendar" aria-label={entry.label} title={entry.label}><entry.icon className="h-5 w-5" aria-hidden="true" /></Link></Button>
-        : <Button key={entry.id} variant="ghost" size="icon" aria-label={entry.label} title={entry.label} aria-pressed={panel === entry.id}
-            className={cn(panel === entry.id && "bg-primary/10 text-primary")} onClick={() => onToggle(entry.id as Connector)} data-testid={`button-connector-${entry.id}`}>
-            <entry.icon className="h-5 w-5" aria-hidden="true" />
-          </Button>)}
+      {RAIL.map(entry => <Button key={entry.id} variant="ghost" size="icon" aria-label={entry.label} title={entry.label} aria-pressed={panel === entry.id}
+        className={cn(panel === entry.id && "bg-primary/10 text-primary")} onClick={() => onToggle(entry.id)} data-testid={`button-connector-${entry.id}`}>
+        <entry.icon className="h-5 w-5" aria-hidden="true" />
+      </Button>)}
     </aside>
   );
 }
@@ -221,7 +220,7 @@ function ConnectorPanel({ panel, onClose }: Readonly<{ panel: Connector; onClose
   const signedIn = useIsSignedIn();
   const status = useQuery<LinkedInConnectionStatus>({ queryKey: LINKEDIN_STATUS_KEY, enabled: signedIn && panel === "linkedin", staleTime: 30_000 });
   const state = linkedInPostingState(status.data);
-  const title = { linkedin: "LinkedIn connection", notes: "Notes", sources: "Sources you follow", more: "More connectors" }[panel];
+  const title = { plan: "Plan", settings: "Quick settings", linkedin: "LinkedIn connection", notes: "Notes", sources: "Sources you follow", more: "More connectors" }[panel];
   return (
     <aside aria-label={title} className="mb-2 ml-2 flex w-80 shrink-0 flex-col overflow-hidden rounded-md border bg-card" data-testid={`panel-connector-${panel}`}>
       <div className="flex h-12 shrink-0 items-center justify-between border-b pl-4 pr-1">
@@ -239,13 +238,9 @@ function ConnectorPanel({ panel, onClose }: Readonly<{ panel: Connector; onClose
         </>}
         {panel === "notes" && <NotesPanel />}
         {panel === "sources" && <SourcesManagerContent />}
-        {panel === "more" && <>
-          <p className="text-muted-foreground">LinkedIn is the focus today. Other platforms stay available in Settings and will return here later.</p>
-          <Button asChild variant="outline" className="w-full"><Link href="/dashboard/settings?tab=integrations">Open integrations</Link></Button>
-          {["Newsletter forwarding", "Save from any page"].map(name => <div key={name} className="rounded-md border p-3">
-            <p className="font-medium">{name}</p><p className="text-xs text-muted-foreground">Coming in a later phase.</p>
-          </div>)}
-        </>}
+        {panel === "plan" && <PlanPanel />}
+        {panel === "settings" && <QuickSettingsPanel />}
+        {panel === "more" && <InputsPanel />}
       </div>
     </aside>
   );

@@ -1217,3 +1217,18 @@ export interface ArticleMatch {
   matchedKeywords: string[];
   reasoning: string;       // "Matches AI (0.9) and cloud (0.7) = score 0.85"
 }
+
+// ── Phase 3A — keyword news search: saved searches (begin) ──
+// ── Phase 3A (end) ──
+
+// ── Phase 3 — topic discovery: strategy, ideas, check-ins (begin) ──
+// ── Phase 3 (end) ──
+
+// ── Phase 4 — triage feedback: dismiss reasons, calibration (begin) ──
+// ── Phase 4 (end) ──
+
+// ── Phase 5 — moments, digests, watchlist alerts (begin) ──
+// ── Phase 5 (end) ──
+
+// ── Phase 6 — external inputs: inbound email, capture tokens (begin) ──
+// ── Phase 6 (end) ──
