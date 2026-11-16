@@ -104,6 +104,8 @@ describe("idea generation", () => {
     expect(ideas.some(idea => idea.sourceStory?.inboxItemId === "s3")).toBe(false);
     expect(ideas.find(idea => idea.kind === "signal" && idea.pillar === "Retail media")).toMatchObject({ title: "What the rise in Retail media means for D2C founders" });
     expect(ideas.find(idea => idea.kind === "signal" && idea.title.includes("clean rooms"))?.title).toBe("What the rise in clean rooms means for D2C founders");
+    const shown = generateIdeas({ ...inputs(), trends: [{ topic: "co2", display: "CO₂", count: 3, previousCount: 0, label: "new" }] }).find(idea => idea.kind === "signal")!;
+    expect(shown).toMatchObject({ id: ideaId("signal", "co2", "rise"), title: "What the rise in CO₂ means for D2C founders" });
     expect(ideas.find(idea => idea.kind === "experience")).toMatchObject({ pillar: "Pricing", title: "A recent win: Closed a pricing workshop with a new client" });
     expect(ideas.filter(idea => idea.kind === "follow-up").map(idea => idea.pillar)).toEqual(["Retail media", "Retail media"]);
   });

@@ -50,7 +50,7 @@ async function candidates(scope: TenantScope, context: StrategyContext, now: Dat
     optional("published posts", strategyRepository.publishedPosts(scope, new Date(now.getTime() - FOLLOW_UP_WINDOW_MS)), []),
   ]);
   const labels = trendTopicLabels(trendRows);
-  const trends = personalTrends(trendRows, now, 5).map(({ topic, count, previousCount, label }) => ({ topic: labels.get(topic) ?? topic, count, previousCount, label }));
+  const trends = personalTrends(trendRows, now, 5).map(({ topic, count, previousCount, label }) => ({ topic, display: labels.get(topic), count, previousCount, label }));
   return generateIdeas({ strategy: context.strategy, trends, stories: stories.map(toStory), checkins, published, now, timeZone: context.timeZone });
 }
 

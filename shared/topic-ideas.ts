@@ -231,7 +231,8 @@ export interface IdeasResponse {
   generatedAt: string;
 }
 
-export interface TrendInput { topic: string; count: number; previousCount: number; label: "new" | "continuing" }
+/** `topic` is the normalized key (stable idea ids); `display` is how to show it ("EY", not "ey"). */
+export interface TrendInput { topic: string; display?: string; count: number; previousCount: number; label: "new" | "continuing" }
 export interface StoryInput { id: string; headline: string; source: string; url: string; relevance: number; matchedKeywords: readonly string[] }
 export interface CheckinInput { weekStart: string; answers: CheckinAnswers }
 export interface PublishedInput { id: string; content: string; publishedAt: string }
@@ -338,9 +339,9 @@ function signalIdeas(strategy: ContentStrategy, trends: readonly TrendInput[]): 
   const audience = audienceLabel(strategy);
   return trends.filter(trend => trend.topic.trim() && trend.count >= 2).slice(0, 5).map(trend => {
     const pillar = matchKeywords([trend.topic], strategy.pillars);
-    // Trend topics arrive lowercased ("us tax risks"); a pillar with the same words keeps the member's casing.
+    // Trend topics are normalized keys ("us tax risks"); show the member's pillar casing, else the display form.
     const sameAsPillar = pillar !== null && words(pillar).trim() === words(trend.topic).trim();
-    const topic = clip(sameAsPillar ? pillar : trend.topic, 60);
+    const topic = clip(sameAsPillar ? pillar : trend.display?.trim() || trend.topic, 60);
     const change = trend.label === "new" || trend.previousCount === 0 ? "It is new compared with the week before." : `The week before it was ${trend.previousCount}.`;
     return {
       id: ideaId("signal", trend.topic, "rise"), kind: "signal" as const, pillar,
