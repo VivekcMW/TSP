@@ -118,9 +118,12 @@ export const inboxItems = pgTable("inbox_items", {
   qualityMetadata: jsonb("quality_metadata").$type<ArticleQuality>(),
   summary: text("summary"),
   status: varchar("status").default("active").notNull(),
+  /** Active stories only: hidden from For you and protected from auto-refresh replacement until this time. */
+  snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_inbox_user").on(table.userId),
+  index("idx_inbox_snoozed_until").on(table.tenantId, table.userId, table.snoozedUntil).where(sql`${table.snoozedUntil} is not null`),
   // Bounded accelerator only: callers must also compare the exact canonical URL.
   index("idx_inbox_canonical").on(table.tenantId, table.userId, sql`md5(${table.canonicalUrl})`),
   index("idx_inbox_tenant_status").on(table.tenantId, table.status, table.createdAt),
@@ -145,6 +148,21 @@ export const inboxReads = pgTable("inbox_reads", {
   inboxItemId: varchar("inbox_item_id").notNull().references(() => inboxItems.id, { onDelete: "cascade" }),
   readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
 }, table => [primaryKey({ columns: [table.tenantId, table.userId, table.inboxItemId] })]);
+
+/** Short private notes owned by one tenant member (migration 0059). */
+export const userNotes = pgTable("user_notes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  text: text("text").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  index("idx_user_notes_tenant_user_created").on(table.tenantId, table.userId, table.createdAt.desc()),
+  check("user_notes_text_length", sql`char_length(btrim(${table.text})) between 1 and 1000`),
+]);
+
+export type UserNote = typeof userNotes.$inferSelect;
 
 /** Cross-device Discover visit marker: `previousVisitAt` defines what counts as New. */
 export const discoverVisits = pgTable("discover_visits", {
@@ -830,6 +848,7 @@ export const insertInboxItemSchema = createInsertSchema(inboxItems).omit({
   canonicalUrl: true,
   version: true,
   discoveredAt: true,
+  snoozedUntil: true,
 });
 
 export const insertDraftSchema = createInsertSchema(drafts).omit({
@@ -842,7 +861,10 @@ export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
 export type UserProfile = typeof userProfiles.$inferSelect;
 
 export type InsertInboxItem = z.infer<typeof insertInboxItemSchema>;
-export type InboxItem = typeof inboxItems.$inferSelect;
+export type InboxItem = Omit<typeof inboxItems.$inferSelect, "snoozedUntil"> & {
+  /** Optional in the type: refresh receipts persisted before migration 0059 have no snooze field. */
+  snoozedUntil?: Date | null;
+};
 /** GET /api/inbox row: the item plus this user's explicit-open time (null = unread). */
 export type InboxListItem = InboxItem & { readAt: Date | null };
 /** POST /api/inbox/visit: null previous marker means first visit, so nothing is New. */

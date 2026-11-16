@@ -58,7 +58,8 @@ describe("refresh caller outcome parity", () => {
     fixtures.storage.getInboxItems.mockImplementation(async (_scope, page) =>
       rows.filter(row => !page.status || row.status === page.status).slice(page.offset ?? 0, (page.offset ?? 0) + (page.limit ?? 500)));
     const response = await request(app).get(`/api/inbox?status=${status}&limit=1&offset=0`).expect(200);
-    expect(fixtures.storage.getInboxItems).toHaveBeenCalledExactlyOnceWith(fixtures.scope, { status, order: "relevance", limit: 1, offset: 0 });
+    expect(fixtures.storage.getInboxItems).toHaveBeenCalledExactlyOnceWith(fixtures.scope, { status, order: "relevance", limit: 1, offset: 0,
+      ...(status === "active" ? { snoozed: "exclude" } : {}) });
     expect(response.body).toEqual([rows.find(row => row.status === status)]);
     const history = await request(app).get("/api/inbox").expect(200);
     expect(history.body).toEqual(rows.slice(0, 500));

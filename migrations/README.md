@@ -66,6 +66,7 @@ for local iteration, run `npx drizzle-kit push` directly and re-apply
 | `0056_email_communications.sql` | Adds immutable announcement campaigns, snapshotted recipients and the payment-failure outbox with indexes/runtime grants. Apply before deploying the communication scheduler and updated billing reconciliation. |
 | `0057_admin_operations.sql` | Adds durable incidents, FORCE-RLS quota grants/AI observations, owned/expiring targeted flags and immutable flag history, plus delivery search indexes. |
 | `0058_admin_rollups.sql` | Adds metadata-only tenant count snapshots and restricted runtime read/upsert grants. |
+| `0059_inbox_snooze_and_notes.sql` | Adds nullable `inbox_items.snoozed_until` (partial scoped index) and FORCE-RLS `user_notes` with runtime CRUD grants. |
 
 ### Email communications (0055/0056)
 
@@ -106,6 +107,15 @@ default false. The first two also require production scheduler gates.
 See the [admin operating runbook](../docs/design-system.md#advanced-admin-controls-and-operating-runbook)
 for scope, thresholds, safe recovery, expiry semantics and acceptance boundaries.
 No production/remote application or live provider acceptance was performed.
+
+### Inbox snooze and notes (0059)
+
+Additive. Apply before deploying the matching storage/schema code: every inbox
+read now selects `snoozed_until`. Applied only to `localhost:5433/thesocialpundit_dev`
+with `--only=0059_inbox_snooze_and_notes.sql` (gaps 0050/0052/0053 remain
+unreconciled). Not applied to the shared test database; the DB-backed suite
+`server/storage.inbox-snooze-notes.test.ts` is opt-in via
+`INBOX_SNOOZE_NOTES_DB_TESTS=true` after 0059 is applied there.
 
 ### Publication resolution (0023)
 

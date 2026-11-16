@@ -31,6 +31,7 @@ import { registerEditorialVoiceRoutes } from "./editorial-voice";
 import { registerTeamRoutes } from "./team";
 import { registerCreationSessionRoutes } from "./creation-session";
 import { registerFeatureRoutes } from "./features";
+import { registerNotesRoutes } from "./notes";
 
 /**
  * Mounts the HTTP API.
@@ -72,6 +73,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerProfileSocialLinksRoutes(app);
   registerEditorialVoiceRoutes(app);
   registerTeamRoutes(app);
+  registerNotesRoutes(app);
 
   return httpServer;
 }
