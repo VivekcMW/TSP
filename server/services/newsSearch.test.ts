@@ -72,6 +72,13 @@ describe("searchNews: merging and deduplication", () => {
     const deps = makeDeps({ fetchGoogle: vi.fn(async () => [story("AI chips ship - Wire", "https://wire.test/x", "Wire", { content: "AI chips ship  Wire" })]) });
     expect((await run("chips", deps)).results[0]).toMatchObject({ title: "AI chips ship", snippet: "" });
   });
+
+  it("removes markup left in stored excerpts by cut-off tags", async () => {
+    const content = 'scheme"button" data-redirect-url=" data-display-label="0" data-show-count="1" data-type="post" Tax courts ruled the arrangement abusive.';
+    const deps = makeDeps({ searchPool: vi.fn(async () => [story("Judge finds tax scheme abusive", "https://law.test/x", "Law Wire", { content })]) });
+    const [result] = (await run("tax scheme", deps)).results;
+    expect(result.snippet).toBe("scheme Tax courts ruled the arrangement abusive.");
+  });
 });
 
 describe("searchNews: filters", () => {

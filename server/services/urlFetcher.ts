@@ -135,7 +135,8 @@ function stripHtml(html: string): string {
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
     .replace(/<\/(?:p|div|h[1-6]|li|blockquote)>|<br\b[^>]{0,100}>/gi, "\n\n")
-    .replace(/<[^>]{0,2000}>/g, " ")
+    // Whole tags, even when a quoted attribute value contains ">" (embedded JSON or HTML).
+    .replace(/<[a-zA-Z/!?][^>"']{0,4000}(?:(?:"[^"]{0,20000}"|'[^']{0,20000}')[^>"']{0,4000}){0,200}>/g, " ")
     .split(/\n+/).map(line => line.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n\n")
     .trim();
 }
@@ -148,5 +149,10 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&nbsp;/g, " ")
-    .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num, 10)));
+    .replace(/&#(\d+);/g, (_, num) => codePoint(parseInt(num, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => codePoint(parseInt(hex, 16)));
+}
+
+function codePoint(value: number): string {
+  return value > 0 && value <= 0x10ffff ? String.fromCodePoint(value) : " ";
 }

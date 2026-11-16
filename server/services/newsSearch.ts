@@ -5,6 +5,7 @@ import { redis } from "../lib/redis";
 import { pooledArticles } from "@shared/schema";
 import { canonicalHttpUrl } from "@shared/canonical-url";
 import { getSearchEdition } from "@shared/search-editions";
+import { stripHtml } from "./universalFeedParser.js";
 import { hasSearchTerms, matchedNewsTerms, matchesNewsQuery, newsQueryWindow, parseNewsQuery, type ParsedNewsQuery } from "@shared/news-search";
 import type { FetchedArticle } from "./engines/types.js";
 import { fetchArticlesForQuery } from "./keywordSearch";
@@ -111,8 +112,25 @@ function cleanTitle(title: string, source: string): string {
   // Google News appends " - <publication>" to every headline.
   return (source && text.toLocaleLowerCase().endsWith(suffix.toLocaleLowerCase()) ? text.slice(0, -suffix.length) : text).trim().slice(0, 300);
 }
+const ATTRIBUTE = /^(?:(?:data|aria)-[\w-]{1,60}|class|style|id|href|src|srcset|type|rel|target|width|height|decoding|loading|fetchpriority)=/i;
+
+/** Attribute runs left in older stored excerpts by a cut-off tag (`scheme"button" data-x="0" class="y"`); never prose. */
+export function stripMarkupResidue(text: string): string {
+  const tokens = text.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  let open = 0;
+  tokens.forEach((token, index) => {
+    if (open > 0) { open = token.includes('"') ? 0 : open - 1; return; }
+    if (ATTRIBUTE.test(token)) { if ((token.match(/"/g)?.length ?? 0) % 2 === 1) open = 30; return; }
+    const nearAttribute = ATTRIBUTE.test(tokens[index - 1] ?? "") || ATTRIBUTE.test(tokens[index + 1] ?? "");
+    if (nearAttribute && /^[^\s"]*"[^"]*"?$/.test(token)) { const head = token.slice(0, token.indexOf('"')); if (head) out.push(head); return; }
+    out.push(token);
+  });
+  return out.join(" ");
+}
+
 function cleanSnippet(content: string, title: string, source: string): string {
-  let text = collapse(content);
+  let text = collapse(stripMarkupResidue(stripHtml(content)));
   if (text.toLocaleLowerCase().startsWith(title.toLocaleLowerCase())) text = text.slice(title.length).trim();
   if (!text || text.toLocaleLowerCase() === source.toLocaleLowerCase()) return "";
   if (text.length <= SNIPPET_CHARS) return text;

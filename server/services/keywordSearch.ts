@@ -1,7 +1,7 @@
 import { getSearchEdition } from "@shared/search-editions";
 import { SEARCH_QUERY_LIMITS } from "@shared/search-query-plan";
 import type { FetchedArticle } from "./engines/types.js";
-import { PublicationFeedParser, stripHtml } from "./universalFeedParser.js";
+import { feedText, feedTitle, PublicationFeedParser } from "./universalFeedParser.js";
 import { publicationDate } from "./articleDates";
 import { sourceOrigin } from "./inboxDiversity";
 import type { PublicationDate } from "@shared/article-quality";
@@ -151,13 +151,13 @@ export async function fetchArticlesForQuery(
       const source = (item as GoogleNewsItem).rawSource?.[0];
       const link = await resolveGoogleNewsArticleUrl(item.link || "", signal);
       return {
-        title: item.title || "Untitled",
+        title: feedTitle(item.title),
         link,
         pubDate: date.publishedAt, publishedAt: date.publishedAt, publicationDate: date,
         inputKind: "provider_excerpt" as const,
         sourceOrigin: sourceOrigin(typeof source === "object" ? source.$?.url : null),
         source: extractSourceName(item as GoogleNewsItem, "Google News"),
-        content: stripHtml(item.contentSnippet || item.content || item.summary || ""),
+        content: feedText(item.contentSnippet || item.content || item.summary || ""),
         categories: [trimmed],
       };
     });
