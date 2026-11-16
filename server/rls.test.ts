@@ -117,6 +117,7 @@ describe("the database enforces isolation without help from the query", () => {
     const expected = [
       "billing_customers",
       "billing_generation_operations",
+      "capture_tokens",
       "content_strategies",
       "discover_visits",
       "draft_schedule_targets",
@@ -125,6 +126,8 @@ describe("the database enforces isolation without help from the query", () => {
       "engine_run_logs",
       "experience_checkins",
       "feed_preferences",
+      "inbound_addresses",
+      "inbound_messages",
       "inbox_feedback",
       "inbox_items",
       "inbox_reads",

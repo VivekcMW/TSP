@@ -1395,4 +1395,55 @@ export type WatchAlert = typeof watchAlerts.$inferSelect;
 // ── Phase 5 (end) ──
 
 // ── Phase 6 — external inputs: inbound email, capture tokens (begin) ──
+/** One private newsletter forwarding address per member (migration 0064). Only a SHA-256 of the token is matched. */
+export const inboundAddresses = pgTable("inbound_addresses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+  tokenHint: varchar("token_hint", { length: 8 }).notNull(),
+  /** AES-GCM envelope (webhookSecrets) so the owner can see the address again; null when encryption is unavailable. */
+  tokenEncrypted: text("token_encrypted"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  rotatedAt: timestamp("rotated_at", { withTimezone: true }),
+  disabled: boolean("disabled").notNull().default(false),
+}, table => [unique("inbound_addresses_tenant_user_key").on(table.tenantId, table.userId)]);
+
+export const INBOUND_MESSAGE_STATUSES = ["processing", "processed", "confirmation"] as const;
+export type InboundMessageStatus = typeof INBOUND_MESSAGE_STATUSES[number];
+
+/** Forwarded newsletters received for a member; deduplicated by Message-ID. */
+export const inboundMessages = pgTable("inbound_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  messageId: varchar("message_id", { length: 500 }).notNull(),
+  fromAddress: varchar("from_address", { length: 320 }),
+  fromName: varchar("from_name", { length: 200 }),
+  subject: varchar("subject", { length: 500 }),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  linksFound: integer("links_found").notNull().default(0),
+  itemsCreated: integer("items_created").notNull().default(0),
+  status: varchar("status", { length: 20 }).$type<InboundMessageStatus>().notNull().default("processing"),
+}, table => [
+  unique("inbound_messages_tenant_user_message_key").on(table.tenantId, table.userId, table.messageId),
+  index("idx_inbound_messages_tenant_user_received").on(table.tenantId, table.userId, table.receivedAt.desc()),
+]);
+
+/** Personal bearer tokens for the browser extension and bookmarklet; only a SHA-256 is stored. */
+export const captureTokens = pgTable("capture_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+  tokenHint: varchar("token_hint", { length: 8 }).notNull(),
+  label: varchar("label", { length: 60 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, table => [index("idx_capture_tokens_tenant_user_created").on(table.tenantId, table.userId, table.createdAt.desc())]);
+
+export type InboundAddress = typeof inboundAddresses.$inferSelect;
+export type InboundMessage = typeof inboundMessages.$inferSelect;
+export type CaptureToken = typeof captureTokens.$inferSelect;
 // ── Phase 6 (end) ──

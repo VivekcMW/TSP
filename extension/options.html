@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Save to TheSocialPundit: options</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="options">
+  <main>
+    <h1>Save to TheSocialPundit</h1>
+    <p>Connect the extension to your account with a key. Create a key in TheSocialPundit: open More connectors, then Save from any page. The key is shown once.</p>
+    <form id="settings-form" novalidate>
+      <label for="app-url">App address</label>
+      <input id="app-url" type="url" inputmode="url" autocomplete="url" required aria-describedby="app-url-help">
+      <p class="muted" id="app-url-help">Usually https://www.thesocialpundit.com. Chrome asks to allow access to this address only.</p>
+      <label for="token">Key</label>
+      <input id="token" type="password" autocomplete="off" spellcheck="false" required aria-describedby="token-help">
+      <p class="muted" id="token-help">Starts with tsp_cap_. Anyone with this key can add pages to your Shortlist. Revoke it in TheSocialPundit if you lose this device.</p>
+      <div class="row">
+        <button type="submit">Save settings</button>
+        <button type="button" class="secondary" id="remove">Remove key</button>
+      </div>
+    </form>
+    <p id="status" role="status" aria-live="polite"></p>
+  </main>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

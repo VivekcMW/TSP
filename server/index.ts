@@ -22,6 +22,8 @@ import { redis } from "./lib/redis";
 import { requireDbUser } from "./middlewares/requireDbUser";
 import { requirePermission } from "./middlewares/requirePermission";
 import { canonicalHostRedirect, canonicalPathRedirect, cloudRunHostNoindex } from "./middlewares/canonicalHost";
+import { captureCors, isCapturePath } from "./services/captureTokens";
+import { INBOUND_EMAIL_PATH, inboundEmailGate, inboundEmailJson } from "./services/inboundEmail";
 
 export const app = express();
 // Advertises the framework to scanners and serves no client.
@@ -82,19 +84,20 @@ if (process.env.NODE_ENV !== "production") {
   allowedOriginPatterns.push(/^http:\/\/(localhost|127\.0\.0\.1):\d+$/);
 }
 
-app.use(
-  cors({
-    credentials: true,
-    origin(origin, callback) {
-      // No Origin header = same-origin or non-browser request (curl, server-to-server).
-      if (!origin) return callback(null, true);
-      const allowed = allowedOriginPatterns.some((pattern) =>
-        typeof pattern === "string" ? pattern === origin : pattern.test(origin),
-      );
-      callback(allowed ? null : new Error(`Origin ${origin} not allowed by CORS`), allowed);
-    },
-  }),
-);
+const appCors = cors({
+  credentials: true,
+  origin(origin, callback) {
+    // No Origin header = same-origin or non-browser request (curl, server-to-server).
+    if (!origin) return callback(null, true);
+    const allowed = allowedOriginPatterns.some((pattern) =>
+      typeof pattern === "string" ? pattern === origin : pattern.test(origin),
+    );
+    callback(allowed ? null : new Error(`Origin ${origin} not allowed by CORS`), allowed);
+  },
+});
+// /api/capture is authenticated only by a bearer key (never cookies), so the
+// extension and bookmarklet may call it from any origin; it answers its own CORS.
+app.use((req, res, next) => (isCapturePath(req.path) ? captureCors(req, res, next) : appCors(req, res, next)));
 
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -121,6 +124,8 @@ app.use((_req, res, next) => {
 });
 
 app.use("/api/creation-session", express.json({ limit: "2mb" }));
+// Forwarded newsletters exceed the default JSON limit; the secret is checked before the body is read.
+app.use(INBOUND_EMAIL_PATH, inboundEmailGate, inboundEmailJson);
 app.use(
   express.json({
     verify: (req, _res, buf) => {
