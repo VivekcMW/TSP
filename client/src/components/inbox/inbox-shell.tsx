@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type D
 import { Link, useLocation, useSearch } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
-  AlertTriangle, Archive, CalendarDays, Clock, FileText, Inbox, Lightbulb, Linkedin, Menu, Pencil, Plus, Rss, Search, Send, Settings, Sparkles, Star, StickyNote, Tag, Trash2, X, CalendarClock,
+  AlertTriangle, Archive, CalendarDays, Clock, Eye, FileText, Inbox, Lightbulb, Linkedin, Menu, Pencil, Plus, Rss, Search, Send, Settings, Sparkles, Star, StickyNote, Tag, Trash2, X, CalendarClock,
 } from "lucide-react";
 import { useIsSignedIn } from "@/lib/dev-auth";
 import { ComposerProvider, useComposer } from "@/components/inbox/composer";
@@ -14,6 +14,8 @@ import { SavedSearchesNav } from "@/components/inbox/saved-searches-nav";
 import { PlanPanel } from "@/components/inbox/plan-panel";
 import { QuickSettingsPanel } from "@/components/inbox/quick-settings-panel";
 import { InputsPanel } from "@/components/inbox/inputs-panel";
+import { WatchAlertsList } from "@/components/inbox/watch-alerts";
+import { watchAlertsQuery } from "@/lib/moments-queries";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -29,7 +31,7 @@ import { cn } from "@/lib/utils";
 import { inboxHref, parseInboxLocation, topicLabels, type InboxFolder } from "@shared/inbox-view";
 import type { UserNote, UserProfile } from "@shared/schema";
 
-type Connector = "plan" | "settings" | "notes" | "linkedin" | "sources" | "more";
+type Connector = "plan" | "watchlist" | "settings" | "notes" | "linkedin" | "sources" | "more";
 interface InboxShellContextValue { query: string; setQuery: (query: string) => void; openShortcuts: () => void }
 const InboxShellContext = createContext<InboxShellContextValue>({ query: "", setQuery: () => {}, openShortcuts: () => {} });
 export const useInboxShell = () => useContext(InboxShellContext);
@@ -199,6 +201,7 @@ function PostingStatusChip({ signedIn, onOpen }: Readonly<{ signedIn: boolean; o
 
 const RAIL: Array<{ id: Exclude<Connector, "settings">; label: string; icon: typeof Inbox }> = [
   { id: "plan", label: "Plan", icon: CalendarDays },
+  { id: "watchlist", label: "Watchlist alerts", icon: Eye },
   { id: "notes", label: "Notes", icon: StickyNote },
   { id: "linkedin", label: "LinkedIn connection", icon: Linkedin },
   { id: "sources", label: "Sources you follow", icon: Rss },
@@ -206,21 +209,43 @@ const RAIL: Array<{ id: Exclude<Connector, "settings">; label: string; icon: typ
 ];
 
 function ConnectorRail({ panel, onToggle }: Readonly<{ panel: Connector | null; onToggle: (panel: Connector) => void }>) {
+  const signedIn = useIsSignedIn();
+  const alerts = useQuery({ ...watchAlertsQuery(), enabled: signedIn, retry: false });
+  const unseen = (alerts.data ?? []).filter(alert => !alert.seenAt).length;
   return (
     <aside aria-label="Connectors" className="hidden w-14 shrink-0 flex-col items-center gap-1 pt-1 md:flex">
-      {RAIL.map(entry => <Button key={entry.id} variant="ghost" size="icon" aria-label={entry.label} title={entry.label} aria-pressed={panel === entry.id}
-        className={cn(panel === entry.id && "bg-primary/10 text-primary")} onClick={() => onToggle(entry.id)} data-testid={`button-connector-${entry.id}`}>
-        <entry.icon className="h-5 w-5" aria-hidden="true" />
-      </Button>)}
+      {RAIL.map(entry => {
+        const badge = entry.id === "watchlist" && unseen > 0 ? unseen : 0;
+        const label = badge ? `${entry.label}, ${badge} new` : entry.label;
+        return <Button key={entry.id} variant="ghost" size="icon" aria-label={label} title={label} aria-pressed={panel === entry.id}
+          className={cn("relative", panel === entry.id && "bg-primary/10 text-primary")} onClick={() => onToggle(entry.id)} data-testid={`button-connector-${entry.id}`}>
+          <entry.icon className="h-5 w-5" aria-hidden="true" />
+          {badge > 0 && <span className="absolute right-1 top-1 min-w-4 rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground" aria-hidden="true">{badge > 9 ? "9+" : badge}</span>}
+        </Button>;
+      })}
     </aside>
   );
 }
 
+/** Stories that mention someone you watch; opening one shows it in For you. */
+function WatchlistPanel({ onOpenStory }: Readonly<{ onOpenStory: (inboxItemId: string) => void }>) {
+  const signedIn = useIsSignedIn();
+  const alerts = useQuery({ ...watchAlertsQuery(), enabled: signedIn, retry: false });
+  return <>
+    <WatchAlertsList limit={20} onOpenStory={onOpenStory} />
+    {alerts.isLoading ? <p className="text-xs text-muted-foreground">Loading alerts…</p>
+      : alerts.isError ? <p role="alert" className="text-xs text-muted-foreground">Alerts could not be loaded.</p>
+      : !alerts.data?.length && <p className="text-muted-foreground">No alerts yet. When a new story mentions a company, person or topic you watch, it shows up here.</p>}
+    <Button asChild variant="outline" className="w-full"><Link href="/dashboard/settings?tab=notifications">Choose what to watch</Link></Button>
+  </>;
+}
+
 function ConnectorPanel({ panel, onClose }: Readonly<{ panel: Connector; onClose: () => void }>) {
   const signedIn = useIsSignedIn();
+  const [, navigate] = useLocation();
   const status = useQuery<LinkedInConnectionStatus>({ queryKey: LINKEDIN_STATUS_KEY, enabled: signedIn && panel === "linkedin", staleTime: 30_000 });
   const state = linkedInPostingState(status.data);
-  const title = { plan: "Plan", settings: "Quick settings", linkedin: "LinkedIn connection", notes: "Notes", sources: "Sources you follow", more: "More connectors" }[panel];
+  const title = { plan: "Plan", watchlist: "Watchlist alerts", settings: "Quick settings", linkedin: "LinkedIn connection", notes: "Notes", sources: "Sources you follow", more: "More connectors" }[panel];
   return (
     <aside aria-label={title} className="mb-2 ml-2 flex w-80 shrink-0 flex-col overflow-hidden rounded-md border bg-card" data-testid={`panel-connector-${panel}`}>
       <div className="flex h-12 shrink-0 items-center justify-between border-b pl-4 pr-1">
@@ -239,6 +264,7 @@ function ConnectorPanel({ panel, onClose }: Readonly<{ panel: Connector; onClose
         {panel === "notes" && <NotesPanel />}
         {panel === "sources" && <SourcesManagerContent />}
         {panel === "plan" && <PlanPanel />}
+        {panel === "watchlist" && <WatchlistPanel onOpenStory={id => navigate(`/dashboard?tab=stories&story=${encodeURIComponent(id)}`)} />}
         {panel === "settings" && <QuickSettingsPanel />}
         {panel === "more" && <InputsPanel />}
       </div>

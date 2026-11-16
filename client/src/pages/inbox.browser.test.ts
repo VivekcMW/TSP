@@ -81,6 +81,11 @@ beforeAll(async () => {
         if (method === "DELETE" && draftId) { window.__drafts = window.__drafts?.filter(item => item.id !== draftId); return json({ success: true }); }
         if (url === "/api/notes" && method === "GET") return json(window.__notes ?? []);
         if (url === "/api/searches" && method === "GET") return json(window.__searches ?? []);
+        if (url === "/api/watch-alerts" && method === "GET") return json(window.__watchAlerts ?? []);
+        if (url === "/api/watch-alerts/seen" && method === "POST") {
+          window.__watchAlerts = (window.__watchAlerts ?? []).map(alert => body.all || body.ids?.includes(alert.id) ? { ...alert, seenAt: new Date().toISOString() } : alert);
+          return json({ updated: 1 });
+        }
         if (url === "/api/notes" && method === "POST") {
           const note = { id: "n" + window.__calls.length, text: body.text, createdAt: stamp(), updatedAt: stamp() };
           window.__notes = [note, ...(window.__notes ?? [])];
@@ -861,3 +866,16 @@ describe("Triage feedback, Tune your feed and Quick settings", () => {
   });
 });
 
+describe("Watchlist alerts", () => {
+  it("shows unseen alerts on the rail and opens the alerted story in For you", async () => {
+    const alert = { id: "w1", inboxItemId: "d1", term: "Data Desk", kind: "company", headline: "d1 headline", source: "Data Desk", articleUrl: "https://news.test/d1", createdAt: hoursAgo(1), seenAt: null };
+    await mount("/dashboard", { extra: { __watchAlerts: [alert] } });
+    await browserExpect(page.getByTestId("button-connector-watchlist")).toHaveAccessibleName("Watchlist alerts, 1 new");
+    await page.getByTestId("button-connector-watchlist").click();
+    await page.getByTestId("panel-connector-watchlist").getByRole("button", { name: /d1 headline/ }).click();
+    await expect.poll(() => page.evaluate(() => location.search)).toBe("?tab=stories&story=d1");
+    await browserExpect(page.getByTestId("text-headline-d1")).toBeVisible();
+    await expect.poll(async () => (await calls("POST", /\/api\/watch-alerts\/seen$/)).length).toBe(1);
+    await browserExpect(page.getByTestId("button-connector-watchlist")).toHaveAccessibleName("Watchlist alerts");
+  });
+});

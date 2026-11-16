@@ -122,6 +122,9 @@ function StoryFolderView({ folder, tab, label }: Readonly<{ folder: StoryFolder;
   const selectedSignal = signals.find(trend => trend.topic === selectedTopic) ?? null;
   // Desktop shows the first item without marking it read; only an explicit open does that.
   useEffect(() => { if (!showSignals && !selected && rows.length) setSelectedId(rows[0].id); }, [showSignals, selected, rows]);
+  // ?story=<id> (from a watchlist alert) opens that story once it is in this list.
+  const storyParam = new URLSearchParams(useSearch()).get("story");
+  const openedStory = useRef<string | null>(null);
   useEffect(() => { if (showSignals && !selectedSignal && signals.length) setSelectedTopic(signals[0].topic); }, [showSignals, selectedSignal, signals]);
 
   const markRead = useMutation({
@@ -199,6 +202,13 @@ function StoryFolderView({ folder, tab, label }: Readonly<{ folder: StoryFolder;
       markRead.mutate(row.id);
     }
   }, [locallyRead, markRead]);
+  useEffect(() => {
+    if (!storyParam || openedStory.current === storyParam) return;
+    const row = rows.find(item => item.id === storyParam);
+    if (!row) return;
+    openedStory.current = storyParam;
+    open(row);
+  }, [storyParam, rows, open]);
 
   /** `resnooze` restores snoozes that a move out of Snoozed cleared (the server clears a snooze on any status change). */
   const triage = useCallback(async (ids: string[], to: InboxStatus, undoable = true, resnooze?: ReadonlyMap<string, Date>) => {
