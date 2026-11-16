@@ -8,6 +8,7 @@ import postcss from "postcss";
 import tailwindcss from "tailwindcss";
 import tailwindConfig from "../../tailwind.config";
 import { saveCreationSessionSchema, type CreationSession } from "../../shared/creation-session";
+import { DISABLED_CLIENT_FEATURES } from "../../shared/client-features";
 import { installActualAppApi, expectActualAppGeometry, expectReachableAction, expectReadableControls,
   doubleTextSize, expectDoubledText, captureActualApp, deferredResponse, fixtureDraft, isAutomaticWrite, LONG_TITLE, LONG_TEXT, LONG_FOCUS,
   type ActualAppApi } from "./actual-app.fixture";
@@ -142,6 +143,8 @@ beforeEach(async () => {
     if (url.pathname === "/api/team/context") return reply({ tenantId: `tenant-${account}`, tenantName: "Personal workspace", tenantKind: "personal", role: "owner", memberships: [] });
     if (/\/api\/integrations\/[^/]+\/status/.test(url.pathname)) return reply({ connected: false });
     if (url.pathname === "/api/billing") return reply({ configured: false, plans: [], subscription: null, payments: [], paymentMethods: [] });
+    // Production defaults: classic layout, LinkedIn-only Integrations.
+    if (url.pathname === "/api/features") return reply(DISABLED_CLIENT_FEATURES);
     errors.push(`Unmocked API: ${url.pathname}`);
     return reply({ message: "Unmocked API" }, 500);
   });
