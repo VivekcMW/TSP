@@ -66,14 +66,24 @@ export function stripHtml(input: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+const NAMED_ENTITIES: Readonly<Record<string, string>> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", ensp: " ", emsp: " ", thinsp: " ", shy: "",
+  rsquo: "\u2019", lsquo: "\u2018", rdquo: "\u201d", ldquo: "\u201c", sbquo: "\u201a", bdquo: "\u201e", laquo: "\u00ab", raquo: "\u00bb",
+  ndash: "\u2013", mdash: "\u2014", hellip: "\u2026", middot: "\u00b7", bull: "\u2022", deg: "\u00b0", times: "\u00d7",
+  copy: "\u00a9", reg: "\u00ae", trade: "\u2122", euro: "\u20ac", pound: "\u00a3", yen: "\u00a5", cent: "\u00a2", sect: "\u00a7",
+  eacute: "\u00e9", egrave: "\u00e8", aacute: "\u00e1", agrave: "\u00e0", iacute: "\u00ed", oacute: "\u00f3", uacute: "\u00fa",
+  ntilde: "\u00f1", ccedil: "\u00e7", auml: "\u00e4", ouml: "\u00f6", uuml: "\u00fc", szlig: "\u00df",
+};
+
 /** Feed text is often encoded twice ("&amp;#x27;" arrives as "&#x27;" after XML parsing); show it as text. */
 export function decodeHtmlText(value: string): string {
-  return value.replace(/&(#\d+|#x[0-9a-f]+|amp|lt|gt|quot|apos|nbsp|rsquo|lsquo|rdquo|ldquo|ndash|mdash|hellip);/gi, (match, code: string) => {
-    const lower = code.toLowerCase();
-    if (lower.startsWith("#x")) { const point = parseInt(lower.slice(2), 16); return point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : " "; }
-    if (lower.startsWith("#")) { const point = Number(lower.slice(1)); return point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : " "; }
-    return ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", rsquo: "\u2019", lsquo: "\u2018", rdquo: "\u201d", ldquo: "\u201c",
-      ndash: "\u2013", mdash: "\u2014", hellip: "\u2026" } as Record<string, string>)[lower] ?? match;
+  return value.replace(/&(#\d+|#x[0-9a-f]+|[a-z][a-z0-9]{1,8});/gi, (match, code: string) => {
+    if (code[0] === "#") {
+      const point = code[1] === "x" || code[1] === "X" ? parseInt(code.slice(2), 16) : Number(code.slice(1));
+      return point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : " ";
+    }
+    const name = Object.hasOwn(NAMED_ENTITIES, code) ? code : code.toLowerCase();
+    return Object.hasOwn(NAMED_ENTITIES, name) ? NAMED_ENTITIES[name] : match;
   });
 }
 

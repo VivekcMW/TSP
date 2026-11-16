@@ -47,5 +47,7 @@ describe("feed text cleanup", () => {
     expect(decodeHtmlText("&#x27;AI-trade&#x27; bust &amp; tax &#8217;s")).toBe("'AI-trade' bust & tax \u2019s");
     expect(feedTitle("&lt;b&gt;Budget&lt;/b&gt; 2027 &mdash; what changes")).toBe("Budget 2027 \u2014 what changes");
     expect(feedTitle(undefined)).toBe("Untitled");
+    expect(decodeHtmlText("A&ensp;|&ensp;B &middot; Caf&eacute; &unknown; &AMP;")).toBe("A | B \u00b7 Caf\u00e9 &unknown; &");
+    expect(decodeHtmlText("&toString; &constructor;")).toBe("&toString; &constructor;");
   });
 });

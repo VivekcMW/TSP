@@ -79,6 +79,19 @@ describe("searchNews: merging and deduplication", () => {
     const [result] = (await run("tax scheme", deps)).results;
     expect(result.snippet).toBe("scheme Tax courts ruled the arrangement abusive.");
   });
+
+  it("decodes stored entities before shortening and drops snippets with no words", async () => {
+    const long = `Home &ensp;|&ensp; ${"Tax rules change again. ".repeat(12)}By A &middot; B`;
+    const deps = makeDeps({ searchPool: vi.fn(async () => [
+      story("Tax rules change", "https://a.test/1", "A Wire", { content: long }),
+      story("Tax court ruling", "https://b.test/2", "B Wire", { content: 'data-x="1" class="y" ...' }),
+    ]) });
+    const results = (await run("tax", deps)).results;
+    const first = results.find(item => item.url === "https://a.test/1")!;
+    expect(first.snippet.startsWith("Home | Tax rules change again.")).toBe(true);
+    expect(first.snippet).not.toMatch(/&[a-z]+/);
+    expect(results.find(item => item.url === "https://b.test/2")!.snippet).toBe("");
+  });
 });
 
 describe("searchNews: filters", () => {

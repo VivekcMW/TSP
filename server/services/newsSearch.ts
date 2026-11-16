@@ -5,7 +5,7 @@ import { redis } from "../lib/redis";
 import { pooledArticles } from "@shared/schema";
 import { canonicalHttpUrl } from "@shared/canonical-url";
 import { getSearchEdition } from "@shared/search-editions";
-import { stripHtml } from "./universalFeedParser.js";
+import { decodeHtmlText, stripHtml } from "./universalFeedParser.js";
 import { hasSearchTerms, matchedNewsTerms, matchesNewsQuery, newsQueryWindow, parseNewsQuery, type ParsedNewsQuery } from "@shared/news-search";
 import type { FetchedArticle } from "./engines/types.js";
 import { fetchArticlesForQuery } from "./keywordSearch";
@@ -130,7 +130,9 @@ export function stripMarkupResidue(text: string): string {
 }
 
 function cleanSnippet(content: string, title: string, source: string): string {
-  let text = collapse(stripMarkupResidue(stripHtml(content)));
+  // Decode before cutting, so the cut never lands inside an entity ("&midd…").
+  let text = collapse(decodeHtmlText(stripMarkupResidue(stripHtml(content))));
+  if (!/[\p{L}\p{N}]/u.test(text)) return "";
   if (text.toLocaleLowerCase().startsWith(title.toLocaleLowerCase())) text = text.slice(title.length).trim();
   if (!text || text.toLocaleLowerCase() === source.toLocaleLowerCase()) return "";
   if (text.length <= SNIPPET_CHARS) return text;
