@@ -143,6 +143,13 @@ export function scheduleEmailCommunications(): string {
     await runEmailCommunicationsCycle(assertConnected);
   });
 }
+/** Monday plan, weekly top picks (EMAIL_PLANNING_ENABLED) and watchlist alerts (EMAIL_WATCH_ALERTS_ENABLED); see jobs/email-planning.ts. */
+export function scheduleEmailPlanning(): string {
+  return schedule("email-planning", 1, async (_slot, assertConnected) => {
+    const { runPlanningEmailCycle } = await import("./email-planning");
+    await runPlanningEmailCycle(assertConnected);
+  });
+}
 export function scheduleAdminOperations(): string {
   return schedule("admin-operations", 1, async () => {
     const { synchronizeIncidents } = await import("../services/admin-incidents");
@@ -177,6 +184,7 @@ export async function initializeScheduler(): Promise<boolean> {
   scheduleTopUserRefresh(top);
   schedulePublishRefresh(publish);
   if (process.env.EMAIL_DIGEST_ENABLED === "true") scheduleEmailDigest();
+  if (process.env.EMAIL_PLANNING_ENABLED === "true" || process.env.EMAIL_WATCH_ALERTS_ENABLED === "true") scheduleEmailPlanning();
   // Billing outbox recovery is essential, independent of digest/marketing gates.
   scheduleEmailCommunications();
   if (process.env.ADMIN_OPERATIONS_ENABLED === "true") scheduleAdminOperations();

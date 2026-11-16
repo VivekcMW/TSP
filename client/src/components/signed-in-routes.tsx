@@ -46,6 +46,7 @@ const AdminEmailAnnouncementsPage = lazy(() => import("@/pages/admin/email-annou
 const AdminEmailDeliveriesPage = lazy(() => import("@/pages/admin/email-deliveries"));
 const AdminOperationsPage = lazy(() => import("@/pages/admin/operations"));
 const AdminSearchPage = lazy(() => import("@/pages/admin/search"));
+const AdminMomentsPage = lazy(() => import("@/pages/admin/moments"));
 
 function AuthenticatedLayout({ children, inbox }: { children: ReactNode; inbox: boolean }) {
   const { user } = useAuth();
@@ -155,6 +156,7 @@ function AdminRouter() {
             <Route path="/admin/email-deliveries" component={AdminEmailDeliveriesPage} />
             <Route path="/admin/operations" component={AdminOperationsPage} />
             <Route path="/admin/search" component={AdminSearchPage} />
+            <Route path="/admin/moments" component={AdminMomentsPage} />
             <Route component={NotFound} />
           </Switch>
           <AnalyticsPage path={location} />

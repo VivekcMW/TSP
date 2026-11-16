@@ -505,6 +505,10 @@ export const emailPreferences = pgTable("email_preferences", {
   accountAlerts: boolean("account_alerts").notNull().default(true),
   weeklySummary: boolean("weekly_summary").notNull().default(false),
   reminders: boolean("reminders").notNull().default(true),
+  // Phase 5 (migration 0063).
+  mondayPlan: boolean("monday_plan").notNull().default(true),
+  topPicksWeekly: boolean("top_picks_weekly").notNull().default(false),
+  watchlistAlerts: boolean("watchlist_alerts").notNull().default(true),
   remindersPausedUntil: timestamp("reminders_paused_until"),
   digestTimezone: varchar("digest_timezone").notNull().default("UTC"),
   digestTime: varchar("digest_time").notNull().default("09:00"),
@@ -1336,6 +1340,58 @@ export interface FeedPreferencesReset { preferences: FeedPreferencesView; previo
 // ── Phase 4 (end) ──
 
 // ── Phase 5 — moments, digests, watchlist alerts (begin) ──
+// Aliased so it cannot collide with another block's imports.
+import { date as phase5Date } from "drizzle-orm/pg-core";
+
+/** Global, admin-curated reference data (migration 0063). Readable by all; written only by audited admin routes. */
+export const industryMoments = pgTable("industry_moments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  startsOn: phase5Date("starts_on", { mode: "string" }).notNull(),
+  endsOn: phase5Date("ends_on", { mode: "string" }),
+  region: varchar("region", { length: 16 }).notNull().default("global"),
+  tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
+  leadDays: integer("lead_days").notNull().default(14),
+  url: text("url"),
+  description: text("description"),
+  archived: boolean("archived").notNull().default(false),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  index("idx_industry_moments_window").on(table.startsOn, table.endsOn).where(sql`not ${table.archived}`),
+  check("industry_moments_dates_check", sql`${table.endsOn} is null or ${table.endsOn} >= ${table.startsOn}`),
+]);
+export type IndustryMoment = typeof industryMoments.$inferSelect;
+
+export type WatchTermKind = "company" | "person" | "topic";
+export interface WatchTerm { kind: WatchTermKind; term: string }
+
+/** Which profile companies, people and topics one tenant member watches. FORCE RLS. */
+export const userWatchlists = pgTable("user_watchlists", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  terms: jsonb("terms").$type<WatchTerm[]>().notNull().default([]),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [primaryKey({ columns: [table.tenantId, table.userId] })]);
+
+/** One row per admitted story and watched term. email_slot/emailed_at make the alert email idempotent. FORCE RLS. */
+export const watchAlerts = pgTable("watch_alerts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  inboxItemId: varchar("inbox_item_id").notNull().references(() => inboxItems.id, { onDelete: "cascade" }),
+  term: text("term").notNull(),
+  kind: varchar("kind", { length: 16 }).$type<WatchTermKind>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  seenAt: timestamp("seen_at", { withTimezone: true }),
+  emailSlot: varchar("email_slot", { length: 16 }),
+  emailedAt: timestamp("emailed_at", { withTimezone: true }),
+}, table => [
+  unique("uniq_watch_alerts_item_term").on(table.tenantId, table.userId, table.inboxItemId, table.term),
+  index("idx_watch_alerts_user_created").on(table.tenantId, table.userId, table.createdAt),
+]);
+export type WatchAlert = typeof watchAlerts.$inferSelect;
 // ── Phase 5 (end) ──
 
 // ── Phase 6 — external inputs: inbound email, capture tokens (begin) ──

@@ -16,6 +16,7 @@ import { publicationDate } from "../articleDates";
 import { summarizeArticle } from "../articleSummary";
 import { diversityFeatures, sourceOrigin } from "../inboxDiversity";
 import { personalTrends } from "../personalTrends";
+import { recordWatchAlertsAfterRefresh } from "../watch-alerts";
 import type {
   IIndustryEngine,
   EngineConfig,
@@ -374,6 +375,7 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
         discoveryWarnings: [...discoveryWarnings, ...stageWarnings],
       });
       await this.prefetchAcceptedBodies(result);
+      await recordWatchAlertsAfterRefresh(scope, result);
       return result;
     } catch (error) {
       if (error instanceof InboxOperationConflictError) throw error;

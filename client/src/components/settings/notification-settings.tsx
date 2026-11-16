@@ -11,11 +11,15 @@ import { Input } from "@/components/ui/input";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { Label } from "@/components/ui/label";
 import { useSettingsDraft } from "./use-settings-draft";
+import { WatchlistSettings } from "./watchlist-settings";
 
 const preferences = [
   { key: "dailyDigest", label: "Daily Digest", description: "Receive a daily email with your curated content." },
   { key: "weeklySummary", label: "Weekly Summary", description: "Your articles discovered, drafts created and confirmed published posts for the previous Monday to Sunday. Sent on Monday at your digest time." },
+  { key: "mondayPlan", label: "Monday plan", description: "Monday at your digest time: posts scheduled this week, dates coming up and drafts waiting. Skipped when there is nothing to plan." },
+  { key: "topPicksWeekly", label: "Weekly top picks", description: "Your five best stories of the week, Monday at your digest time. Prefer one email a week? Turn this on and Daily Digest off." },
   { key: "reminders", label: "Posting reminders", description: "A weekly nudge with stories worth posting about, when you've been quiet for a week." },
+  { key: "watchlistAlerts", label: "Watchlist alerts", description: "An email when new stories mention what you watch. At most one an hour." },
   { key: "contentAlerts", label: "New Content Alerts", description: "Get notified when high-priority content arrives." },
   { key: "productUpdates", label: "Product Updates", description: "New features, improvements, maintenance notices and incident updates." },
   { key: "marketing", label: "Marketing", description: "Optional offers, independent of other notifications." },
@@ -30,6 +34,7 @@ export function NotificationSettings() {
   const { toast } = useToast();
   const { data: profile, isLoading, isError, refetch } = useQuery<EmailPreferenceValues>({ queryKey: ["/api/email-preferences"] });
   const { draft, setDraft, dirty, acknowledge } = useSettingsDraft({ dailyDigest: profile?.dailyDigest ?? true, weeklySummary: profile?.weeklySummary ?? false, reminders: profile?.reminders ?? true, contentAlerts: profile?.contentAlerts ?? false, productUpdates: profile?.productUpdates ?? true,
+    mondayPlan: profile?.mondayPlan ?? true, topPicksWeekly: profile?.topPicksWeekly ?? false, watchlistAlerts: profile?.watchlistAlerts ?? true,
     marketing: profile?.marketing ?? true, publishing: profile?.publishing ?? true, accountAlerts: profile?.accountAlerts ?? true,
     digestTimezone: profile?.digestTimezone ?? "UTC", digestTime: profile?.digestTime ?? "09:00" });
   const edits = useRef<EmailPreferencePatch>({});
@@ -93,6 +98,7 @@ export function NotificationSettings() {
           <label htmlFor={key} className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center"><span className="sr-only">{label}</span><input id={key} type="checkbox" role="switch" aria-labelledby={`${key}-label`} aria-describedby={`${key}-help`} checked={draft[key]} onChange={(event) => edit(key, event.target.checked)} className="h-5 w-5 accent-primary" /></label>
         </div>;
       })}
+      <WatchlistSettings />
       {paused && <p className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
         <span>Reminders are paused until {longDate(paused)}.</span>
         <button type="button" className="control-touch-target min-h-8 min-w-8 font-medium text-primary underline underline-offset-4 disabled:opacity-50" disabled={pause.isPending} onClick={() => pause.mutate(null)}>Resume reminders</button>

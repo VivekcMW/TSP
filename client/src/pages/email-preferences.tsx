@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
-interface Preferences { marketing: boolean; productUpdates: boolean; dailyDigest: boolean; weeklySummary: boolean; contentAlerts: boolean; reminders: boolean; }
+interface Preferences { marketing: boolean; productUpdates: boolean; dailyDigest: boolean; weeklySummary: boolean; contentAlerts: boolean; reminders: boolean; mondayPlan: boolean; topPicksWeekly: boolean; watchlistAlerts: boolean; }
 
 export default function EmailPreferencesPage() {
   const { toast } = useToast();
@@ -22,7 +22,10 @@ export default function EmailPreferencesPage() {
   const preferenceRows = [
     ["dailyDigest", "Daily content digest", "Your curated industry stories and recommendations."],
     ["weeklySummary", "Weekly activity summary", "Your previous Monday-Sunday activity, delivered Monday at your configured digest time."],
+    ["mondayPlan", "Monday plan", "Posts scheduled this week, dates coming up and drafts waiting. Skipped when there is nothing to plan."],
+    ["topPicksWeekly", "Weekly top picks", "Your five best stories of the week, every Monday."],
     ["reminders", "Posting reminders", "A weekly nudge with stories worth posting about, when you've been quiet for a week."],
+    ["watchlistAlerts", "Watchlist alerts", "New stories that mention what you watch. At most one email an hour."],
     ["contentAlerts", "Content alerts", "Important stories matched to your focus."],
     ["productUpdates", "Product updates", "New features, improvements, maintenance notices and incident updates."],
     ["marketing", "Product news and offers", "Occasional announcements and relevant product communications."],

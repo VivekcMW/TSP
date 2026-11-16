@@ -677,7 +677,7 @@ describe("UX26/27 + COLOR11 actualApp (owned loopback, strict mocked APIs)", () 
     await browserExpect(marketing).not.toBeChecked();
     await browserExpect(marketing).toHaveAccessibleDescription("Optional offers, independent of other notifications.");
     await browserExpect(save).toBeDisabled();
-    const switchNames = ["Daily Digest", "Weekly Summary", "Posting reminders", "New Content Alerts",
+    const switchNames = ["Daily Digest", "Weekly Summary", "Monday plan", "Weekly top picks", "Posting reminders", "Watchlist alerts", "New Content Alerts",
       "Product Updates", "Marketing", "Publishing Updates", "Account Alerts"];
     await browserExpect(panel.getByRole("switch")).toHaveCount(switchNames.length);
     for (const name of switchNames) await browserExpect(panel.getByRole("switch", { name, exact: true })).toHaveCount(1);

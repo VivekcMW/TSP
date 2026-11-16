@@ -1,7 +1,7 @@
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
-  LayoutDashboard, Building2, Users, ScrollText, Activity, Flag, Plug, ArrowLeft, Mail, Search,
+  LayoutDashboard, Building2, Users, ScrollText, Activity, Flag, Plug, ArrowLeft, Mail, Search, CalendarDays,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useIsSignedIn } from "@/lib/dev-auth";
@@ -30,11 +30,12 @@ const adminNav = [
   { title: "Monitoring", url: "/admin/monitoring", icon: Activity },
   { title: "Operations", url: "/admin/operations", icon: Activity },
   { title: "Feature Flags", url: "/admin/feature-flags", icon: Flag },
+  { title: "Industry Moments", url: "/admin/moments", icon: CalendarDays },
   { title: "Email Announcements", url: "/admin/email-announcements", icon: Mail },
   { title: "Email Deliveries", url: "/admin/email-deliveries", icon: Mail },
 ];
 
-const adminOnlyTitles = new Set(["Integrations", "Pipeline", "Feature Flags", "Email Announcements", "Operations"]);
+const adminOnlyTitles = new Set(["Integrations", "Pipeline", "Feature Flags", "Industry Moments", "Email Announcements", "Operations"]);
 
 // Same collapsible icon-rail sidebar as the tenant app's AppSidebar, but with
 // the cross-tenant admin nav instead — kept as a separate component (rather

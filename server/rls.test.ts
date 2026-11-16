@@ -150,6 +150,8 @@ describe("the database enforces isolation without help from the query", () => {
       "user_profiles",
       "user_source_deletions",
       "user_sources",
+      "user_watchlists",
+      "watch_alerts",
     ];
     const result = await ownerDb.execute(sql`
       select c.relname::text as name
