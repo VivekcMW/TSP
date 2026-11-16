@@ -1,11 +1,11 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
   Archive, CalendarDays, FileText, Inbox, Linkedin, Menu, Pencil, Plus, Rss, Search, Send, Settings, Star, Tag, X, CalendarClock,
 } from "lucide-react";
 import { useIsSignedIn } from "@/lib/dev-auth";
-import { useCreatePost } from "@/components/dashboard/create-post-provider";
+import { ComposerProvider, useComposer } from "@/components/inbox/composer";
 import { AccountMenu } from "@/components/dashboard/navbar";
 import { HelpButton } from "@/components/help-panel";
 import { SourcesManagerContent } from "@/components/dashboard/sources-manager";
@@ -28,25 +28,34 @@ const isInboxPath = (path: string) => path === "/dashboard" || path === "/dashbo
 
 /** Gmail-style workspace frame: search bar, folders, labels and connector side panel around every signed-in page. */
 export function InboxShell({ children }: Readonly<{ children: ReactNode }>) {
+  const [panel, setPanel] = useState<Connector | null>(null);
+  return (
+    <ComposerProvider onConnectLinkedIn={() => setPanel("linkedin")}>
+      <ShellFrame panel={panel} setPanel={setPanel}>{children}</ShellFrame>
+    </ComposerProvider>
+  );
+}
+
+function ShellFrame({ children, panel, setPanel }: Readonly<{ children: ReactNode; panel: Connector | null; setPanel: Dispatch<SetStateAction<Connector | null>> }>) {
   const [location, navigate] = useLocation();
   const search = useSearch();
   const signedIn = useIsSignedIn();
-  const { openCreate } = useCreatePost();
+  const composer = useComposer();
   const [query, setQuery] = useState("");
   const [navOpen, setNavOpen] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(false);
-  const [panel, setPanel] = useState<Connector | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
-  const openCreateRef = useRef(openCreate);
-  openCreateRef.current = openCreate;
+  const composeRef = useRef(composer.openBlank);
+  composeRef.current = composer.openBlank;
+  const openCompose = () => composeRef.current();
   useEffect(() => { setNavOpen(false); }, [location, search]);
 
   // Capture phase: the Inbox owns "?" (Gmail's shortcut list) ahead of Help's bubbling listener.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (ignoreInboxShortcut(event)) return;
-      if (event.key === "c") { event.preventDefault(); openCreateRef.current(); }
+      if (event.key === "c") { event.preventDefault(); composeRef.current(); }
       else if (event.key === "/") { event.preventDefault(); searchRef.current?.focus(); }
       else if (event.key === "?") { event.preventDefault(); setShortcutsOpen(true); }
     };
@@ -82,20 +91,20 @@ export function InboxShell({ children }: Readonly<{ children: ReactNode }>) {
         </header>
         <div className="flex min-h-0 flex-1">
           <div className={cn("hidden shrink-0 overflow-y-auto lg:block", navCollapsed ? "w-[4.5rem]" : "w-60")}>
-            <InboxNav collapsed={navCollapsed} location={location} search={search} signedIn={signedIn} onCompose={() => openCreate()} />
+            <InboxNav collapsed={navCollapsed} location={location} search={search} signedIn={signedIn} onCompose={openCompose} />
           </div>
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden border-t bg-card lg:mb-2 lg:rounded-md lg:border" id="workspace-content">{children}</div>
           {panel && <ConnectorPanel panel={panel} onClose={() => setPanel(null)} />}
           <ConnectorRail panel={panel} onToggle={next => setPanel(current => current === next ? null : next)} />
         </div>
-        <Button onClick={() => openCreate()} className="fixed bottom-5 right-5 z-20 h-14 gap-2 px-5 shadow-lg lg:hidden" aria-label="Compose a LinkedIn post" data-testid="button-inbox-compose-mobile">
+        <Button onClick={openCompose} className="fixed bottom-5 right-5 z-20 h-14 gap-2 px-5 shadow-lg lg:hidden" aria-label="Compose a LinkedIn post" data-testid="button-inbox-compose-mobile">
           <Pencil className="h-5 w-5" aria-hidden="true" />Compose
         </Button>
       </div>
       <Sheet open={navOpen} onOpenChange={setNavOpen}>
         <SheetContent side="left" className="w-72 overflow-y-auto p-0">
           <SheetHeader className="sr-only"><SheetTitle>Folders</SheetTitle><SheetDescription>Inbox folders, topic labels and your focus.</SheetDescription></SheetHeader>
-          <InboxNav collapsed={false} location={location} search={search} signedIn={signedIn} onCompose={() => { setNavOpen(false); openCreate(); }} />
+          <InboxNav collapsed={false} location={location} search={search} signedIn={signedIn} onCompose={() => { setNavOpen(false); openCompose(); }} />
         </SheetContent>
       </Sheet>
       <Dialog open={shortcutsOpen} onOpenChange={setShortcutsOpen}>

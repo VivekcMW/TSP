@@ -8,7 +8,8 @@ import { ToastAction } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useCreatePost } from "@/components/dashboard/create-post-provider";
+import { InlineCompose, useComposer, type Compose } from "@/components/inbox/composer";
+import type { ComposeSource } from "@/lib/linkedin-compose";
 import { useInboxShell } from "@/components/inbox/inbox-shell";
 import { refreshJobMessage, useInboxRefreshJob } from "@/hooks/use-inbox-refresh-job";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -29,6 +30,7 @@ const FOLDER_TITLES: Record<InboxFolder, { title: string; note: string }> = {
 const MOVE_LABEL: Record<InboxStatus, string> = { saved: "Saved to Shortlist", dismissed: "Marked not relevant", active: "Moved to For you" };
 const TABS: Array<{ id: InboxTab; label: string }> = [{ id: "top", label: "Top picks" }, { id: "stories", label: "Stories" }, { id: "signals", label: "Signals" }];
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]?.toUpperCase()).join("") || "?";
+const sourceOf = (row: InboxRow): ComposeSource => ({ id: row.id, headline: row.headline, source: row.source, articleUrl: row.articleUrl });
 
 function velocityLabel(trend: PersonalTrend) {
   if (trend.velocityPercent === null) return "New this week";
@@ -43,7 +45,7 @@ export default function InboxPage() {
   const [, navigate] = useLocation();
   const { folder, tab, label } = parseInboxLocation(search);
   const { query } = useInboxShell();
-  const { openCreate } = useCreatePost();
+  const composer = useComposer();
   const { toast } = useToast();
   const status = FOLDER_STATUS[folder];
   const showSignals = folder === "inbox" && tab === "signals";
@@ -124,10 +126,15 @@ export default function InboxPage() {
     } finally { busy.current = false; }
   }, [rows, status, toast]);
 
-  const draft = useCallback((row: InboxRow) => openCreate(row), [openCreate]);
+  const draft = useCallback((row: InboxRow) => { open(row); composer.openForStory(sourceOf(row), true); }, [open, composer]);
   const shortlistTarget: InboxStatus = status === "saved" ? "active" : "saved";
 
-  const focusRow = (id: string) => requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-testid="row-inbox-${CSS.escape(id)}"]`)?.focus());
+  // Deferred until the row renders; yields if focus has meanwhile moved out of the list (e.g. into the composer).
+  const focusRow = (id: string) => requestAnimationFrame(() => {
+    const active = document.activeElement;
+    if (active && active !== document.body && !active.closest("[data-inbox-list]")) return;
+    document.querySelector<HTMLElement>(`[data-testid="row-inbox-${CSS.escape(id)}"]`)?.focus();
+  });
   useEffect(() => {
     if (showSignals) return;
     const onKey = (event: KeyboardEvent) => {
@@ -166,7 +173,7 @@ export default function InboxPage() {
 
   return (
     <main className="flex h-full min-h-0" aria-label={FOLDER_TITLES[folder].title}>
-      <section aria-label={`${FOLDER_TITLES[folder].title} list`} className={cn("min-h-0 min-w-0 flex-col border-r lg:flex lg:w-[min(46%,36rem)] lg:shrink-0", readingOpen ? "hidden" : "flex w-full")}>
+      <section aria-label={`${FOLDER_TITLES[folder].title} list`} data-inbox-list className={cn("min-h-0 min-w-0 flex-col border-r lg:flex lg:w-[min(46%,36rem)] lg:shrink-0", readingOpen ? "hidden" : "flex w-full")}>
         <div className="flex h-12 shrink-0 items-center gap-1 border-b px-2" aria-label="List actions">
           {!showSignals && <span className="flex h-10 w-10 items-center justify-center">
             <Checkbox aria-label="Select all" checked={allChecked ? true : checkedIds.length ? "indeterminate" : false} disabled={!rows.length}
@@ -246,16 +253,16 @@ export default function InboxPage() {
                 body={folder === "inbox" && !query && !label ? "Find new stories from your sources, or write from your own idea." : query || label ? "Try another search or label." : FOLDER_TITLES[folder].note}
                 actions={folder === "inbox" && !query && !label ? <>
                   <Button onClick={() => void refresh.startRefresh()} disabled={refreshing}>{refreshing ? "Finding stories…" : "Find new stories"}</Button>
-                  <Button variant="outline" onClick={() => openCreate()}>Write from your idea</Button>
+                  <Button variant="outline" onClick={() => composer.openBlank()}>Write from your idea</Button>
                 </> : undefined} />}
         </div>
       </section>
 
       <section aria-label="Reading pane" className={cn("min-h-0 min-w-0 flex-1 flex-col lg:flex", readingOpen ? "flex" : "hidden")}>
         {showSignals ? (selectedSignal ? <SignalPane trend={selectedSignal} onBack={() => setReadingOpen(false)} onStories={() => navigate(inboxHref({ folder: "inbox", tab: "stories", label: selectedSignal.topic }))}
-            onDraft={() => { const links = new Set(selectedSignal.articles.map(article => article.link)); const story = (list.data ?? []).find(item => links.has(item.articleUrl)); openCreate(story); }} />
+            onDraft={() => { const links = new Set(selectedSignal.articles.map(article => article.link)); const story = (list.data ?? []).find(item => links.has(item.articleUrl)); if (story) composer.openForStory(sourceOf(story), false); else composer.openBlank(selectedSignal.topic); }} />
           : <EmptyPane />)
-          : selected ? <StoryPane row={selected} status={status} onBack={() => setReadingOpen(false)} onDraft={() => draft(selected)}
+          : selected ? <StoryPane row={selected} status={status} compose={composer.inlineFor(selected.id)} onBack={() => setReadingOpen(false)} onDraft={() => draft(selected)}
               onShortlist={() => void triage([selected.id], shortlistTarget)} onDismiss={() => void triage([selected.id], "dismissed")} onRestore={() => void triage([selected.id], "active")} />
           : <EmptyPane />}
       </section>
@@ -279,8 +286,8 @@ function EmptyPane() {
   </div>;
 }
 
-function StoryPane({ row, status, onBack, onDraft, onShortlist, onDismiss, onRestore }: Readonly<{
-  row: InboxRow; status: InboxStatus; onBack: () => void; onDraft: () => void; onShortlist: () => void; onDismiss: () => void; onRestore: () => void;
+function StoryPane({ row, status, compose, onBack, onDraft, onShortlist, onDismiss, onRestore }: Readonly<{
+  row: InboxRow; status: InboxStatus; compose?: Compose; onBack: () => void; onDraft: () => void; onShortlist: () => void; onDismiss: () => void; onRestore: () => void;
 }>) {
   const why = relevanceSummary(row);
   const keywords = row.matchedKeywords ?? [];
@@ -309,12 +316,13 @@ function StoryPane({ row, status, onBack, onDraft, onShortlist, onDismiss, onRes
       </div>
       {why && <p className="mt-4 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"><span className="font-medium text-foreground">Why you’re seeing this:</span> {why}</p>}
       <div className="mt-5 flex flex-wrap gap-2">
-        <Button onClick={onDraft} data-testid={`button-generate-${row.id}`}><Reply className="mr-2 h-4 w-4" aria-hidden="true" />Draft my take</Button>
+        {!compose && <Button onClick={onDraft} data-testid={`button-generate-${row.id}`}><Reply className="mr-2 h-4 w-4" aria-hidden="true" />Draft my take</Button>}
         {status !== "saved" && <Button variant="outline" onClick={onShortlist}><Star className="mr-2 h-4 w-4" aria-hidden="true" />Save to Shortlist</Button>}
         {status === "dismissed"
           ? <Button variant="outline" onClick={onRestore}><Inbox className="mr-2 h-4 w-4" aria-hidden="true" />Move to For you</Button>
           : <Button variant="outline" onClick={onDismiss}><Archive className="mr-2 h-4 w-4" aria-hidden="true" />Not relevant</Button>}
       </div>
+      {compose && <InlineCompose compose={compose} />}
     </article>
   </>;
 }

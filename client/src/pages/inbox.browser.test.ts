@@ -55,8 +55,18 @@ beforeAll(async () => {
         window.__calls.push({ url, method, body });
         const byStatus = status => window.__records.filter(item => item.status === status);
         if (url === "/api/me") return json({ id: "user", firstName: "Reader", lastName: "One", email: "reader@test" });
-        if (url === "/api/profile") return json({ userId: "user", tenantId: "tenant", focusDescription: "I advise D2C brands on retail media.", keywords: [{ keyword: "Retail media", weight: 0.9 }] });
-        if (url === "/api/integrations/linkedin/status") return json({ provider: "linkedin", connected: true, assessment: { canPublish: true, status: "connected" } });
+        if (url === "/api/profile") return json({ userId: "user", tenantId: "tenant", focusDescription: "I advise D2C brands on retail media.", keywords: [{ keyword: "Retail media", weight: 0.9 }], requirePublishReview: true, defaultTone: "professional" });
+        if (url === "/api/integrations/linkedin/status") return json(window.__linkedin ?? { provider: "linkedin", connected: true, assessment: { canPublish: true, status: "connected" } });
+        if (method === "POST" && /^\\/api\\/instant-review\\/(manual|selected)$/.test(url)) return json({ posts: { linkedin: { [body.tones[0]]: "Generated LinkedIn post about " + (body.title || body.url) } } });
+        const draftId = url.match(/^\\/api\\/drafts\\/([^/]+)/)?.[1];
+        const stamp = () => new Date(Date.now() + (window.__tick = (window.__tick || 0) + 1)).toISOString();
+        if (method === "POST" && url === "/api/drafts") { window.__draft = { id: "d" + window.__calls.length, content: body.content, updatedAt: stamp() }; return json(window.__draft); }
+        if (method === "PATCH" && draftId) { window.__draft = { ...window.__draft, content: body.content, updatedAt: stamp() }; return json(window.__draft); }
+        if (method === "POST" && /\\/approve-publishing$/.test(url)) { window.__draft = { ...window.__draft, updatedAt: stamp() }; return json(window.__draft); }
+        if (method === "POST" && /\\/publish-now$/.test(url) && window.__publishStatus) return new Response(JSON.stringify({ message: "Queue unavailable. Scheduled work remains saved." }), { status: window.__publishStatus, headers: { "Content-Type": "application/json" } });
+        if (method === "POST" && /\\/publish-now$/.test(url)) return json({ jobIds: [], results: [{ platform: "linkedin", status: "simulated" }], status: "completed" });
+        if (/\\/schedule$/.test(url) && (method === "POST" || method === "DELETE")) return json({ success: true });
+        if (method === "DELETE" && draftId) return json({ success: true });
         if (url === "/api/trends") return json([window.__trend]);
         if (url === "/api/inbox/visit") return json({ previousVisitAt: window.__previous, currentVisitAt: new Date().toISOString() });
         if (url === "/api/inbox?status=active") return json(byStatus("active"));
@@ -130,7 +140,7 @@ describe("Gmail-style LinkedIn Inbox", () => {
     await browserExpect(page.getByRole("link", { name: "Retail media" })).toBeVisible();
   });
 
-  it("marks explicit opens and j/k navigation read, and r opens Create for the selected story", async () => {
+  it("marks explicit opens and j/k navigation read, and r opens Draft my take beside the story", async () => {
     await mount();
     await page.getByTestId("row-inbox-b1").click();
     await browserExpect(page.getByTestId("text-headline-b1")).toBeVisible();
@@ -143,7 +153,10 @@ describe("Gmail-style LinkedIn Inbox", () => {
     // c1 was already read: navigation never repeats a read for it.
     expect((await calls("POST", /\/read$/)).map(call => call.url)).toEqual(["/api/inbox/b1/read", "/api/inbox/a1/read"]);
     await page.keyboard.press("r");
-    await expect.poll(() => page.evaluate(() => location.pathname)).toBe("/dashboard/create");
+    await browserExpect(page.getByTestId("compose-inline")).toBeVisible();
+    await page.waitForTimeout(100);
+    await browserExpect(page.getByTestId("compose-body")).toBeFocused();
+    expect(await page.evaluate(() => location.pathname)).toBe("/dashboard");
   });
 
   it("saves, dismisses and undoes from the keyboard and bulk selection", async () => {
@@ -227,5 +240,147 @@ describe("Gmail-style LinkedIn Inbox", () => {
     await page.getByRole("button", { name: "Back to list" }).click();
     await browserExpect(rows().first()).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  });
+});
+
+describe("LinkedIn composer and one-click posting", () => {
+  const drafted = async (text = "My view: compare definitions before results.") => {
+    await page.getByTestId("button-generate-a1").click();
+    await page.getByTestId("compose-body").fill(text);
+  };
+  const posts = () => calls("POST", /\/publish-now$/);
+
+  it("posts in one click after an undo window, and Undo sends nothing", async () => {
+    await mount();
+    await drafted();
+    await page.getByTestId("button-compose-post").click();
+    await browserExpect(page.getByTestId("pending-post")).toContainText("Posting to LinkedIn in 10s");
+    await browserExpect(page.getByTestId("compose-inline")).toHaveCount(0);
+    expect((await calls("POST", /^\/api\/drafts$/)).length).toBe(1);
+    await page.getByTestId("pending-post").getByRole("button", { name: "Undo" }).click();
+    await browserExpect(page.getByTestId("compose-body")).toHaveValue("My view: compare definitions before results.");
+    expect(await posts()).toEqual([]);
+    expect(await calls("POST", /approve-publishing$/)).toEqual([]);
+
+    await page.getByTestId("button-compose-post").click();
+    await page.getByTestId("pending-post").getByRole("button", { name: "Post now" }).click();
+    await expect.poll(async () => (await posts()).length).toBe(1);
+    const [approve] = await calls("POST", /approve-publishing$/);
+    expect(approve.body).toMatchObject({ content: "My view: compare definitions before results." });
+    expect((await posts())[0].body).toMatchObject({ consent: { expectedContent: "My view: compare definitions before results.", expectedSchedule: null } });
+    await expect.poll(() => page.evaluate(() => (window as any).__toasts.at(-1)?.title)).toBe("Simulated — nothing was posted");
+  });
+
+  it("sends automatically when the undo window ends", async () => {
+    await mount("/dashboard", { extra: {} });
+    await page.evaluate(() => localStorage.setItem("tsp:post-undo-seconds", "5"));
+    await page.reload();
+    await page.evaluate(state => Object.assign(window, state), { __records: records, __trend: trend, __previous: hoursAgo(3) });
+    await page.addStyleTag({ content: css });
+    await page.addScriptTag({ content: bundle });
+    await drafted();
+    await page.getByTestId("button-compose-post").click();
+    await browserExpect(page.getByTestId("pending-post")).toContainText("in 5s");
+    await expect.poll(async () => (await posts()).length, { timeout: 8000 }).toBe(1);
+    await browserExpect(page.getByTestId("pending-post")).toHaveCount(0);
+  }, 20_000);
+
+  it("schedules for LinkedIn only and can undo the schedule", async () => {
+    await mount();
+    await drafted();
+    await page.getByRole("button", { name: "Schedule options" }).click();
+    await page.getByRole("menuitem", { name: /Tomorrow morning/ }).click();
+    await expect.poll(async () => (await calls("POST", /\/schedule$/)).length).toBe(1);
+    const [scheduled] = await calls("POST", /\/schedule$/);
+    expect(scheduled.body).toMatchObject({ platforms: ["linkedin"], consent: { expectedSchedule: null } });
+    expect(new Date((scheduled.body as unknown as { publishAt: string }).publishAt).getHours()).toBe(9);
+    await page.evaluate(() => (window as any).__toasts.at(-1).action.props.onClick());
+    await expect.poll(async () => (await calls("DELETE", /\/schedule$/)).length).toBe(1);
+    expect(await posts()).toEqual([]);
+  });
+
+  it("asks to connect LinkedIn instead of posting, keeping the draft", async () => {
+    await mount("/dashboard", { extra: { __linkedin: { provider: "linkedin", connected: false } } });
+    await drafted();
+    await browserExpect(page.getByTestId("button-compose-post")).toHaveText("Connect LinkedIn");
+    await page.getByTestId("button-compose-post").click();
+    await browserExpect(page.getByTestId("panel-connector-linkedin")).toBeVisible();
+    await expect.poll(async () => (await calls("POST", /^\/api\/drafts$/)).length).toBe(1);
+    expect(await posts()).toEqual([]);
+    await browserExpect(page.getByTestId("pending-post")).toHaveCount(0);
+  });
+
+  it("composes from an idea with Help me write, blocking blank and over-limit posts", async () => {
+    await mount();
+    await page.getByTestId("button-inbox-compose").click();
+    const window_ = page.getByTestId("compose-float");
+    await browserExpect(window_).toBeVisible();
+    await browserExpect(window_.getByTestId("button-compose-post")).toBeDisabled();
+    await window_.getByTestId("button-help-me-write").click();
+    await browserExpect(window_.getByText("Describe your idea in at least 20 characters", { exact: false })).toBeVisible();
+    await window_.getByRole("textbox", { name: "Your take" }).fill("Most dashboards compare different definitions of success.");
+    await window_.getByTestId("button-help-me-write").click();
+    await browserExpect(window_.getByTestId("compose-body")).toHaveValue(/^Generated LinkedIn post/);
+    const [generation] = await calls("POST", /instant-review\/manual$/);
+    expect(generation.body).toMatchObject({ selectedPlatforms: ["linkedin"], format: "short-post", tones: ["thoughtLeader"] });
+    await window_.getByTestId("compose-body").fill("x".repeat(3001));
+    await browserExpect(window_.getByTestId("button-compose-post")).toBeDisabled();
+    await window_.getByRole("button", { name: "Restore previous text" }).count();
+  });
+});
+
+describe("Composer safety regressions", () => {
+  const posts = () => calls("POST", /\/publish-now$/);
+
+  it("never lets two Post clicks become pending at once", async () => {
+    await mount();
+    await page.getByTestId("button-generate-a1").click();
+    await page.getByTestId("compose-inline").getByTestId("compose-body").fill("Inline post text");
+    await page.getByTestId("button-inbox-compose").click();
+    await page.getByTestId("compose-float").getByTestId("compose-body").fill("Float post text");
+    await page.evaluate(() => document.querySelectorAll<HTMLButtonElement>('[data-testid="button-compose-post"]').forEach(button => button.click()));
+    await browserExpect(page.getByTestId("pending-post")).toHaveCount(1);
+    await browserExpect(page.getByText("Another post is waiting to send.", { exact: false })).toBeVisible();
+    await page.getByTestId("pending-post").getByRole("button", { name: "Post now" }).click();
+    await expect.poll(async () => (await posts()).length).toBe(1);
+    await page.waitForTimeout(1500);
+    expect((await posts()).length).toBe(1);
+  });
+
+  it("reports an ambiguous publish failure as unconfirmed and does not reopen an editable draft", async () => {
+    await mount("/dashboard", { extra: { __publishStatus: 503 } });
+    await page.getByTestId("button-generate-a1").click();
+    await page.getByTestId("compose-body").fill("Ambiguous delivery text");
+    await page.getByTestId("button-compose-post").click();
+    await page.getByTestId("pending-post").getByRole("button", { name: "Post now" }).click();
+    await expect.poll(() => page.evaluate(() => (window as any).__toasts.at(-1)?.title)).toBe("Delivery not confirmed");
+    await browserExpect(page.locator('[data-testid^="compose-"]').filter({ has: page.getByTestId("compose-body") })).toHaveCount(0);
+  });
+
+  it("opens the LinkedIn connection from an empty composer", async () => {
+    await mount("/dashboard", { extra: { __linkedin: { provider: "linkedin", connected: false } } });
+    await page.getByTestId("button-inbox-compose").click();
+    await page.getByTestId("compose-float").getByTestId("button-compose-post").click();
+    await browserExpect(page.getByTestId("panel-connector-linkedin")).toBeVisible();
+    expect(await calls("POST", /^\/api\/drafts$/)).toEqual([]);
+  });
+
+  it("keeps j/k navigation out of an existing inline draft and Esc in a menu leaves the window open", async () => {
+    await mount();
+    await page.getByTestId("button-generate-a1").click();
+    await page.getByTestId("compose-body").fill("Existing draft");
+    await page.getByTestId("row-inbox-b1").click();
+    await page.keyboard.press("k");
+    await browserExpect(page.getByTestId("compose-body")).toHaveValue("Existing draft");
+    await page.keyboard.press("j");
+    await browserExpect(page.getByTestId("text-headline-b1")).toBeVisible();
+    await page.keyboard.press("k");
+    await browserExpect(page.getByTestId("compose-body")).toHaveValue("Existing draft");
+
+    await page.getByTestId("button-inbox-compose").click();
+    const window_ = page.getByTestId("compose-float");
+    await window_.getByRole("button", { name: "Thought Leader" }).click();
+    await page.keyboard.press("Escape");
+    await browserExpect(window_.getByTestId("compose-body")).toBeVisible();
   });
 });
