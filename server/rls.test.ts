@@ -135,6 +135,7 @@ describe("the database enforces isolation without help from the query", () => {
       "publish_metrics",
       "publishing_rules",
       "queue_metrics",
+      "saved_searches",
       "scheduled_refreshes",
       "social_accounts",
       "social_analytics",

@@ -248,3 +248,5 @@ Fresh-chain testing requires parent authorization and a separately provisioned,
 explicitly confirmed disposable target; follow the gated harness prerequisites in
 [migration correctness](../docs/migration-correctness.md). The harness does not
 create databases/roles/clusters or silently use the shared test database.
+
+- `0060_saved_searches.sql` (Phase 3A): FORCE-RLS `saved_searches` (followed news searches; unique per member on `lower(query)`, 25 per member enforced in the app, `last_viewed_at`); opt-in DB tests: `NEWS_SEARCH_DB_TESTS=true`.

@@ -76,6 +76,7 @@ beforeAll(async () => {
         }
         if (method === "DELETE" && draftId) { window.__drafts = window.__drafts?.filter(item => item.id !== draftId); return json({ success: true }); }
         if (url === "/api/notes" && method === "GET") return json(window.__notes ?? []);
+        if (url === "/api/searches" && method === "GET") return json(window.__searches ?? []);
         if (url === "/api/notes" && method === "POST") {
           const note = { id: "n" + window.__calls.length, text: body.text, createdAt: stamp(), updatedAt: stamp() };
           window.__notes = [note, ...(window.__notes ?? [])];

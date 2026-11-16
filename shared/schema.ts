@@ -1219,6 +1219,21 @@ export interface ArticleMatch {
 }
 
 // ── Phase 3A — keyword news search: saved searches (begin) ──
+/** Followed news searches (migration 0060). Unique per member on lower(query) via the
+ * saved_searches_user_query_key expression index, which lives in the migration only. */
+export const savedSearches = pgTable("saved_searches", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  query: text("query").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }),
+}, table => [
+  check("saved_searches_name_length", sql`char_length(btrim(${table.name})) between 1 and 60`),
+  check("saved_searches_query_length", sql`char_length(btrim(${table.query})) between 1 and 300`),
+]);
+export type SavedSearch = typeof savedSearches.$inferSelect;
 // ── Phase 3A (end) ──
 
 // ── Phase 3 — topic discovery: strategy, ideas, check-ins (begin) ──
