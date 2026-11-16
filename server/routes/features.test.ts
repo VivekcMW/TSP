@@ -34,13 +34,14 @@ describe("GET /api/features", () => {
   it("evaluates opt-in flags for the session tenant, never a supplied tenant", async () => {
     isFeatureEnabled.mockResolvedValue(true);
     const { body, headers } = await getFeatures();
-    expect(body).toEqual({ linkedinInbox: true });
+    expect(body).toEqual({ linkedinInbox: true, allIntegrations: true });
     expect(isFeatureEnabled).toHaveBeenCalledWith("linkedin_inbox_ui", false, "feature-tenant");
+    expect(isFeatureEnabled).toHaveBeenCalledWith("all_integrations_ui", false, "feature-tenant");
     expect(headers).toContainEqual(["Cache-Control", "no-store"]);
   });
 
   it("keeps the existing experience when a flag cannot be evaluated", async () => {
     isFeatureEnabled.mockRejectedValue(new Error("database unavailable"));
-    expect((await getFeatures()).body).toEqual({ linkedinInbox: false });
+    expect((await getFeatures()).body).toEqual({ linkedinInbox: false, allIntegrations: false });
   });
 });

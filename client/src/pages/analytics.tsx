@@ -20,6 +20,8 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import type { SettingsPageProps } from "@/components/settings/settings-page-props";
 import { getPlatformMeta, PLATFORMS } from "@/lib/platforms";
 import { DIRECT_PUBLISH_PLATFORMS, publishingCapability } from "@shared/publishing-capabilities";
+import { OFFERED_INTEGRATIONS } from "@shared/client-features";
+import { useClientFeatures } from "@/hooks/use-client-features";
 import { HelpLink } from "@/components/help-panel";
 
 interface AnalyticsSummary {
@@ -433,6 +435,9 @@ export default function AnalyticsPage({ embedded = false }: SettingsPageProps = 
   const { data: summary, isLoading, isError, refetch } = useQuery<AnalyticsSummary>({
     queryKey: ['/api/analytics/summary'],
   });
+  // LinkedIn-first: other integrations stay implemented but are offered only when the admin flag is on.
+  const showAllIntegrations = useClientFeatures(true).data?.allIntegrations === true;
+  const offered = (key: string) => showAllIntegrations || OFFERED_INTEGRATIONS.includes(key);
   const providers = ["linkedin", "discord", "slack", "devto", "hashnode", "bluesky", "mastodon", "telegram", "reddit", "facebook", "threads", "medium"];
   const statusQueries = useQueries({ queries: providers.map((provider) => ({ queryKey: [`/api/integrations/${provider}/status`], queryFn: async (): Promise<IntegrationStatus> => (await apiRequest("GET", `/api/integrations/${provider}/status`)).json() })) });
   const [linkedinStatus, discordStatus, slackStatus, devToStatus, hashnodeStatus, blueskyStatus, mastodonStatus, telegramStatus, redditStatus, facebookStatus, threadsStatus, mediumStatus] = statusQueries.map((query) => query.data);
@@ -752,7 +757,10 @@ export default function AnalyticsPage({ embedded = false }: SettingsPageProps = 
   ];
   const rows = platformRows.map((row) => ({ ...row, statusKnown: row.key === "twitter" ? Boolean(summary) && !isError : Boolean(statusQueries[providers.indexOf(row.key)]?.data) && !statusQueries[providers.indexOf(row.key)]?.isError }));
   const connectedRows = rows.filter((row) => row.connected && row.statusKnown);
-  const availableRows = rows.filter((row) => !row.connected || !row.statusKnown).map((row) => ({ ...row, connected: false }));
+  const offeredConnectedRows = connectedRows.filter((row) => offered(row.key));
+  // Never hide an account that can still publish: keep it visible so it can be disconnected.
+  const otherConnectedRows = connectedRows.filter((row) => !offered(row.key));
+  const availableRows = rows.filter((row) => (!row.connected || !row.statusKnown) && offered(row.key)).map((row) => ({ ...row, connected: false }));
   const statusesUnavailable = rows.some((row) => !row.statusKnown);
 
   return (
@@ -787,23 +795,31 @@ export default function AnalyticsPage({ embedded = false }: SettingsPageProps = 
           <div className="mx-auto w-full max-w-5xl space-y-6">
             <div className="-mb-4 flex justify-end"><HelpLink section="connections" label="Connecting accounts" text="How connecting works" /></div>
             {statusesUnavailable && <div role="status" className="rounded-md border p-4"><p>Some connection statuses are still loading or unavailable. They are not assumed to be disconnected.</p><Button variant="outline" className="mt-3" onClick={() => { void refetch(); statusQueries.forEach((query) => { void query.refetch(); }); }}>Retry connection statuses</Button></div>}
-            {!statusesUnavailable && connectedRows.length === 0 && <div className="rounded-lg border border-info/30 bg-info-subtle p-4"><p className="font-medium">Start with LinkedIn</p><p className="mt-1 text-sm text-muted-foreground">Connect LinkedIn to publish directly, then connect any others you use.</p></div>}
+            {!statusesUnavailable && offeredConnectedRows.length === 0 && <div className="rounded-lg border border-info/30 bg-info-subtle p-4"><p className="font-medium">Start with LinkedIn</p><p className="mt-1 text-sm text-muted-foreground">{showAllIntegrations ? "Connect LinkedIn to publish directly, then connect any others you use." : "Connect LinkedIn to publish directly. More platforms will be added later."}</p></div>}
 
-            {connectedRows.length > 0 && <section>
+            {offeredConnectedRows.length > 0 && <section>
               <h2 className="mb-3 text-sm font-medium text-muted-foreground">Connected</h2>
               <div className="space-y-2">
-                {connectedRows.map(({ key, ...row }) => <PlatformRow key={key} testId={key} {...row} onGuide={() => setGuideKey(key)} />)}
+                {offeredConnectedRows.map(({ key, ...row }) => <PlatformRow key={key} testId={key} {...row} onGuide={() => setGuideKey(key)} />)}
               </div>
             </section>}
 
-            <section>
-              {connectedRows.length > 0 && <h2 className="mb-3 text-sm font-medium text-muted-foreground">Available to connect</h2>}
+            {availableRows.length > 0 && <section>
+              {offeredConnectedRows.length > 0 && <h2 className="mb-3 text-sm font-medium text-muted-foreground">Available to connect</h2>}
               <div className="space-y-2">
                 {availableRows.map(({ key, ...row }) => <PlatformRow key={key} testId={key} {...row} onGuide={() => setGuideKey(key)} />)}
               </div>
-            </section>
+            </section>}
 
-            <section className="border-t pt-4">
+            {otherConnectedRows.length > 0 && <section aria-labelledby="other-connected-heading" data-testid="section-other-connected">
+              <h2 id="other-connected-heading" className="mb-1 text-sm font-medium text-muted-foreground">Other connected accounts</h2>
+              <p className="mb-3 text-xs text-muted-foreground">Only LinkedIn is offered right now. These accounts are still connected and can still publish scheduled posts until you disconnect them.</p>
+              <div className="space-y-2">
+                {otherConnectedRows.map(({ key, ...row }) => <PlatformRow key={key} testId={key} {...row} onGuide={() => setGuideKey(key)} />)}
+              </div>
+            </section>}
+
+            {showAllIntegrations && <section className="border-t pt-4">
               <button type="button" aria-expanded={showManualPlatforms} className="control-touch-target min-h-8 text-[0.8125rem] text-muted-foreground underline underline-offset-4 hover:text-foreground" onClick={() => setShowManualPlatforms((value) => !value)}>
                 {showManualPlatforms ? "Hide manual platforms" : `Show ${manualPublishingPlatforms.length} more platforms (manual copy & paste)`}
               </button>
@@ -815,7 +831,7 @@ export default function AnalyticsPage({ embedded = false }: SettingsPageProps = 
                   </section>
                 ))}
               </div>}
-            </section>
+            </section>}
           </div>
         )}
       </Body>
