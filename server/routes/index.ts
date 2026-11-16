@@ -30,6 +30,7 @@ import { registerProfileSocialLinksRoutes } from "./profile-social-links";
 import { registerEditorialVoiceRoutes } from "./editorial-voice";
 import { registerTeamRoutes } from "./team";
 import { registerCreationSessionRoutes } from "./creation-session";
+import { registerFeatureRoutes } from "./features";
 
 /**
  * Mounts the HTTP API.
@@ -48,6 +49,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerThreadsAuth(app, requireDbUser);
 
   registerAuthRoutes(app);
+  registerFeatureRoutes(app);
   registerProfileRoutes(app);
   registerAiRoutes(app);
   registerOnboardingSuggestionRoutes(app);

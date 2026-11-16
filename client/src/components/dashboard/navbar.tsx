@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
-import { ChevronDown, CircleHelp, CreditCard, LogOut, Settings } from "lucide-react";
+import { ChevronDown, CircleHelp, CreditCard, LayoutPanelLeft, LogOut, Settings } from "lucide-react";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { useQuery } from "@tanstack/react-query";
 import { signOut, useAuth } from "@/lib/auth";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAppTour } from "@/components/app-tour";
 import { HelpButton } from "@/components/help-panel";
+import { setClassicLayoutPreference, useClientFeatures } from "@/hooks/use-client-features";
 
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard": "Home",
@@ -38,24 +39,11 @@ const PAGE_TITLES: Record<string, string> = {
 // location-derived breadcrumb, and account actions that were previously only
 // reachable by opening the sidebar (useful once it's collapsed on mobile).
 export function DashboardNavbar() {
-  const { openTour } = useAppTour();
   const [location] = useLocation();
   const { setOpenMobile, isMobile } = useSidebar();
   useEffect(() => { setOpenMobile(false); }, [location, setOpenMobile]);
-  const { user } = useAuth();
   const isSignedIn = useIsSignedIn();
-
-  const { data: dbUser } = useQuery<DbUser>({
-    queryKey: ["/api/me"],
-    enabled: isSignedIn,
-  });
-
-  const firstName = user?.firstName ?? dbUser?.firstName ?? "";
-  const lastName = user?.lastName ?? dbUser?.lastName ?? "";
-  const primaryEmail = user?.email ?? dbUser?.email;
-  const initials = firstName && lastName
-    ? `${firstName[0]}${lastName[0]}`
-    : primaryEmail?.[0]?.toUpperCase() || "U";
+  const features = useClientFeatures(isSignedIn);
 
   const pageTitle = PAGE_TITLES[location] ?? "Workspace";
   const headerRef = useRef<HTMLElement>(null);
@@ -87,6 +75,30 @@ export function DashboardNavbar() {
 
       <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
       <HelpButton />
+      <AccountMenu layoutSwitch={features.data?.linkedinInbox ? { label: "Try the new Inbox", onSelect: () => setClassicLayoutPreference(false) } : undefined} />
+      </div>
+    </header>
+  );
+}
+
+/** Account actions shared by the classic navbar and the Inbox top bar. */
+export function AccountMenu({ layoutSwitch }: Readonly<{ layoutSwitch?: { label: string; onSelect: () => void } }>) {
+  const { openTour } = useAppTour();
+  const { user } = useAuth();
+  const isSignedIn = useIsSignedIn();
+  const { data: dbUser } = useQuery<DbUser>({
+    queryKey: ["/api/me"],
+    enabled: isSignedIn,
+  });
+
+  const firstName = user?.firstName ?? dbUser?.firstName ?? "";
+  const lastName = user?.lastName ?? dbUser?.lastName ?? "";
+  const primaryEmail = user?.email ?? dbUser?.email;
+  const initials = firstName && lastName
+    ? `${firstName[0]}${lastName[0]}`
+    : primaryEmail?.[0]?.toUpperCase() || "U";
+
+  return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -123,6 +135,10 @@ export function DashboardNavbar() {
             <CircleHelp className="w-4 h-4 mr-2" />
             App tour
           </DropdownMenuItem>
+          {layoutSwitch && <DropdownMenuItem onSelect={layoutSwitch.onSelect} data-testid="button-navbar-layout-switch">
+            <LayoutPanelLeft className="w-4 h-4 mr-2" />
+            {layoutSwitch.label}
+          </DropdownMenuItem>}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => signOut("/")} data-testid="button-navbar-logout">
             <LogOut className="w-4 h-4 mr-2" />
@@ -130,7 +146,5 @@ export function DashboardNavbar() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      </div>
-    </header>
   );
 }

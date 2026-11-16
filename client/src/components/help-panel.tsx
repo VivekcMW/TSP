@@ -58,7 +58,7 @@ export function HelpProvider({ children, phase = "workspace" }: Readonly<{ child
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "?" || event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target)) return;
+      if (event.defaultPrevented || event.key !== "?" || event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target)) return;
       if (document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) return;
       event.preventDefault();
       openHelp(undefined, "shortcut");
