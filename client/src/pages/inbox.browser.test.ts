@@ -4,6 +4,7 @@ import { build } from "esbuild";
 import path from "node:path";
 import postcss from "postcss";
 import tailwindcss from "tailwindcss";
+import { axeViolations } from "../../../test/axe";
 
 // Real Inbox shell + page with in-memory fetch fixtures; no app server or real requests.
 const root = path.resolve(import.meta.dirname, "../../..");
@@ -878,4 +879,46 @@ describe("Watchlist alerts", () => {
     await expect.poll(async () => (await calls("POST", /\/api\/watch-alerts\/seen$/)).length).toBe(1);
     await browserExpect(page.getByTestId("button-connector-watchlist")).toHaveAccessibleName("Watchlist alerts");
   });
+});
+
+describe("Accessibility (axe, WCAG 2.1 AA)", () => {
+  it("has no violations in the main Inbox views, the composer and the side panels", async () => {
+    const draft = { id: "dr1", publishStatus: "draft", content: "Draft text\nMore", platform: "linkedin", tone: "professional", status: "draft", createdAt: hoursAgo(30), updatedAt: hoursAgo(2) };
+    await mount("/dashboard?tab=stories", { extra: { __drafts: [draft], __schedules: [], __notes: [{ id: "n0", text: "A note", createdAt: hoursAgo(2), updatedAt: hoursAgo(2) }],
+      __watchAlerts: [{ id: "w1", inboxItemId: "d1", term: "Data Desk", kind: "company", headline: "d1 headline", source: "Data Desk", articleUrl: "https://news.test/d1", createdAt: hoursAgo(1), seenAt: null }] } }, { width: 1440, height: 900 });
+    await browserExpect(rows()).toHaveCount(7);
+    const found: Record<string, unknown> = {};
+    const check = async (name: string) => { const violations = await axeViolations(page); if (violations.length) found[name] = violations; };
+    await check("stories");
+    await page.getByTestId("button-generate-a1").click();
+    await page.getByTestId("compose-body").fill("My take");
+    await check("inline composer");
+    await page.getByTestId("button-inbox-compose").click();
+    await check("floating composer");
+    for (const panel of ["notes", "watchlist", "plan", "more"]) {
+      await page.getByTestId(`button-connector-${panel}`).click();
+      await page.getByTestId(`panel-connector-${panel}`).waitFor();
+      await check(`panel ${panel}`);
+    }
+    await page.getByTestId("button-quick-settings").click();
+    await page.getByTestId("panel-connector-settings").waitFor();
+    await check("quick settings");
+    await page.getByTestId("nav-folder-drafts").click();
+    await page.getByTestId("row-post-dr1").click();
+    await check("drafts folder");
+    await page.getByTestId("nav-folder-snoozed").click();
+    await check("snoozed folder");
+    expect(found).toEqual({});
+  }, 60_000);
+
+  it("has no violations on a phone-width list and reading pane", async () => {
+    await mount("/dashboard", {}, { width: 390, height: 844 });
+    const found: Record<string, unknown> = {};
+    let violations = await axeViolations(page);
+    if (violations.length) found.list = violations;
+    await page.getByTestId("row-inbox-a1").click();
+    violations = await axeViolations(page);
+    if (violations.length) found.reading = violations;
+    expect(found).toEqual({});
+  }, 30_000);
 });

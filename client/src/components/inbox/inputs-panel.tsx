@@ -11,6 +11,7 @@ import {
   bookmarkletFor, createCaptureKey, createForwardingAddress, EXTENSION_STORE_URL, forwardOutcome, forwardSender, INPUTS_KEY, inputsQuery,
   revokeCaptureKey, rotateForwardingAddress, shortDate, turnOffForwardingAddress, type CaptureKey, type ForwardingAddress, type InputsState, type NewCaptureKey,
 } from "@/lib/inputs-queries";
+import { trackInbox } from "@/lib/inbox-analytics";
 
 type Toast = ReturnType<typeof useToast>["toast"];
 const refresh = () => queryClient.invalidateQueries({ queryKey: INPUTS_KEY });
@@ -51,7 +52,7 @@ function ForwardNewsletters({ state }: Readonly<{ state: InputsState }>) {
   const [confirming, setConfirming] = useState<"rotate" | "off" | null>(null);
   const { available, address, domain, recent, dailyLimit } = state.forwarding;
   const shown = (result: ForwardingAddress) => { setRevealed(result.email); setConfirming(null); void refresh(); };
-  const create = useMutation({ mutationFn: createForwardingAddress, onSuccess: shown, onError: failed(toast, "Couldn't create the address") });
+  const create = useMutation({ mutationFn: createForwardingAddress, onSuccess: result => { trackInbox("input_set_up", { kind: "forwarding" }); shown(result); }, onError: failed(toast, "Couldn't create the address") });
   const rotate = useMutation({
     mutationFn: rotateForwardingAddress,
     onSuccess: result => { shown(result); toast({ title: "New address ready", description: "The old address no longer works. Update your forwarding." }); },
@@ -138,7 +139,7 @@ function SaveFromAnyPage({ state }: Readonly<{ state: InputsState }>) {
   const { tokens, limit, hourlyLimit } = state.capture;
   const create = useMutation({
     mutationFn: createCaptureKey,
-    onSuccess: key => { setCreated(key); void refresh(); },
+    onSuccess: key => { trackInbox("input_set_up", { kind: "capture_key" }); setCreated(key); void refresh(); },
     onError: failed(toast, "Couldn't create the key"),
   });
   const revoke = useMutation({

@@ -17,6 +17,7 @@ import { CREATE_TONES, type CreateTone } from "@/components/dashboard/create-pos
 import { useAppTourReporter, type TourOutcome } from "@/components/app-tour";
 import { LINKEDIN_STATUS_KEY, linkedInPostingState, type LinkedInConnectionStatus } from "@/lib/inbox-queries";
 import { UNDO_SECONDS_EVENT } from "@/lib/inbox-feedback";
+import { trackInbox } from "@/lib/inbox-analytics";
 import {
   cancelLinkedInSchedule, approveLinkedInDraft, definitelyNotAdmitted, generationRequest, LINKEDIN_CHARACTER_LIMIT, nextMorning, postingOutcome, publishApprovedDraft, readUndoSeconds,
   saveLinkedInDraft, scheduleLabel, scheduleLinkedInDraft, storeUndoSeconds, toSavedDraft, UNDO_WINDOW_OPTIONS, type ComposeSource, type PostingResultKind, type SavedDraft,
@@ -125,6 +126,7 @@ function useComposerActions(onConnectLinkedIn: () => void) {
         const draft = await saveLinkedInDraft(compose.draft, compose.body, toneValue(compose.tone), compose.source?.id);
         patch(key, { draft, saving: false });
         tour.current?.("draft-saved", draft.id);
+        if (!compose.draft) trackInbox("draft_saved", { from: compose.source ? "story" : "idea_or_blank" });
         void invalidatePublishingQueries();
       } catch (error) {
         const conflict = error instanceof Error && /409|changed|revision/i.test(error.message);
@@ -181,6 +183,7 @@ function useComposerActions(onConnectLinkedIn: () => void) {
     try {
       const outcome = postingOutcome(await publishApprovedDraft(approved));
       toast({ title: outcome.title, description: outcome.description, variant: outcome.tone === "error" ? "destructive" : undefined });
+      trackInbox("post_result", { outcome: outcome.kind });
       const tourOutcome = TOUR_OUTCOME[outcome.kind];
       if (tourOutcome) tour.current?.("publishing-result", approved.id, tourOutcome);
     } catch (error) {
@@ -204,6 +207,7 @@ function useComposerActions(onConnectLinkedIn: () => void) {
     else {
       commit([...ref.current, { ...current.pending.compose, mode: "float", minimized: false, maximized: false, generating: false, saving: false, focusToken: Date.now() }]);
       toast({ title: "Posting cancelled", description: "Nothing was sent. Your draft is open again." });
+      trackInbox("post_undone");
     }
   }, [commit, send, toast]);
   const finishRef = useRef(finishPending);
@@ -249,6 +253,7 @@ function useComposerActions(onConnectLinkedIn: () => void) {
       }, 1000);
       pendingRef.current = { pending: entry, timer };
       setPending(entry);
+      trackInbox("post_queued", { undo_seconds: undoSeconds });
     } finally { reserving.current = false; }
   };
 
@@ -263,6 +268,7 @@ function useComposerActions(onConnectLinkedIn: () => void) {
       remove(key);
       const id = draft.id;
       tour.current?.("publishing-result", id, "scheduled");
+      trackInbox("post_scheduled");
       toast({ title: `Scheduled for ${scheduleLabel(at)}`, description: "Nothing posts before then. Change it in Scheduled.",
         action: <ToastAction altText="Undo schedule" onClick={() => { void cancelLinkedInSchedule(id).then(() => {
           toast({ title: "Schedule cancelled", description: "The post is back in Drafts." }); void invalidatePublishingQueries();
@@ -292,7 +298,7 @@ function useComposerActions(onConnectLinkedIn: () => void) {
     toast({ title: "Draft discarded" });
   };
 
-  const opened = () => tour.current?.("create-opened");
+  const opened = (from: "story" | "blank" | "draft" | "note") => { tour.current?.("create-opened"); trackInbox("compose_opened", { from }); };
   const onScreen = (compose: Compose) => {
     if (compose.minimized) return false;
     if (compose.mode === "float") return true;
@@ -304,14 +310,14 @@ function useComposerActions(onConnectLinkedIn: () => void) {
   const value: ComposerValue = {
     inlineFor: sourceId => composes.find(compose => compose.mode === "inline" && compose.source?.id === sourceId),
     openForStory: (source, inline) => {
-      opened();
+      opened("story");
       const existing = ref.current.find(compose => compose.source?.id === source.id);
       if (existing) { patch(existing.key, { mode: inline ? "inline" : "float", minimized: false, focusToken: Date.now() }); return; }
       const compose = create({ source, mode: inline ? "inline" : "float", focusToken: Date.now() });
       if (inline) commit([...ref.current, compose]); else addWindow(compose);
     },
     openBlank: angle => {
-      opened();
+      opened("blank");
       const blank = ref.current.find(compose => compose.mode === "float" && !compose.source && !compose.body.trim() && !compose.take.trim());
       if (blank) { patch(blank.key, { minimized: false, focusToken: Date.now(), ...(angle ? { angle } : {}) }); return; }
       addWindow(create({ mode: "float", angle: angle ?? "", focusToken: Date.now() }));
@@ -321,7 +327,7 @@ function useComposerActions(onConnectLinkedIn: () => void) {
         toast({ title: "This post is about to send", description: "Undo it first if you want to edit it." });
         return;
       }
-      opened();
+      opened("draft");
       const existing = ref.current.find(compose => compose.draft?.id === draft.id);
       if (existing) { patch(existing.key, { mode: "float", minimized: false, focusToken: Date.now() }); return; }
       addWindow(create({ mode: "float", body: draft.content, draft: toSavedDraft(draft), tone: toneKeyFor(draft.tone), focusToken: Date.now() }));
@@ -330,7 +336,7 @@ function useComposerActions(onConnectLinkedIn: () => void) {
       const last = ref.current.find(compose => compose.key === lastActive.current);
       const target = last && onScreen(last) ? last : [...ref.current].reverse().find(compose => compose.mode === "float" && !compose.minimized);
       if (!target) {
-        opened();
+        opened("note");
         const compose = create({ mode: "float", focusToken: Date.now(), ...(into === "take" ? { take: text.slice(0, 2000) } : { body: text }) });
         addWindow(compose);
         if (into === "body") scheduleSave(compose.key);

@@ -4,6 +4,7 @@ import { build } from "esbuild";
 import path from "node:path";
 import postcss from "postcss";
 import tailwindcss from "tailwindcss";
+import { axeViolations } from "../../../../test/axe";
 
 // The real Inputs panel at the side-panel width, with an in-memory /api/inputs fake; no server or real requests.
 const root = path.resolve(import.meta.dirname, "../../../..");
@@ -195,4 +196,19 @@ describe("Inputs panel", () => {
     await browserExpect(page.getByRole("button", { name: "Create key" })).toBeDisabled();
     await browserExpect(page.getByText("You have 5 keys. Revoke one to create another.")).toBeVisible();
   }, 20_000);
+});
+
+describe("Inputs panel accessibility (axe, WCAG 2.1 AA)", () => {
+  it("has no violations before and after creating a key", async () => {
+    await mount();
+    const found: Record<string, unknown> = {};
+    let violations = await axeViolations(page);
+    if (violations.length) found.initial = violations;
+    await page.getByLabel("Key name").fill("Work laptop");
+    await page.getByRole("button", { name: "Create key" }).click();
+    await browserExpect(page.getByTestId("text-new-capture-key")).toBeVisible();
+    violations = await axeViolations(page);
+    if (violations.length) found.created = violations;
+    expect(found).toEqual({});
+  }, 30_000);
 });

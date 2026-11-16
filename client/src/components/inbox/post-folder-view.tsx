@@ -83,7 +83,7 @@ export function PostFolderView({ folder }: Readonly<{ folder: PostFolder }>) {
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />Delivery status couldn’t be loaded, so these folders may be incomplete. Check Content before posting again.
         </p>}
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {loading ? <div className="space-y-px" aria-label="Loading">{[0, 1, 2].map(index => <div key={index} className="space-y-2 border-b p-4"><Skeleton className="h-3 w-1/3" /><Skeleton className="h-4 w-4/5" /></div>)}</div>
+          {loading ? <div className="space-y-px" role="status" aria-label="Loading">{[0, 1, 2].map(index => <div key={index} className="space-y-2 border-b p-4"><Skeleton className="h-3 w-1/3" /><Skeleton className="h-4 w-4/5" /></div>)}</div>
             : drafts.isError ? <div role="alert" className="p-6 text-sm"><p className="font-medium">Your posts could not be loaded.</p><Button variant="outline" className="mt-3" onClick={() => void drafts.refetch()}>Try again</Button></div>
             : rows.length ? <ul aria-label={`${info.title} posts`}>{rows.map(row => {
                 const isSelected = row.draft.id === selected?.draft.id;

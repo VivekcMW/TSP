@@ -4,6 +4,7 @@ import { build } from "esbuild";
 import path from "node:path";
 import postcss from "postcss";
 import tailwindcss from "tailwindcss";
+import { axeViolations } from "../../../../test/axe";
 import { ideaId } from "@shared/topic-ideas";
 
 // Real Inbox shell + Ideas folder against an in-memory backend built from the shared idea/plan functions.
@@ -330,5 +331,18 @@ describe("Topic discovery: strategy, ideas, check-in and plan", () => {
     await browserExpect(page.getByRole("button", { name: "Move AI agents down" })).toBeFocused();
     expect(await page.evaluate(() => document.activeElement?.closest('[data-testid^="pillar-"]')?.getAttribute("data-testid"))).toBe("pillar-0");
     await browserExpect(page.getByTestId("text-pillar-announcement")).toHaveText("Moved AI agents to position 1 of 3.");
+  }, 30_000);
+});
+
+describe("Ideas accessibility (axe, WCAG 2.1 AA)", () => {
+  it("has no violations on the Ideas, 30-day plan and Strategy tabs", async () => {
+    const found: Record<string, unknown> = {};
+    for (const view of ["ideas", "plan", "strategy"]) {
+      await mount(`/dashboard?folder=ideas&view=${view}`);
+      await page.waitForTimeout(400);
+      const violations = await axeViolations(page, "main");
+      if (violations.length) found[view] = violations;
+    }
+    expect(found).toEqual({});
   }, 30_000);
 });

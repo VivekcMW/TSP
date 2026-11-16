@@ -4,6 +4,7 @@ import { build } from "esbuild";
 import path from "node:path";
 import postcss from "postcss";
 import tailwindcss from "tailwindcss";
+import { axeViolations } from "../../../../test/axe";
 
 // Real Inbox shell, search bar and news results with in-memory fetch fixtures; no app server or real requests.
 const root = path.resolve(import.meta.dirname, "../../../..");
@@ -322,5 +323,19 @@ describe("keyword news search in the Inbox", () => {
     await input.press("Escape");
     await browserExpect(input).toHaveValue("");
     await browserExpect(page.getByTestId("row-inbox-a1")).toBeVisible();
+  }, 30_000);
+});
+
+describe("News search accessibility (axe, WCAG 2.1 AA)", () => {
+  it("has no violations on the results list, reading pane and suggestion dropdown", async () => {
+    await mount("/dashboard?news=retail%20media");
+    await page.locator('[data-testid^="row-news-"]').first().click();
+    const found: Record<string, unknown> = {};
+    let violations = await axeViolations(page);
+    if (violations.length) found.results = violations;
+    await page.getByTestId("input-inbox-search").fill("pricing");
+    violations = await axeViolations(page, "header");
+    if (violations.length) found.suggestions = violations;
+    expect(found).toEqual({});
   }, 30_000);
 });

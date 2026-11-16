@@ -103,7 +103,8 @@ export function AccountMenu({ layoutSwitch }: Readonly<{ layoutSwitch?: { label:
         <DropdownMenuTrigger asChild>
           <button
             className="flex min-h-11 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted ring-offset-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            aria-label="Account menu"
+            // WCAG 2.5.3: the visible initials are part of the name.
+            aria-label={`Account menu, ${initials}`}
             data-testid="button-navbar-account"
           >
             <Avatar className="h-[max(1.75rem,1.5em)] w-[max(1.75rem,1.5em)] text-xs">

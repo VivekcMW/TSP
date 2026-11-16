@@ -126,6 +126,7 @@
     "@types/supertest": "^7.2.1",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.20",
+    "axe-core": "^4.14.1",
     "drizzle-kit": "^0.31.8",
     "esbuild": "^0.25.0",
     "nanoid": "^3.3.18",

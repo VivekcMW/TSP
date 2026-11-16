@@ -15,6 +15,7 @@ import {
 } from "@/lib/news-search-queries";
 import { cn } from "@/lib/utils";
 import { hasSearchTerms, newsQueryChips, parseNewsQuery } from "@shared/news-search";
+import { trackInbox } from "@/lib/inbox-analytics";
 
 const PROVIDER_NAMES: Record<keyof NewsSearchResponse["providers"], string> = { pool: "Our story index", google: "Google News", bing: "Bing News" };
 const message = (error: unknown, fallback = "Try again.") => error instanceof Error && error.message ? error.message : fallback;
@@ -44,6 +45,12 @@ export function NewsSearchView({ query, savedId }: Readonly<{ query: string; sav
   const chips = useMemo(() => newsQueryChips(parsed), [parsed]);
   const searchable = hasSearchTerms(parsed);
   const search = useQuery(newsSearchQuery(query, signedIn && searchable));
+  useEffect(() => {
+    if (!search.data) return;
+    const count = search.data.results.length;
+    trackInbox("news_searched", { results: count === 0 ? "0" : count <= 5 ? "1-5" : count <= 20 ? "6-20" : "21+",
+      providers_failed: Object.values(search.data.providers).filter(status => status === "failed").length });
+  }, [search.data]);
   const saved = useQuery(savedSearchesQuery(signedIn));
   const followed = findFollowed(saved.data, query);
   const rows = useMemo(() => search.data?.results ?? [], [search.data]);
@@ -97,6 +104,7 @@ export function NewsSearchView({ query, savedId }: Readonly<{ query: string; sav
         toast({ title: "Stopped following this search", action: <ToastAction altText="Undo" onClick={() => void followSearch(current.query, current.name).catch(() => undefined).finally(() => void refreshSavedSearches())}>Undo</ToastAction> });
       } else {
         await followSearch(parsed.normalized);
+        trackInbox("search_followed");
         toast({ title: "Following this search", description: "Find it under Searches in the folder list." });
       }
     } catch (error) {
@@ -153,7 +161,7 @@ export function NewsSearchView({ query, savedId }: Readonly<{ query: string; sav
         </div>}
         <div className="min-h-0 flex-1 overflow-y-auto">
           {!searchable ? <EmptyResults title="Add a word to search" body="Search needs at least one word, a “phrase” or source:." />
-            : search.isLoading ? <div className="space-y-px" aria-label="Loading">{[0, 1, 2, 3].map(index => <div key={index} className="space-y-2 border-b p-4"><Skeleton className="h-3 w-1/3" /><Skeleton className="h-4 w-4/5" /><Skeleton className="h-3 w-2/3" /></div>)}</div>
+            : search.isLoading ? <div className="space-y-px" role="status" aria-label="Loading">{[0, 1, 2, 3].map(index => <div key={index} className="space-y-2 border-b p-4"><Skeleton className="h-3 w-1/3" /><Skeleton className="h-4 w-4/5" /><Skeleton className="h-3 w-2/3" /></div>)}</div>
             : search.isError || allFailed ? <div role="alert" className="p-6 text-sm">
                 <p className="font-medium">{search.isError ? "Search didn’t work." : "News sources didn’t answer."}</p>
                 <p className="mt-1 text-muted-foreground">{search.isError ? message(search.error, "Try again in a moment.") : "Try again in a minute."}</p>

@@ -32,6 +32,7 @@ import {
   type InboxTab, type StoryFolder,
 } from "@shared/inbox-view";
 import type { PersonalTrend } from "@shared/article-quality";
+import { trackInbox } from "@/lib/inbox-analytics";
 
 const FOLDER_TITLES: Record<StoryFolder, { title: string; note: string }> = {
   inbox: { title: "For you", note: "" },
@@ -197,11 +198,12 @@ function StoryFolderView({ folder, tab, label }: Readonly<{ folder: StoryFolder;
   const open = useCallback((row: InboxRow) => {
     setSelectedId(row.id);
     setReadingOpen(true);
+    trackInbox("story_opened", { folder, tab });
     if (!row.readAt && !locallyRead.has(row.id)) {
       setLocallyRead(current => new Set(current).add(row.id));
       markRead.mutate(row.id);
     }
-  }, [locallyRead, markRead]);
+  }, [locallyRead, markRead, folder, tab]);
   useEffect(() => {
     if (!storyParam || openedStory.current === storyParam) return;
     const row = rows.find(item => item.id === storyParam);
@@ -344,7 +346,7 @@ function StoryFolderView({ folder, tab, label }: Readonly<{ folder: StoryFolder;
           <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" aria-label="Dismiss Tune your feed" onClick={() => storeCalibration("dismissed")}><X className="h-4 w-4" aria-hidden="true" /></Button>
         </div>}
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {loading ? <div className="space-y-px" aria-label="Loading">{[0, 1, 2, 3].map(index => <div key={index} className="space-y-2 border-b p-4"><Skeleton className="h-3 w-1/3" /><Skeleton className="h-4 w-4/5" /><Skeleton className="h-3 w-2/3" /></div>)}</div>
+          {loading ? <div className="space-y-px" role="status" aria-label="Loading">{[0, 1, 2, 3].map(index => <div key={index} className="space-y-2 border-b p-4"><Skeleton className="h-3 w-1/3" /><Skeleton className="h-4 w-4/5" /><Skeleton className="h-3 w-2/3" /></div>)}</div>
             : failed ? <div role="alert" className="p-6 text-sm"><p className="font-medium">This list could not be loaded.</p><Button variant="outline" className="mt-3" onClick={() => void (showSignals ? trends.refetch() : list.refetch())}>Try again</Button></div>
             : showSignals ? (signals.length ? <ul aria-label="Signals">{signals.map(trend => {
                 const isSelected = trend.topic === selectedSignal?.topic;

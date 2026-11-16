@@ -3,6 +3,7 @@ import path from "node:path";
 import { build } from "esbuild";
 import postcss from "postcss";
 import tailwindcss from "tailwindcss";
+import { axeViolations } from "../../../../test/axe";
 import { chromium, expect as browserExpect, type Browser, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import config from "../../../../tailwind.config";
@@ -140,6 +141,24 @@ describe("admin Industry moments page", { timeout: 30_000 }, () => {
       await page.getByRole("button", { name: "Upcoming" }).click();
       await browserExpect(rows(page)).toHaveCount(1);
       expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  });
+});
+
+describe("admin Industry moments accessibility (axe, WCAG 2.1 AA)", { timeout: 30_000 }, () => {
+  it("has no violations on the list or the new-moment dialog", async () => {
+    const { page } = await open(1280);
+    try {
+      await browserExpect(rows(page)).toHaveCount(1);
+      const found: Record<string, unknown> = {};
+      let violations = await axeViolations(page);
+      if (violations.length) found.list = violations;
+      await page.getByLabel("Change reason").fill("Accessibility check");
+      await page.getByRole("button", { name: "New moment" }).click();
+      await page.getByRole("dialog", { name: "New moment" }).waitFor();
+      violations = await axeViolations(page, '[role="dialog"]');
+      if (violations.length) found.dialog = violations;
+      expect(found).toEqual({});
     } finally { await page.close(); }
   });
 });

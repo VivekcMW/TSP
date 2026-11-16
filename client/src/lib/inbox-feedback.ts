@@ -3,6 +3,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { storeUndoSeconds } from "@/lib/linkedin-compose";
 import { INBOX_LIST_KEYS, inboxStatusKey, type InboxRow, type InboxStatus } from "@/lib/inbox-queries";
 import type { DismissReason, FeedbackLearned, FeedbackResult, FeedPreferenceRestore, FeedPreferencesChange, FeedPreferenceSkipped, FeedPreferencesReset, FeedPreferencesView } from "@shared/schema";
+import { trackInbox } from "@/lib/inbox-analytics";
 
 export const FEED_PREFERENCES_KEY = ["/api/feed-preferences"] as const;
 
@@ -20,14 +21,18 @@ const remember = <T extends { preferences: FeedPreferencesView }>(result: T): T 
 };
 
 export async function sendDismissFeedback(id: string, body: { reason: DismissReason; muteSource: boolean; lessAbout: string[] }): Promise<FeedbackResult> {
-  return remember(await (await apiRequest("POST", `/api/inbox/${encodeURIComponent(id)}/feedback`, body)).json() as FeedbackResult);
+  const result = remember(await (await apiRequest("POST", `/api/inbox/${encodeURIComponent(id)}/feedback`, body)).json() as FeedbackResult);
+  trackInbox("feedback_given", { reason: body.reason, muted: body.muteSource, less_about: body.lessAbout.length });
+  return result;
 }
 
 export type CalibrationVote = "relevant" | "not_relevant" | "skip";
 export interface CalibrationProposal { moreAbout: string[]; lessAbout: string[]; mute: string[] }
 
 export async function sendCalibration(votes: Array<{ id: string; vote: CalibrationVote }>, apply: CalibrationProposal): Promise<FeedbackResult> {
-  return remember(await (await apiRequest("POST", "/api/inbox/calibration", { votes, apply })).json() as FeedbackResult);
+  const result = remember(await (await apiRequest("POST", "/api/inbox/calibration", { votes, apply })).json() as FeedbackResult);
+  trackInbox("feed_tuned", { votes: votes.filter(vote => vote.vote !== "skip").length, changes: apply.moreAbout.length + apply.lessAbout.length + apply.mute.length });
+  return result;
 }
 
 /** Undo (compare-and-set: keys changed again elsewhere are kept and reported as skipped), or removes one learned item. */

@@ -4,6 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { IDEAS_KEY, refreshTopicQueries, updateIdeaState, withIdeaState } from "@/lib/strategy-queries";
 import type { IdeasResponse, IdeaState, RankedIdea, TopicIdea } from "@shared/topic-ideas";
+import { trackInbox } from "@/lib/inbox-analytics";
 
 const message = (error: unknown) => error instanceof Error && error.message ? error.message : "Try again.";
 type ActionableIdea = TopicIdea & { state?: RankedIdea["state"] };
@@ -28,6 +29,7 @@ export function useIdeaActions() {
       const story = idea.sourceStory;
       if (story) composer.openForStory({ id: story.inboxItemId, headline: story.headline, source: story.source, articleUrl: story.url }, false);
       else composer.openBlank(idea.angle);
+      trackInbox("idea_drafted", { kind: idea.kind, saved: idea.state === "saved" });
       if (idea.state !== "used") void change(idea, "used");
     },
     async toggleSave(idea: ActionableIdea) {
