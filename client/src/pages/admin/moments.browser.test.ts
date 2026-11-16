@@ -19,14 +19,20 @@ beforeAll(async () => {
       import { QueryClientProvider } from "@tanstack/react-query";
       import { queryClient } from "@/lib/queryClient";
       import Moments from "@/pages/admin/moments";
-      createRoot(document.getElementById("root")).render(<QueryClientProvider client={queryClient}><Moments /></QueryClientProvider>);
+      import { SidebarProvider } from "@/components/ui/sidebar";
+      import { AdminNavbar } from "@/components/admin/admin-navbar";
+      createRoot(document.getElementById("root")).render(<QueryClientProvider client={queryClient}>
+        <SidebarProvider><div className="flex min-w-0 flex-1 flex-col"><AdminNavbar /><Moments /></div></SidebarProvider>
+      </QueryClientProvider>);
     `, loader: "tsx", resolveDir: root },
     absWorkingDir: root, alias: { "@": path.join(root, "client/src"), "@shared": path.join(root, "shared") },
     bundle: true, write: false, format: "iife", jsx: "automatic", define: { "process.env.NODE_ENV": '"test"' },
     plugins: [{ name: "offline-auth-and-toasts", setup(builder) {
-      builder.onResolve({ filter: /^@\/lib\/dev-auth$|^@\/hooks\/use-toast$/ }, args => ({ path: args.path, namespace: "stub" }));
+      builder.onResolve({ filter: /^@\/lib\/dev-auth$|^@\/hooks\/use-toast$|^@\/lib\/auth$/ }, args => ({ path: args.path, namespace: "stub" }));
       builder.onLoad({ filter: /.*/, namespace: "stub" }, args => ({ loader: "js", contents: args.path.endsWith("dev-auth")
         ? "export const useIsSignedIn = () => true; export const devAuthEnabled = false;"
+        : args.path.endsWith("/auth")
+        ? "export const useAuth = () => ({ user: { firstName: 'Asha', lastName: 'Rao', email: 'hello@thesocialpundit.com' } }); export const signOut = async () => {};"
         : "export const useToast = () => ({ toast: toast => { (window.__toasts ||= []).push(toast); return { id: '1', dismiss() {}, update() {} }; } });" }));
     } }],
   });
@@ -57,6 +63,7 @@ async function open(width = 390) {
   await page.route("https://admin.test/api/**", route => {
     const request = route.request();
     const url = new URL(request.url());
+    if (url.pathname === "/api/me") return route.fulfill({ json: { id: "staff", email: "hello@thesocialpundit.com", firstName: "Asha", lastName: "Rao" } });
     if (url.pathname === "/api/admin/moments" && request.method() === "GET") {
       const filter = url.searchParams.get("filter");
       return route.fulfill({ json: moments.filter(row => filter === "archived" ? row.archived : !row.archived && (filter === "past") === (row.startsOn < "2026-11-16")) });
