@@ -16,6 +16,7 @@ import { invalidatePublishingQueries } from "@/lib/publishing";
 import { CREATE_TONES, type CreateTone } from "@/components/dashboard/create-post-state";
 import { useAppTourReporter, type TourOutcome } from "@/components/app-tour";
 import { LINKEDIN_STATUS_KEY, linkedInPostingState, type LinkedInConnectionStatus } from "@/lib/inbox-queries";
+import { UNDO_SECONDS_EVENT } from "@/lib/inbox-feedback";
 import {
   cancelLinkedInSchedule, approveLinkedInDraft, definitelyNotAdmitted, generationRequest, LINKEDIN_CHARACTER_LIMIT, nextMorning, postingOutcome, publishApprovedDraft, readUndoSeconds,
   saveLinkedInDraft, scheduleLabel, scheduleLinkedInDraft, storeUndoSeconds, toSavedDraft, UNDO_WINDOW_OPTIONS, type ComposeSource, type PostingResultKind, type SavedDraft,
@@ -81,6 +82,12 @@ function useComposerActions(onConnectLinkedIn: () => void) {
   const [composes, setComposes] = useState<Compose[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
   const [undoSeconds, setUndoSeconds] = useState(readUndoSeconds);
+  // Quick settings can change the window while compose windows are open.
+  useEffect(() => {
+    const sync = () => setUndoSeconds(readUndoSeconds());
+    window.addEventListener(UNDO_SECONDS_EVENT, sync);
+    return () => window.removeEventListener(UNDO_SECONDS_EVENT, sync);
+  }, []);
   const ref = useRef(composes);
   const pendingRef = useRef<{ pending: Pending; timer: ReturnType<typeof setInterval> } | null>(null);
   const saveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());

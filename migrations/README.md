@@ -251,3 +251,4 @@ create databases/roles/clusters or silently use the shared test database.
 
 - `0061_topic_discovery.sql` (Phase 3): FORCE-RLS `content_strategies` (one per member, `revision`), `experience_checkins` (one per member and Monday) and `topic_idea_states` (saved/dismissed/used by idea id, saved snapshot); opt-in DB test: `TOPIC_DISCOVERY_DB_TESTS=true`.
 - `0060_saved_searches.sql` (Phase 3A): FORCE-RLS `saved_searches` (followed news searches; unique per member on `lower(query)`, 25 per member enforced in the app, `last_viewed_at`); opt-in DB tests: `NEWS_SEARCH_DB_TESTS=true`.
+- `0062_triage_feedback.sql` (Phase 4): FORCE-RLS `inbox_feedback` ("Not relevant" reasons and calibration votes; item FK `ON DELETE SET NULL`, newest 500 per member kept by the app) and `feed_preferences` (one row per member: muted sources ≤100, keyword deltas in [-0.6, +0.4], `revision`) applied to future refreshes; opt-in DB test: `INBOX_FEEDBACK_DB_TESTS=true`.

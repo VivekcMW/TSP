@@ -1275,6 +1275,64 @@ export const topicIdeaStates = pgTable("topic_idea_states", {
 // ── Phase 3 (end) ──
 
 // ── Phase 4 — triage feedback: dismiss reasons, calibration (begin) ──
+export const INBOX_FEEDBACK_KINDS = ["dismiss", "calibration_up", "calibration_down"] as const;
+export type InboxFeedbackKind = typeof INBOX_FEEDBACK_KINDS[number];
+export const DISMISS_REASONS = ["not_my_topic", "wrong_audience", "untrusted_source", "old_news", "already_covered"] as const;
+export type DismissReason = typeof DISMISS_REASONS[number];
+/** Learned preferences stay small: keyword deltas multiply weights by (1 + delta). */
+export const FEED_PREFERENCE_LIMITS = { mutedSources: 100, keywordAdjustments: 100, minDelta: -0.6, maxDelta: 0.4, keyword: 100, source: 200 } as const;
+
+/** One "Not relevant" reason or calibration vote by one tenant member (migration 0062). */
+export const inboxFeedback = pgTable("inbox_feedback", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  inboxItemId: varchar("inbox_item_id").references(() => inboxItems.id, { onDelete: "set null" }),
+  kind: varchar("kind", { length: 20 }).$type<InboxFeedbackKind>().notNull(),
+  reason: varchar("reason", { length: 40 }).$type<DismissReason>(),
+  source: varchar("source", { length: 200 }),
+  keywords: jsonb("keywords").$type<string[]>().notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  index("idx_inbox_feedback_tenant_user_created").on(table.tenantId, table.userId, table.createdAt.desc()),
+  index("idx_inbox_feedback_item").on(table.inboxItemId).where(sql`${table.inboxItemId} is not null`),
+  check("inbox_feedback_kind", sql`${table.kind} in ('dismiss', 'calibration_up', 'calibration_down')`),
+  check("inbox_feedback_reason", sql`${table.reason} is null or ${table.reason} in ('not_my_topic', 'wrong_audience', 'untrusted_source', 'old_news', 'already_covered')`),
+  check("inbox_feedback_keywords", sql`jsonb_typeof(${table.keywords}) = 'array' and jsonb_array_length(${table.keywords}) <= 20`),
+]);
+
+/** What the feed has learned for one tenant member: muted sources and keyword weight deltas (migration 0062). */
+export const feedPreferences = pgTable("feed_preferences", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  mutedSources: jsonb("muted_sources").$type<string[]>().notNull().default([]),
+  keywordAdjustments: jsonb("keyword_adjustments").$type<Record<string, number>>().notNull().default({}),
+  revision: integer("revision").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  primaryKey({ columns: [table.tenantId, table.userId] }),
+  check("feed_preferences_muted_sources", sql`jsonb_typeof(${table.mutedSources}) = 'array' and jsonb_array_length(${table.mutedSources}) <= 100`),
+  check("feed_preferences_keyword_adjustments", sql`jsonb_typeof(${table.keywordAdjustments}) = 'object' and octet_length(${table.keywordAdjustments}::text) <= 32768`),
+]);
+
+export type InboxFeedback = typeof inboxFeedback.$inferSelect;
+export interface FeedPreferencesView { mutedSources: string[]; keywordAdjustments: Record<string, number>; revision: number; updatedAt: string | null }
+/**
+ * Compare-and-set undo: each changed key with its value before and after the change (keyword delta, null = none;
+ * muted or not per source). PATCH { restore } reverts a key only while it still holds `after`; newer values are kept.
+ */
+export interface FeedPreferenceRestore {
+  keywords: Record<string, { before: number | null; after: number | null }>;
+  sources: Record<string, { before: boolean; after: boolean }>;
+}
+/** Keys an undo left alone because they changed again elsewhere. */
+export interface FeedPreferenceSkipped { keywords: string[]; sources: string[] }
+export interface FeedbackLearned { moreAbout: string[]; lessAbout: string[]; muted: string[] }
+export interface FeedbackResult { feedbackIds: string[]; learned: FeedbackLearned; undo: FeedPreferenceRestore; preferences: FeedPreferencesView }
+/** PATCH /api/feed-preferences response. */
+export interface FeedPreferencesChange { preferences: FeedPreferencesView; skipped: FeedPreferenceSkipped }
+/** DELETE /api/feed-preferences response: the exact state the reset cleared (read under the row lock) and its undo. */
+export interface FeedPreferencesReset { preferences: FeedPreferencesView; previous: { mutedSources: string[]; keywordAdjustments: Record<string, number> }; undo: FeedPreferenceRestore }
 // ── Phase 4 (end) ──
 
 // ── Phase 5 — moments, digests, watchlist alerts (begin) ──

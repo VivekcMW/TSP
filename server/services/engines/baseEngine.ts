@@ -9,6 +9,8 @@ import { parseFeedContent } from "../universalFeedParser.js";
 import { scrapeWebpageArticles } from "../webpageScraper.js";
 import { getCachedArticles } from "./articleCache.js";
 import { scoreArticleRelevance } from "../articleRelevance.js";
+import { isMutedSource, mutedSourceKeys, type FeedPreferences } from "../feedbackWeights";
+import { inboxFeedbackRepository } from "../../repositories/inboxFeedback";
 import { freshnessMultiplier, type ArticleQuality, type PersonalTrend } from "@shared/article-quality";
 import { publicationDate } from "../articleDates";
 import { summarizeArticle } from "../articleSummary";
@@ -223,14 +225,26 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
     }
   }
 
+  /** What "Not relevant" feedback taught (muted sources, keyword deltas). Never a reason to fail a refresh. */
+  protected async loadFeedPreferences(scope: TenantScope): Promise<FeedPreferences> {
+    try {
+      return await inboxFeedbackRepository.load(scope);
+    } catch {
+      console.warn("[feed-preferences] unavailable for this refresh; ranking without them");
+      return { mutedSources: [], keywordAdjustments: {} };
+    }
+  }
+
   async scoreArticles(
     articles: FetchedArticle[],
     userProfile: UserProfile,
     now = Date.now(),
+    keywordAdjustments?: FeedPreferences["keywordAdjustments"],
   ): Promise<ScoredArticle[]> {
     const scored: Array<ScoredArticle & { rankingScore: number }> = [];
+    const learned = keywordAdjustments && Object.keys(keywordAdjustments).length ? { keywordAdjustments } : undefined;
     for (const article of articles) {
-      const relevance = scoreArticleRelevance(article, userProfile);
+      const relevance = learned ? scoreArticleRelevance(article, userProfile, learned) : scoreArticleRelevance(article, userProfile);
       scored.push({ ...article, ...relevance, rankingScore: relevance.relevanceScore * freshnessMultiplier(article.publicationDate?.publishedAt, now) });
       await yieldToEventLoop();
     }
@@ -264,6 +278,8 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
       // same locked persisted snapshot, not a potentially stale caller profile.
       const reservation = await this.reserveSearch(scope);
       const userProfile = reservation.profile;
+      const learned = await this.loadFeedPreferences(scope);
+      const muted = mutedSourceKeys(learned);
       const existingSources = await storage.getUserSources(scope);
       // The shared index learns every feed anyone picks. Never a reason to fail a refresh.
       await registerPublications(existingSources.filter(source => source.isActive)
@@ -319,14 +335,14 @@ export abstract class BaseIndustryEngine implements IIndustryEngine {
         (JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0));
       for (const article of fetched) {
         const canonical = canonicalHttpUrl(article.link);
-        if (!canonical || seen.has(canonical)) continue;
+        if (!canonical || seen.has(canonical) || isMutedSource(article.source, muted)) continue;
         seen.add(canonical);
         articles.push(article);
         if (articles.length >= INBOX_CANDIDATE_LIMIT) break;
       }
 
       const evaluatedAt = Date.now();
-      const scoredArticles = await this.offerOnlyReadable(await this.scoreArticles(articles, userProfile, evaluatedAt));
+      const scoredArticles = await this.offerOnlyReadable(await this.scoreArticles(articles, userProfile, evaluatedAt, learned.keywordAdjustments));
       // Pass the bounded RANKED pool, not its top ten: historical matches must
       // not consume quota or hide fresh candidates further down the ranking.
       const result = await storage.commitInboxRefresh(scope, operationId, autoRefresh, begin.snapshot,

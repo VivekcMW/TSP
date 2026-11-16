@@ -14,6 +14,8 @@ import { InlineCompose, useComposer, type Compose } from "@/components/inbox/com
 import { PostFolderView } from "@/components/inbox/post-folder-view";
 import { NewsSearchView } from "@/components/inbox/news-search-view";
 import { IdeasView } from "@/components/inbox/ideas-view";
+import { DismissReasonDialog, ToastActions } from "@/components/inbox/dismiss-reason-dialog";
+import { CalibrationDialog } from "@/components/inbox/calibration-dialog";
 import type { ComposeSource } from "@/lib/linkedin-compose";
 import { useInboxShell } from "@/components/inbox/inbox-shell";
 import { refreshJobMessage, useInboxRefreshJob } from "@/hooks/use-inbox-refresh-job";
@@ -21,6 +23,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { articleDateLabel } from "@/lib/article-date-label";
 import { relevanceSummary } from "@/lib/relevance-summary";
 import { ignoreInboxShortcut } from "@/lib/inbox-shortcuts";
+import { storeCalibration, useCalibration, useDensity, useReadingPane } from "@/lib/inbox-feedback";
 import { INBOX_LIST_KEYS, inboxStatusKey, inboxStatusQuery, recordVisitQuery, SNOOZED_KEY, snoozedQuery, type InboxRow, type InboxStatus } from "@/lib/inbox-queries";
 import { cn } from "@/lib/utils";
 import { DEFAULT_DISCOVER_FILTERS, filterDiscoverRows, isNew, sortDiscoverRows } from "@shared/discover";
@@ -94,7 +97,12 @@ function StoryFolderView({ folder, tab, label }: Readonly<{ folder: StoryFolder;
   const [readingOpen, setReadingOpen] = useState(false);
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
   const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
+  const [whyFor, setWhyFor] = useState<InboxRow | null>(null);
+  const [tuning, setTuning] = useState(false);
   const busy = useRef(false);
+  const compact = useDensity() === "compact";
+  const split = useReadingPane() === "right";
+  const calibration = useCalibration();
 
   useEffect(() => { setChecked(new Set()); setReadingOpen(false); }, [folder, tab, label]);
 
@@ -220,7 +228,12 @@ function StoryFolderView({ folder, tab, label }: Readonly<{ folder: StoryFolder;
         setChecked(current => new Set([...current].filter(id => !removed.has(id))));
         setReadingOpen(false);
       }
-      const undo = undoable && done.length ? { action: <ToastAction altText="Undo" onClick={() => void triage(done, from, false, snoozes)}>Undo</ToastAction> } : {};
+      const undoMove = () => void triage(done, from, false, snoozes);
+      // A single story marked Not relevant can say why; bulk moves never ask.
+      const asked = to === "dismissed" && undoable && ids.length === 1 && done.length === 1 && !failure ? (list.data ?? []).find(row => row.id === done[0]) : undefined;
+      const undo = undoable && done.length ? { action: asked
+        ? <ToastActions onClick={undoMove} extra={{ label: "Why?", altText: "Tell us why this is not relevant", onClick: () => setWhyFor(asked) }} />
+        : <ToastAction altText="Undo" onClick={undoMove}>Undo</ToastAction> } : {};
       // One toast only (the toaster shows one at a time): a partial failure must keep Undo for what moved.
       if (failure) toast({ title: done.length ? `Moved ${done.length} of ${ids.length}` : "Couldn't move the story", description: failure, variant: "destructive", ...undo });
       else if (done.length) toast({ title: done.length > 1 ? `${MOVE_LABEL[to]}: ${done.length} stories` : MOVE_LABEL[to], ...undo });
@@ -273,10 +286,12 @@ function StoryFolderView({ folder, tab, label }: Readonly<{ folder: StoryFolder;
   const refreshing = refresh.isLoading;
   const refreshMessage = refresh.status !== "idle" ? refreshJobMessage(refresh) : "";
   const count = showSignals ? signals.length : rows.length;
+  const activeCount = folder === "inbox" ? (list.data ?? []).filter(item => item.status === "active").length : 0;
+  const offerTuning = folder === "inbox" && !showSignals && calibration === "none" && activeCount >= 5;
 
   return (
     <main className="flex h-full min-h-0" aria-label={FOLDER_TITLES[folder].title}>
-      <section aria-label={`${FOLDER_TITLES[folder].title} list`} data-inbox-list className={cn("min-h-0 min-w-0 flex-col border-r lg:flex lg:w-[min(46%,36rem)] lg:shrink-0", readingOpen ? "hidden" : "flex w-full")}>
+      <section aria-label={`${FOLDER_TITLES[folder].title} list`} data-inbox-list className={cn("min-h-0 min-w-0 flex-col", split && "border-r lg:flex lg:w-[min(46%,36rem)] lg:shrink-0", readingOpen ? "hidden" : "flex w-full")}>
         <div className="flex h-12 shrink-0 items-center gap-1 border-b px-2" aria-label="List actions">
           {!showSignals && <span className="flex h-10 w-10 items-center justify-center">
             <Checkbox aria-label="Select all" checked={allChecked ? true : checkedIds.length ? "indeterminate" : false} disabled={!rows.length}
@@ -313,6 +328,11 @@ function StoryFolderView({ folder, tab, label }: Readonly<{ folder: StoryFolder;
             </button>)}
           </div>
         ) : <p className="shrink-0 border-b px-4 py-2.5 text-xs text-muted-foreground">{FOLDER_TITLES[folder].note}</p>}
+        {offerTuning && <div role="region" aria-label="Tune your feed" className="flex shrink-0 items-center gap-2 border-b bg-primary/5 py-2 pl-4 pr-2 text-sm" data-testid="banner-tune-feed">
+          <p className="min-w-0 flex-1">Tune your feed in 30 seconds. Rate a few stories and we’ll show more of what fits.</p>
+          <Button size="sm" onClick={() => setTuning(true)} data-testid="button-start-tuning">Start</Button>
+          <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" aria-label="Dismiss Tune your feed" onClick={() => storeCalibration("dismissed")}><X className="h-4 w-4" aria-hidden="true" /></Button>
+        </div>}
         <div className="min-h-0 flex-1 overflow-y-auto">
           {loading ? <div className="space-y-px" aria-label="Loading">{[0, 1, 2, 3].map(index => <div key={index} className="space-y-2 border-b p-4"><Skeleton className="h-3 w-1/3" /><Skeleton className="h-4 w-4/5" /><Skeleton className="h-3 w-2/3" /></div>)}</div>
             : failed ? <div role="alert" className="p-6 text-sm"><p className="font-medium">This list could not be loaded.</p><Button variant="outline" className="mt-3" onClick={() => void (showSignals ? trends.refetch() : list.refetch())}>Try again</Button></div>
@@ -326,12 +346,12 @@ function StoryFolderView({ folder, tab, label }: Readonly<{ folder: StoryFolder;
                   </button>
                 </li>;
               })}</ul> : <EmptyList title="No signals yet" body="Signals appear when at least two newly discovered articles share a topic this week." />)
-            : rows.length ? <ul aria-label="Stories">{rows.map(row => {
+            : rows.length ? <ul aria-label="Stories" data-density={compact ? "compact" : "comfortable"}>{rows.map(row => {
                 const unread = !row.readAt && !locallyRead.has(row.id);
                 const isSelected = row.id === selected?.id;
                 const snippet = relevanceSummary(row) ?? row.summary ?? "";
                 const returns = snoozedFolder ? snoozedUntil(row) : null;
-                return <li key={row.id} className={cn("group relative grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-x-1 border-b py-2.5 pl-1 pr-3 transition-shadow hover:z-[1] hover:shadow-sm", unread ? "bg-card" : "bg-muted/30", isSelected && "bg-primary/5 shadow-[inset_3px_0_0_hsl(var(--primary))]")}>
+                return <li key={row.id} className={cn("group relative grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-x-1 border-b pl-1 pr-3 transition-shadow", compact ? "py-1" : "py-2.5", "hover:z-[1] hover:shadow-sm", unread ? "bg-card" : "bg-muted/30", isSelected && "bg-primary/5 shadow-[inset_3px_0_0_hsl(var(--primary))]")}>
                   <span className="flex h-8 w-9 items-center justify-center"><Checkbox aria-label={`Select ${row.headline}`} checked={checked.has(row.id)} onCheckedChange={value => setChecked(current => { const next = new Set(current); if (value === true) next.add(row.id); else next.delete(row.id); return next; })} /></span>
                   <button type="button" className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted" aria-pressed={status === "saved"}
                     aria-label={status === "saved" ? `Move ${row.headline} back to For you` : `Save ${row.headline} to Shortlist`} onClick={() => void triage([row.id], shortlistTarget)}>
@@ -346,10 +366,10 @@ function StoryFolderView({ folder, tab, label }: Readonly<{ folder: StoryFolder;
                         : <span className={cn("whitespace-nowrap text-xs tabular-nums", ROW_TOOLS_COVER, unread ? "font-semibold text-foreground" : "text-muted-foreground")}>{inboxTimeLabel(row)}</span>}
                     </span>
                     <span className={cn("mt-0.5 block truncate text-sm", unread && "font-semibold")}>{row.headline}</span>
-                    <span className="mt-0.5 flex min-w-0 items-center gap-1.5">
+                    {!compact && <span className="mt-0.5 flex min-w-0 items-center gap-1.5">
                       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{snippet}</span>
                       {(row.matchedKeywords ?? []).slice(0, 1).map(keyword => <span key={keyword} className="shrink-0 rounded border px-1.5 text-[11px] font-medium">{keyword}</span>)}
-                    </span>
+                    </span>}
                   </button>
                   <div className={cn("absolute right-2 top-1.5 hidden items-center gap-0.5 rounded-md border bg-card p-0.5 shadow-sm", ROW_TOOLS_SHOW)}>
                     <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Draft my take on ${row.headline}`} onClick={() => draft(row)}><Reply className="h-4 w-4" aria-hidden="true" /></Button>
@@ -375,17 +395,19 @@ function StoryFolderView({ folder, tab, label }: Readonly<{ folder: StoryFolder;
         </div>
       </section>
 
-      <section aria-label="Reading pane" className={cn("min-h-0 min-w-0 flex-1 flex-col lg:flex", readingOpen ? "flex" : "hidden")}>
-        {showSignals ? (selectedSignal ? <SignalPane trend={selectedSignal} onBack={() => setReadingOpen(false)} onStories={() => navigate(inboxHref({ folder: "inbox", tab: "stories", label: selectedSignal.topic }))}
+      <section aria-label="Reading pane" className={cn("min-h-0 min-w-0 flex-1 flex-col", split && "lg:flex", readingOpen ? "flex" : "hidden")}>
+        {showSignals ? (selectedSignal ? <SignalPane trend={selectedSignal} split={split} onBack={() => setReadingOpen(false)} onStories={() => navigate(inboxHref({ folder: "inbox", tab: "stories", label: selectedSignal.topic }))}
             onDraft={() => { const links = new Set(selectedSignal.articles.map(article => article.link)); const story = (list.data ?? []).find(item => links.has(item.articleUrl)); if (story) composer.openForStory(sourceOf(story), false); else composer.openBlank(selectedSignal.topic); }} />
           : <EmptyPane />)
-          : selected ? <StoryPane row={selected} status={status} compose={composer.inlineFor(selected.id)} onBack={() => setReadingOpen(false)} onDraft={() => draft(selected)}
+          : selected ? <StoryPane row={selected} status={status} split={split} compose={composer.inlineFor(selected.id)} onBack={() => setReadingOpen(false)} onDraft={() => draft(selected)}
               onShortlist={() => void triage([selected.id], shortlistTarget)} onDismiss={() => void triage([selected.id], "dismissed")} onRestore={() => void triage([selected.id], "active")}
               read={Boolean(selected.readAt || locallyRead.has(selected.id))} onMarkUnread={() => void markUnread([selected.id])}
               snooze={canSnooze ? { until: snoozedFolder ? snoozedUntil(selected) : null, menuOpen: snoozeMenuOpen, onMenuOpenChange: setSnoozeMenuOpen,
                 onSnooze: until => snooze([selected.id], until), onUnsnooze: () => unsnooze([selected.id]) } : undefined} />
           : <EmptyPane />}
       </section>
+      <DismissReasonDialog story={whyFor} onClose={() => setWhyFor(null)} />
+      {folder === "inbox" && <CalibrationDialog open={tuning} onOpenChange={setTuning} />}
     </main>
   );
 }
@@ -450,15 +472,15 @@ function EmptyPane() {
 
 interface PaneSnooze { until: Date | null; menuOpen: boolean; onMenuOpenChange: (open: boolean) => void; onSnooze: (until: Date) => void; onUnsnooze: () => void }
 
-function StoryPane({ row, status, compose, onBack, onDraft, onShortlist, onDismiss, onRestore, read, onMarkUnread, snooze }: Readonly<{
-  row: InboxRow; status: InboxStatus; compose?: Compose; onBack: () => void; onDraft: () => void; onShortlist: () => void; onDismiss: () => void; onRestore: () => void;
+function StoryPane({ row, status, split, compose, onBack, onDraft, onShortlist, onDismiss, onRestore, read, onMarkUnread, snooze }: Readonly<{
+  row: InboxRow; status: InboxStatus; split: boolean; compose?: Compose; onBack: () => void; onDraft: () => void; onShortlist: () => void; onDismiss: () => void; onRestore: () => void;
   read: boolean; onMarkUnread: () => void; snooze?: PaneSnooze;
 }>) {
   const why = relevanceSummary(row);
   const keywords = row.matchedKeywords ?? [];
   return <>
     <div className="flex h-12 shrink-0 items-center gap-1 border-b px-2" aria-label="Story actions">
-      <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Back to list" onClick={onBack}><ArrowLeft className="h-4 w-4" aria-hidden="true" /></Button>
+      <Button variant="ghost" size="icon" className={cn(split && "lg:hidden")} aria-label="Back to list" onClick={onBack}><ArrowLeft className="h-4 w-4" aria-hidden="true" /></Button>
       <Button variant="ghost" size="icon" aria-pressed={status === "saved"} aria-label={status === "saved" ? "Move back to For you" : "Save to Shortlist"} onClick={onShortlist}>
         <Star className={cn("h-4 w-4", status === "saved" && "fill-warning text-warning")} aria-hidden="true" />
       </Button>
@@ -501,10 +523,10 @@ function StoryPane({ row, status, compose, onBack, onDraft, onShortlist, onDismi
   </>;
 }
 
-function SignalPane({ trend, onBack, onStories, onDraft }: Readonly<{ trend: PersonalTrend; onBack: () => void; onStories: () => void; onDraft: () => void }>) {
+function SignalPane({ trend, split, onBack, onStories, onDraft }: Readonly<{ trend: PersonalTrend; split: boolean; onBack: () => void; onStories: () => void; onDraft: () => void }>) {
   return <>
     <div className="flex h-12 shrink-0 items-center gap-1 border-b px-2">
-      <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Back to list" onClick={onBack}><ArrowLeft className="h-4 w-4" aria-hidden="true" /></Button>
+      <Button variant="ghost" size="icon" className={cn(split && "lg:hidden")} aria-label="Back to list" onClick={onBack}><ArrowLeft className="h-4 w-4" aria-hidden="true" /></Button>
       <span className="ml-1 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><TrendingUp className="h-4 w-4" aria-hidden="true" />Signal from your sources</span>
     </div>
     <article className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">

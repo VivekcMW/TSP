@@ -2,6 +2,7 @@ import { normalizeKeywords, type KeywordInput } from "@shared/profile-preference
 import type { FetchedArticle } from "./engines/types.js";
 import type { TextEvidence } from "@shared/article-quality";
 import { DOMAIN_CONCEPTS } from "./articleConcepts";
+import { FEED_PREFERENCE_LIMITS } from "@shared/schema";
 
 /** Service limits also accommodate older profiles with more than 20 selections. */
 export const RELEVANCE_LIMITS = { title: 2000, content: 100_000, signalsPerType: 100, term: 100 } as const;
@@ -82,6 +83,17 @@ function fieldWords(text: string, limit: number): Array<{ word: string; start: n
 const topicWords = (label: string) => [...new Set((label.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
   .map(stem).filter(word => !STOPWORDS.has(word)))];
 
+/** Learned feedback (label → delta in [-0.6, 0.4]) as evidence weight factors; undefined when there is none. */
+function learnedFactors(adjustments: Readonly<Record<string, number>> | undefined): Map<string, number> | undefined {
+  if (!adjustments || typeof adjustments !== "object") return undefined;
+  const factors = new Map<string, number>();
+  for (const [label, delta] of Object.entries(adjustments).slice(0, FEED_PREFERENCE_LIMITS.keywordAdjustments)) {
+    if (label.length > RELEVANCE_LIMITS.term || typeof delta !== "number" || !Number.isFinite(delta) || delta === 0) continue;
+    factors.set(normalizeText(label), 1 + Math.min(FEED_PREFERENCE_LIMITS.maxDelta, Math.max(FEED_PREFERENCE_LIMITS.minDelta, delta)));
+  }
+  return factors.size ? factors : undefined;
+}
+
 function noMatch(relevanceReason: string): ArticleRelevance {
   return { relevanceScore: 0, matchedKeywords: [], relevanceReason, evidence: [] };
 }
@@ -127,7 +139,7 @@ function collectSignals(profile: RelevanceProfile): Map<string, Signal> {
 export function scoreArticleRelevance(
   article: Pick<FetchedArticle, "title" | "content" | "userSourceProvenance">,
   profile: RelevanceProfile,
-  options: { mode?: "exact" | "concept" } = {},
+  options: { mode?: "exact" | "concept"; keywordAdjustments?: Readonly<Record<string, number>> } = {},
 ): ArticleRelevance {
   let signals: Map<string, Signal>;
   try {
@@ -137,6 +149,7 @@ export function scoreArticleRelevance(
   }
 
   const expanded = options.mode !== "exact";
+  const learned = learnedFactors(options.keywordAdjustments);
   const disabled = new Set(normalizeKeywords((profile.keywords ?? []).map(boundedKeyword)).filter(k => k.weight === 0)
     .map(k => normalizeText(k.keyword)));
   const conceptDisabled = (concept: typeof DOMAIN_CONCEPTS[number]) => [concept.label, ...concept.aliases].some(a => disabled.has(normalizeText(a)));
@@ -214,6 +227,9 @@ export function scoreArticleRelevance(
       if (!match) return [];
       if (concept) usedConcepts.add(concept.id);
       if ((signal.type === "company" || signal.type === "influencer") && hasTitle && match.field === "content") weight = signal.weight * NAME_OUTSIDE_HEADLINE_FACTOR;
+      // Learned "more/less about" scales the evidence; a boost never lifts a weight above 1.
+      const factor = learned?.get(normalizeText(signal.label));
+      if (factor !== undefined) weight = factor > 1 ? Math.max(weight, Math.min(1, weight * factor)) : weight * factor;
       return [{ ...signal, ...match, weight, matchKind, ...(concept ? { concept: concept.id } : {}) }];
     });
   // Focus alone requires two informative domain concepts. No common-word filler.

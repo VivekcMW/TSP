@@ -124,6 +124,8 @@ describe("the database enforces isolation without help from the query", () => {
       "drafts",
       "engine_run_logs",
       "experience_checkins",
+      "feed_preferences",
+      "inbox_feedback",
       "inbox_items",
       "inbox_reads",
       "inbox_refresh_receipts",

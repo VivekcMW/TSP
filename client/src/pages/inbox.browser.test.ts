@@ -55,7 +55,11 @@ beforeAll(async () => {
         window.__calls.push({ url, method, body });
         const byStatus = status => window.__records.filter(item => item.status === status);
         if (url === "/api/me") return json({ id: "user", firstName: "Reader", lastName: "One", email: "reader@test" });
-        if (url === "/api/profile") return json({ userId: "user", tenantId: "tenant", focusDescription: "I advise D2C brands on retail media.", keywords: [{ keyword: "Retail media", weight: 0.9 }], requirePublishReview: true, defaultTone: "professional" });
+        if (url === "/api/profile" && method === "PATCH") {
+          if (window.__failProfile) return new Response(JSON.stringify({ message: "Profile could not be saved." }), { status: 503, headers: { "Content-Type": "application/json" } });
+          window.__profile = { ...window.__profile, ...body };
+        }
+        if (url === "/api/profile") return json({ userId: "user", tenantId: "tenant", focusDescription: "I advise D2C brands on retail media.", keywords: [{ keyword: "Retail media", weight: 0.9 }], requirePublishReview: true, defaultTone: "professional", ...window.__profile });
         if (url === "/api/integrations/linkedin/status") return json(window.__linkedin ?? { provider: "linkedin", connected: true, assessment: { canPublish: true, status: "connected" } });
         if (method === "POST" && /^\\/api\\/instant-review\\/(manual|selected)$/.test(url)) return json({ posts: { linkedin: { [body.tones[0]]: "Generated LinkedIn post about " + (body.title || body.url) } } });
         const draftId = url.match(/^\\/api\\/drafts\\/([^/?]+)/)?.[1];
@@ -111,6 +115,50 @@ beforeAll(async () => {
           if (window.__capacityFull && body.status === "active") return new Response(JSON.stringify({ message: "For you is full. Dismiss a story first." }), { status: 409, headers: { "Content-Type": "application/json" } });
           window.__records = window.__records.map(item => item.id === patch[1] ? { ...item, status: body.status, snoozedUntil: item.status === body.status ? item.snoozedUntil : null } : item);
           return json(window.__records.find(item => item.id === patch[1]));
+        }
+        // Phase 4: feedback, calibration, feed preferences and quick settings.
+        const prefs = () => window.__prefs ?? (window.__prefs = { mutedSources: [], keywordAdjustments: {}, revision: 0, updatedAt: null });
+        // Same compare-and-set undo contract as the server: { before, after } per key, reverted only while it still holds after.
+        const learn = (lessAbout, moreAbout, mute) => {
+          const current = prefs(), undo = { keywords: {}, sources: {} };
+          for (const [list, step] of [[lessAbout, -0.2], [moreAbout, 0.1]]) for (const keyword of list) {
+            const before = current.keywordAdjustments[keyword] ?? null;
+            current.keywordAdjustments[keyword] = Math.round(((before ?? 0) + step) * 1000) / 1000;
+            undo.keywords[keyword] = { before, after: current.keywordAdjustments[keyword] };
+          }
+          for (const source of mute) if (!current.mutedSources.includes(source)) { undo.sources[source] = { before: false, after: true }; current.mutedSources = [...current.mutedSources, source]; }
+          current.revision++;
+          return { feedbackIds: ["fb" + window.__calls.length], learned: { moreAbout, lessAbout, muted: Object.keys(undo.sources) }, undo, preferences: current };
+        };
+        const feedback = url.match(/^\\/api\\/inbox\\/([^/]+)\\/feedback$/);
+        if (method === "POST" && feedback) return json(learn(body.lessAbout, [], body.muteSource ? [window.__records.find(item => item.id === feedback[1]).source] : []));
+        if (method === "POST" && url === "/api/inbox/calibration") return json(learn(body.apply.lessAbout, body.apply.moreAbout, body.apply.mute));
+        if (url === "/api/feed-preferences" && method === "GET") return json(prefs());
+        if (url === "/api/feed-preferences" && method === "DELETE") {
+          const { mutedSources, keywordAdjustments, revision } = prefs();
+          window.__prefs = { mutedSources: [], keywordAdjustments: {}, revision: revision + 1, updatedAt: null };
+          const undo = { keywords: Object.fromEntries(Object.entries(keywordAdjustments).map(([keyword, before]) => [keyword, { before, after: null }])),
+            sources: Object.fromEntries(mutedSources.map(source => [source, { before: true, after: false }])) };
+          return json({ preferences: window.__prefs, previous: { mutedSources, keywordAdjustments }, undo });
+        }
+        if (url === "/api/feed-preferences" && method === "PATCH") {
+          const current = prefs(), skipped = { keywords: [], sources: [] };
+          const restore = body.restore ?? (body.unmuteSource ? { keywords: {}, sources: { [body.unmuteSource]: { before: false, after: true } } }
+            : { keywords: { [body.resetKeyword]: { before: null, after: current.keywordAdjustments[body.resetKeyword] ?? null } }, sources: {} });
+          for (const [keyword, { before, after }] of Object.entries(restore.keywords)) {
+            if ((current.keywordAdjustments[keyword] ?? null) !== after) { skipped.keywords.push(keyword); continue; }
+            if (before === null) delete current.keywordAdjustments[keyword]; else current.keywordAdjustments[keyword] = before;
+          }
+          for (const [source, { before, after }] of Object.entries(restore.sources)) {
+            if (current.mutedSources.includes(source) !== after) { skipped.sources.push(source); continue; }
+            current.mutedSources = before ? [...current.mutedSources, source] : current.mutedSources.filter(item => item !== source);
+          }
+          current.revision++;
+          return json({ preferences: current, skipped });
+        }
+        if (url === "/api/email-preferences") {
+          if (method === "PATCH") window.__email = { ...window.__email, ...body };
+          return json({ dailyDigest: true, ...window.__email });
         }
         throw new Error("Unexpected request " + method + " " + url);
       };
@@ -611,3 +659,205 @@ describe("Review regressions", () => {
     expect((await lastToast()).title).toBe("Started a new post with this note");
   });
 });
+
+describe("Triage feedback, Tune your feed and Quick settings", () => {
+  type Toast = { title?: string; description?: string; action?: { props: { onClick: () => void; extra?: { label: string; onClick: () => void } } } };
+  const lastToast = (): Promise<Toast> => page.evaluate(() => {
+    const toast = (window as any).__toasts.at(-1);
+    return { title: toast?.title, description: toast?.description, action: toast?.action && { props: { onClick: null, extra: toast.action.props.extra && { label: toast.action.props.extra.label } } } };
+  });
+  const clickToast = (which: "undo" | "extra") => page.evaluate(which => {
+    const props = (window as any).__toasts.at(-1).action.props;
+    (which === "undo" ? props.onClick : props.extra.onClick)();
+  }, which);
+  const why = () => page.getByRole("dialog", { name: "Why isn’t this relevant?" });
+  const tagged = records.map(item => item.id === "b1" ? { ...item, matchedKeywords: ["CTV"] } : item.id === "c1" ? { ...item, matchedKeywords: ["Crypto"] } : item);
+
+  it("asks Why? after a single Not relevant, learns less about the topic and Undo reverts only that", async () => {
+    await mount("/dashboard?tab=stories");
+    await page.getByTestId("row-inbox-a1").click();
+    await page.keyboard.press("e");
+    await browserExpect(page.getByTestId("row-inbox-a1")).toHaveCount(0);
+    expect(await lastToast()).toMatchObject({ title: "Marked not relevant", action: { props: { extra: { label: "Why?" } } } });
+    await clickToast("extra");
+    await browserExpect(why()).toBeVisible();
+    await browserExpect(why().getByRole("button", { name: "Send" })).toBeDisabled();
+    await why().getByRole("radio", { name: "Not my topic" }).check();
+    await browserExpect(why().getByRole("checkbox", { name: "Less about Retail media" })).toBeChecked();
+    await browserExpect(why().getByRole("checkbox", { name: "Mute Wire Daily" })).not.toBeChecked();
+    await why().getByRole("button", { name: "Send" }).click();
+    await browserExpect(why()).toHaveCount(0);
+    const [sent] = await calls("POST", /\/api\/inbox\/a1\/feedback$/);
+    expect(sent.body).toEqual({ reason: "not_my_topic", muteSource: false, lessAbout: ["Retail media"] });
+    expect((await lastToast()).title).toBe("Got it: less about Retail media");
+
+    await clickToast("undo");
+    await expect.poll(async () => (await calls("PATCH", /^\/api\/feed-preferences$/)).length).toBe(1);
+    const [undo] = await calls("PATCH", /^\/api\/feed-preferences$/);
+    expect(undo.body).toEqual({ restore: { keywords: { "Retail media": { before: null, after: -0.2 } }, sources: {} }, feedbackId: expect.stringMatching(/^fb/) });
+    await expect.poll(async () => (await lastToast()).title).toBe("Change undone");
+    expect((await lastToast()).description).toBeUndefined();
+    // Undo reverts what was learned; the story stays in Not relevant.
+    expect((await calls("PATCH", /\/api\/inbox\/a1$/)).map(call => call.body?.status)).toEqual(["dismissed"]);
+
+    await page.getByRole("checkbox", { name: "Select c1 headline" }).click();
+    await page.getByRole("checkbox", { name: "Select d1 headline" }).click();
+    await page.getByRole("button", { name: "Mark selected not relevant" }).click();
+    await expect.poll(async () => (await lastToast()).title).toBe("Marked not relevant: 2 stories");
+    expect((await lastToast()).action?.props.extra).toBeUndefined();
+  });
+
+  it("Undo keeps a newer value for the same topic set in another tab, and says so", async () => {
+    await mount("/dashboard?tab=stories");
+    await page.getByTestId("row-inbox-a1").click();
+    await page.keyboard.press("e");
+    await clickToast("extra");
+    await why().getByRole("radio", { name: "Not my topic" }).check();
+    await why().getByRole("button", { name: "Send" }).click();
+    await expect.poll(async () => (await lastToast()).title).toBe("Got it: less about Retail media");
+    // Another tab lowers the same topic again before this tab's Undo.
+    await page.evaluate(() => { (window as any).__prefs.keywordAdjustments["Retail media"] = -0.4; });
+    await clickToast("undo");
+    await expect.poll(async () => (await lastToast()).description).toBe("Some changes were kept because they were updated elsewhere.");
+    expect(await page.evaluate(() => (window as any).__prefs.keywordAdjustments)).toEqual({ "Retail media": -0.4 });
+  });
+
+  it("mutes a source from Why? and offers to move its other For you stories, with Undo", async () => {
+    await mount("/dashboard?tab=stories");
+    await page.getByTestId("row-inbox-a2").click();
+    await page.getByLabel("Story actions").getByRole("button", { name: "Mark not relevant" }).click();
+    await browserExpect(page.getByTestId("row-inbox-a2")).toHaveCount(0);
+    await clickToast("extra");
+    await why().getByRole("radio", { name: "Don't trust this source" }).check();
+    await browserExpect(why().getByRole("checkbox", { name: "Mute Wire Daily" })).toBeChecked();
+    await why().getByRole("button", { name: "Send" }).click();
+    await expect.poll(async () => (await lastToast()).title).toBe("Got it: Wire Daily muted");
+    expect((await calls("POST", /\/api\/inbox\/a2\/feedback$/))[0].body).toEqual({ reason: "untrusted_source", muteSource: true, lessAbout: [] });
+    expect(await lastToast()).toMatchObject({ description: "1 more story from Wire Daily in For you.", action: { props: { extra: { label: "Move them" } } } });
+
+    await clickToast("extra");
+    await browserExpect(page.getByTestId("row-inbox-a1")).toHaveCount(0);
+    await expect.poll(async () => (await lastToast()).title).toBe("Moved 1 story to Not relevant");
+    await clickToast("undo");
+    await browserExpect(page.getByTestId("row-inbox-a1")).toHaveCount(1);
+    expect((await calls("PATCH", /\/api\/inbox\/a1$/)).map(call => call.body?.status)).toEqual(["dismissed", "active"]);
+  });
+
+  it("tunes the feed from the For you banner with the keyboard, changing nothing until Apply", async () => {
+    await mount("/dashboard", { records: tagged });
+    await page.getByTestId("button-start-tuning").click();
+    const dialog = page.getByRole("dialog", { name: "Tune your feed" });
+    await browserExpect(dialog.getByTestId("calibration-story")).toContainText("a1 headline");
+    await browserExpect(dialog.getByText("1 of 7")).toBeVisible();
+    await browserExpect(dialog.getByRole("progressbar", { name: "Stories rated" })).toHaveAttribute("aria-valuenow", "0");
+    for (const key of ["ArrowRight", "ArrowLeft", "2", "Space", "1", "Space"]) await page.keyboard.press(key);
+    await browserExpect(dialog.getByTestId("calibration-story")).toContainText("a2 headline");
+    await dialog.getByRole("button", { name: "Skip" }).click();
+
+    await browserExpect(dialog.getByRole("checkbox", { name: "More about Retail media" })).toBeChecked();
+    await browserExpect(dialog.getByRole("checkbox", { name: "Less about CTV" })).toBeChecked();
+    await browserExpect(dialog.getByRole("checkbox", { name: "Mute Ad Brief?" })).not.toBeChecked();
+    // A repeated Space after the last story must not apply anything.
+    await page.keyboard.press("Space");
+    await browserExpect(dialog.getByRole("checkbox", { name: "More about Retail media" })).toBeChecked();
+    expect(await calls("POST", /calibration$/)).toEqual([]);
+    await dialog.getByRole("checkbox", { name: "Less about Crypto" }).click();
+    await dialog.getByRole("checkbox", { name: "Mute Ad Brief?" }).click();
+    await dialog.getByRole("button", { name: "Apply" }).click();
+    await browserExpect(dialog).toHaveCount(0);
+
+    const [applied] = await calls("POST", /^\/api\/inbox\/calibration$/);
+    expect(applied.body).toEqual({
+      votes: [{ id: "a1", vote: "relevant" }, { id: "b1", vote: "not_relevant" }, { id: "c1", vote: "not_relevant" }, { id: "d1", vote: "skip" },
+        { id: "e1", vote: "relevant" }, { id: "f1", vote: "skip" }, { id: "a2", vote: "skip" }],
+      apply: { moreAbout: ["Retail media"], lessAbout: ["CTV"], mute: ["Ad Brief"] },
+    });
+    expect(await lastToast()).toMatchObject({ title: "Got it: more about Retail media; less about CTV; Ad Brief muted", description: "1 more story from Ad Brief in For you." });
+    await browserExpect(page.getByTestId("banner-tune-feed")).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem("tsp:feed-calibration"))).toBe("done");
+  });
+
+  it("hides the banner when dismissed or with fewer than five stories", async () => {
+    await mount("/dashboard", { records: records.filter(item => ["a1", "b1", "c1", "d1"].includes(item.id)) });
+    await browserExpect(rows()).toHaveCount(4);
+    await browserExpect(page.getByTestId("banner-tune-feed")).toHaveCount(0);
+    await page.close();
+    await mount();
+    await page.getByRole("button", { name: "Dismiss Tune your feed" }).click();
+    await browserExpect(page.getByTestId("banner-tune-feed")).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem("tsp:feed-calibration"))).toBe("dismissed");
+  });
+
+  it("applies density, reading pane and the post undo window from Quick settings immediately", async () => {
+    await mount("/dashboard?tab=stories");
+    await page.getByTestId("button-quick-settings").click();
+    const settings = page.getByTestId("quick-settings");
+    await settings.getByRole("group", { name: "Density" }).getByRole("button", { name: "Compact" }).click();
+    await browserExpect(page.locator('ul[data-density="compact"]')).toBeVisible();
+    await browserExpect(page.getByText("c1 summary")).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem("tsp:inbox-density"))).toBe("compact");
+
+    await settings.getByRole("group", { name: "Reading pane" }).getByRole("button", { name: "Off" }).click();
+    await browserExpect(page.getByRole("region", { name: "Reading pane" })).toBeHidden();
+    await page.getByTestId("row-inbox-c1").click();
+    await browserExpect(page.getByTestId("text-headline-c1")).toBeVisible();
+    await browserExpect(rows().first()).toBeHidden();
+    await page.getByRole("button", { name: "Back to list" }).click();
+    await browserExpect(rows().first()).toBeVisible();
+    await settings.getByRole("group", { name: "Reading pane" }).getByRole("button", { name: "Right of list" }).click();
+    await browserExpect(page.getByTestId("text-headline-c1")).toBeVisible();
+
+    await settings.getByRole("group", { name: "Undo window for posts" }).getByRole("button", { name: "30s" }).click();
+    expect(await page.evaluate(() => localStorage.getItem("tsp:post-undo-seconds"))).toBe("30");
+    await page.getByTestId("button-inbox-compose").click();
+    const window_ = page.getByTestId("compose-float");
+    await window_.getByTestId("compose-body").fill("A post to check the undo window.");
+    await window_.getByTestId("button-compose-post").click();
+    await browserExpect(page.getByTestId("pending-post")).toContainText("in 30s");
+    await page.getByTestId("pending-post").getByRole("button", { name: "Undo" }).click();
+    expect(await calls("POST", /\/publish-now$/)).toEqual([]);
+  }, 15_000);
+
+  it("saves tone, review and digest settings at once, and manages what the feed has learned", async () => {
+    await mount("/dashboard", { extra: { __prefs: { mutedSources: ["Wire Daily"], keywordAdjustments: { Crypto: -0.2 }, revision: 3, updatedAt: null } } });
+    await page.getByTestId("button-quick-settings").click();
+    const settings = page.getByTestId("quick-settings");
+    await settings.getByLabel("Default tone").selectOption({ label: "Provocateur" });
+    await expect.poll(async () => (await calls("PATCH", /^\/api\/profile$/)).map(call => call.body)).toEqual([{ defaultTone: "contrarian" }]);
+    await settings.getByRole("switch", { name: "Review before posting" }).click();
+    await expect.poll(async () => (await calls("PATCH", /^\/api\/profile$/)).length).toBe(2);
+    expect((await calls("PATCH", /^\/api\/profile$/))[1].body).toEqual({ requirePublishReview: false });
+    await browserExpect(settings.getByRole("switch", { name: "Review before posting" })).toHaveAttribute("aria-checked", "false");
+    await settings.getByRole("switch", { name: "Daily digest email" }).click();
+    await expect.poll(async () => (await calls("PATCH", /^\/api\/email-preferences$/)).map(call => call.body)).toEqual([{ dailyDigest: false }]);
+
+    await page.evaluate(() => { (window as any).__failProfile = true; });
+    await settings.getByLabel("Default tone").selectOption({ label: "Data-Driven" });
+    await expect.poll(async () => (await lastToast()).title).toBe("Couldn't save the setting");
+    await browserExpect(settings.getByLabel("Default tone")).toHaveValue("contrarian");
+
+    const learned = page.getByTestId("learned-list");
+    await browserExpect(learned.getByText("Muted Wire Daily")).toBeVisible();
+    await browserExpect(learned.getByText("Less about Crypto")).toBeVisible();
+    await learned.getByRole("button", { name: "Unmute Wire Daily" }).click();
+    await browserExpect(learned.getByText("Muted Wire Daily")).toHaveCount(0);
+    expect((await calls("PATCH", /^\/api\/feed-preferences$/))[0].body).toEqual({ unmuteSource: "Wire Daily" });
+    // Another tab mutes a source this panel has not seen: Undo must restore it from the server's reset response, not this cache.
+    await page.evaluate(() => { (window as any).__prefs.mutedSources = ["Ad Brief"]; });
+    await learned.getByRole("button", { name: "Reset all" }).click();
+    await browserExpect(learned.getByText("Nothing yet.", { exact: false })).toBeVisible();
+    expect((await calls("DELETE", /^\/api\/feed-preferences$/)).length).toBe(1);
+    await expect.poll(async () => (await lastToast()).title).toBe("Your feed preferences were reset");
+    // Learned after the reset; Undo must keep it.
+    await page.evaluate(() => { (window as any).__prefs.keywordAdjustments = { Crypto: -0.4 }; });
+    await clickToast("undo");
+    await expect.poll(async () => (await lastToast()).title).toBe("Reset undone");
+    expect((await lastToast()).description).toBe("Some changes were kept because they were updated elsewhere.");
+    expect((await calls("PATCH", /^\/api\/feed-preferences$/)).at(-1)!.body).toEqual({ restore: {
+      keywords: { Crypto: { before: -0.2, after: null } }, sources: { "Ad Brief": { before: true, after: false } } } });
+    expect(await page.evaluate(() => (window as any).__prefs)).toMatchObject({ mutedSources: ["Ad Brief"], keywordAdjustments: { Crypto: -0.4 } });
+    await browserExpect(learned.getByText("Muted Ad Brief")).toBeVisible();
+    await browserExpect(page.getByRole("link", { name: "See all settings" })).toHaveAttribute("href", "/dashboard/settings");
+  });
+});
+

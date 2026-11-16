@@ -18,6 +18,7 @@ export const INBOX_SHORTCUTS: ReadonlyArray<readonly [key: string, action: strin
   ["Shift + u", "Mark as unread"],
   ["x", "Select the item"],
   ["u", "Back to the list"],
+  ["→ or 1 / ← or 2 / Space", "Tune your feed: relevant / not relevant / skip"],
   ["/", "Search"],
   ["?", "Show shortcuts"],
 ];
