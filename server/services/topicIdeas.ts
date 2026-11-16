@@ -1,6 +1,6 @@
 import { storage, type TenantScope } from "../storage";
 import { strategyRepository, type SavedStrategy } from "../repositories/strategy";
-import { personalTrends } from "./personalTrends";
+import { personalTrends, trendTopicLabels } from "./personalTrends";
 import type { InboxListItem } from "@shared/schema";
 import {
   buildPlan, generateIdeas, rankIdeas, safeTimeZone, suggestStrategy, validTime, weekStartOf,
@@ -49,7 +49,8 @@ async function candidates(scope: TenantScope, context: StrategyContext, now: Dat
     optional("check-ins", strategyRepository.recentCheckins(scope, 8), []),
     optional("published posts", strategyRepository.publishedPosts(scope, new Date(now.getTime() - FOLLOW_UP_WINDOW_MS)), []),
   ]);
-  const trends = personalTrends(trendRows, now, 5).map(({ topic, count, previousCount, label }) => ({ topic, count, previousCount, label }));
+  const labels = trendTopicLabels(trendRows);
+  const trends = personalTrends(trendRows, now, 5).map(({ topic, count, previousCount, label }) => ({ topic: labels.get(topic) ?? topic, count, previousCount, label }));
   return generateIdeas({ strategy: context.strategy, trends, stories: stories.map(toStory), checkins, published, now, timeZone: context.timeZone });
 }
 

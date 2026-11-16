@@ -102,7 +102,8 @@ describe("idea generation", () => {
     expect(story).toMatchObject({ pillar: "Retail media", title: "My take on: Retail media networks pass $60B", sourceStory: { url: "https://news.test/s1", source: "Ad Brief" } });
     expect(ideas.some(idea => idea.sourceStory?.inboxItemId === "s2")).toBe(true);
     expect(ideas.some(idea => idea.sourceStory?.inboxItemId === "s3")).toBe(false);
-    expect(ideas.find(idea => idea.kind === "signal" && idea.title.startsWith("What retail media"))).toMatchObject({ pillar: "Retail media", title: "What retail media's rise means for D2C founders" });
+    expect(ideas.find(idea => idea.kind === "signal" && idea.pillar === "Retail media")).toMatchObject({ title: "What the rise in Retail media means for D2C founders" });
+    expect(ideas.find(idea => idea.kind === "signal" && idea.title.includes("clean rooms"))?.title).toBe("What the rise in clean rooms means for D2C founders");
     expect(ideas.find(idea => idea.kind === "experience")).toMatchObject({ pillar: "Pricing", title: "A recent win: Closed a pricing workshop with a new client" });
     expect(ideas.filter(idea => idea.kind === "follow-up").map(idea => idea.pillar)).toEqual(["Retail media", "Retail media"]);
   });

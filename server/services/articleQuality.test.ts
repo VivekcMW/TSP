@@ -5,7 +5,7 @@ import { parseFeedContent } from "./universalFeedParser";
 import { summarizeArticle } from "./articleSummary";
 import { freshnessMultiplier, type ArticleQuality } from "@shared/article-quality";
 import { diversityFeatures, selectDiverse, sourceOrigin } from "./inboxDiversity";
-import { personalTrends, TREND_WINDOW_MS, type TrendRow } from "./personalTrends";
+import { personalTrends, trendTopicLabels, TREND_WINDOW_MS, type TrendRow } from "./personalTrends";
 import { getCachedArticles } from "./engines/articleCache";
 
 const now = Date.parse("2026-09-20T12:00:00Z");
@@ -134,6 +134,11 @@ describe("personal admitted-content windows", () => {
     const rows = Array.from({ length: 5001 }, (_, i) => row(String(i), 0.5));
     expect(personalTrends(rows.slice(0, 620), new Date(now))[0]).toMatchObject({ count: 620, coverage: { partial: false, rowsExamined: 620 } });
     expect(personalTrends(rows, new Date(now))[0]).toMatchObject({ count: 5000, coverage: { partial: true, rowLimit: 5000 } });
+  });
+  it("labels each lowercased topic with the casing its evidence used most", () => {
+    const labelled = (id: string, topics: string[]) => ({ ...row(id, 0.5), qualityMetadata: quality(id, "https://publisher.test", topics) });
+    const labels = trendTopicLabels([labelled("a", ["EY", "US  tax"]), labelled("b", ["ey"]), labelled("c", ["EY", "us tax"])]);
+    expect(Object.fromEntries(labels)).toEqual({ ey: "EY", "us tax": "US tax" });
   });
 });
 

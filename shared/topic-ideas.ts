@@ -337,12 +337,14 @@ function pillarIdeas(strategy: ContentStrategy): TopicIdea[] {
 function signalIdeas(strategy: ContentStrategy, trends: readonly TrendInput[]): TopicIdea[] {
   const audience = audienceLabel(strategy);
   return trends.filter(trend => trend.topic.trim() && trend.count >= 2).slice(0, 5).map(trend => {
-    const topic = clip(trend.topic, 60);
     const pillar = matchKeywords([trend.topic], strategy.pillars);
+    // Trend topics arrive lowercased ("us tax risks"); a pillar with the same words keeps the member's casing.
+    const sameAsPillar = pillar !== null && words(pillar).trim() === words(trend.topic).trim();
+    const topic = clip(sameAsPillar ? pillar : trend.topic, 60);
     const change = trend.label === "new" || trend.previousCount === 0 ? "It is new compared with the week before." : `The week before it was ${trend.previousCount}.`;
     return {
       id: ideaId("signal", trend.topic, "rise"), kind: "signal" as const, pillar,
-      title: clip(`What ${topic}'s rise means for ${audience}`, 200),
+      title: clip(`What the rise in ${topic} means for ${audience}`, 200),
       angle: clip(`Explain why ${topic} keeps coming up and what ${audience} should do about it.`, 200),
       why: clip(`“${topic}” came up in ${trend.count} of your stories this week. ${change}`, 300),
       score: round(0.55 + Math.min(0.2, trend.count * 0.02) + (trend.count > trend.previousCount ? 0.05 : 0) + (pillar ? 0.1 : 0)),
