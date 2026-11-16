@@ -107,7 +107,7 @@ function dedupeKey(url: string): string {
   return `${hostOf(url)}${parsed.pathname.replace(/\/+$/, "")}${parsed.search}`;
 }
 function cleanTitle(title: string, source: string): string {
-  const text = collapse(title);
+  const text = collapse(decodeHtmlText(title));
   const suffix = ` - ${source}`;
   // Google News appends " - <publication>" to every headline.
   return (source && text.toLocaleLowerCase().endsWith(suffix.toLocaleLowerCase()) ? text.slice(0, -suffix.length) : text).trim().slice(0, 300);

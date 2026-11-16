@@ -5,8 +5,9 @@ The LinkedIn-first workspace: find a story, draft your take, post in one click. 
 
 ## Rollout
 
-1. Apply migrations `0059`–`0064` (the Cloud Run release workflow runs `pnpm db:migrate` before shifting
-   traffic; every one of them is additive, so the previous revision keeps working).
+1. Apply migrations `0059`–`0065` (the Cloud Run release workflow runs `pnpm db:migrate` before shifting
+   traffic; `0059`–`0064` are additive, so the previous revision keeps working, and `0065` only decodes
+   leftover HTML character references such as `&#x27;` in stored headlines).
 2. Deploy. With the flag off nothing changes for customers, except that Settings → Integrations offers
    LinkedIn only (`all_integrations_ui` off; other integrations stay implemented and connected accounts stay
    visible so they can be disconnected).

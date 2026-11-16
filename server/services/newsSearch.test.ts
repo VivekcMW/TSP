@@ -92,6 +92,11 @@ describe("searchNews: merging and deduplication", () => {
     expect(first.snippet).not.toMatch(/&[a-z]+/);
     expect(results.find(item => item.url === "https://b.test/2")!.snippet).toBe("");
   });
+
+  it("decodes entities left in stored headlines", async () => {
+    const deps = makeDeps({ searchPool: vi.fn(async () => [story("&#x27;AI-trade&#x27; bust hits tax &amp; LTCG", "https://mint.test/1", "Livemint")]) });
+    expect((await run("tax", deps)).results[0].title).toBe("'AI-trade' bust hits tax & LTCG");
+  });
 });
 
 describe("searchNews: filters", () => {
