@@ -116,7 +116,7 @@ describe("accessible names at phone width", () => {
   it("keeps brand icons out of the accessibility tree", async () => {
     const page = await openFixture();
     try {
-      const icons = page.getByTestId("section-platform-strip").locator('svg[role="img"]');
+      const icons = page.getByTestId("section-platform-strip").locator("svg");
       expect(await icons.count()).toBeGreaterThan(0);
       expect(await icons.evaluateAll(svgs => svgs.filter(svg => svg.getAttribute("aria-hidden") !== "true").length)).toBe(0);
     } finally { await page.close(); }
