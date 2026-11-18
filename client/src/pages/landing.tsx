@@ -21,7 +21,7 @@ export default function LandingPage() {
     <div className="flex min-h-screen flex-col bg-background">
       <SEO
         canonical="/"
-        description="TheSocialPundit turns current news in your industry into LinkedIn and social posts written in your voice. You review and approve every post before it publishes."
+        description="TheSocialPundit turns current industry news into thoughtful LinkedIn posts in your voice. Review and approve every draft before it publishes."
       />
       <AnnouncementBar />
       <SiteHeader />

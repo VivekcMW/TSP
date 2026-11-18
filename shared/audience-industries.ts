@@ -17,7 +17,7 @@ export const INDUSTRIES: readonly AudiencePage[] = [
     outcomes: [
       { title: "Follow what moves your market", description: "Track programmatic media buying, retail media, attention metrics, OOH and DOOH, AI in advertising and more, with a reason each story fits." },
       { title: "Commentary, not headlines", description: "Drafts explain what a change means for advertisers, publishers or agencies rather than repeating the announcement." },
-      { title: "Show up across your industry's channels", description: "Prepare versions for LinkedIn, X, Threads and more from one view, and publish when you approve." },
+      { title: "Build your LinkedIn point of view", description: "Turn advertising, media and adtech news into thoughtful LinkedIn posts, and publish only when you approve." },
     ],
     postIdeas: [
       "What a platform's new ad product means for media budgets",
@@ -51,7 +51,7 @@ export const INDUSTRIES: readonly AudiencePage[] = [
     outcomes: [
       { title: "A filtered feed", description: "Discover follows the technologies, categories and companies you care about, and explains why each story is relevant." },
       { title: "Explain, don't amplify", description: "Drafts focus on implications for buyers and builders, which is what separates commentary from hype." },
-      { title: "Reach technical audiences too", description: "Prepare LinkedIn posts alongside versions for X, Bluesky, Mastodon, Dev.to and Hashnode." },
+      { title: "Reach professional audiences", description: "Prepare LinkedIn posts that connect technical developments to what your professional audience needs to know." },
     ],
     postIdeas: [
       "What a new AI model release changes for your customers in practice",
@@ -64,7 +64,7 @@ export const INDUSTRIES: readonly AudiencePage[] = [
     faqs: [
       { question: "Is this an AI tool to turn tech news into LinkedIn posts?", answer: "Yes. It turns current technology and AI news into draft posts built around your view. You edit and approve every draft before it goes anywhere." },
       { question: "Is it useful for SaaS founders?", answer: "Yes. SaaS founders use it to comment on their category, customers and market, which builds trust with buyers and investors between launches." },
-      { question: "Does it support developer platforms?", answer: "Yes. Dev.to and Hashnode are among the networks that publish directly once you connect them." },
+      { question: "Can I write for a technical audience?", answer: "Yes. Turn technology and AI news into LinkedIn posts shaped around your experience and the questions your audience is asking." },
       { question: "Is my product information kept private?", answer: "Your topics and drafts are used to provide the service to you and aren't used to train models for other users." },
     ],
     related: ["/roles/founders", "/roles/executives", "/industries/financial-services", "/industries/marketing-technology"],
@@ -188,7 +188,7 @@ export const INDUSTRIES: readonly AudiencePage[] = [
     outcomes: [
       { title: "Follow the landscape", description: "Track customer data platforms, marketing automation, AI agents, analytics and privacy, with a reason each story fits." },
       { title: "Positioning, in public", description: "Drafts help you explain category shifts clearly, which strengthens how buyers see you and your product." },
-      { title: "Support every launch", description: "Start from your own announcement or a market story, and adapt it for each network you use." },
+      { title: "Support every launch", description: "Start from your own announcement or a market story, then shape it into a LinkedIn post." },
     ],
     postIdeas: [
       "What a big martech acquisition means for customers of both companies",
@@ -201,7 +201,7 @@ export const INDUSTRIES: readonly AudiencePage[] = [
     faqs: [
       { question: "Is it for product marketers?", answer: "Yes. Product marketers use it to share their view of the category, support launches and stay visible between them." },
       { question: "Can I write about my own product launch?", answer: "Yes. Create can start from your own idea or a link, as well as from stories in Discover." },
-      { question: "Does it publish to LinkedIn?", answer: "Yes. LinkedIn publishes directly once you connect your account, with other supported networks alongside it." },
+      { question: "Does it publish to LinkedIn?", answer: "Yes. Connect your LinkedIn account to publish or schedule the posts you approve." },
       { question: "Is my data used to train AI?", answer: "No. Your topics and drafts are used to provide the service to you and aren't used to train models for other users." },
     ],
     related: ["/roles/marketing-professionals", "/industries/advertising-media", "/industries/technology-saas", "/roles/founders"],

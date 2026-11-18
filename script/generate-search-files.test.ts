@@ -22,8 +22,9 @@ describe("search discovery files", () => {
     for (const hub of ["/roles", "/industries"]) expect(sitemap).toContain(`<loc>https://www.thesocialpundit.com${hub}</loc>`);
     for (const { path } of allAudiencePages()) expect(sitemap).toContain(`<loc>https://www.thesocialpundit.com${path}</loc>`);
     for (const post of BLOG_POSTS) {
-      expect(sitemap).toContain(`<loc>https://www.thesocialpundit.com/blog/${post.slug}</loc>`);
-      expect(sitemap).toContain(`<lastmod>${post.date}</lastmod>`);
+      expect(sitemap).toContain(
+        `<loc>https://www.thesocialpundit.com/blog/${post.slug}</loc>\n    <lastmod>${post.updated ?? post.date}</lastmod>`,
+      );
     }
   });
 

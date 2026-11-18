@@ -2,7 +2,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Reveal } from "@/components/motion/reveal";
 import { REGIONS } from "./landing-content";
 
-/** Regions as tabs: a city photo, the networks drafted for there, and its news editions. */
+/** Regions as tabs for the news editions that inform LinkedIn posts. */
 export function Markets() {
   return (
     <section id="markets" className="scroll-mt-20 py-20 lg:py-28" data-testid="section-markets">
@@ -11,9 +11,9 @@ export function Markets() {
           <div className="min-w-0 space-y-6">
             <Reveal className="space-y-4">
               <p className="text-xs font-bold uppercase tracking-wider text-secondary-text">Global</p>
-              <h2 className="heading-section">Works in your market</h2>
+              <h2 className="heading-section">Your market, in your LinkedIn point of view</h2>
               <p className="text-lg text-muted-foreground">
-                Pundit follows regional news and writes for the networks your audience actually uses, from LinkedIn to WeChat.
+                Pundit follows regional industry news so your LinkedIn posts reflect the markets and audiences you know.
               </p>
             </Reveal>
             <TabsList className="-mx-4 flex h-auto justify-start gap-2 overflow-x-auto bg-transparent px-4 pb-1 sm:mx-0 sm:px-0 lg:flex-col lg:items-stretch lg:overflow-visible">
@@ -37,16 +37,6 @@ export function Markets() {
                 </figcaption>
               </figure>
               <p className="text-muted-foreground">{region.summary}</p>
-              <div className="space-y-2">
-                <h3 className="text-sm font-semibold text-foreground">Networks</h3>
-                <ul className="flex flex-wrap gap-2">
-                  {region.networks.map(network => (
-                    <li key={network.value} className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm">
-                      <network.icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />{network.label}
-                    </li>
-                  ))}
-                </ul>
-              </div>
               {region.editions.length > 0 && (
                 <div className="space-y-2">
                   <h3 className="text-sm font-semibold text-foreground">News editions</h3>

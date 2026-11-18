@@ -13,7 +13,7 @@ export function FinalCTA() {
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-300">Your next post starts here</p>
         <h2 className="heading-section text-balance text-white">The next voice your industry remembers should be yours.</h2>
         <p className="mx-auto max-w-2xl text-balance text-lg text-white/60">
-          Set up Pundit in about a minute. Get a feed built around your expertise. Approve every word.
+          Set up Pundit in about a minute. Get a feed built around your expertise and thoughtful LinkedIn posts you approve.
         </p>
         <div className="flex flex-wrap justify-center gap-3 pt-3">
           {isSignedIn ? (
@@ -23,7 +23,7 @@ export function FinalCTA() {
           ) : (
             <>
               <Button asChild size="lg" className="h-12 bg-white px-6 text-foreground hover:bg-white/90" data-testid="link-final-cta-signup">
-                <Link href="/sign-up">Build my authority</Link>
+                <Link href="/sign-up">Build my LinkedIn presence</Link>
               </Button>
               <Button asChild size="lg" variant="outline" className="h-12 border-white/20 bg-white/5 px-6 text-white hover:bg-white/10 hover:text-white">
                 <Link href="/contact">Talk to us</Link>

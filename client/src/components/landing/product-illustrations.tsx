@@ -215,7 +215,7 @@ function CreateIllustration() {
   const line = "The strongest brands are no longer built only through campaigns. They are built through a credible point of view, expressed consistently.";
 
   return (
-    <IllustrationFrame area="create" label="Illustration of Create turning a source into a social post in the user's voice">
+    <IllustrationFrame area="create" label="Illustration of Create turning a source into a LinkedIn post in the user's voice">
       <div className="grid min-h-[25rem] gap-4 sm:grid-cols-[0.74fr_1.26fr]">
         <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4">
           <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/40">Source material</p>
@@ -290,12 +290,12 @@ function ContentIllustration() {
   const days = ["MON", "TUE", "WED", "THU", "FRI"];
   const cards = [
     { day: 0, time: "9:00", title: "Why expertise is the new media channel", platform: "in", color: "bg-blue-100 text-blue-700" },
-    { day: 2, time: "12:30", title: "The trust gap in B2B marketing", platform: "𝕏", color: "bg-slate-100 text-slate-700" },
+    { day: 2, time: "12:30", title: "The trust gap in B2B marketing", platform: "in", color: "bg-blue-100 text-blue-700" },
     { day: 4, time: "8:45", title: "What leaders should say about AI adoption", platform: "in", color: "bg-blue-100 text-blue-700" },
   ];
 
   return (
-    <IllustrationFrame area="content" label="Illustration of Content planning, approving and scheduling posts across a work week">
+    <IllustrationFrame area="content" label="Illustration of Content planning, approving and scheduling LinkedIn posts across a work week">
       <div className="rounded-2xl bg-white p-4 text-foreground sm:p-5">
         <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div>

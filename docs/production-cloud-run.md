@@ -259,6 +259,14 @@ not-found page. Known account routes and dashboard/admin route trees retain
 their application shell and noindex headers. The internal 404 render is not
 added to the sitemap or discovery export.
 
+After changing public copy or metadata, regenerate the checked-in discovery
+files with `pnpm exec tsx script/generate-search-files.ts`. The production
+build also regenerates them. After deploying, check that `/sitemap.xml` lists
+only canonical, indexable URLs that return HTTP 200, and that `/pricing` and
+`/api/public/billing/plans` both respond successfully. If pricing returns 503,
+check the serving revision's logs and billing database before submitting the
+updated sitemap in Google Search Console or Bing Webmaster Tools.
+
 ## Roll back
 
 Previous revisions stay deployed. Send traffic back to one:

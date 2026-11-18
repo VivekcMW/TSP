@@ -21,7 +21,10 @@ describe("llms.txt", () => {
 
   it("states the facts AI answers most often get wrong", () => {
     expect(llms).toMatch(/^# TheSocialPundit\n\n> /);
-    expect(llms).toContain("Nothing is published without the user's action");
+    const [productFacts] = llms.split("\n## Product\n");
+    expect(productFacts).toContain("draft LinkedIn posts in their own voice");
+    expect(productFacts).toContain("Nothing is published without the user's approval");
+    expect(productFacts).not.toMatch(/other networks|multi-platform/i);
     expect(llms).toContain("do not infer them");
   });
 

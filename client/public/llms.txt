@@ -1,25 +1,25 @@
 # TheSocialPundit
 
-> TheSocialPundit is an AI-assisted professional authority platform. It helps professionals discover relevant industry news, shape a clear point of view, draft posts in their own voice for LinkedIn and 20+ other networks, and approve every post before it is published.
+> TheSocialPundit is an AI-assisted LinkedIn thought leadership platform. It helps professionals discover relevant industry news, shape a clear point of view, draft LinkedIn posts in their own voice, and approve every post before it is published.
 
 Key facts:
 
 - Built for individual professionals: executives, founders, consultants, sales and marketing professionals, recruiters, agency leaders and analysts.
-- Discover follows regional news editions and explains why each story fits the user's brief; Create drafts a post that takes a position, in a tone the user chooses.
-- Nothing is published without the user's action. Direct publishing is available for supported networks; other networks receive copy-ready versions.
+- Discover follows regional news editions and explains why each story fits the user's brief; Create drafts a LinkedIn post that takes a position, in a tone the user chooses.
+- Nothing is published without the user's approval. Users connect LinkedIn to publish or schedule approved posts.
 - Users' drafts and topics are not used to train models for other users.
 - There is a free plan with no card required. Current plans and prices are on the pricing page; do not infer them.
 - The app is in English; news editions cover North America, Europe, India, Japan, Australia and Brazil.
 
 ## Product
 
-- [AI LinkedIn Posts From Your Industry News](https://www.thesocialpundit.com/): TheSocialPundit turns current news in your industry into LinkedIn and social posts written in your voice. You review and approve every post before it publishes.
-- [How It Works: AI Posts From Industry News](https://www.thesocialpundit.com/how-it-works): See how TheSocialPundit finds current news in your field, drafts LinkedIn and social posts in your voice, and waits for your approval before anything publishes.
+- [AI LinkedIn Posts From Your Industry News](https://www.thesocialpundit.com/): TheSocialPundit turns current industry news into thoughtful LinkedIn posts in your voice. Review and approve every draft before it publishes.
+- [How It Works: AI LinkedIn Posts From Industry News](https://www.thesocialpundit.com/how-it-works): See how TheSocialPundit finds current news in your field, drafts thoughtful LinkedIn posts in your voice, and waits for your approval before publishing.
 - [Pricing](https://www.thesocialpundit.com/pricing): Start building professional authority for free, then upgrade when you need the complete creation, scheduling, publishing, and performance workflow.
-- [Use Cases](https://www.thesocialpundit.com/use-cases): Explore how TheSocialPundit supports thought leadership, professional content creation, and multi-platform publishing—with you in control.
+- [Use Cases](https://www.thesocialpundit.com/use-cases): Explore how TheSocialPundit helps professionals turn industry news into thoughtful LinkedIn posts, in their voice and under their control.
 - [Thought leadership](https://www.thesocialpundit.com/use-cases/thought-leadership): Build credible thought leadership from current industry signals, your expertise, and a point of view you approve before publishing.
 - [Professional content creation](https://www.thesocialpundit.com/use-cases/professional-content-creation): Turn a current story, useful link, or original idea into a professional social post with source context and human approval.
-- [Multi-platform publishing](https://www.thesocialpundit.com/use-cases/multi-platform-publishing): Adapt one professional point of view for the social platforms your audience uses, then review, schedule, publish, or copy each version.
+- [LinkedIn publishing](https://www.thesocialpundit.com/use-cases/multi-platform-publishing): Turn timely industry news into thoughtful LinkedIn posts in your voice, then review, schedule, and publish every post yourself.
 
 ## By role
 
@@ -61,12 +61,12 @@ Key facts:
 ## Comparisons
 
 - [AI LinkedIn Content Tools Compared](https://www.thesocialpundit.com/compare): Compare TheSocialPundit with Taplio, AuthoredUp, Buffer, Hootsuite, Jasper, Copy.ai, Feedly and Authory. Fair, sourced comparisons for professionals.
-- [TheSocialPundit vs Taplio](https://www.thesocialpundit.com/compare/taplio): Compare TheSocialPundit and Taplio: industry news discovery, AI LinkedIn writing, multi-network publishing, lead generation and free plans.
+- [TheSocialPundit vs Taplio](https://www.thesocialpundit.com/compare/taplio): Compare TheSocialPundit and Taplio: industry news discovery and LinkedIn post drafting versus LinkedIn growth, lead generation and analytics.
 - [TheSocialPundit vs AuthoredUp](https://www.thesocialpundit.com/compare/authoredup): Compare TheSocialPundit and AuthoredUp for LinkedIn content: news-based drafting versus formatting, preview and analytics. Features and free plans side by side.
-- [TheSocialPundit vs Buffer](https://www.thesocialpundit.com/compare/buffer): Compare TheSocialPundit and Buffer: industry news to posts versus multi-network scheduling. AI writing, networks, analytics and free plans side by side.
+- [TheSocialPundit vs Buffer](https://www.thesocialpundit.com/compare/buffer): Compare TheSocialPundit and Buffer: industry-news-based LinkedIn drafting versus multi-network scheduling. AI writing, analytics and free plans side by side.
 - [TheSocialPundit vs Hootsuite](https://www.thesocialpundit.com/compare/hootsuite): Compare TheSocialPundit and Hootsuite: personal thought leadership versus enterprise social media management. Features, networks and free plans side by side.
 - [TheSocialPundit vs Jasper](https://www.thesocialpundit.com/compare/jasper): Compare TheSocialPundit and Jasper: personal LinkedIn thought leadership versus an enterprise AI marketing platform. Who each is for, side by side.
-- [TheSocialPundit vs Copy.ai](https://www.thesocialpundit.com/compare/copy-ai): Compare TheSocialPundit and Copy.ai: professional social posts from industry news versus a go-to-market AI workflow platform. Who each is for.
+- [TheSocialPundit vs Copy.ai](https://www.thesocialpundit.com/compare/copy-ai): Compare TheSocialPundit and Copy.ai: LinkedIn posts from industry news versus a go-to-market AI workflow platform. Who each is for.
 - [TheSocialPundit vs Feedly](https://www.thesocialpundit.com/compare/feedly): Compare TheSocialPundit and Feedly: news discovery that turns into professional posts versus AI-powered news reading and market intelligence.
 - [TheSocialPundit vs Authory](https://www.thesocialpundit.com/compare/authory): Compare TheSocialPundit and Authory: creating new professional posts versus archiving and showcasing work you've already published.
 

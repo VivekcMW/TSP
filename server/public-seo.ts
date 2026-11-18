@@ -11,7 +11,7 @@ import { LINKEDIN_FORMATTER_TOOL_PATH, LINKEDIN_FORMATTER_TOOL_SEO, linkedInForm
 import { FREE_TOOLS_HUB_PATH, FREE_TOOLS_HUB_SEO, freeToolsHubJsonLd } from "../shared/free-tools";
 
 /** Last content change of the use-case pages (shared/use-cases.ts). */
-const USE_CASES_UPDATED = "2026-10-11";
+const USE_CASES_UPDATED = "2026-11-18";
 
 const SITE_URL = "https://www.thesocialpundit.com";
 const DEFAULT_IMAGE = `${SITE_URL}/og-image.jpg`;
@@ -43,18 +43,18 @@ interface PublicPage {
 const pages: Record<string, PublicPage> = {
   "/": {
     title: "AI LinkedIn Posts From Your Industry News | TheSocialPundit",
-    description: "TheSocialPundit turns current news in your industry into LinkedIn and social posts written in your voice. You review and approve every post before it publishes.",
-    lastmod: "2026-10-21",
+    description: "TheSocialPundit turns current industry news into thoughtful LinkedIn posts in your voice. Review and approve every draft before it publishes.",
+    lastmod: "2026-11-18",
   },
   "/how-it-works": {
-    title: "How It Works: AI Posts From Industry News | TheSocialPundit",
-    description: "See how TheSocialPundit finds current news in your field, drafts LinkedIn and social posts in your voice, and waits for your approval before anything publishes.",
-    lastmod: "2026-10-21",
+    title: "How It Works: AI LinkedIn Posts From Industry News | TheSocialPundit",
+    description: "See how TheSocialPundit finds current news in your field, drafts thoughtful LinkedIn posts in your voice, and waits for your approval before publishing.",
+    lastmod: "2026-11-18",
   },
   "/use-cases": {
     title: "Use Cases | TheSocialPundit",
-    description: "Explore how TheSocialPundit supports thought leadership, professional content creation, and multi-platform publishing—with you in control.",
-    lastmod: "2026-10-11",
+    description: "Explore how TheSocialPundit helps professionals turn industry news into thoughtful LinkedIn posts, in their voice and under their control.",
+    lastmod: "2026-11-18",
   },
   "/pricing": {
     title: "Pricing | TheSocialPundit",

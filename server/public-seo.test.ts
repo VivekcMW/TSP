@@ -33,6 +33,18 @@ describe("public initial SEO", () => {
     expect(publicSeoForPath("/")!.title.length).toBeLessThanOrEqual(60);
   });
 
+  it("describes the product as LinkedIn-focused in public metadata", () => {
+    const home = publicSeoForPath("/")!;
+    const howItWorks = publicSeoForPath("/how-it-works")!;
+    const linkedinPublishing = publicSeoForPath("/use-cases/multi-platform-publishing")!;
+    expect(home.description).toContain("LinkedIn posts");
+    expect(howItWorks.title).toContain("LinkedIn");
+    expect(howItWorks.description).toContain("LinkedIn posts");
+    expect(linkedinPublishing.title).toContain("LinkedIn");
+    expect(linkedinPublishing.description).toContain("LinkedIn posts");
+    expect(linkedinPublishing.description).not.toMatch(/other networks|multi-platform/i);
+  });
+
   it("renders article metadata and schema before JavaScript runs", () => {
     const post = BLOG_POSTS[0];
     const result = renderInitialSeo(template, `/blog/${post.slug}`);

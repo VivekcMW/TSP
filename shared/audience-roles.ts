@@ -51,7 +51,7 @@ export const ROLES: readonly AudiencePage[] = [
     outcomes: [
       { title: "Your market, filtered", description: "Describe your company and customers in a sentence. Discover then brings you the stories that touch your category, with a reason for each." },
       { title: "Insight, not announcements", description: "Drafts take a position on market shifts, which gives prospects and investors a reason to follow you between launches." },
-      { title: "Fits a founder's week", description: "Review a short list, pick a story, refine the draft and schedule it. Publishing to LinkedIn and other connected networks happens only when you approve." },
+      { title: "Fits a founder's week", description: "Review a short list, pick a story, refine the draft and schedule your LinkedIn post when you approve it." },
     ],
     postIdeas: [
       "What a competitor's funding round says about where the category is heading",
@@ -64,7 +64,7 @@ export const ROLES: readonly AudiencePage[] = [
     faqs: [
       { question: "Is there a free plan for early-stage founders?", answer: "Yes. You can start free, with no card needed. Paid plans are on the pricing page when you want more." },
       { question: "Can I write about my own startup, not just the news?", answer: "Yes. Create can start from a story in Discover, a link you paste, or an idea of your own, such as a launch or a lesson learned." },
-      { question: "Does it work for SaaS and technical founders?", answer: "Yes. Setup starts from how you describe your product, market and audience, so the stories and drafts fit SaaS, deep tech or any other category. Technical founders can also publish to Dev.to and Hashnode." },
+      { question: "Does it work for SaaS and technical founders?", answer: "Yes. Setup starts from how you describe your product, market and audience, so the stories and LinkedIn drafts fit SaaS, deep tech or any other category." },
       { question: "Will it post for me automatically?", answer: "No. Drafts wait for your review. You publish, schedule or copy each post only when you are happy with it." },
     ],
     related: ["/roles/executives", "/industries/technology-saas", "/roles/marketing-professionals", "/use-cases/professional-content-creation"],
@@ -96,9 +96,9 @@ export const ROLES: readonly AudiencePage[] = [
       "What clients are asking you about most this month",
     ],
     faqs: [
-      { question: "Is this a content automation tool for consultants?", answer: "It removes the repetitive work: finding relevant news, structuring a draft and adapting it for each network. The thinking and the final approval stay with you, so nothing is automated in your name." },
+      { question: "Is this a content automation tool for consultants?", answer: "It removes the repetitive work: finding relevant news and structuring a LinkedIn draft. The thinking and the final approval stay with you, so nothing is automated in your name." },
       { question: "Can I focus on a narrow niche?", answer: "Yes. Pundit builds your brief from how you describe your expertise and your clients, so even a specialist niche gets relevant stories." },
-      { question: "Which platforms can I publish to?", answer: "LinkedIn and a range of other networks publish directly once you connect them. For the rest you get a version shaped for that network to copy in." },
+      { question: "Which platforms can I publish to?", answer: "TheSocialPundit is focused on LinkedIn. Connect your account to publish or schedule the posts you approve." },
       { question: "Is my client information used to train AI?", answer: "No. Your topics and drafts are used to provide the service to you and aren't used to train models for other users. As with any public post, keep confidential client details out of your drafts." },
     ],
     related: ["/industries/consulting-professional-services", "/roles/analysts-investors", "/roles/agency-leaders", "/use-cases/thought-leadership"],
@@ -153,7 +153,7 @@ export const ROLES: readonly AudiencePage[] = [
     outcomes: [
       { title: "Keep pace with the industry", description: "Discover tracks the topics you choose, such as attribution, retail media, AI or brand building, and explains why each story fits." },
       { title: "Your voice, not the brand's", description: "Choose a tone, rewrite freely and, if you opt in, teach the workspace with your own writing samples." },
-      { title: "Publish where marketers gather", description: "Prepare versions for LinkedIn, X, Threads and more from one point of view, then publish, schedule or copy each one." },
+      { title: "Build your LinkedIn presence", description: "Turn marketing news into a point of view your professional audience can recognise and follow." },
     ],
     postIdeas: [
       "What a platform's latest ad or algorithm change means for budgets",
@@ -165,7 +165,7 @@ export const ROLES: readonly AudiencePage[] = [
     ],
     faqs: [
       { question: "Is this an AI content tool for marketing professionals?", answer: "Yes, but it's built for your personal voice rather than brand campaigns. It finds relevant marketing news, drafts a point of view and leaves every word for you to approve." },
-      { question: "How is it different from a scheduling tool?", answer: "Scheduling tools publish what you've already written. TheSocialPundit helps before that, by finding the story, shaping the view and drafting the post. It can then schedule and publish to connected networks once you approve." },
+      { question: "How is it different from a scheduling tool?", answer: "Scheduling tools publish what you've already written. TheSocialPundit helps before that, by finding the story, shaping the view and drafting the LinkedIn post. It can then schedule or publish to your connected LinkedIn account once you approve." },
       { question: "Does it work for marketers outside B2B?", answer: "Yes. Setup starts from how you describe your role and audience, so consumer, B2B, agency and in-house marketers each get relevant stories." },
       { question: "Is my data used to train AI models?", answer: "No. Your preferences and drafts are used to provide the service to you and aren't used to train models for other users." },
     ],
@@ -234,7 +234,7 @@ export const ROLES: readonly AudiencePage[] = [
     faqs: [
       { question: "Is it for agency founders or the whole leadership team?", answer: "Any agency leader can use it for their own profile. Each person sets their own topics and tone, and approves their own posts." },
       { question: "Does it work for B2B agencies?", answer: "Yes. Describe your clients' industries and Discover follows those markets, so your B2B agency LinkedIn content speaks to buyers rather than other agencies." },
-      { question: "Can it publish to LinkedIn?", answer: "Yes. LinkedIn publishes directly once you connect your account, along with other supported networks. The rest get a copy-ready version." },
+      { question: "Can it publish to LinkedIn?", answer: "Yes. Connect your LinkedIn account to publish or schedule the posts you approve." },
       { question: "What does it cost?", answer: "You can start free, with no card needed. Paid plans are on the pricing page." },
     ],
     related: ["/industries/advertising-media", "/roles/marketing-professionals", "/roles/founders", "/industries/consulting-professional-services"],
@@ -255,7 +255,7 @@ export const ROLES: readonly AudiencePage[] = [
     outcomes: [
       { title: "Commentary while it's timely", description: "Discover surfaces stories in your coverage area as they appear, with a reason each one fits." },
       { title: "Precision you control", description: "Keep the source in view, edit every figure and claim, and approve only what you'd stand behind." },
-      { title: "A recognisable body of work", description: "Regular, focused posts build a record of your thinking across LinkedIn and other networks." },
+      { title: "A recognisable body of work", description: "Regular, focused LinkedIn posts build a record of your thinking." },
     ],
     postIdeas: [
       "What one data point in today's earnings release really tells you",

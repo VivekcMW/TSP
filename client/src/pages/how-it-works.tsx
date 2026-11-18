@@ -2,11 +2,10 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Check } from "lucide-react";
+import { Check, Linkedin } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { SEO } from "@/components/seo";
-import { PLATFORMS } from "@/lib/platforms";
 import { Reveal } from "@/components/motion/reveal";
 import { fadeUp } from "@/lib/motion";
 
@@ -14,10 +13,10 @@ export default function HowItWorks() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <SEO 
-        title="How It Works: AI Posts From Industry News | TheSocialPundit"
+        title="How It Works: AI LinkedIn Posts From Industry News | TheSocialPundit"
         rawTitle
         canonical="/how-it-works"
-        description="See how TheSocialPundit finds current news in your field, drafts LinkedIn and social posts in your voice, and waits for your approval before anything publishes."
+        description="See how TheSocialPundit finds current news in your field, drafts thoughtful LinkedIn posts in your voice, and waits for your approval before publishing."
       />
       <SiteHeader />
       
@@ -27,10 +26,10 @@ export default function HowItWorks() {
             <div className="text-center mb-20">
               <Reveal variants={fadeUp}>
               <h1 className="heading-display mb-6" data-testid="text-how-it-works-headline">
-                Automate your professional narrative.
+                Turn industry news into thoughtful LinkedIn posts.
               </h1>
               <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
-                TheSocialPundit is an intelligence layer that sits between global industry news and your professional social presence.
+                TheSocialPundit turns global industry news into thoughtful LinkedIn posts in your voice.
               </p>
               <Button asChild size="lg">
                 <Link href="/sign-up" data-testid="link-get-started-how-it-works">Get Started Free</Link>
@@ -122,22 +121,19 @@ export default function HowItWorks() {
               <Reveal variants={fadeUp}>
               <div className="grid lg:grid-cols-2 gap-12 items-center" data-testid="section-step-4">
                 <Card className="p-6 bg-background order-2 lg:order-1">
-                  <div className="grid grid-cols-4 gap-4">
-                    {PLATFORMS.map((p) => (
-                      <div key={p.value} className="flex flex-col items-center gap-2">
-                        <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center">
-                          <p.icon className="w-5 h-5" />
-                        </div>
-                        <span className="text-xs text-center text-muted-foreground">{p.label}</span>
-                      </div>
-                    ))}
+                  <div className="flex flex-col items-center gap-3 py-6">
+                    <div className="grid h-14 w-14 place-items-center rounded-xl bg-brand-linkedin/10 text-brand-linkedin">
+                      <Linkedin className="h-7 w-7" aria-hidden="true" />
+                    </div>
+                    <span className="text-sm font-semibold text-foreground">LinkedIn</span>
+                    <span className="text-xs text-muted-foreground">Your voice, your approval</span>
                   </div>
                 </Card>
                 <div className="space-y-6 order-1 lg:order-2">
                   <p className="text-sm font-semibold text-primary uppercase tracking-wide">Step 4</p>
-                  <h2 className="heading-section">Publish or copy in a click.</h2>
+                  <h2 className="heading-section">Publish on LinkedIn when you&apos;re ready.</h2>
                   <p className="text-muted-foreground">
-                    Publish or schedule directly where a connected network supports it, or copy a post shaped for the destination you choose. Stay consistent while keeping every final decision in your hands.
+                    Connect your LinkedIn account, review the final draft, then publish or schedule it. Every decision stays in your hands.
                   </p>
                 </div>
               </div>
