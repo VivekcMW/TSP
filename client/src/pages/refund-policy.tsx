@@ -2,7 +2,7 @@ import { Link } from "wouter";
 import { LegalPage, legalLinkClass, legalTextClass } from "@/components/legal/legal-page";
 
 export default function RefundPolicyPage() {
-  return <LegalPage title="Refund Policy" path="/refund-policy" testId="refund-policy" description="TheSocialPundit payment refund policy." sections={[
+  return <LegalPage title="Refund Policy" path="/refund-policy" testId="refund-policy" description="TheSocialPundit refund eligibility, how to request a refund, processing times, and how to contact support about a payment issue." sections={[
     { title: "Overview", content: <p className={legalTextClass}>This policy applies to paid plans and payments made through TheSocialPundit. We aim to describe clearly when a payment may be refunded and how to request help.</p> },
     { title: "When refunds may be available", content: <ul className={legalTextClass}><li>Duplicate charges caused by a payment-processing error.</li><li>Unauthorized transactions that you report promptly and that we confirm after review.</li><li>A material technical failure where the paid service was not delivered and the issue could not be reasonably resolved.</li><li>Any other situation where a refund is required by applicable law.</li></ul> },
     { title: "When refunds are generally not available", content: <p className={legalTextClass}>Payments are generally non-refundable for partial billing periods, unused time, a change of mind, or failure to use the Service. We do not provide a refund merely because a subscription is cancelled; cancellation prevents future renewal and does not reverse a completed billing period.</p> },

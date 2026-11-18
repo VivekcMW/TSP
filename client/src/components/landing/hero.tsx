@@ -104,8 +104,8 @@ export function Hero() {
             <div className="grid gap-px bg-white/10 lg:grid-cols-[0.9fr_1.1fr]">
               <div className="bg-foreground p-5 sm:p-6">
                 <div className="mb-4 flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/45">Signals for you</p>
-                  <span className="text-xs text-white/45">3 of 24</span>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/65">Signals for you</p>
+                  <span className="text-xs text-white/65">3 of 24</span>
                 </div>
                 <div className="space-y-2.5">
                   {signals.map((signal, index) => (
@@ -114,7 +114,7 @@ export function Hero() {
                       {...arrive(0.22 + index * 0.08)}
                       className={`rounded-xl border p-3.5 ${index === 0 ? "border-primary/50 bg-primary/15" : "border-white/10 bg-white/[0.035]"}`}
                     >
-                      <div className="mb-2 flex items-center justify-between gap-3 text-[11px] text-white/45">
+                      <div className="mb-2 flex items-center justify-between gap-3 text-[11px] text-white/65">
                         <span>{signal.source} · {signal.age}</span>
                         <span className={index === 0 ? "text-blue-300" : ""}>{signal.score}</span>
                       </div>

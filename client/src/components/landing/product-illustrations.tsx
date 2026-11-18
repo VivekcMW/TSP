@@ -78,7 +78,7 @@ function PunditIllustration() {
             </span>
             <div>
               <p className="text-sm font-semibold">Pundit</p>
-              <p className="text-[11px] text-white/45">Your setup agent</p>
+              <p className="text-[11px] text-white/65">Your setup agent</p>
             </div>
           </div>
 
@@ -185,7 +185,7 @@ function DiscoverIllustration() {
                 {story.active ? <Radar className="h-5 w-5" aria-hidden="true" /> : <Newspaper className="h-5 w-5" aria-hidden="true" />}
               </span>
               <div>
-                <div className="mb-1.5 flex items-center gap-2 text-[11px] text-white/45">
+                <div className="mb-1.5 flex items-center gap-2 text-[11px] text-white/65">
                   <span>{story.source}</span><span>·</span><span>{story.time}</span>
                 </div>
                 <p className="font-medium leading-snug text-white/90">{story.title}</p>
@@ -220,7 +220,7 @@ function CreateIllustration() {
         <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4">
           <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/40">Source material</p>
           <div className="mt-4 rounded-xl border border-white/10 bg-black/10 p-3.5">
-            <div className="flex items-center gap-2 text-xs text-white/45">
+            <div className="flex items-center gap-2 text-xs text-white/65">
               <Newspaper className="h-4 w-4" aria-hidden="true" />Campaign Asia · 32m
             </div>
             <p className="mt-3 text-sm font-medium leading-relaxed text-white/85">
@@ -346,7 +346,7 @@ function ContentIllustration() {
           <span className="grid h-9 w-9 place-items-center rounded-lg bg-success text-success-foreground"><Send className="h-4 w-4" aria-hidden="true" /></span>
           <div>
             <p className="text-xs font-semibold text-white">3 posts scheduled</p>
-            <p className="text-[11px] text-white/45">In your audience&apos;s time zone</p>
+            <p className="text-[11px] text-white/65">In your audience&apos;s time zone</p>
           </div>
         </motion.div>
       </div>

@@ -95,7 +95,7 @@ export default function BlogPage() {
                 </div>
                 <div className="hidden justify-self-end lg:block" aria-hidden="true">
                   <div className="relative h-64 w-64 rotate-6 rounded-[2rem] border border-white/15 bg-white/10 p-5 shadow-2xl backdrop-blur-sm transition-transform duration-700 group-hover:rotate-3">
-                    <div className="flex items-center justify-between text-xs font-bold uppercase tracking-[0.18em] text-white/45"><span>Journal</span><span>01</span></div>
+                    <div className="flex items-center justify-between text-xs font-bold uppercase tracking-[0.18em] text-white/65"><span>Journal</span><span>01</span></div>
                     <div className="mt-12 space-y-3">
                       <div className="h-2 w-4/5 rounded-full bg-white/30" />
                       <div className="h-2 w-full rounded-full bg-white/15" />
@@ -140,7 +140,7 @@ export default function BlogPage() {
                   <article className="flex h-full flex-col border-t-2 border-border pt-5 transition-colors group-hover:border-primary">
                     <div className="flex items-center justify-between gap-3">
                       <Badge variant="secondary" className="border-0 text-xs">{post.category}</Badge>
-                      <span className="font-heading text-3xl font-semibold text-border transition-colors group-hover:text-primary/30">{String(index + 2).padStart(2, "0")}</span>
+                      <span aria-hidden="true" className="font-heading text-3xl font-semibold text-border transition-colors group-hover:text-primary/30">{String(index + 2).padStart(2, "0")}</span>
                     </div>
                     <h3 className="mt-5 font-heading text-2xl font-semibold leading-tight tracking-tight text-foreground">{post.title}</h3>
                     <p className="mt-3 flex-1 text-sm leading-6 text-muted-foreground">{post.excerpt}</p>

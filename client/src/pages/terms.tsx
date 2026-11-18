@@ -9,7 +9,7 @@ export default function TermsOfServicePage() {
       <Seo
         title="Terms of Service"
         canonical="/terms"
-        description="The terms that govern your use of TheSocialPundit."
+        description="The terms that govern use of TheSocialPundit: accounts, acceptable use, subscriptions, AI-generated content, LinkedIn publishing and liability."
       />
       <SiteHeader />
       <main className="flex-1">

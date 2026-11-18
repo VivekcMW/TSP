@@ -69,7 +69,7 @@ export default function BlogPostPage() {
             <div className="grid items-end gap-10 lg:grid-cols-[1fr_0.3fr]">
               <div>
                 <Badge className="border-0 bg-primary/10 text-primary">{post.category}</Badge>
-                <h1 className="mt-6 max-w-4xl font-heading text-5xl font-semibold leading-[1.02] tracking-tight text-foreground sm:text-6xl lg:text-7xl" data-testid="text-blog-post-title">
+                <h1 className="mt-6 max-w-4xl break-words font-heading text-4xl font-semibold leading-[1.05] tracking-tight text-foreground min-[420px]:text-5xl sm:text-6xl lg:text-7xl" data-testid="text-blog-post-title">
                   {post.title}
                 </h1>
                 <p className="mt-6 max-w-3xl text-xl leading-8 text-muted-foreground">{post.excerpt}</p>

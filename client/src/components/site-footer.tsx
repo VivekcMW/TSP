@@ -5,7 +5,7 @@ import { openCookieSettings } from "@/lib/analytics-consent";
 
 export function SiteFooter() {
   return (
-    <footer className="relative border-t border-border bg-card text-muted-foreground [&_a]:underline-offset-4 [&_a:hover]:underline [&_:focus-visible]:outline [&_:focus-visible]:outline-2 [&_:focus-visible]:outline-ring [&_:focus-visible]:outline-offset-2">
+    <footer className="relative border-t border-border bg-card text-muted-foreground [&_a]:underline-offset-4 [&_a:hover]:underline [&_ul_a]:inline-block [&_ul_a]:py-1.5 [&_:focus-visible]:outline [&_:focus-visible]:outline-2 [&_:focus-visible]:outline-ring [&_:focus-visible]:outline-offset-2">
       <Reveal variants={fadeIn} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
           <div className="col-span-2">
@@ -23,7 +23,7 @@ export function SiteFooter() {
           
           <div>
             <h2 className="text-info text-xs font-bold uppercase tracking-wider mb-4">Product</h2>
-            <ul className="space-y-3 text-sm">
+            <ul className="space-y-1 text-sm">
               <li>
                 <Link href="/how-it-works" className="hover:text-primary transition-colors" data-testid="link-footer-how-it-works">
                   How It Works
@@ -74,7 +74,7 @@ export function SiteFooter() {
           
           <div>
             <h2 className="text-info text-xs font-bold uppercase tracking-wider mb-4">Company</h2>
-            <ul className="space-y-3 text-sm">
+            <ul className="space-y-1 text-sm">
               <li>
                 <Link href="/about" className="hover:text-primary transition-colors" data-testid="link-footer-about">
                   About
@@ -95,7 +95,7 @@ export function SiteFooter() {
           
           <div>
             <h2 className="text-info text-xs font-bold uppercase tracking-wider mb-4">Legal</h2>
-            <ul className="space-y-3 text-sm">
+            <ul className="space-y-1 text-sm">
               <li>
                 <Link href="/privacy" className="hover:text-primary transition-colors" data-testid="link-footer-privacy">
                   Privacy Policy

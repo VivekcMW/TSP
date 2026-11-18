@@ -57,7 +57,7 @@ const pages: Record<string, PublicPage> = {
     lastmod: "2026-11-18",
   },
   "/pricing": {
-    title: "Pricing | TheSocialPundit",
+    title: "Pricing: Plans for AI LinkedIn Posts | TheSocialPundit",
     description: "Start building professional authority for free, then upgrade when you need the complete creation, scheduling, publishing, and performance workflow.",
     lastmod: "2026-10-21",
     schema: pricingFaqJsonLd(),
@@ -78,8 +78,8 @@ const pages: Record<string, PublicPage> = {
     lastmod: "2026-10-10",
   },
   "/contact": {
-    title: "Contact | TheSocialPundit",
-    description: "Contact TheSocialPundit for product, privacy, billing, partnership, or support questions.",
+    title: "Contact: Support, Sales and Feedback | TheSocialPundit",
+    description: "Get in touch with the TheSocialPundit team for product support, billing questions, partnerships or feedback. We reply to every message.",
     lastmod: "2026-08-28",
   },
   "/newsletter": {
@@ -87,13 +87,13 @@ const pages: Record<string, PublicPage> = {
     description: "Join TheSocialPundit for practical ideas on professional authority, useful AI, editorial voice, and sustainable content strategy.",
     lastmod: "2026-10-11",
   },
-  "/privacy": { title: "Privacy Policy | TheSocialPundit", description: "How TheSocialPundit collects, uses, protects, and deletes personal information.", lastmod: "2026-10-15" },
-  "/terms": { title: "Terms of Service | TheSocialPundit", description: "The terms that govern use of TheSocialPundit.", lastmod: "2026-09-16" },
-  "/refund-policy": { title: "Refund Policy | TheSocialPundit", description: "TheSocialPundit refund eligibility, process, and contact information.", lastmod: "2026-09-16" },
+  "/privacy": { title: "Privacy Policy | TheSocialPundit", description: "How TheSocialPundit collects, uses, protects, and deletes personal information, including your LinkedIn data, AI processing and your privacy rights.", lastmod: "2026-10-15" },
+  "/terms": { title: "Terms of Service | TheSocialPundit", description: "The terms that govern use of TheSocialPundit: accounts, acceptable use, subscriptions, AI-generated content, LinkedIn publishing and liability.", lastmod: "2026-09-16" },
+  "/refund-policy": { title: "Refund Policy | TheSocialPundit", description: "TheSocialPundit refund eligibility, how to request a refund, processing times, and how to contact support about a payment issue.", lastmod: "2026-09-16" },
   "/subscription-cancellation": { title: "Subscription Cancellation | TheSocialPundit", description: "How to cancel a TheSocialPundit subscription and understand when access ends.", lastmod: "2026-09-16" },
   "/data-retention": { title: "Data Retention Policy | TheSocialPundit", description: "How long TheSocialPundit retains account, content, quality, billing, and audit records.", lastmod: "2026-10-11" },
   "/ai-data-processing": { title: "AI Data Processing | TheSocialPundit", description: "How TheSocialPundit uses AI providers, approved voice samples, content-free quality signals, and human review.", lastmod: "2026-10-11" },
-  "/cookies": { title: "Cookie Policy | TheSocialPundit", description: "How TheSocialPundit uses essential, preference, and analytics cookies.", lastmod: "2026-10-15" },
+  "/cookies": { title: "Cookie Policy | TheSocialPundit", description: "How TheSocialPundit uses essential, preference, and analytics cookies, and how to manage or withdraw your cookie consent at any time.", lastmod: "2026-10-15" },
   "/sitemap": { title: "Sitemap | TheSocialPundit", description: "Browse every public product, role, industry, comparison, company, policy, use-case, and journal page on TheSocialPundit.", lastmod: "2026-10-15" },
   ...Object.fromEntries(USE_CASES.map(useCase => [
     `/use-cases/${useCase.slug}`,

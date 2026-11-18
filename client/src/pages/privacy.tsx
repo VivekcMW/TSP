@@ -8,7 +8,7 @@ export default function PrivacyPolicyPage() {
       <Seo
         title="Privacy Policy"
         canonical="/privacy"
-        description="How TheSocialPundit collects, uses, and protects your data."
+        description="How TheSocialPundit collects, uses, protects, and deletes personal information, including your LinkedIn data, AI processing and your privacy rights."
       />
       <SiteHeader />
       <main className="flex-1">

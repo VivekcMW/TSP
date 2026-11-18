@@ -59,7 +59,7 @@ export default function ComparePage({ slug }: { slug: string }) {
         <section className="border-y bg-card py-16 lg:py-20" aria-labelledby="table-title">
           <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
             <h2 id="table-title" className="heading-section">TheSocialPundit vs {page.competitor} at a glance</h2>
-            <div className="mt-8 overflow-x-auto rounded-card border bg-background">
+            <div tabIndex={0} role="region" aria-labelledby="table-title" className="mt-8 overflow-x-auto rounded-card border bg-background">
               <table className="w-full min-w-[40rem] text-left text-sm">
                 <caption className="sr-only">Feature comparison of TheSocialPundit and {page.competitor}</caption>
                 <thead className="bg-muted/60 text-foreground">
@@ -122,7 +122,7 @@ export default function ComparePage({ slug }: { slug: string }) {
           <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
             <h2 id="sources-title" className="font-heading text-xl font-semibold">Sources and method</h2>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-              Details about {page.competitor} come from its official website, checked on {formatDate(COMPARISONS_CHECKED)}. Products change, so check each vendor's site for current features and pricing. {page.competitor} is a trademark of its owner; TheSocialPundit isn't affiliated with it. Spotted something out of date? <Link href="/contact" className="text-primary hover:underline">Tell us</Link> and we'll correct it.
+              Details about {page.competitor} come from its official website, checked on {formatDate(COMPARISONS_CHECKED)}. Products change, so check each vendor's site for current features and pricing. {page.competitor} is a trademark of its owner; TheSocialPundit isn't affiliated with it. Spotted something out of date? <Link href="/contact" className="text-primary underline underline-offset-2">Tell us</Link> and we'll correct it.
             </p>
             <ul className="mt-4 flex flex-wrap gap-3 text-sm">
               {page.sources.map(source => (

@@ -1,7 +1,7 @@
 import { LegalPage, legalLinkClass, legalTextClass } from "@/components/legal/legal-page";
 
 export default function CookiePolicyPage() {
-  return <LegalPage title="Cookie Policy" path="/cookies" testId="cookies" description="How TheSocialPundit uses cookies and similar technologies." updated="October 15, 2026" sections={[
+  return <LegalPage title="Cookie Policy" path="/cookies" testId="cookies" description="How TheSocialPundit uses essential, preference, and analytics cookies, and how to manage or withdraw your cookie consent at any time." updated="October 15, 2026" sections={[
     { title: "What cookies are", content: <p className={legalTextClass}>Cookies are small text files stored by your browser. Similar technologies may store session or preference information. We use these tools only where needed for the website and application to work securely and reliably.</p> },
     { title: "Essential cookies", content: <p className={legalTextClass}>Authentication and session cookies help keep you signed in, protect requests, and maintain the correct account and tenant context. These cookies are necessary for core application functionality.</p> },
     { title: "Preferences and security", content: <p className={legalTextClass}>We may use limited browser storage or cookies to remember interface preferences and support security controls. These are not used to sell your information or create third-party advertising profiles.</p> },
