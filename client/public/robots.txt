@@ -24,6 +24,15 @@ User-agent: CCBot
 User-agent: DuckAssistBot
 User-agent: MistralAI-User
 User-agent: Amazonbot
+User-agent: Baiduspider
+User-agent: YandexBot
+User-agent: Naverbot
+User-agent: Yeti
+User-agent: SeznamBot
+User-agent: DuckDuckBot
+User-agent: Bytespider
+User-agent: Google-CloudVertexBot
+User-agent: cohere-ai
 Allow: /
 Disallow: /dashboard
 Disallow: /admin

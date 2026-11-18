@@ -251,6 +251,9 @@ export function renderInitialSeo(html: string, pathname: string): { html: string
   let rendered = html.replace(/<title(?:\s[^>]*)?>[\s\S]*?<\/title>/i, `<title data-rh="true">${text(metadata.title)}</title>`);
   rendered = replaceMeta(rendered, "name", "description", metadata.description);
   rendered = rendered.replace(/<link(?=[^>]*\brel="canonical")(?=[^>]*\bhref=")[^>]*>/i, `<link rel="canonical" href="${attribute(metadata.canonical)}" data-rh="true" />`);
+  const hreflang = (code: string) => `<link rel="alternate" hreflang="${code}" href="${attribute(metadata.canonical)}" data-rh="true" />`;
+  rendered = rendered.replace(/<link(?=[^>]*\brel="alternate")(?=[^>]*\bhreflang=")[^>]*>\s*/gi, "");
+  rendered = rendered.replace(/(<link rel="canonical"[^>]*>)/i, `$1\n    ${hreflang("en")}\n    ${hreflang("x-default")}`);
   rendered = replaceMeta(rendered, "property", "og:title", metadata.title);
   rendered = replaceMeta(rendered, "property", "og:description", metadata.description);
   rendered = replaceMeta(rendered, "property", "og:type", metadata.type);

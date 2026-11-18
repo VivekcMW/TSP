@@ -27,7 +27,8 @@ const ORGANIZATION = {
   logo: { "@type": "ImageObject", url: `${siteUrl}/logo.png`, width: 512, height: 512 },
   description: "AI-assisted LinkedIn thought leadership that turns relevant industry news into posts in the user's own voice, with human approval before publishing.",
   email: "hello@thesocialpundit.com",
-  contactPoint: { "@type": "ContactPoint", contactType: "customer support", email: "hello@thesocialpundit.com", availableLanguage: "English" },
+  contactPoint: { "@type": "ContactPoint", contactType: "customer support", email: "hello@thesocialpundit.com", availableLanguage: "English", areaServed: "Worldwide" },
+  areaServed: "Worldwide",
 };
 
 export function SEO({ 
@@ -74,6 +75,8 @@ export function SEO({
       <meta name="description" content={description} />
       <meta name="robots" content={robots} />
       {canonicalUrl && <link rel="canonical" href={canonicalUrl} />}
+      {canonicalUrl && <link rel="alternate" hrefLang="en" href={canonicalUrl} />}
+      {canonicalUrl && <link rel="alternate" hrefLang="x-default" href={canonicalUrl} />}
       
       <meta property="og:title" content={fullTitle} />
       <meta property="og:description" content={description} />

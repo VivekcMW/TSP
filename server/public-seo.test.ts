@@ -115,3 +115,12 @@ describe("canonical URLs", () => {
     expect(publicSeoForPath("/pricing/")!.canonical).toBe(publicSeoForPath("/pricing")!.canonical);
   });
 });
+
+describe("international targeting", () => {
+  it("adds en and x-default hreflang alternates matching the canonical", () => {
+    const { html } = renderInitialSeo('<head><link rel="canonical" href="https://www.thesocialpundit.com/" /><link rel="alternate" hreflang="en" href="x" /></head>', "/pricing");
+    expect(html).toContain('hreflang="en" href="https://www.thesocialpundit.com/pricing"');
+    expect(html).toContain('hreflang="x-default" href="https://www.thesocialpundit.com/pricing"');
+    expect(html.match(/hreflang="en"/g)).toHaveLength(1);
+  });
+});
