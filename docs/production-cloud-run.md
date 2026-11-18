@@ -267,6 +267,12 @@ only canonical, indexable URLs that return HTTP 200, and that `/pricing` and
 check the serving revision's logs and billing database before submitting the
 updated sitemap in Google Search Console or Bing Webmaster Tools.
 
+## Global SEO and indexing
+
+- Pages declare `hreflang="en"` and `x-default` pointing at their canonical URL (static `client/index.html`, the `<SEO>` component and `renderInitialSeo` in `server/public-seo.ts` must stay in sync). The Organization schema sets `areaServed: "Worldwide"`.
+- `client/public/robots.txt` allows major global search engines (Baidu, Yandex, Naver, Seznam, DuckDuckGo) and AI crawlers. `llms.txt` is generated: edit `script/discovery-files.ts` and run `npx tsx script/generate-search-files.ts`.
+- After each deploy, run `scripts/indexnow-submit.ts` to notify Bing, Yandex and other IndexNow engines, then request re-indexing in Google Search Console and Bing Webmaster Tools.
+
 ## Roll back
 
 Previous revisions stay deployed. Send traffic back to one:
