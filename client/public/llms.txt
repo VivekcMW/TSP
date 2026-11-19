@@ -16,7 +16,7 @@ Key facts:
 
 - [AI LinkedIn Posts From Your Industry News](https://www.thesocialpundit.com/): TheSocialPundit turns current industry news into thoughtful LinkedIn posts in your voice. Review and approve every draft before it publishes.
 - [How It Works: AI LinkedIn Posts From Industry News](https://www.thesocialpundit.com/how-it-works): See how TheSocialPundit finds current news in your field, drafts thoughtful LinkedIn posts in your voice, and waits for your approval before publishing.
-- [Pricing](https://www.thesocialpundit.com/pricing): Start building professional authority for free, then upgrade when you need the complete creation, scheduling, publishing, and performance workflow.
+- [Pricing: Plans for AI LinkedIn Posts](https://www.thesocialpundit.com/pricing): Start building professional authority for free, then upgrade when you need the complete creation, scheduling, publishing, and performance workflow.
 - [Use Cases](https://www.thesocialpundit.com/use-cases): Explore how TheSocialPundit helps professionals turn industry news into thoughtful LinkedIn posts, in their voice and under their control.
 - [Thought leadership](https://www.thesocialpundit.com/use-cases/thought-leadership): Build credible thought leadership from current industry signals, your expertise, and a point of view you approve before publishing.
 - [Professional content creation](https://www.thesocialpundit.com/use-cases/professional-content-creation): Turn a current story, useful link, or original idea into a professional social post with source context and human approval.
@@ -98,14 +98,14 @@ Key facts:
 ## Company and policies
 
 - [About](https://www.thesocialpundit.com/about): Why we built TheSocialPundit and what we believe about useful AI, professional judgment, personal voice, and human-approved publishing.
-- [Contact](https://www.thesocialpundit.com/contact): Contact TheSocialPundit for product, privacy, billing, partnership, or support questions.
+- [Contact: Support, Sales and Feedback](https://www.thesocialpundit.com/contact): Get in touch with the TheSocialPundit team for product support, billing questions, partnerships or feedback. We reply to every message.
 - [Newsletter](https://www.thesocialpundit.com/newsletter): Join TheSocialPundit for practical ideas on professional authority, useful AI, editorial voice, and sustainable content strategy.
-- [Privacy Policy](https://www.thesocialpundit.com/privacy): How TheSocialPundit collects, uses, protects, and deletes personal information.
-- [Terms of Service](https://www.thesocialpundit.com/terms): The terms that govern use of TheSocialPundit.
+- [Privacy Policy](https://www.thesocialpundit.com/privacy): How TheSocialPundit collects, uses, protects, and deletes personal information, including your LinkedIn data, AI processing and your privacy rights.
+- [Terms of Service](https://www.thesocialpundit.com/terms): The terms that govern use of TheSocialPundit: accounts, acceptable use, subscriptions, AI-generated content, LinkedIn publishing and liability.
 - [AI Data Processing](https://www.thesocialpundit.com/ai-data-processing): How TheSocialPundit uses AI providers, approved voice samples, content-free quality signals, and human review.
 - [Data Retention Policy](https://www.thesocialpundit.com/data-retention): How long TheSocialPundit retains account, content, quality, billing, and audit records.
-- [Cookie Policy](https://www.thesocialpundit.com/cookies): How TheSocialPundit uses essential, preference, and analytics cookies.
-- [Refund Policy](https://www.thesocialpundit.com/refund-policy): TheSocialPundit refund eligibility, process, and contact information.
+- [Cookie Policy](https://www.thesocialpundit.com/cookies): How TheSocialPundit uses essential, preference, and analytics cookies, and how to manage or withdraw your cookie consent at any time.
+- [Refund Policy](https://www.thesocialpundit.com/refund-policy): TheSocialPundit refund eligibility, how to request a refund, processing times, and how to contact support about a payment issue.
 - [Subscription Cancellation](https://www.thesocialpundit.com/subscription-cancellation): How to cancel a TheSocialPundit subscription and understand when access ends.
 
 ## Optional
