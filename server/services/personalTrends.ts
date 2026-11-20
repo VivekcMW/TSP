@@ -8,6 +8,25 @@ export interface TrendRow {
   articleUrl: string; headline: string; source: string; discoveredAt: Date | null;
   matchedKeywords: string[] | null; relevanceScore: string | null; qualityMetadata: ArticleQuality | null;
 }
+/** Trend topics are lowercased for grouping; this maps each back to the form its evidence used most ("EY", not "ey"). */
+export function trendTopicLabels(rows: readonly TrendRow[]): Map<string, string> {
+  const forms = new Map<string, Map<string, number>>();
+  for (const row of rows.slice(0, TREND_ROW_LIMIT)) {
+    const evidence = row.qualityMetadata?.relevance?.evidence;
+    if (!Array.isArray(evidence)) continue;
+    for (const item of evidence.slice(0, 300)) {
+      const label = typeof item?.label === "string" ? item.label.replace(/\s+/gu, " ").trim() : "";
+      const topic = normalizeTopic(label);
+      if (!topic || topic.length > 100) continue;
+      const counts = forms.get(topic) ?? new Map<string, number>();
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+      forms.set(topic, counts);
+    }
+  }
+  // Ties go to the earlier code point, so capitals win ("EY" before "ey").
+  return new Map([...forms].map(([topic, counts]) => [topic, [...counts].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0]]));
+}
+
 /** A bounded personal admission sample, never a market or crawl-volume estimate. */
 export function personalTrends(rows: readonly TrendRow[], now: Date, maxTrends = 5): PersonalTrend[] {
   const end = now.getTime(); const start = end - TREND_WINDOW_MS; const previousStart = start - TREND_WINDOW_MS;

@@ -18,12 +18,18 @@ const fixture = `
   import { DashboardNavbar } from "@/components/dashboard/navbar";
   import { PlatformStrip } from "@/components/landing/platform-strip";
   import { DecorativeIcons } from "@/components/decorative-icons";
+  import { AppTourProvider } from "@/components/app-tour";
+  import { HelpProvider } from "@/components/help-panel";
   import { SidebarProvider } from "@/components/ui/sidebar";
   const h = React.createElement;
   const client = new QueryClient({ defaultOptions: { queries: { enabled: false } } });
   createRoot(document.getElementById("root")).render(
     h(QueryClientProvider, { client }, h(Router, null,
-      h(DecorativeIcons, null, h(SiteHeader), h(SidebarProvider, null, h(DashboardNavbar)), h(PlatformStrip)))));
+      h(DecorativeIcons, null,
+        h(SiteHeader),
+        h(AppTourProvider, { scope: null, enabled: false },
+          h(HelpProvider, null, h(SidebarProvider, null, h(DashboardNavbar)))),
+        h(PlatformStrip)))));
 `;
 
 let browser: Browser;
@@ -110,7 +116,7 @@ describe("accessible names at phone width", () => {
   it("keeps brand icons out of the accessibility tree", async () => {
     const page = await openFixture();
     try {
-      const icons = page.getByTestId("section-platform-strip").locator('svg[role="img"]');
+      const icons = page.getByTestId("section-platform-strip").locator("svg");
       expect(await icons.count()).toBeGreaterThan(0);
       expect(await icons.evaluateAll(svgs => svgs.filter(svg => svg.getAttribute("aria-hidden") !== "true").length)).toBe(0);
     } finally { await page.close(); }

@@ -27,7 +27,7 @@ vi.mock("../db", () => { throw new Error("Database must not load in Discover rou
 import { registerInboxRoutes } from "./inbox";
 
 const routes = new Map<string, { handlers: RequestHandler[]; permission: string }>();
-const registrar = Object.fromEntries(["get", "post", "patch"].map(method => [method,
+const registrar = Object.fromEntries(["get", "post", "patch", "delete"].map(method => [method,
   (url: string, ...handlers: RequestHandler[]) => routes.set(`${method} ${url}`, { handlers, permission: permissions.at(-1)! }),
 ]));
 registerInboxRoutes(registrar as unknown as Express);

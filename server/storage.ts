@@ -1,5 +1,5 @@
 import {
-  users, userProfiles, publicationResolutions, userSourceDeletions, profileSocialLinks, inboxItems, inboxRefreshReceipts, inboxReads, discoverVisits, drafts, draftFeedbackEvents, industrySources, userSources, engineRunLogs,
+  users, userProfiles, publicationResolutions, userSourceDeletions, profileSocialLinks, inboxItems, inboxRefreshReceipts, inboxReads, discoverVisits, userNotes, drafts, draftFeedbackEvents, industrySources, userSources, engineRunLogs,
   socialAccounts, socialOAuthStates, socialAnalytics, draftSchedules, draftScheduleTargets, publishJobLogs, mediaAssets, publishingRules,
   type User, type UserProfile, type PublicationResolution, type InboxItem, type InboxListItem, type DiscoverVisitMarker, type Draft,
   type InsertUserProfile, type ProfileSocialLink, type InsertProfileSocialLink, type InsertInboxItem, type InsertDraft,
@@ -10,7 +10,7 @@ import {
   type SocialAnalyticsSnapshot, type InsertSocialAnalytics,
   type DraftSchedule, type DraftScheduleTarget,
   type PublishJobLog, type InsertPublishJobLog,
-  type MediaAsset, type PublishingRule,
+  type MediaAsset, type PublishingRule, type UserNote,
 } from "@shared/schema";
 import { db } from "./db";
 import { registerPublications } from "./services/articlePool";
@@ -154,6 +154,8 @@ export interface Pagination {
    * Read-only: no quality/provenance hiding, backfill, rescoring or reconciliation.
    */
   status?: "active" | "saved" | "dismissed";
+  /** Inbox only: "exclude" keeps rows whose snooze has ended (or never started); "only" keeps rows still snoozed. Omitted = no filter. */
+  snoozed?: "exclude" | "only";
 }
 
 // Bounds each list read, not the stored history. Dedupe and capacity queries
@@ -186,6 +188,10 @@ export interface IStorage {
   getInboxItems(scope: TenantScope, page?: Pagination): Promise<InboxListItem[]>;
   /** Explicit open only. Idempotent; keeps the first read time. undefined = not this user's item. */
   markInboxItemRead(scope: TenantScope, id: string): Promise<Date | undefined>;
+  /** Removes this user's explicit open. false = not this user's item; true even if it was already unread. */
+  markInboxItemUnread(scope: TenantScope, id: string): Promise<boolean>;
+  /** Active items only (else InboxSnoozeError). null clears the snooze. undefined = not this user's item. */
+  snoozeInboxItem(scope: TenantScope, id: string, until: Date | null): Promise<InboxItem | undefined>;
   /** Starts (or continues, within the session window) a Discover visit and returns the previous marker. */
   recordDiscoverVisit(scope: TenantScope): Promise<DiscoverVisitMarker>;
   getInboxDiscoveryWindow(scope: TenantScope, now: Date): Promise<TrendRow[]>;
@@ -198,6 +204,14 @@ export interface IStorage {
   addInboxItem(scope: TenantScope, item: Scoped<InsertInboxItem>): Promise<{ item: InboxItem; alreadyExists: boolean }>;
   updateInboxItem(scope: TenantScope, id: string, data: { status: string }): Promise<InboxItem | undefined>;
   clearUserInboxItems(scope: TenantScope): Promise<void>;
+
+  /** Newest first, at most USER_NOTES_PAGE_LIMIT. */
+  getUserNotes(scope: TenantScope): Promise<UserNote[]>;
+  /** Text must already be trimmed and 1–1000 characters. Throws UserNoteLimitError at USER_NOTE_LIMIT notes. */
+  createUserNote(scope: TenantScope, text: string): Promise<UserNote>;
+  updateUserNote(scope: TenantScope, id: string, text: string): Promise<UserNote | undefined>;
+  /** false = not this user's note. */
+  deleteUserNote(scope: TenantScope, id: string): Promise<boolean>;
 
   getDrafts(scope: TenantScope, page?: Pagination & { id?: string }): Promise<Draft[]>;
   createDraft(scope: TenantScope, draft: Scoped<InsertDraft>): Promise<Draft>;
@@ -285,6 +299,10 @@ async function scoped<T>(scope: TenantScope, fn: (tx: Tx) => Promise<T>): Promis
   });
 }
 
+/** The same tenant-scoped transaction for repository modules outside this file (RLS applies). */
+export const withTenantTransaction = scoped;
+export type TenantTx = Tx;
+
 export class ScheduleConflictError extends Error {}
 
 export class InboxCapacityError extends Error {
@@ -293,6 +311,19 @@ export class InboxCapacityError extends Error {
 export class InboxCanonicalConflictError extends Error {
   constructor() { super("This article already has an active inbox item."); }
 }
+export class InboxSnoozeError extends Error {
+  readonly status = 409;
+  constructor() { super("Only stories in For you can be snoozed."); }
+}
+
+export const USER_NOTE_LIMIT = 200;
+export const USER_NOTES_PAGE_LIMIT = 100;
+export class UserNoteLimitError extends Error {
+  readonly status = 409;
+  constructor() { super(`You have reached the ${USER_NOTE_LIMIT}-note limit. Delete a note first.`); }
+}
+/** Snooze has ended or never started; evaluated at transaction time. */
+const notSnoozed = sql`(${inboxItems.snoozedUntil} is null or ${inboxItems.snoozedUntil} <= now())`;
 type RefreshMetrics = Pick<InboxRefreshResult, "articlesProcessed" | "articlesMatched" | "durationMs" | "needsSetup" | "discoveryWarnings">;
 function inboxScope(scope: TenantScope) {
   return and(eq(inboxItems.tenantId, scope.tenantId), eq(inboxItems.userId, scope.userId));
@@ -630,9 +661,10 @@ export class DatabaseStorage implements IStorage {
         .where(and(inboxScope(scope), inboxCanonicalMatches([...unique.keys()]))) : [];
       for (const row of history) if (row.key) unique.delete(row.key);
       const activeCount = await inboxCount(tx, scope);
+      // Snoozed stories are protected: only rows whose snooze has ended may be replaced.
       const eligible = autoRefresh && activeCount <= INBOX_CAPACITY && snapshot.length
         ? await tx.select({ id: inboxItems.id, version: inboxItems.version }).from(inboxItems)
-          .where(and(inboxScope(scope), eq(inboxItems.status, "active"), inArray(inboxItems.id, snapshot.map(row => row.id)))) : [];
+          .where(and(inboxScope(scope), eq(inboxItems.status, "active"), inArray(inboxItems.id, snapshot.map(row => row.id)), notSnoozed)) : [];
       const versions = new Map(eligible.map(row => [row.id, row.version]));
       const unchanged = snapshot.filter(row => versions.get(row.id) === row.version);
       const free = Math.max(0, INBOX_CAPACITY - activeCount);
@@ -665,13 +697,15 @@ export class DatabaseStorage implements IStorage {
   async getInboxItems(scope: TenantScope, page: Pagination = {}): Promise<InboxListItem[]> {
     return scoped(scope, async (tx) => {
       const readAt = (await discoverStateAvailable(tx))
-        ? sql<Date | null>`(select r.read_at from ${inboxReads} r where r.tenant_id = ${inboxItems.tenantId}
-            and r.user_id = ${inboxItems.userId} and r.inbox_item_id = ${inboxItems.id})`.mapWith(value => value ? new Date(value) : null)
+        // Single-table selects render column refs unqualified, which would bind to `r` here; qualify explicitly.
+        ? sql<Date | null>`(select r.read_at from ${inboxReads} r where r.tenant_id = ${scope.tenantId}
+            and r.user_id = ${scope.userId} and r.inbox_item_id = ${sql.raw(`"inbox_items"."id"`)})`.mapWith(value => value ? new Date(value) : null)
         : sql<Date | null>`null`.mapWith(() => null);
       return tx
         .select({ ...getTableColumns(inboxItems), readAt })
         .from(inboxItems)
-        .where(and(inboxScope(scope), page.status === undefined ? undefined : eq(inboxItems.status, page.status)))
+        .where(and(inboxScope(scope), page.status === undefined ? undefined : eq(inboxItems.status, page.status),
+          page.snoozed === "exclude" ? notSnoozed : page.snoozed === "only" ? sql`${inboxItems.snoozedUntil} > now()` : undefined))
         .orderBy(...(page.order === "relevance"
           ? [sql`coalesce(${inboxItems.rankingScore}, ${inboxItems.relevanceScore}) desc nulls last`, desc(inboxItems.createdAt), inboxItems.id]
           : [desc(inboxItems.createdAt)]))
@@ -689,6 +723,30 @@ export class DatabaseStorage implements IStorage {
         .onConflictDoUpdate({ target: [inboxReads.tenantId, inboxReads.userId, inboxReads.inboxItemId], set: { readAt: sql`${inboxReads.readAt}` } })
         .returning({ readAt: inboxReads.readAt });
       return row.readAt;
+    });
+  }
+
+  async markInboxItemUnread(scope: TenantScope, id: string): Promise<boolean> {
+    return scoped(scope, async tx => {
+      if (!await discoverStateAvailable(tx)) throw new DiscoverStateUnavailableError("Discover reading state is not migrated");
+      const [owned] = await tx.select({ id: inboxItems.id }).from(inboxItems).where(and(inboxScope(scope), eq(inboxItems.id, id)));
+      if (!owned) return false;
+      await tx.delete(inboxReads).where(and(eq(inboxReads.tenantId, scope.tenantId), eq(inboxReads.userId, scope.userId), eq(inboxReads.inboxItemId, id)));
+      return true;
+    });
+  }
+
+  async snoozeInboxItem(scope: TenantScope, id: string, until: Date | null): Promise<InboxItem | undefined> {
+    if (until !== null && !Number.isFinite(until.getTime())) throw new Error("Invalid snooze time");
+    return scoped(scope, async tx => {
+      // Same writer lock as refresh commits, so a snooze cannot race a replacement.
+      await lockInbox(tx, scope);
+      const [existing] = await tx.select({ status: inboxItems.status }).from(inboxItems).where(and(inboxScope(scope), eq(inboxItems.id, id)));
+      if (!existing) return undefined;
+      if (existing.status !== "active") throw new InboxSnoozeError();
+      const [updated] = await tx.update(inboxItems).set({ snoozedUntil: until, version: sql`${inboxItems.version} + 1` })
+        .where(and(inboxScope(scope), eq(inboxItems.id, id))).returning();
+      return updated;
     });
   }
 
@@ -793,6 +851,8 @@ export class DatabaseStorage implements IStorage {
       }
       const updateData: Record<string, unknown> = { version: sql`${inboxItems.version} + 1` };
       if (data.status !== undefined) updateData.status = data.status;
+      // Triage supersedes a snooze; a story moved back later must not stay hidden.
+      if (data.status !== undefined && data.status !== existing.status) updateData.snoozedUntil = null;
       if (data.relevanceScore !== undefined) {
         updateData.relevanceScore = String(data.relevanceScore);
         // An independent rescore invalidates the old policy/evidence snapshot.
@@ -822,6 +882,43 @@ export class DatabaseStorage implements IStorage {
       await tx
         .delete(inboxItems)
         .where(and(eq(inboxItems.tenantId, scope.tenantId), eq(inboxItems.userId, scope.userId)));
+    });
+  }
+
+  // ------------------------------------------------------------------- notes
+
+  async getUserNotes(scope: TenantScope): Promise<UserNote[]> {
+    return scoped(scope, tx => tx.select().from(userNotes)
+      .where(and(eq(userNotes.tenantId, scope.tenantId), eq(userNotes.userId, scope.userId)))
+      .orderBy(desc(userNotes.createdAt), desc(userNotes.id)).limit(USER_NOTES_PAGE_LIMIT));
+  }
+
+  async createUserNote(scope: TenantScope, text: string): Promise<UserNote> {
+    return scoped(scope, async tx => {
+      // Serialize this user's creates so concurrent requests cannot pass the limit together.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${JSON.stringify(["user_notes", scope.tenantId, scope.userId])}, 0))`);
+      const [row] = await tx.select({ total: count() }).from(userNotes)
+        .where(and(eq(userNotes.tenantId, scope.tenantId), eq(userNotes.userId, scope.userId)));
+      if (Number(row.total) >= USER_NOTE_LIMIT) throw new UserNoteLimitError();
+      const [note] = await tx.insert(userNotes).values({ text, tenantId: scope.tenantId, userId: scope.userId }).returning();
+      return note;
+    });
+  }
+
+  async updateUserNote(scope: TenantScope, id: string, text: string): Promise<UserNote | undefined> {
+    return scoped(scope, async tx => {
+      const [note] = await tx.update(userNotes).set({ text, updatedAt: sql`now()` })
+        .where(and(eq(userNotes.id, id), eq(userNotes.tenantId, scope.tenantId), eq(userNotes.userId, scope.userId))).returning();
+      return note;
+    });
+  }
+
+  async deleteUserNote(scope: TenantScope, id: string): Promise<boolean> {
+    return scoped(scope, async tx => {
+      const deleted = await tx.delete(userNotes)
+        .where(and(eq(userNotes.id, id), eq(userNotes.tenantId, scope.tenantId), eq(userNotes.userId, scope.userId)))
+        .returning({ id: userNotes.id });
+      return deleted.length > 0;
     });
   }
 

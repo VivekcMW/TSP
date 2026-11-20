@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import type { PublishingConsent } from '@shared/publishing-consent';
 import { track } from '@/lib/analytics-consent';
+import { useAppTourReporter } from '@/components/app-tour';
 
 export interface ScheduleResult {
   id: string;
@@ -19,6 +20,7 @@ export interface BulkScheduleResult {
 }
 
 export function usePublishSchedule() {
+  const reportTour = useAppTourReporter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +42,7 @@ export function usePublishSchedule() {
       }
 
       const result = await response.json();
+      reportTour?.("publishing-result", draftId, "scheduled");
       track('post_scheduled', { ...(platforms?.length ? { platform: platforms.join(',') } : {}) });
       toast({
         title: 'Success',

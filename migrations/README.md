@@ -62,6 +62,60 @@ for local iteration, run `npx drizzle-kit push` directly and re-apply
 | `0026_search_query_planning.sql` | Adds checked `search_edition` (text, non-null `en-US`) and server-owned `search_query_state` (JSONB object, non-null `{}`) to profiles. |
 | `0027_inbox_refresh_contract.sql` | Adds canonical inbox identity, mutation versions, a nonunique scoped index and durable refresh receipts under FORCE RLS. |
 | `0038_repair_legacy_keyword_wrappers.sql` | Forward-only repair of exact recoverable 0022 nested keyword objects; preserves zero/category/original metadata and fails on ambiguous data. Applied only in the isolated acceptance rehearsal. |
+| `0055_recent_email_digest.sql` | Adds delivery-scoped digest article identities and a scoped history index. Apply before deploying the recent/unemailed 48-hour digest; legacy delivery receipts cannot reconstruct article history. |
+| `0056_email_communications.sql` | Adds immutable announcement campaigns, snapshotted recipients and the payment-failure outbox with indexes/runtime grants. Apply before deploying the communication scheduler and updated billing reconciliation. |
+| `0057_admin_operations.sql` | Adds durable incidents, FORCE-RLS quota grants/AI observations, owned/expiring targeted flags and immutable flag history, plus delivery search indexes. |
+| `0058_admin_rollups.sql` | Adds metadata-only tenant count snapshots and restricted runtime read/upsert grants. |
+| `0059_inbox_snooze_and_notes.sql` | Adds nullable `inbox_items.snoozed_until` (partial scoped index) and FORCE-RLS `user_notes` with runtime CRUD grants. |
+
+### Email communications (0055/0056)
+
+Apply both additive migrations before deploying this email version, using the
+authorized migration-owner workflow. Both are now applied to the verified
+loopback development database only; no remote migration is implied.
+Do not enable new
+senders on an old schema.
+
+`EMAIL_WEEKLY_SUMMARY_ENABLED` and `EMAIL_ANNOUNCEMENTS_ENABLED` default false.
+The production scheduler gates are also required for automatic dispatch and
+essential payment-outbox recovery. Announcement confirmation requires its flag
+on the API process as well as the worker. Payment-failure outbox creation and the
+immediate post-commit attempt are not controlled by these optional flags.
+See the [notification contract](../docs/notifications-media-contract.md#weekly-summaries-announcements-and-payment-failure-bindings)
+for consent, scheduling, admin confirmation and unknown-outcome handling.
+
+### Admin operations (0057/0058)
+
+Both migrations are applied only to `localhost:5433/thesocialpundit_dev`.
+Existing ledger gaps 0050, 0052 and 0053 remain deliberately unreconciled;
+the explicit `onlyFile` selections do not validate or repair those gaps.
+Missing feedback storage is surfaced as unavailable by workspace insights.
+Do not edit these applied migrations or silently apply historical gaps.
+
+Fresh-chain acceptance replayed all 58 migrations into a randomly named,
+disposable loopback `_test` database, then verified real restricted-role RLS,
+quota admission/idempotency, feature history/revisions, incident persistence,
+scoped AI observations/insights, and 100-tenant rollups. The wrapper
+`pnpm exec tsx scripts/verify-admin-roadmap.ts` cleans up only its exact generated
+database. It requires matching loopback `_dev` owner/application source targets
+and local create/drop-database privileges; it never uses development rows as
+fixtures. Its authentication is stubbed, while permissions/audit/SQL are real.
+
+Apply the additive schema with the approved owner workflow before deployment.
+`ADMIN_OPERATIONS_ENABLED`, `ADMIN_ROLLUPS_ENABLED` and `AI_OBSERVATIONS_ENABLED`
+default false. The first two also require production scheduler gates.
+See the [admin operating runbook](../docs/design-system.md#advanced-admin-controls-and-operating-runbook)
+for scope, thresholds, safe recovery, expiry semantics and acceptance boundaries.
+No production/remote application or live provider acceptance was performed.
+
+### Inbox snooze and notes (0059)
+
+Additive. Apply before deploying the matching storage/schema code: every inbox
+read now selects `snoozed_until`. Applied only to `localhost:5433/thesocialpundit_dev`
+with `--only=0059_inbox_snooze_and_notes.sql` (gaps 0050/0052/0053 remain
+unreconciled). Not applied to the shared test database; the DB-backed suite
+`server/storage.inbox-snooze-notes.test.ts` is opt-in via
+`INBOX_SNOOZE_NOTES_DB_TESTS=true` after 0059 is applied there.
 
 ### Publication resolution (0023)
 
@@ -194,3 +248,10 @@ Fresh-chain testing requires parent authorization and a separately provisioned,
 explicitly confirmed disposable target; follow the gated harness prerequisites in
 [migration correctness](../docs/migration-correctness.md). The harness does not
 create databases/roles/clusters or silently use the shared test database.
+
+- `0061_topic_discovery.sql` (Phase 3): FORCE-RLS `content_strategies` (one per member, `revision`), `experience_checkins` (one per member and Monday) and `topic_idea_states` (saved/dismissed/used by idea id, saved snapshot); opt-in DB test: `TOPIC_DISCOVERY_DB_TESTS=true`.
+- `0060_saved_searches.sql` (Phase 3A): FORCE-RLS `saved_searches` (followed news searches; unique per member on `lower(query)`, 25 per member enforced in the app, `last_viewed_at`); opt-in DB tests: `NEWS_SEARCH_DB_TESTS=true`.
+- `0062_triage_feedback.sql` (Phase 4): FORCE-RLS `inbox_feedback` ("Not relevant" reasons and calibration votes; item FK `ON DELETE SET NULL`, newest 500 per member kept by the app) and `feed_preferences` (one row per member: muted sources ≤100, keyword deltas in [-0.6, +0.4], `revision`) applied to future refreshes; opt-in DB test: `INBOX_FEEDBACK_DB_TESTS=true`.
+- `0064_inbound_inputs.sql` (Phase 6): FORCE-RLS `inbound_addresses` (one forwarding address per member: SHA-256 `token_hash`, hint, optional encrypted copy), `inbound_messages` (forwarded newsletters, unique per member on `message_id`, metadata only) and `capture_tokens` (≤5 active keys per member, hash only); token lookups before a tenant is known use SELECT-only policies keyed on `app.inbound_token_hash` / `app.capture_token_hash`; opt-in DB test: `INPUTS_DB_TESTS=true`.
+- `0063_moments_and_alerts.sql` (Phase 5): global `industry_moments` (FORCE RLS: everyone reads; insert/update only inside the audited admin transaction that sets `app.moments_admin`; no DELETE, rows are archived), FORCE-RLS `user_watchlists` and `watch_alerts` (unique per member, story and term; `email_slot`/`emailed_at` make alert emails idempotent), and `email_preferences.monday_plan`/`top_picks_weekly`/`watchlist_alerts` (off for unsubscribe-all rows); opt-in DB test: `PHASE5_DB_TESTS=true`.
+- `0065_decode_legacy_headline_entities.sql`: forward-only data repair (`row_security = off`, like 0038). Decodes HTML character references (`&#x27;`, `&#8217;`, `&amp;`…) left in `pooled_articles.title` and `inbox_items.headline`/`summary` stored before feed text was decoded on ingest. One pass with the same rules as `decodeHtmlText`; unknown names stay as written; no schema change.

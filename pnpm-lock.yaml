@@ -318,6 +318,9 @@ importers:
       autoprefixer:
         specifier: ^10.4.20
         version: 10.6.1(postcss@8.5.28)
+      axe-core:
+        specifier: ^4.14.1
+        version: 4.14.1
       drizzle-kit:
         specifier: ^0.31.8
         version: 0.31.10
@@ -2614,6 +2617,10 @@ packages:
     hasBin: true
     peerDependencies:
       postcss: ^8.1.0
+
+  axe-core@4.14.1:
+    resolution: {integrity: sha512-FHfa+lmNjQZfJz1q8wKqIDwC6DExcHt/pkjNQb09a3NPjCKg2rhu5qb2S4r76ASyFNNtuFooJpZe37OgudVGtQ==}
+    engines: {node: '>=4'}
 
   axios@1.20.0:
     resolution: {integrity: sha512-r8aOh8j9cGKpgQAqpzrUHnSIc6a59Y3Xf/cv8sy1DrHCkZHzQGEuoq1tARk6qSyDdtQGSDgpb9kFlruzPvrgwg==}
@@ -6748,6 +6755,8 @@ snapshots:
       picocolors: 1.1.1
       postcss: 8.5.28
       postcss-value-parser: 4.2.0
+
+  axe-core@4.14.1: {}
 
   axios@1.20.0:
     dependencies:

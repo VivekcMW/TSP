@@ -26,9 +26,9 @@ const steps = [
   {
     number: "04",
     icon: Send,
-    title: "Show up everywhere",
-    body: "Adapt one strong idea for each network, then publish or schedule it when your audience is listening.",
-    meta: "One voice across every channel",
+    title: "Show up on LinkedIn",
+    body: "Turn a timely industry signal into a LinkedIn post, then publish or schedule it when your audience is listening.",
+    meta: "One thoughtful post at a time",
   },
 ];
 
@@ -40,7 +40,7 @@ export function AuthorityLoop() {
         <Reveal className="mb-12 grid gap-5 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
           <div>
             <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-blue-300">The authority loop</p>
-            <h2 className="heading-section max-w-xl text-white">From industry signal to memorable point of view.</h2>
+            <h2 className="heading-section max-w-xl text-white">From industry signal to LinkedIn point of view.</h2>
           </div>
           <p className="max-w-xl text-lg leading-relaxed text-white/60 lg:justify-self-end">
             Consistency does not come from posting more. It comes from a repeatable editorial system that helps you say something worth remembering.

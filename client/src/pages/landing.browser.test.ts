@@ -62,9 +62,9 @@ describe("landing page", () => {
   it("leads with the promise and two ways in", async () => {
     const page = await openLanding(1440);
     try {
-      await expect(page.getByRole("heading", { level: 1 }).innerText()).resolves.toBe("Turn what you know into influence.");
+      await expect(page.getByRole("heading", { level: 1 }).innerText()).resolves.toBe("Turn industry news into LinkedIn influence.");
       const hero = page.getByTestId("section-hero");
-      await expect(hero.getByRole("link", { name: "Build my authority" }).getAttribute("href")).resolves.toBe("/sign-up");
+      await expect(hero.getByRole("link", { name: "Build my LinkedIn presence" }).getAttribute("href")).resolves.toBe("/sign-up");
       await expect(hero.getByRole("link", { name: "See how it works" }).getAttribute("href")).resolves.toBe("/how-it-works");
     } finally { await page.close(); }
   });
@@ -76,12 +76,14 @@ describe("landing page", () => {
       for (const [name, path] of [
         ["Thought leadership", "/use-cases/thought-leadership"],
         ["Professional content creation", "/use-cases/professional-content-creation"],
-        ["Multi-platform publishing", "/use-cases/multi-platform-publishing"],
+        ["LinkedIn publishing", "/use-cases/multi-platform-publishing"],
       ]) {
         await expect(useCases.getByRole("link", { name: new RegExp(name, "i") }).first().getAttribute("href")).resolves.toBe(path);
       }
       const text = await page.locator("body").innerText();
-      for (const banned of [/\[[^\]]*\]/, /lorem/i, /\d+\+ comments/i, /80\+/, /\bRSS\b/, /2025/]) expect(text, String(banned)).not.toMatch(banned);
+      for (const banned of [/\[[^\]]*\]/, /lorem/i, /\d+\+ comments/i, /80\+/, /\bRSS\b/, /2025/, /multi-platform publishing/i, /20\+ other networks/i, /\bWeChat\b/, /\bThreads\b/, /\bBluesky\b/]) {
+        expect(text, String(banned)).not.toMatch(banned);
+      }
       const footerLinks = await page.locator("footer a").evaluateAll(links => links.map(link => link.getAttribute("href")));
       expect(footerLinks).not.toContain("/case-studies");
       expect(footerLinks).not.toContain("/careers");
@@ -91,7 +93,9 @@ describe("landing page", () => {
   it("gives every editorial photo alt text, sizes and reserved space; all load below the fold", async () => {
     const page = await openLanding(1440);
     try {
-      const images = await page.locator("img").evaluateAll(list => list.map(image => ({
+      // Editorial photos only. Decorative brand marks (logo) are aria-hidden
+      // chrome with empty alt — WCAG-correct, but not editorial content.
+      const images = await page.locator("img:not([aria-hidden='true'])").evaluateAll(list => list.map(image => ({
         alt: image.getAttribute("alt"), width: image.getAttribute("width"), height: image.getAttribute("height"),
         srcset: image.getAttribute("srcset"), loading: image.getAttribute("loading"), priority: image.getAttribute("fetchpriority"),
       })));
@@ -119,16 +123,20 @@ describe("landing page", () => {
     } finally { await linked.close(); }
   });
 
-  it("shows each region's networks and news editions", async () => {
+  it("shows regional news editions without implying publishing to other networks", async () => {
     const page = await openLanding(1440);
     try {
       const markets = page.getByTestId("section-markets");
+      await expect(markets.getByRole("heading", { name: "Your market, in your LinkedIn point of view" }).count()).resolves.toBe(1);
       await markets.getByRole("tab", { name: "Greater China" }).click();
       const china = await markets.getByRole("tabpanel").innerText();
-      for (const name of ["WeChat", "Weibo", "Xiaohongshu", "Maimai"]) expect(china).toContain(name);
+      expect(china).toContain("Follow business and technology news from Greater China.");
+      expect(china).not.toContain("WeChat");
+      expect(china).not.toContain("Networks");
       await markets.getByRole("tab", { name: "Europe" }).click();
       const europe = await markets.getByRole("tabpanel").innerText();
-      for (const name of ["Xing", "German (Germany)", "French (France)"]) expect(europe).toContain(name);
+      for (const name of ["German (Germany)", "French (France)"]) expect(europe).toContain(name);
+      expect(europe).not.toContain("Xing");
     } finally { await page.close(); }
   });
 
@@ -140,8 +148,11 @@ describe("landing page", () => {
       for (const industry of ["Technology & SaaS", "Healthcare & Pharma", "Manufacturing", "Agriculture & Food"]) {
         expect(text).toContain(industry);
       }
+      expect(text).toContain("Your industry, your point of view on LinkedIn.");
+      expect(text).not.toContain("Your industry goes here.");
       expect(text).toContain("These are examples, not limits.");
       expect(text).toContain("No preset required");
+      await expect(section.getByRole("link", { name: "Build your LinkedIn brief" }).getAttribute("href")).resolves.toBe("/sign-up");
     } finally { await page.close(); }
   });
 

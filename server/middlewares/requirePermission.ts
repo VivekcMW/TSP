@@ -1,6 +1,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { can, requiresAudit, type Actor, type Permission } from "../services/permissions";
 import { writeAuditLog } from "../services/tenancy";
+import { isAdminIdentity } from "@shared/admin-access";
 
 /**
  * Permission gate.
@@ -38,6 +39,9 @@ export function requirePermission(permission: Permission): RequestHandler {
       return res.status(500).json({ message: "Authorization not initialised" });
     }
 
+    if ((permission.endsWith(":all") || actor.viaPlatformRole) && !isAdminIdentity(req.dbUser)) {
+      return res.status(403).json({ message: "Admin access is restricted to approved verified staff accounts", code: "admin_identity_required" });
+    }
     if (!can(actor, permission)) {
       return res.status(403).json({ message: "Forbidden", code: "permission_denied" });
     }

@@ -15,6 +15,8 @@ import { PunditWriting } from "./pundit-writing";
 import { PageBody, PageHeader } from "./page-header";
 import { publicSourceUrl, versionCounts, versionKey } from "./create-post-state";
 import type { CreatePostComposer } from "./use-create-post-composer";
+import { useAppTourSignal } from "@/components/app-tour";
+import { HelpLink } from "@/components/help-panel";
 
 const commands = [
   { key: "sources", label: "Attach articles", description: "Select several crawled articles from Discover" },
@@ -42,6 +44,7 @@ const panelDescriptions: Partial<Record<Action, string>> = {
 
 export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePostComposer }>) {
   const [panel, setPanel] = useState<Action>();
+  useAppTourSignal("platforms-opened", panel === "platforms");
   const [search, setSearch] = useState("");
   const [link, setLink] = useState("");
   const [conversationOpen, setConversationOpen] = useState(false);
@@ -165,6 +168,7 @@ export function ArticleBentoBoard({ composer: c }: Readonly<{ composer: CreatePo
         <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${saveDot}`} />{saveStatus}
       </output>
       <Button variant="ghost" size="icon" aria-label="Save progress" disabled={!c.persistence.ready || c.persistence.status === "saving"} onClick={() => void c.persistence.save()}><Save className="h-4 w-4" /></Button>
+      <HelpLink section="create" label="Writing in Create" />
       <Button size="sm" variant="outline" aria-label="Adapt for platforms" className="px-2 sm:px-3" disabled={locked || !c.mainReady} onClick={() => runAction("platforms")}><Sparkles className="h-4 w-4" /><span className="hidden sm:inline">Adapt for platforms</span></Button>
     </>} />
     <div className="dashboard-gutter shrink-0 border-b bg-card px-4 py-2 sm:px-6">

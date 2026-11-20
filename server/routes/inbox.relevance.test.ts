@@ -82,7 +82,7 @@ interface RefreshResponse {
 // Capture the real registered handlers and run the mocked middleware in memory.
 // Unlike supertest, this does not open even a loopback HTTP socket.
 const routes = new Map<string, RequestHandler[]>();
-const registrar = Object.fromEntries(["get", "post", "patch"].map(method => [method,
+const registrar = Object.fromEntries(["get", "post", "patch", "delete"].map(method => [method,
   (url: string, ...handlers: RequestHandler[]) => routes.set(`${method} ${url}`, handlers),
 ]));
 registerInboxRoutes(registrar as unknown as Express);

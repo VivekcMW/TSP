@@ -1,9 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
-import { ChevronDown, CreditCard, LogOut, Plus, Settings, Zap } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ChevronDown, CircleHelp, CreditCard, LayoutPanelLeft, LogOut, Settings } from "lucide-react";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
-import { useCreatePost } from "./create-post-provider";
 import { useQuery } from "@tanstack/react-query";
 import { signOut, useAuth } from "@/lib/auth";
 import { useIsSignedIn } from "@/lib/dev-auth";
@@ -16,6 +14,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useAppTour } from "@/components/app-tour";
+import { HelpButton } from "@/components/help-panel";
+import { setClassicLayoutPreference, useClientFeatures } from "@/hooks/use-client-features";
 
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard": "Home",
@@ -38,27 +39,13 @@ const PAGE_TITLES: Record<string, string> = {
 // location-derived breadcrumb, and account actions that were previously only
 // reachable by opening the sidebar (useful once it's collapsed on mobile).
 export function DashboardNavbar() {
-  const { openCreate, hasCreation, startNewCreate, composer } = useCreatePost();
   const [location] = useLocation();
   const { setOpenMobile, isMobile } = useSidebar();
   useEffect(() => { setOpenMobile(false); }, [location, setOpenMobile]);
-  const { user } = useAuth();
   const isSignedIn = useIsSignedIn();
-
-  const { data: dbUser } = useQuery<DbUser>({
-    queryKey: ["/api/me"],
-    enabled: isSignedIn,
-  });
-
-  const firstName = user?.firstName ?? dbUser?.firstName ?? "";
-  const lastName = user?.lastName ?? dbUser?.lastName ?? "";
-  const primaryEmail = user?.email ?? dbUser?.email;
-  const initials = firstName && lastName
-    ? `${firstName[0]}${lastName[0]}`
-    : primaryEmail?.[0]?.toUpperCase() || "U";
+  const features = useClientFeatures(isSignedIn);
 
   const pageTitle = PAGE_TITLES[location] ?? "Workspace";
-  const onCreateRoute = location === "/dashboard/create";
   const headerRef = useRef<HTMLElement>(null);
 
   // Publish the navbar height so overlays (toasts) can clear the persistent navigation.
@@ -78,7 +65,7 @@ export function DashboardNavbar() {
       <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
         <SidebarTrigger className="shrink-0" aria-label={isMobile ? "Open navigation" : "Expand or collapse sidebar"} data-testid="button-navbar-navigation" />
         <Link href="/dashboard" className="flex min-w-0 max-w-full items-center gap-1.5" aria-label="TheSocialPundit dashboard" data-testid="link-navbar-logo">
-          <Zap className="w-5 h-5 shrink-0 text-primary fill-primary" />
+          <img src="/logo-mark.png" alt="" className="h-6 w-6 shrink-0 rounded-md" aria-hidden="true" />
           <span className="min-w-0 [overflow-wrap:anywhere] font-bold text-base text-primary hidden sm:inline">TheSocialPundit</span>
         </Link>
         <span className="min-w-0 [overflow-wrap:anywhere] text-sm text-muted-foreground hidden md:inline" data-testid="text-navbar-title">
@@ -87,12 +74,37 @@ export function DashboardNavbar() {
       </div>
 
       <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
-      <Button variant={onCreateRoute ? "outline" : "default"} disabled={onCreateRoute && Boolean(composer?.busy || composer?.generation.recoverable)} onClick={() => onCreateRoute ? startNewCreate() : openCreate()} data-testid="button-global-create"><Plus className="h-4 w-4" />{hasCreation && !onCreateRoute ? "Resume creation" : "New post"}</Button>
+      <HelpButton />
+      <AccountMenu layoutSwitch={features.data?.linkedinInbox ? { label: "Try the new Inbox", onSelect: () => setClassicLayoutPreference(false) } : undefined} />
+      </div>
+    </header>
+  );
+}
+
+/** Account actions shared by the classic navbar and the Inbox top bar. */
+export function AccountMenu({ layoutSwitch }: Readonly<{ layoutSwitch?: { label: string; onSelect: () => void } }>) {
+  const { openTour } = useAppTour();
+  const { user } = useAuth();
+  const isSignedIn = useIsSignedIn();
+  const { data: dbUser } = useQuery<DbUser>({
+    queryKey: ["/api/me"],
+    enabled: isSignedIn,
+  });
+
+  const firstName = user?.firstName ?? dbUser?.firstName ?? "";
+  const lastName = user?.lastName ?? dbUser?.lastName ?? "";
+  const primaryEmail = user?.email ?? dbUser?.email;
+  const initials = firstName && lastName
+    ? `${firstName[0]}${lastName[0]}`
+    : primaryEmail?.[0]?.toUpperCase() || "U";
+
+  return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             className="flex min-h-11 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted ring-offset-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            aria-label="Account menu"
+            // WCAG 2.5.3: the visible initials are part of the name.
+            aria-label={`Account menu, ${initials}`}
             data-testid="button-navbar-account"
           >
             <Avatar className="h-[max(1.75rem,1.5em)] w-[max(1.75rem,1.5em)] text-xs">
@@ -120,6 +132,14 @@ export function DashboardNavbar() {
               Billing
             </Link>
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={openTour} data-testid="button-navbar-app-tour">
+            <CircleHelp className="w-4 h-4 mr-2" />
+            App tour
+          </DropdownMenuItem>
+          {layoutSwitch && <DropdownMenuItem onSelect={layoutSwitch.onSelect} data-testid="button-navbar-layout-switch">
+            <LayoutPanelLeft className="w-4 h-4 mr-2" />
+            {layoutSwitch.label}
+          </DropdownMenuItem>}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => signOut("/")} data-testid="button-navbar-logout">
             <LogOut className="w-4 h-4 mr-2" />
@@ -127,7 +147,5 @@ export function DashboardNavbar() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      </div>
-    </header>
   );
 }

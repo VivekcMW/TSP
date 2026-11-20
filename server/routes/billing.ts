@@ -14,6 +14,7 @@ import { billingRepository, readBillingState } from "../services/billing-reposit
 import { BillingError } from "../services/billing-lifecycle";
 import { emailTemplates, sendAppEmail } from "../services/email";
 import { readPublicBillingPlans, safePlan } from "../services/public-billing";
+import { runBillingNotificationBatch } from "../services/email/billing-notifications";
 
 const checkoutSchema = z.object({ planId: z.string().min(1).max(64) });
 const id = z.string().min(1).max(128);
@@ -139,11 +140,16 @@ export function registerBillingRoutes(app: Express) {
     try {
       const hash = hashWebhookPayload(req.rawBody);
       const result = await billingRepository.webhook(eventId ?? hash, hash, payload.data);
-      res.json({ received: true, ...result });
+      // The committed outbox is recovered by the scheduler if immediate delivery
+      // fails. Notification failures must never roll back an accepted payment event.
+      if ("failureNotificationId" in result && result.failureNotificationId) {
+        try { await runBillingNotificationBatch(undefined, undefined, result.failureNotificationId); }
+        catch { console.error("[email:billing] Outbox dispatch unavailable; scheduler retry required"); }
+      }
+      res.json({ received: true, duplicate: "duplicate" in result ? result.duplicate : undefined, ignored: "ignored" in result ? result.ignored : undefined });
     } catch (error) {
       fail(res, error, "Webhook processing failed; retry required");
     }
   });
 }
-
 

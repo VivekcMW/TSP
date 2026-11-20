@@ -22,6 +22,8 @@ import { redis } from "./lib/redis";
 import { requireDbUser } from "./middlewares/requireDbUser";
 import { requirePermission } from "./middlewares/requirePermission";
 import { canonicalHostRedirect, canonicalPathRedirect, cloudRunHostNoindex } from "./middlewares/canonicalHost";
+import { captureCors, isCapturePath } from "./services/captureTokens";
+import { INBOUND_EMAIL_PATH, inboundEmailGate, inboundEmailJson } from "./services/inboundEmail";
 
 export const app = express();
 // Advertises the framework to scanners and serves no client.
@@ -82,19 +84,20 @@ if (process.env.NODE_ENV !== "production") {
   allowedOriginPatterns.push(/^http:\/\/(localhost|127\.0\.0\.1):\d+$/);
 }
 
-app.use(
-  cors({
-    credentials: true,
-    origin(origin, callback) {
-      // No Origin header = same-origin or non-browser request (curl, server-to-server).
-      if (!origin) return callback(null, true);
-      const allowed = allowedOriginPatterns.some((pattern) =>
-        typeof pattern === "string" ? pattern === origin : pattern.test(origin),
-      );
-      callback(allowed ? null : new Error(`Origin ${origin} not allowed by CORS`), allowed);
-    },
-  }),
-);
+const appCors = cors({
+  credentials: true,
+  origin(origin, callback) {
+    // No Origin header = same-origin or non-browser request (curl, server-to-server).
+    if (!origin) return callback(null, true);
+    const allowed = allowedOriginPatterns.some((pattern) =>
+      typeof pattern === "string" ? pattern === origin : pattern.test(origin),
+    );
+    callback(allowed ? null : new Error(`Origin ${origin} not allowed by CORS`), allowed);
+  },
+});
+// /api/capture is authenticated only by a bearer key (never cookies), so the
+// extension and bookmarklet may call it from any origin; it answers its own CORS.
+app.use((req, res, next) => (isCapturePath(req.path) ? captureCors(req, res, next) : appCors(req, res, next)));
 
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -106,11 +109,11 @@ app.use((_req, res, next) => {
   // Enumerates OAuth/API providers (LinkedIn, Twitter/X, Telegram, etc), and AI services
   const cspDirectives = [
     "default-src 'self'",                                                           // Only same-origin by default
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.googletagmanager.com", // React, Vite HMR in dev, Razorpay Checkout, Google Tag Manager and Google Analytics (gtag.js)
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.googletagmanager.com https://www.clarity.ms https://*.clarity.ms", // React, Vite HMR in dev, Razorpay Checkout, Google Tag Manager, Google Analytics (gtag.js) and Microsoft Clarity
     "style-src 'self' 'unsafe-inline'",                                              // Inline styles
     "font-src 'self'",                                                              // Self-hosted fonts
     "img-src 'self' data: https:",                                                  // Self, data URIs, and HTTPS images
-    "connect-src 'self' https://api.linkedin.com https://www.linkedin.com https://api.twitter.com https://api.x.com https://telegram.org https://api.telegram.org https://news.google.com https://api.openrouter.ai https://api.anthropic.com https://generativelanguage.googleapis.com https://accounts.google.com https://api.razorpay.com https://checkout.razorpay.com https://lumberjack.razorpay.com https://www.googletagmanager.com https://www.google-analytics.com https://analytics.google.com https://*.google-analytics.com https://*.analytics.google.com https://stats.g.doubleclick.net https://*.ingest.us.sentry.io https://*.ingest.sentry.io",
+    "connect-src 'self' https://api.linkedin.com https://www.linkedin.com https://api.twitter.com https://api.x.com https://telegram.org https://api.telegram.org https://news.google.com https://api.openrouter.ai https://api.anthropic.com https://generativelanguage.googleapis.com https://accounts.google.com https://api.razorpay.com https://checkout.razorpay.com https://lumberjack.razorpay.com https://www.googletagmanager.com https://www.google-analytics.com https://analytics.google.com https://*.google-analytics.com https://*.analytics.google.com https://stats.g.doubleclick.net https://*.clarity.ms https://c.bing.com https://*.ingest.us.sentry.io https://*.ingest.sentry.io",
     "frame-src https://api.razorpay.com https://checkout.razorpay.com https://www.googletagmanager.com", // Razorpay's payment modal and GTM frames
     "object-src 'none'",                                                            // No plugins
     "base-uri 'self'",                                                              // Restrict base URL changes
@@ -121,6 +124,8 @@ app.use((_req, res, next) => {
 });
 
 app.use("/api/creation-session", express.json({ limit: "2mb" }));
+// Forwarded newsletters exceed the default JSON limit; the secret is checked before the body is read.
+app.use(INBOUND_EMAIL_PATH, inboundEmailGate, inboundEmailJson);
 app.use(
   express.json({
     verify: (req, _res, buf) => {

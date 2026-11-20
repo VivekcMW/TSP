@@ -10,7 +10,7 @@ function chain(result: unknown) {
 const mocks = vi.hoisted(() => ({ select: vi.fn() }));
 vi.mock("../db", () => ({ db: { select: mocks.select } }));
 
-import { clearFeatureFlagCache, isFeatureEnabled } from "./featureFlags";
+import { clearFeatureFlagCache, evaluateFlag, isFeatureEnabled } from "./featureFlags";
 
 beforeEach(() => {
   mocks.select.mockReset();
@@ -51,5 +51,19 @@ describe("isFeatureEnabled", () => {
     await expect(isFeatureEnabled("a")).resolves.toBe(false);
     await expect(isFeatureEnabled("b")).resolves.toBe(true);
     expect(mocks.select).toHaveBeenCalledTimes(2);
+  });
+  it("does not cache one tenant's rollout decision as another tenant's authorization", async () => {
+    mocks.select.mockReturnValue(chain([{ enabled: true, tenantIds: ["tenant-a"], expiresAt: new Date(Date.now() + 60_000) }]));
+    await expect(isFeatureEnabled("team_workspaces", true, "tenant-a")).resolves.toBe(true);
+    await expect(isFeatureEnabled("team_workspaces", true, "tenant-b")).resolves.toBe(false);
+    await expect(isFeatureEnabled("team_workspaces")).resolves.toBe(false);
+    expect(mocks.select).toHaveBeenCalledTimes(1);
+  });
+  it("enforces exact expiry even during the row cache lifetime and respects per-call missing fallback", async () => {
+    mocks.select.mockReturnValueOnce(chain([{ enabled: true, expiresAt: new Date(Date.now() + 1000) }]));
+    await expect(isFeatureEnabled("team_workspaces")).resolves.toBe(true);
+    vi.advanceTimersByTime(1000);
+    await expect(isFeatureEnabled("team_workspaces")).resolves.toBe(false);
+    expect(evaluateFlag(undefined, true)).toBe(true); expect(evaluateFlag(undefined, false)).toBe(false);
   });
 });

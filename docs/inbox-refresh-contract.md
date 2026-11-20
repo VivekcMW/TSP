@@ -30,6 +30,8 @@ successful source/search batch, one locked commit deduplicates all history, fill
 free slots first, and dismisses only the minimum number of unchanged, still-active
 snapshot rows needed for its new inserts. Every status update increments the version,
 including save/reactivate ABA edits. New additions and edited rows cannot be replaced.
+Rows still snoozed at commit time (`snoozed_until > now()`, migration 0059) are never
+eligible; snooze/unsnooze also increments the version under the same inbox lock.
 Empty, historical-only or failed automatic refreshes dismiss nothing.
 
 Dismissals, inserts and the scoped operation receipt commit together or all roll

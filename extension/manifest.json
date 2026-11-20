@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Save to TheSocialPundit",
+  "short_name": "TheSocialPundit",
+  "version": "1.0.0",
+  "description": "Save the page you are reading, a link or selected text to your TheSocialPundit Shortlist.",
+  "minimum_chrome_version": "116",
+  "permissions": ["activeTab", "contextMenus", "storage"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "Save to TheSocialPundit", "default_popup": "popup.html" },
+  "options_ui": { "page": "options.html", "open_in_tab": true }
+}

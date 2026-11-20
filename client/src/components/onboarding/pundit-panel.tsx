@@ -90,6 +90,7 @@ export function PunditPanel({ className, messages, thinking, progress, log }: Re
                     <div className="flex flex-wrap gap-2">
                       {message.chips.map(chip => (
                         <Button key={chip.label} type="button" size="sm" variant={chip.primary ? "default" : "outline"} disabled={chip.disabled}
+                          data-app-tour={chip.label === "Build my setup" || chip.label === "Set up manually" ? "setup-build" : undefined}
                           onClick={chip.onClick}>{chip.label}</Button>
                       ))}
                     </div>

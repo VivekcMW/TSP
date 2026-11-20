@@ -39,6 +39,7 @@ beforeAll(async () => {
       import Overview from "@/pages/overview";
       import Calendar from "@/pages/calendar";
       import { ScheduleArticleModal } from "@/components/schedule-article-modal";
+      import { AppTourProvider } from "@/components/app-tour";
       import { usePublishStatus, useDraftPublishStatus } from "@/hooks/use-publish-status";
       import { recheckPublishingRecovery } from "@/lib/publishing";
       import { assertPublishingConsent } from "@shared/publishing-consent";
@@ -74,6 +75,11 @@ beforeAll(async () => {
           const id = decodeURIComponent(String(url).split("/")[3]);
           try { assertPublishingConsent(JSON.parse(options.body || "{}").consent, findDraft(id), s.schedules.find(item => item.draftId === id) || null); }
           catch { return new Response(JSON.stringify({ code: "publishing_reconfirm_required", message: "Draft or publishing targets changed. Refresh and review, then confirm again. Nothing was admitted by this request." }), { status: 409 }); }
+          if (s.tourStep && String(url).endsWith("/schedule")) {
+            return new Response(JSON.stringify(s.failSchedule ? { message: "Schedule not saved" } : {
+              id: "saved", draftId: id, status: "scheduled", scheduledPublishAt: JSON.parse(options.body).publishAt, message: "Saved",
+            }), { status: s.failSchedule ? 500 : 200 });
+          }
         }
         if (String(url).endsWith("/bulk-schedule")) {
           const input = JSON.parse(options.body), scheduled = [], failed = [], errors = {};
@@ -169,7 +175,7 @@ beforeAll(async () => {
         const [open, setOpen] = useState(true);
         const [location, navigate] = useLocation();
         window.__navigate = navigate;
-        return <QueryClientProvider client={queryClient}><Link id="leave-content" href="/elsewhere">Leave Content</Link>{location === "/elsewhere" ? <Link href="/">Return to Content</Link> : window.__surface === "overview" ? <Overview /> : window.__surface === "calendar" ? <Calendar /> : window.__surface === "modal" ? <><button onClick={() => setOpen(true)}>Reopen modal</button><ScheduleArticleModal draftId="d" open={open} onOpenChange={setOpen} /></> : window.__surface === "jobs" ? <JobHarness /> : window.__surface === "monitor" ? <MonitorHarness /> : <Drafts />}</QueryClientProvider>;
+        return <QueryClientProvider client={queryClient}><AppTourProvider scope="publishing-fixture" enabled={Boolean(window.__state.tourStep)}><Link id="leave-content" href="/elsewhere">Leave Content</Link>{location === "/elsewhere" ? <Link href="/">Return to Content</Link> : window.__surface === "overview" ? <Overview /> : window.__surface === "calendar" ? <Calendar /> : window.__surface === "modal" ? <><button onClick={() => setOpen(true)}>Reopen modal</button><ScheduleArticleModal draftId="d" open={open} onOpenChange={setOpen} /></> : window.__surface === "jobs" ? <JobHarness /> : window.__surface === "monitor" ? <MonitorHarness /> : <Drafts />}</AppTourProvider></QueryClientProvider>;
       }
       createRoot(document.getElementById("root")).render(<App />);
     ` },
@@ -206,6 +212,10 @@ async function mount(surface = "drafts", overrides: Record<string, unknown> = {}
   await page.evaluate(initialPath => history.replaceState({ retained: "handoff-context" }, "", initialPath), initialPath);
   await page.clock.install({ time: new Date("2026-09-17T10:00:00Z") });
   await page.evaluate(({ surface, state }) => Object.assign(window, { __surface: surface, __state: state }), { surface, state: { ...fixture(), ...overrides } });
+  if (typeof overrides.tourStep === "number") {
+    await page.evaluate(step => localStorage.setItem("tsp-app-tour:v3:publishing-fixture",
+      JSON.stringify({ step, draftId: "d", dismissed: false, completed: false })), overrides.tourStep);
+  }
   await page.addStyleTag({ content: css });
   await page.addScriptTag({ content: bundle });
 }
@@ -224,6 +234,72 @@ async function openPublish(scheduled = false) {
   if (scheduled) await page.getByTestId("tab-scheduled").click();
   await page.getByTestId("button-post-d").click();
   await browserExpect(page.getByTestId("button-publish-now")).toBeEnabled();
+}
+
+describe("tour with real publishing controls", () => {
+  it("waits for target delivery rather than accepting a publish-now request as success", async () => {
+    await mount("drafts", { tourStep: 10, postSchedules: [schedule(["queued"], "scheduled")] });
+    page.setDefaultTimeout(3000);
+    await openPublish();
+    await tourNext();
+    await browserExpect(page.getByTestId("dialog-app-tour")).toContainText("Confirm your publishing choice");
+    await page.getByTestId("button-publish-now").click();
+    await browserExpect(page.getByTestId("dialog-app-tour")).toContainText("Confirm your publishing choice");
+    await browserExpect(page.getByTestId("dialog-app-tour")).not.toContainText("Done. Select Next");
+    await change({ schedules: [schedule(["published"], "published")] }, true);
+    await tourNext();
+    await browserExpect(page.getByTestId("app-tour-outcome")).toContainText("Publication confirmed");
+    expect((await calls()).filter((call: { url: string; method: string }) => call.url.endsWith("/publish-now") && call.method === "POST")).toHaveLength(1);
+  }, 15000);
+
+  it("does not advance on failed copying and labels a successful handoff as manual", async () => {
+    await mount("drafts", { tourStep: 10, clipboardError: true });
+    await openPublish();
+    await tourNext();
+    await page.getByTestId("button-copy-and-post").click();
+    await browserExpect(page.getByTestId("dialog-app-tour")).toContainText("Confirm your publishing choice");
+    await browserExpect(page.getByTestId("dialog-app-tour")).not.toContainText("Done. Select Next");
+    await change({ clipboardError: false });
+    await page.getByTestId("button-copy-and-post").click();
+    await tourNext();
+    await browserExpect(page.getByTestId("app-tour-outcome")).toContainText("has not verified publication");
+    expect((await calls()).filter((call: { method: string }) => call.method !== "GET")).toEqual([]);
+  });
+
+  it.each([1280, 390])("waits for scheduling consent and a successful server response at %i px", async width => {
+    await mount("drafts", { tourStep: 10, failSchedule: true }, width);
+    await page.getByTestId("button-schedule-d").click();
+    await tourNext();
+    page.setDefaultTimeout(3000);
+    const dialog = page.getByRole("dialog", { name: "Schedule Article Publication" });
+    const submit = dialog.getByRole("button", { name: "Schedule Article", exact: true });
+    if (width < 900) await page.getByRole("button", { name: "Minimize guide" }).click();
+    await dialog.getByLabel("Publication Date", { exact: true }).fill("2026-09-20");
+    await browserExpect(submit).toBeDisabled();
+    await dialog.getByRole("checkbox", { name: "I confirm this exact text, destinations and timezone." }).check();
+    await submit.click();
+    await browserExpect.poll(() => page.evaluate(() => (window as any).__toasts.some((toast: { description: string }) => toast.description === "Schedule not saved"))).toBe(true);
+    if (width < 900) {
+      await browserExpect(page.getByRole("button", { name: "Show guide, step 12 of 13" })).toBeVisible();
+    } else await browserExpect(page.getByTestId("dialog-app-tour")).toContainText("Confirm your publishing choice");
+    await change({ failSchedule: false });
+    await dialog.getByRole("checkbox", { name: "I confirm this exact text, destinations and timezone." }).check();
+    await submit.click();
+    await tourNext();
+    await browserExpect(page.getByTestId("app-tour-outcome")).toContainText("not published yet");
+  }, 15000);
+
+  it("reconciles a resumed exact draft from persisted delivery status without resending", async () => {
+    await mount("drafts", { tourStep: 11, drafts: [draft("d", "published")], schedules: [schedule(["published"], "published")] });
+    await tourNext();
+    await browserExpect(page.getByTestId("app-tour-outcome")).toContainText("Publication confirmed");
+    expect((await calls()).filter((call: { method: string }) => call.method !== "GET")).toEqual([]);
+  });
+});
+
+async function tourNext() {
+  await browserExpect(page.getByTestId("dialog-app-tour")).toContainText("Done. Select Next to continue.");
+  await page.getByTestId("button-app-tour-next").click();
 }
 
 describe("Home dashboard metric mappings (isolated browser)", () => {

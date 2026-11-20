@@ -78,7 +78,7 @@ function PunditIllustration() {
             </span>
             <div>
               <p className="text-sm font-semibold">Pundit</p>
-              <p className="text-[11px] text-white/45">Your setup agent</p>
+              <p className="text-[11px] text-white/65">Your setup agent</p>
             </div>
           </div>
 
@@ -185,7 +185,7 @@ function DiscoverIllustration() {
                 {story.active ? <Radar className="h-5 w-5" aria-hidden="true" /> : <Newspaper className="h-5 w-5" aria-hidden="true" />}
               </span>
               <div>
-                <div className="mb-1.5 flex items-center gap-2 text-[11px] text-white/45">
+                <div className="mb-1.5 flex items-center gap-2 text-[11px] text-white/65">
                   <span>{story.source}</span><span>·</span><span>{story.time}</span>
                 </div>
                 <p className="font-medium leading-snug text-white/90">{story.title}</p>
@@ -215,12 +215,12 @@ function CreateIllustration() {
   const line = "The strongest brands are no longer built only through campaigns. They are built through a credible point of view, expressed consistently.";
 
   return (
-    <IllustrationFrame area="create" label="Illustration of Create turning a source into a social post in the user's voice">
+    <IllustrationFrame area="create" label="Illustration of Create turning a source into a LinkedIn post in the user's voice">
       <div className="grid min-h-[25rem] gap-4 sm:grid-cols-[0.74fr_1.26fr]">
         <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4">
           <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/40">Source material</p>
           <div className="mt-4 rounded-xl border border-white/10 bg-black/10 p-3.5">
-            <div className="flex items-center gap-2 text-xs text-white/45">
+            <div className="flex items-center gap-2 text-xs text-white/65">
               <Newspaper className="h-4 w-4" aria-hidden="true" />Campaign Asia · 32m
             </div>
             <p className="mt-3 text-sm font-medium leading-relaxed text-white/85">
@@ -290,12 +290,12 @@ function ContentIllustration() {
   const days = ["MON", "TUE", "WED", "THU", "FRI"];
   const cards = [
     { day: 0, time: "9:00", title: "Why expertise is the new media channel", platform: "in", color: "bg-blue-100 text-blue-700" },
-    { day: 2, time: "12:30", title: "The trust gap in B2B marketing", platform: "𝕏", color: "bg-slate-100 text-slate-700" },
+    { day: 2, time: "12:30", title: "The trust gap in B2B marketing", platform: "in", color: "bg-blue-100 text-blue-700" },
     { day: 4, time: "8:45", title: "What leaders should say about AI adoption", platform: "in", color: "bg-blue-100 text-blue-700" },
   ];
 
   return (
-    <IllustrationFrame area="content" label="Illustration of Content planning, approving and scheduling posts across a work week">
+    <IllustrationFrame area="content" label="Illustration of Content planning, approving and scheduling LinkedIn posts across a work week">
       <div className="rounded-2xl bg-white p-4 text-foreground sm:p-5">
         <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -346,7 +346,7 @@ function ContentIllustration() {
           <span className="grid h-9 w-9 place-items-center rounded-lg bg-success text-success-foreground"><Send className="h-4 w-4" aria-hidden="true" /></span>
           <div>
             <p className="text-xs font-semibold text-white">3 posts scheduled</p>
-            <p className="text-[11px] text-white/45">In your audience&apos;s time zone</p>
+            <p className="text-[11px] text-white/65">In your audience&apos;s time zone</p>
           </div>
         </motion.div>
       </div>

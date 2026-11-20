@@ -12,6 +12,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { HelpLink } from "@/components/help-panel";
 
 interface TeamMembership { tenantId: string; name: string; kind: string; status: string; role: TenantRole }
 interface TeamContext { tenantId: string; tenantName: string; tenantKind: string; role: TenantRole; memberships: TeamMembership[] }
@@ -148,7 +149,7 @@ export function TeamSettings() {
     </Card>}
 
     {isManagerPlus && <Card>
-      <CardHeader><CardTitle>Review queue</CardTitle><CardDescription>Drafts from teammates whose profile requires approval before publishing.</CardDescription></CardHeader>
+      <CardHeader><div className="flex items-center gap-1"><CardTitle>Review queue</CardTitle><HelpLink section="team" label="Approvals" /></div><CardDescription>Drafts from teammates whose profile requires approval before publishing.</CardDescription></CardHeader>
       <CardContent className="space-y-3">
         {reviewQueue.isLoading && <output>Loading review queue…</output>}
         {reviewQueue.isError && <div role="alert">The review queue could not be loaded. <Button variant="outline" onClick={() => void reviewQueue.refetch()}>Retry</Button></div>}

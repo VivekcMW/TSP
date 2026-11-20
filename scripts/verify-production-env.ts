@@ -33,6 +33,12 @@ if (process.env.WEBHOOK_ENCRYPTION_SECRET && process.env.WEBHOOK_ENCRYPTION_SECR
 if (process.env.WEBHOOK_ENCRYPTION_SECRET && process.env.WEBHOOK_ENCRYPTION_SECRET === process.env.BETTER_AUTH_SECRET) failures.push("WEBHOOK_ENCRYPTION_SECRET must be distinct from BETTER_AUTH_SECRET");
 if (process.env.DIAGNOSTICS_TOKEN && process.env.DIAGNOSTICS_TOKEN.trim().length < 32) failures.push("DIAGNOSTICS_TOKEN must be at least 32 characters");
 
+// Optional: newsletter forwarding (docs/external-inputs.md). Unset means the feature is off, never a failure.
+const inboundDomain = process.env.INBOUND_EMAIL_DOMAIN?.trim();
+const inboundSecret = process.env.INBOUND_EMAIL_SECRET?.trim() ?? "";
+if (inboundDomain && inboundSecret.length < 32) console.warn("Optional INBOUND_EMAIL_SECRET is missing or under 32 characters: newsletter forwarding stays off");
+if (!inboundDomain && inboundSecret) console.warn("Optional INBOUND_EMAIL_DOMAIN is unset: newsletter forwarding stays off");
+
 if (missing.length || failures.length) {
   if (missing.length) console.error(`Missing production variables: ${missing.join(", ")}`);
   for (const failure of failures) console.error(`Production configuration error: ${failure}`);

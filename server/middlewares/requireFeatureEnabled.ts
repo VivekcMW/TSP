@@ -9,8 +9,11 @@ import { isFeatureEnabled } from "../services/featureFlags";
  * without a deploy, not to gate a feature behind an opt-in launch toggle.
  */
 export function requireFeatureEnabled(key: string): RequestHandler {
-  return async (_req: Request, res: Response, next: NextFunction) => {
-    if (!(await isFeatureEnabled(key))) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    let enabled: boolean;
+    try { enabled = req.tenant ? await isFeatureEnabled(key, true, req.tenant.tenantId) : await isFeatureEnabled(key); }
+    catch { console.error("[feature-flags] Policy unavailable"); return res.status(503).json({ message: "Feature policy unavailable", code: "feature_policy_unavailable" }); }
+    if (!enabled) {
       return res.status(503).json({ message: "This feature is temporarily unavailable.", code: "feature_disabled" });
     }
     next();

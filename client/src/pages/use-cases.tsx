@@ -15,7 +15,7 @@ export default function UseCasesPage() {
       <SEO
         title="Use Cases"
         canonical="/use-cases"
-        description="Explore how TheSocialPundit supports thought leadership, professional content creation, and multi-platform publishing—with you in control."
+        description="Explore how TheSocialPundit helps professionals turn industry news into thoughtful LinkedIn posts, in their voice and under their control."
         jsonLd={{
           "@context": "https://schema.org",
           "@type": "CollectionPage",
@@ -35,7 +35,7 @@ export default function UseCasesPage() {
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-secondary-text">Use cases</p>
             <h1 className="mt-5 heading-display text-balance">Start with the outcome, not a feature list.</h1>
             <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted-foreground">
-              Whether you need a sharper point of view, a credible first draft, or a better way to show up across channels, the same rule applies: your expertise and approval stay at the centre.
+              Whether you need a sharper point of view, a credible first draft, or a consistent LinkedIn presence, your expertise and approval stay at the centre.
             </p>
           </Reveal>
         </section>

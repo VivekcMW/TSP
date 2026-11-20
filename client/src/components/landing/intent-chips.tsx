@@ -2,7 +2,7 @@ import { Link } from "wouter";
 
 const intents = [
   { label: "Post on LinkedIn every week", href: "/sign-up" },
-  { label: "Grow on X", href: "/sign-up" },
+  { label: "Build a consistent LinkedIn presence", href: "/sign-up" },
   { label: "Reach China, Japan and Korea", href: "#markets" },
   { label: "Turn news into posts in seconds", href: "#product-create" },
   { label: "See it in action", href: "/how-it-works" },

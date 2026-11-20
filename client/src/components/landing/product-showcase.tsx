@@ -24,13 +24,13 @@ export const PRODUCT_AREAS: ProductArea[] = [
     body: "Discover gathers fresh stories from your sources, topics and the people you follow, and tells you in plain words why each one is there.",
     points: ["A reason for every story", "Save, dismiss or write about it in one click", "A daily digest in your inbox, at your time"] },
   { key: "create", label: "Create",
-    title: "A post in your voice, in seconds",
-    body: "Turn any story, link or idea into a post shaped for the network you choose, in the tone that sounds like you.",
+    title: "A LinkedIn post in your voice",
+    body: "Turn any story, link or idea into a thoughtful LinkedIn post, in the tone that sounds like you.",
     points: [`${TONES.length} tones: ${TONES.join(", ")}`, "Claims checked against the source article", "Edit freely before anything goes out"] },
   { key: "content", label: "Content",
-    title: "Plan the week, publish when you're ready",
-    body: "Drafts wait in one place until you're happy. Publish directly where a network allows it, or schedule for when your audience is awake.",
-    points: ["Nothing posts without your approval", "Schedule in your own time zone", "Copy-ready posts for every other network"] },
+    title: "Plan your LinkedIn posts",
+    body: "Drafts wait in one place until you're happy. Connect LinkedIn, then publish or schedule only after you approve each post.",
+    points: ["Nothing posts without your approval", "Schedule in your own time zone", "Keep every post in one content calendar"] },
 ];
 
 const fromHash = () => {
@@ -54,10 +54,10 @@ export function ProductShowcase() {
         <Reveal className="mb-12 grid gap-5 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
           <div className="space-y-4">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-secondary-text">Your authority system</p>
-            <h2 className="heading-section">Everything between “I should post” and published.</h2>
+            <h2 className="heading-section">Everything between “I should post on LinkedIn” and published.</h2>
           </div>
           <p className="max-w-xl text-lg leading-relaxed text-muted-foreground lg:justify-self-end">
-            One focused workspace for discovering timely ideas, forming a credible take, and showing up consistently in your own voice.
+            One focused workspace for discovering timely ideas, forming a credible take, and showing up consistently on LinkedIn in your own voice.
           </p>
         </Reveal>
         <Tabs value={tab} onValueChange={setTab}>

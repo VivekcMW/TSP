@@ -2,144 +2,31 @@
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { users } from "@shared/schema";
-import { sendAppEmail } from "./email";
-import { emailColor } from "./email/templates";
+import { emailTemplates, sendAppEmail } from "./email";
 export { sendVerificationEmail, sendPasswordResetEmail } from "./email";
 export const emailEnabled = Boolean(process.env.RESEND_API_KEY);
 
-const APP_URL = process.env.APP_URL || "https://www.thesocialpundit.com";
-
-// Industry-specific content for welcome emails
-interface IndustryContent {
-  label: string;
-  tagline: string;
-  sources: string;
-  communityDesc: string;
-}
-
-const industryContentMap: Record<string, IndustryContent> = {
-  media_advertising: {
-    label: "Media & Advertising",
-    tagline: "Your Voice in Media & Advertising",
-    sources: "AdAge, Digiday, AdWeek, The Drum, and 50+ premium sources",
-    communityDesc: "Media & Advertising professionals",
-  },
-  product_marketing: {
-    label: "Product Marketing",
-    tagline: "Your Voice in Product Marketing",
-    sources: "Product-Led Growth, HubSpot, MarketingProfs, First Round Review, and 40+ top sources",
-    communityDesc: "Product Marketing leaders",
-  },
-  technology_saas: {
-    label: "Technology & SaaS",
-    tagline: "Your Voice in Tech & SaaS",
-    sources: "TechCrunch, The Verge, Wired, Ars Technica, and 50+ tech publications",
-    communityDesc: "Technology & SaaS innovators",
-  },
-  finance_banking: {
-    label: "Finance & Banking",
-    tagline: "Your Voice in Finance",
-    sources: "Financial Times, Bloomberg, WSJ, The Economist, and 40+ financial publications",
-    communityDesc: "Finance & Banking professionals",
-  },
-  healthcare_pharma: {
-    label: "Healthcare & Pharma",
-    tagline: "Your Voice in Healthcare",
-    sources: "STAT News, Fierce Pharma, Healthcare Dive, MedPage Today, and 40+ health sources",
-    communityDesc: "Healthcare & Pharma leaders",
-  },
-  consulting_services: {
-    label: "Consulting & Professional Services",
-    tagline: "Your Voice in Consulting",
-    sources: "McKinsey Insights, HBR, BCG, Consulting Magazine, and 30+ industry sources",
-    communityDesc: "Consulting & Services professionals",
-  },
-  ecommerce_retail: {
-    label: "E-commerce & Retail",
-    tagline: "Your Voice in Retail",
-    sources: "Retail Dive, Modern Retail, eMarketer, RetailWire, and 40+ retail sources",
-    communityDesc: "E-commerce & Retail leaders",
-  },
-  real_estate: {
-    label: "Real Estate",
-    tagline: "Your Voice in Real Estate",
-    sources: "Inman, The Real Deal, Commercial Observer, GlobeSt, and 30+ property sources",
-    communityDesc: "Real Estate professionals",
-  },
-  education_edtech: {
-    label: "Education & EdTech",
-    tagline: "Your Voice in Education",
-    sources: "EdSurge, Inside Higher Ed, Education Week, EdTech Magazine, and 30+ sources",
-    communityDesc: "Education & EdTech innovators",
-  },
-  manufacturing: {
-    label: "Manufacturing & Industrial",
-    tagline: "Your Voice in Manufacturing",
-    sources: "Industry Week, Manufacturing.net, The Manufacturer, and 30+ industrial sources",
-    communityDesc: "Manufacturing & Industrial leaders",
-  },
-  energy_sustainability: {
-    label: "Energy & Sustainability",
-    tagline: "Your Voice in Energy",
-    sources: "GreenBiz, CleanTechnica, Utility Dive, Energy Monitor, and 30+ energy sources",
-    communityDesc: "Energy & Sustainability professionals",
-  },
-  legal_services: {
-    label: "Legal Services",
-    tagline: "Your Voice in Legal",
-    sources: "Law.com, Above the Law, Legal Dive, The American Lawyer, and 30+ legal sources",
-    communityDesc: "Legal professionals",
-  },
-  nonprofit_ngo: {
-    label: "Non-profit & NGO",
-    tagline: "Your Voice in Non-profit",
-    sources: "NonProfit PRO, Chronicle of Philanthropy, Stanford Social Innovation Review, and 25+ sources",
-    communityDesc: "Non-profit & NGO leaders",
-  },
-  government_public: {
-    label: "Government & Public Sector",
-    tagline: "Your Voice in Public Sector",
-    sources: "GovTech, Government Executive, Route Fifty, FCW, and 25+ public sector sources",
-    communityDesc: "Government & Public Sector professionals",
-  },
-  hospitality_travel: {
-    label: "Hospitality & Travel",
-    tagline: "Your Voice in Hospitality",
-    sources: "Skift, Hotel News Now, Travel Weekly, Hospitality Net, and 30+ travel sources",
-    communityDesc: "Hospitality & Travel professionals",
-  },
-  entertainment_media: {
-    label: "Entertainment & Media",
-    tagline: "Your Voice in Entertainment",
-    sources: "Variety, Deadline, The Hollywood Reporter, Billboard, and 40+ entertainment sources",
-    communityDesc: "Entertainment & Media professionals",
-  },
-  telecommunications: {
-    label: "Telecommunications",
-    tagline: "Your Voice in Telecom",
-    sources: "Light Reading, Fierce Telecom, RCR Wireless, Telecom Reseller, and 25+ telecom sources",
-    communityDesc: "Telecommunications professionals",
-  },
-  agriculture: {
-    label: "Agriculture & Food",
-    tagline: "Your Voice in Agriculture",
-    sources: "AgFunder News, Food Dive, AgriPulse, The Counter, and 25+ agriculture sources",
-    communityDesc: "Agriculture & Food professionals",
-  },
-  other: {
-    label: "Business",
-    tagline: "Your Voice in Business",
-    sources: "Harvard Business Review, Fast Company, Inc., Forbes, and 50+ business publications",
-    communityDesc: "business professionals",
-  },
+const industryLabels: Record<string, string> = {
+  media_advertising: "Media & Advertising",
+  product_marketing: "Product Marketing",
+  technology_saas: "Technology & SaaS",
+  finance_banking: "Finance & Banking",
+  healthcare_pharma: "Healthcare & Pharma",
+  consulting_services: "Consulting & Professional Services",
+  ecommerce_retail: "E-commerce & Retail",
+  real_estate: "Real Estate",
+  education_edtech: "Education & EdTech",
+  manufacturing: "Manufacturing & Industrial",
+  energy_sustainability: "Energy & Sustainability",
+  legal_services: "Legal Services",
+  nonprofit_ngo: "Non-profit & NGO",
+  government_public: "Government & Public Sector",
+  hospitality_travel: "Hospitality & Travel",
+  entertainment_media: "Entertainment & Media",
+  telecommunications: "Telecommunications",
+  agriculture: "Agriculture & Food",
+  other: "Business",
 };
-
-function getIndustryContent(industry?: string): IndustryContent {
-  if (industry && industryContentMap[industry]) {
-    return industryContentMap[industry];
-  }
-  return industryContentMap.other;
-}
 
 interface EmailResult {
   success: boolean;
@@ -150,198 +37,22 @@ interface EmailResult {
 export async function sendWelcomeEmail(
   email: string,
   firstName: string,
-  industry?: string
+  industry?: string,
 ): Promise<EmailResult> {
   try {
     const [user] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
     if (!user) return { success: false, error: "Recipient account unavailable" };
-    firstName = firstName.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
-    const industryContent = getIndustryContent(industry);
-
     const result = await sendAppEmail({
-      type: "welcome", userId: user.id, recipient: email, dedupeKey: `welcome:${user.id}`,
-      subject: "Welcome to TheSocialPundit - Your Voice, Amplified",
-      html: `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Welcome to TheSocialPundit</title>
-        </head>
-        <body style="margin: 0; padding: 0; background-color: ${emailColor("background")}; color: ${emailColor("foreground")}; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: ${emailColor("background")}; color: ${emailColor("foreground")};">
-            <tr>
-              <td style="padding: 40px 20px;">
-                <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; margin: 0 auto; background-color: ${emailColor("card")}; color: ${emailColor("card-foreground")}; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
-                  
-                  <!-- Header with Logo -->
-                  <tr>
-                    <td style="background: ${emailColor("card")}; color: ${emailColor("card-foreground")}; border-bottom: 3px solid ${emailColor("primary")}; padding: 40px 40px 30px 40px; text-align: center;">
-                      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-                        <tr>
-                          <td style="text-align: center;">
-                            <!-- Logo Icon -->
-                            <div style="display: inline-block; background: ${emailColor("accent")}; padding: 12px; border-radius: 12px; margin-bottom: 16px;">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="${emailColor("accent-foreground")}" stroke="${emailColor("accent-foreground")}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>
-                              </svg>
-                            </div>
-                            <h1 style="color: ${emailColor("foreground")}; font-size: 28px; font-weight: 700; margin: 0; letter-spacing: -0.5px;">TheSocialPundit</h1>
-                            <p style="color: ${emailColor("muted-foreground")}; font-size: 14px; margin: 8px 0 0 0; font-weight: 400;">${industryContent.tagline}</p>
-                          </td>
-                        </tr>
-                      </table>
-                    </td>
-                  </tr>
-                  
-                  <!-- Welcome Message -->
-                  <tr>
-                    <td style="padding: 40px 40px 20px 40px;">
-                      <h2 style="color: ${emailColor("foreground")}; font-size: 24px; font-weight: 600; margin: 0 0 16px 0;">Welcome aboard, ${firstName}!</h2>
-                      <p style="color: ${emailColor("muted-foreground")}; font-size: 16px; line-height: 1.7; margin: 0;">
-                        You've just joined an exclusive community of <strong style="color: ${emailColor("foreground")};">${industryContent.communityDesc}</strong> who are building their thought leadership on LinkedIn and Twitter/X.
-                      </p>
-                    </td>
-                  </tr>
-                  
-                  <!-- What Makes Us Different -->
-                  <tr>
-                    <td style="padding: 0 40px 30px 40px;">
-                      <div style="background: ${emailColor("accent")}; border-radius: 10px; padding: 24px; border-left: 4px solid ${emailColor("primary")};">
-                        <p style="color: ${emailColor("foreground")}; font-size: 15px; line-height: 1.6; margin: 0; font-style: italic;">
-                          "Go from industry news to published thought leadership in under 5 minutes. Our AI learns your voice and perspective to create posts that sound authentically you."
-                        </p>
-                      </div>
-                    </td>
-                  </tr>
-                  
-                  <!-- Benefits Section -->
-                  <tr>
-                    <td style="padding: 0 40px 30px 40px;">
-                      <h3 style="color: ${emailColor("foreground")}; font-size: 18px; font-weight: 600; margin: 0 0 20px 0;">What you get with TheSocialPundit:</h3>
-                      
-                      <!-- Benefit 1 -->
-                      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 16px;">
-                        <tr>
-                          <td style="width: 48px; vertical-align: top;">
-                            <div style="width: 40px; height: 40px; background: ${emailColor("accent")}; border-radius: 10px; text-align: center; line-height: 40px;">
-                              <span style="font-size: 13px; font-weight: 700; color: ${emailColor("accent-foreground")};">01</span>
-                            </div>
-                          </td>
-                          <td style="padding-left: 12px; vertical-align: top;">
-                            <p style="margin: 0 0 4px 0; color: ${emailColor("foreground")}; font-weight: 600; font-size: 15px;">Curated Industry News</p>
-                            <p style="margin: 0; color: ${emailColor("muted-foreground")}; font-size: 14px; line-height: 1.5;">Get hand-picked articles from ${industryContent.sources} matched to your interests.</p>
-                          </td>
-                        </tr>
-                      </table>
-                      
-                      <!-- Benefit 2 -->
-                      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 16px;">
-                        <tr>
-                          <td style="width: 48px; vertical-align: top;">
-                            <div style="width: 40px; height: 40px; background: ${emailColor("accent")}; border-radius: 10px; text-align: center; line-height: 40px;">
-                              <span style="font-size: 13px; font-weight: 700; color: ${emailColor("accent-foreground")};">02</span>
-                            </div>
-                          </td>
-                          <td style="padding-left: 12px; vertical-align: top;">
-                            <p style="margin: 0 0 4px 0; color: ${emailColor("foreground")}; font-weight: 600; font-size: 15px;">AI-Powered "Pundit Brain"</p>
-                            <p style="margin: 0; color: ${emailColor("muted-foreground")}; font-size: 14px; line-height: 1.5;">Transform any article into an opinionated, engaging post. Choose your tone: Professional, Bold, or Conversational.</p>
-                          </td>
-                        </tr>
-                      </table>
-                      
-                      <!-- Benefit 3 -->
-                      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 16px;">
-                        <tr>
-                          <td style="width: 48px; vertical-align: top;">
-                            <div style="width: 40px; height: 40px; background: ${emailColor("accent")}; border-radius: 10px; text-align: center; line-height: 40px;">
-                              <span style="font-size: 13px; font-weight: 700; color: ${emailColor("accent-foreground")};">03</span>
-                            </div>
-                          </td>
-                          <td style="padding-left: 12px; vertical-align: top;">
-                            <p style="margin: 0 0 4px 0; color: ${emailColor("foreground")}; font-weight: 600; font-size: 15px;">Your Authentic Voice</p>
-                            <p style="margin: 0; color: ${emailColor("muted-foreground")}; font-size: 14px; line-height: 1.5;">Our AI learns your unique perspective and writing style. Every post sounds like you wrote it yourself.</p>
-                          </td>
-                        </tr>
-                      </table>
-                      
-                      <!-- Benefit 4 -->
-                      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-                        <tr>
-                          <td style="width: 48px; vertical-align: top;">
-                            <div style="width: 40px; height: 40px; background: ${emailColor("accent")}; border-radius: 10px; text-align: center; line-height: 40px;">
-                              <span style="font-size: 13px; font-weight: 700; color: ${emailColor("accent-foreground")};">04</span>
-                            </div>
-                          </td>
-                          <td style="padding-left: 12px; vertical-align: top;">
-                            <p style="margin: 0 0 4px 0; color: ${emailColor("foreground")}; font-weight: 600; font-size: 15px;">5-Minute Workflow</p>
-                            <p style="margin: 0; color: ${emailColor("muted-foreground")}; font-size: 14px; line-height: 1.5;">Login, browse your curated inbox, generate a post, and publish. Build authority without the time investment.</p>
-                          </td>
-                        </tr>
-                      </table>
-                    </td>
-                  </tr>
-                  
-                  <!-- CTA Button -->
-                  <tr>
-                    <td style="padding: 10px 40px 40px 40px; text-align: center;">
-                      <a href="${APP_URL}/dashboard" 
-                            style="display: inline-block; background: ${emailColor("primary")}; color: ${emailColor("primary-foreground")}; 
-                                padding: 16px 40px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;
-                              box-shadow: 0 4px 14px ${emailColor("border")};">
-                        Start Building Your Authority
-                      </a>
-                      <p style="color: ${emailColor("muted-foreground")}; font-size: 13px; margin: 16px 0 0 0;">Your curated inbox is waiting for you</p>
-                    </td>
-                  </tr>
-                  
-                  <!-- Divider -->
-                  <tr>
-                    <td style="padding: 0 40px;">
-                      <div style="border-top: 1px solid ${emailColor("border")};"></div>
-                    </td>
-                  </tr>
-                  
-                  <!-- Footer -->
-                  <tr>
-                    <td style="padding: 30px 40px; text-align: center;">
-                      <p style="color: ${emailColor("muted-foreground")}; font-size: 14px; margin: 0 0 8px 0;">
-                        Questions? Just reply to this email - we're here to help.
-                      </p>
-                      <p style="color: ${emailColor("muted-foreground")}; font-size: 13px; margin: 0;">
-                        <a href="${APP_URL}" style="color: ${emailColor("primary")}; text-decoration: none; font-weight: 500;">thesocialpundit.com</a>
-                        <span style="margin: 0 8px;">|</span>
-                        Build your authority in ${industryContent.label}
-                      </p>
-                    </td>
-                  </tr>
-                  
-                </table>
-                
-                <!-- Sub-footer -->
-                <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; margin: 20px auto 0 auto;">
-                  <tr>
-                    <td style="text-align: center;">
-                      <p style="color: ${emailColor("muted-foreground")}; font-size: 12px; margin: 0;">
-                        You received this email because you signed up at TheSocialPundit.
-                        <br>
-                        <a href="${APP_URL}/dashboard/settings?tab=notifications" style="color: ${emailColor("primary")}; text-decoration: underline;">Manage email preferences</a>
-                      </p>
-                    </td>
-                  </tr>
-                </table>
-                
-              </td>
-            </tr>
-          </table>
-        </body>
-        </html>
-      `,
+      type: "welcome",
+      userId: user.id,
+      recipient: email,
+      recipientName: firstName,
+      dedupeKey: `welcome:${user.id}`,
+      ...emailTemplates.welcome(industryLabels[industry ?? "other"] ?? industryLabels.other),
     });
-
     return { success: !!result.messageId, messageId: result.messageId };
   } catch {
+    console.error("[email] Welcome email was not confirmed delivered");
     return { success: false, error: "Welcome email was not confirmed delivered" };
   }
 }

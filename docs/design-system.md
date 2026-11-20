@@ -13,6 +13,195 @@ The [palette specification](INK_AND_COBALT_LIGHT_THEME.md) remains the design
 reference; its checklist and the UX master tracker distinguish local completion
 from the still-open UX-28/COLOR-12 deployment gate.
 
+## Platform-admin investigation milestone
+
+- `/admin` is the Command Center: queue readiness, actual environment,
+  production scheduler configuration, retained schedule states, affected
+  workspaces and bounded recent failure samples. Configuration is not a worker
+  heartbeat; missing queue counters are unavailable, not zero. Historical
+  failures are not presented as confirmed unresolved incidents.
+- `/admin/tenants` uses the server-paginated `/api/admin/tenant-directory`:
+  25 workspaces per page, literal name search or exact ID, status/type filters,
+  deterministic newest-first ordering and URL-backed search/history. The
+  existing `/api/admin/tenants` list contract remains unchanged.
+- `/admin/tenants/:id` is a read-only Tenant 360. Opening customer data requires
+  an explicit investigation reason. The client supplies the matching
+  `x-tenant-id`; the server requires platform tenant/user read capabilities,
+  matching context and successful auditing. Tenant source reads retain
+  transaction-local RLS plus explicit tenant predicates.
+- Detail shows retained article/draft totals, failed and overdue schedule
+  counts, members paged in groups of 50 with onboarding status, the latest stored
+  subscription, ten recent runs/schedules/payments each and up to 50 source and
+  social connection records each. Truncation and absent records are explicit.
+  No credentials, provider payloads, raw failure messages or payment instrument
+  data are selected. Billing records are not live entitlement determinations.
+- Monitoring aggregates schedules in SQL rather than loading all schedules,
+  processes at most four tenant transactions concurrently, and caps failure
+  samples. It still visits every tenant; large-scale rollups, worker liveness
+  and safe recovery controls remain later work.
+- These screens use existing Ink & Cobalt components and responsive layouts.
+  This milestone introduces no migrations, privileged mutations or automated
+  retries. It does not certify the later phases of the admin roadmap.
+
+### Expanded local operations milestone
+
+- Admin authorization now requires **both** an existing provisioned staff role
+  and a verified email matching `hello@thesocialpundit.com` or
+  `marketing@thesocialpundit.com`. Matching ignores case and surrounding
+  whitespace, not aliases or subdomains. Signing up with an approved email
+  does not grant a role. Server tenant resolution, permission enforcement,
+  sanitized account responses and the admin layout use the same policy.
+  Tenant owners are not platform admins. MFA was explicitly declined for this
+  scope; do not represent an MFA gate as implemented.
+- The local `dev@example.com` bypass identity is intentionally denied, even
+  if it retains an old stored staff role. Do not rewrite its email, invent a
+  password, mark an account verified or add a development exception.
+- After signing up and actually verifying ownership of an approved account,
+  an authorized local operator can run
+  `pnpm exec tsx scripts/provision-local-admin.ts hello@thesocialpundit.com grant`
+  (or `marketing@thesocialpundit.com`). `revoke` removes the role. The command
+  requires an existing account, writes an audit record atomically, and refuses
+  production mode, non-loopback hosts and database names not ending in `_dev`
+  or `_test`. It does not create accounts or change verification/passwords.
+  Local normal sign-in requires deliberately disabling `DEV_AUTH_BYPASS` and
+  its frontend counterpart rather than forging the bypass user's identity.
+- The VS Code **Run TheSocialPundit locally** task explicitly disables both
+  bypass flags and sets the auth/application origin to `http://localhost:4300`.
+  These task-scoped overrides take precedence over existing dotenv values;
+  plain `pnpm dev` does not inherit the task overrides. Restart using that task
+  and open `http://localhost:4300/sign-up`, choose an approved mailbox and your
+  own password, and follow the real mailbox verification link on the same
+  machine. Creating the account can send a verification email; do not submit
+  on another person's behalf or manually set verification status. After
+  verification, run the provisioning command above, then open `/admin`.
+  Provisioning is local only; a production account/role is not copied locally.
+- Users and Audit Log are now server-paginated searchable directories, with
+  URL-backed filters and explicit outage/retry states. User details require
+  an investigation reason and show safe identity fields, memberships paginated
+  in pages of 100,
+  saved communication preference signals and the latest 20 attributable
+  account-wide email delivery states. This is not complete email delivery
+  history; unattributed legacy deliveries are not inferred. No provider
+  errors, credentials or email deduplication keys are exposed.
+- Tenant member pagination retains the original reason and tenant context
+  for every page. Source fetch timestamps/status and stored social token
+  expiry are diagnostics, not live availability checks. URLs, tokens and
+  provider payloads are not selected. Payment values are explicitly stored
+  minor currency units, not revenue, provider reconciliation or entitlement.
+- Command Center and Monitoring show Redis-backed scheduler cycle observations
+  only after real lock/slot admission. Run identity fences late completion;
+  last success survives new starts/failures. Records expire after 30 days,
+  can disappear with Redis loss and become stale after twice the configured
+  cadence (minimum five minutes). Missing, malformed and unavailable records
+  never imply success. Cycle completion does not certify per-scope outcomes,
+  individual worker liveness or end-user email/publication delivery.
+- Campaign controls retain single-admin explicit confirmation and add
+  reason-gated pause/resume and independently enabled self-tests. See the
+  [email contract](notifications-media-contract.md#announcement-operator-controls)
+  for admission races, test identity and flag behavior.
+- Outside the earlier milestone (superseded by the advanced controls below): global delivery search, complete account
+  membership pagination, worker liveness/oldest-queue-age alerts and incident
+  lifecycle, eligibility-checked recovery with verified outcomes, billing
+  reconciliation/quota adjustments/AI cost ledger, source-quality analytics,
+  owned/expiring targeted feature rollouts, rollups/load acceptance and global
+  search/saved views. No production deployment, remote migration or provider
+  acceptance is implied. Existing email migrations 0055/0056 remain rollout
+  prerequisites; the added `paused` state uses the existing varchar column.
+
+### Advanced admin controls and operating runbook
+
+The locally implemented roadmap adds Operations, Email Deliveries and Platform
+Search alongside Tenant 360, Users, Audit Log, campaigns and monitoring. All
+controls retain verified/provisioned staff policy, server permissions, no-store
+responses, audited intent and transaction-local tenant RLS. No approved local
+admin account currently exists; the development bypass remains denied.
+
+- **Investigation:** delivery search supports literal recipient/exact identity,
+  account, type and status filters at 25 records/page. It excludes bodies,
+  raw provider errors, claims and deduplication keys. Account membership pages
+  retain investigation context. Platform Search searches four audited directories,
+  shows the first five matches/source and links to full results. Failed sources
+  are errors, not empty results. Up to ten saved views are validated internal
+  URLs stored locally in the browser and namespaced to the signed-in account;
+  they are not shared or cross-device preferences.
+- **Recovery:** only retained failed discovery jobs with their original job,
+  tenant, member, operation and deduplication identity can be admitted. Current
+  workspace/membership and original-mode receipt are rechecked. Existing queue
+  admission reserves at most two recoveries without resetting attempts or
+  removing/recreating jobs. UI requires a reason and explicit confirmation;
+  returned queue state is not completed customer work. Historical pipeline rerun
+  is deliberately retired with HTTP 410 because it created new identities.
+  Publishing, payment and unknown email outcomes remain investigation-only.
+- **Health:** registered workers write process heartbeats every 15 seconds,
+  expiring after 60 seconds. These show process responsiveness, not job success.
+  Waiting scans cover at most 5,000 retained jobs/queue; incomplete scans cannot
+  establish a healthy backlog. Queue movement can change the sampled ordering.
+  Unknown/malformed/unavailable observations never become healthy defaults.
+- **Incidents:** production-required queue loss, observed worker absence, waiting
+  age over 15 minutes, and failed/stale/never-observed scheduler cycles produce
+  durable in-app incidents. No email, SMS or external webhook is sent.
+  Acknowledge/resolution is reason- and version-fenced, serialized with automatic
+  evaluation, and commits a completion audit atomically. An actively failing
+  signal reopens after manual resolution; missing observations do not resolve it.
+  `ADMIN_OPERATIONS_ENABLED=true` schedules evaluation every minute only with
+  the existing production scheduler gates. It defaults false.
+- **Quota:** workspace-scoped reasoned grants use stable request UUIDs, future
+  expiry within 30 days, a combined active cap of 1,000 and idempotent revocation.
+  Existing generation admission enforces additions atomically under its billing
+  lock. They add to each finite valid allowance period while active, never
+  reset consumption, unlock a denied plan, change a paid plan or charge a user.
+  On uncertain response inspect grants and reuse the same intent; choosing a
+  distinct identity can create another grant.
+- **Flags:** reasoned controls have owner, expiry, exact tenant targeting,
+  revision fencing and immutable before/after history. Enable requires an owner
+  and expiry within 30 days. Empty targets mean global; expired policies deny.
+  Decisions use trusted request scope even with cached policy rows. Cross-process
+  cache invalidation is bounded by 30 seconds, not instantaneous. Deleting restores
+  the shipped fallback and may enable the feature; confirmation warns about this.
+  Only `team_workspaces` currently has a runtime consumer; arbitrary flag rows
+  do not implement additional product behavior. Policy outages fail closed.
+- **Insights:** reason-gated workspace queries expose 30-day stored payment
+  states in separate currencies/minor units, generation states, content freshness,
+  canonical/relevance coverage and feedback events. Current source status is
+  not historical reliability. AI observations require separately enabling
+  `AI_OBSERVATIONS_ENABLED`; only scoped dispatched attempts and reported token
+  or USD-cost fields are stored, never prompts/output/provider payloads.
+  Observation writes are asynchronous, best effort, bounded by database
+  timeouts and never delay/replay provider work. Shutdown/storage failures can
+  leave gaps. Missing cost is unknown, not zero; these are not complete spend,
+  verified content quality, live billing reconciliation or unit economics.
+  AI/source/feedback grouped lists are limited to 100 groups. The development
+  database's missing migration 0053 produces explicitly unavailable feedback,
+  not a fabricated zero.
+- **Scale:** count-only workspace rollups store observations without content,
+  addresses or credentials. Reads are paginated; missing snapshots say never
+  observed and snapshots older than 30 minutes say stale. Refresh is explicit
+  and scoped. `ADMIN_ROLLUPS_ENABLED=true` schedules 15-minute collection under
+  production gates, default false. Collection uses keyset batches of 100 and
+  at most four concurrent tenant transactions; failures retain prior snapshots
+  and fail the cycle. Legacy live monitoring still visits all tenants, now with
+  bounded concurrency; it is not an O(1) read model.
+
+**Local verification and rollout boundary:** migrations 0055 through 0058 have
+been applied only to the verified loopback development database. Existing ledger
+gaps 0050/0052/0053 remain unreconciled. All 58 migrations replayed successfully
+in a separate disposable acceptance database, removed afterward. Run
+`pnpm exec tsx scripts/verify-admin-roadmap.ts` for guarded disposable acceptance;
+do not run destructive repository-wide fixture tests against development data.
+An optional `ADMIN_ACCEPTANCE_REPORT` file path retains JSON timings.
+
+The fixture contains 100 tenants, 10,000 audit records and 10,000 deliveries.
+Twenty-five sequential localhost requests per paginated endpoint passed the
+one-second p95 assertion: tenant directory 2.88ms, users 2.57ms, audit 11.95ms,
+deliveries 4.03ms and rollups 2.86ms in the recorded run. Permission/audit middleware,
+RLS, transactions and SQL are real; authentication uses an explicit fixture
+identity, not an accepted real-mailbox login. Offline browser fixtures exercise
+control confirmation and publishing read-only behavior without live sends.
+These measurements are not concurrent load or production certification.
+Remote migration review, reviewed ledger-gap reconciliation, real verified
+admin sign-in and live-provider/deployment acceptance remain operator rollout
+prerequisites, not implicitly completed actions.
+
 ## Home dashboard data contract
 
 - Content pipeline is one actionable workflow panel: Discover, Ready to review,
@@ -326,7 +515,7 @@ outcome; it does not decide whether a save or delivery actually succeeded.
 | Provider branding | External marks and `platformBrand` colours identify providers. They do not define app selection, success, readiness or delivery. |
 | Charts | `chartSeries` remains categorical and includes colours outside cobalt. Preserve legends/text; no claim that all rendered chart contrasts have been accepted. Recharts selectors matching library defaults are not authored app palette literals. |
 | Content formatting | Idea's font/size/colour tools and their literal picker defaults affect user preview content, not app chrome. They do not create a rich-text persistence contract. |
-| Static email | Server-rendered email uses authored-token `emailColor` RGB literals, not browser variables/HSL. Typography/geometry remain email-specific. Twenty sandboxed rendering tests pass; no inbox-client or delivery certification is implied. |
+| Static email | Server-rendered email uses authored-token `emailColor` RGB literals, not browser variables/HSL. The shared table-based shell uses Inter/Poppins stacks with Arial/Helvetica fallbacks, 6px token corners, a 600px maximum width, 24px padding, a 24px/600 heading, neutral dividers and secondary actions, and cobalt primary actions. Mobile padding reduces to 16px and buttons stack with 44px-plus targets. Preview text lives in the body; light-scheme hints and an Outlook fixed-width fallback are included. Digest/reminder stories use presentation tables and matching heading/metadata styles. The compatibility welcome sender uses the same content and shell rather than nesting a second HTML document. Sandboxed regression and local responsive-browser checks are not inbox-client or delivery certification. |
 | Neutral metadata | Helper text, provider containers and source/keyword taxonomy chips can stay neutral. A labelled scheduled timestamp need not become cobalt; colour is not delivery proof. |
 
 ## Adoption and acceptance

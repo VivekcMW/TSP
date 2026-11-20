@@ -1,13 +1,14 @@
 import { expect, test } from "@playwright/test";
+import { skipFirstWorkspaceTour } from "./app-tour";
 
 const publicRoutes = [
-  { path: "/", heading: /Turn what you know into influence/i },
+  { path: "/", heading: /Turn industry news into LinkedIn influence/i },
   { path: "/pricing", heading: /Begin with your voice/i },
-  { path: "/how-it-works", heading: /Automate your professional narrative/i },
+  { path: "/how-it-works", heading: /Turn industry news into thoughtful LinkedIn posts/i },
   { path: "/use-cases", heading: /Start with the outcome/i },
   { path: "/use-cases/thought-leadership", heading: /Build authority from what is happening now/i },
   { path: "/use-cases/professional-content-creation", heading: /Move from a blank page/i },
-  { path: "/use-cases/multi-platform-publishing", heading: /One point of view/i },
+  { path: "/use-cases/multi-platform-publishing", heading: /Show up consistently on LinkedIn without posting on autopilot/i },
   { path: "/roles", heading: /Personal branding built around the work you do/i },
   { path: "/roles/executives", heading: /Leadership visibility without a ghostwriting team/i },
   { path: "/industries", heading: /Thought leadership for the industry you know best/i },
@@ -44,7 +45,7 @@ test("shows useful recovery actions for unknown routes", async ({ page }) => {
   await expect(page.locator('link[rel="canonical"]')).toHaveCount(0);
   await page.getByRole("button", { name: "Go back" }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.locator("h1").first()).toHaveText(/Turn what you know into influence/i);
+  await expect(page.locator("h1").first()).toHaveText(/Turn industry news into LinkedIn influence/i);
 });
 
 test("reduced motion renders public content immediately", async ({ page }) => {
@@ -71,20 +72,33 @@ for (const route of publicRoutes) {
 test("authenticated workspace routes load without overflow", async ({ page }) => {
   test.skip(!process.env.E2E_TEST_EMAIL || !process.env.E2E_TEST_PASSWORD, "Set E2E_TEST_EMAIL and E2E_TEST_PASSWORD for authenticated route coverage.");
   await page.goto("/sign-in");
+  const origin = new URL(page.url()).origin;
   const fields = page.locator("input");
   await fields.nth(0).fill(process.env.E2E_TEST_EMAIL!);
   await fields.nth(1).fill(process.env.E2E_TEST_PASSWORD!);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/dashboard/);
-  for (const route of ["/dashboard", "/dashboard/discover", "/dashboard/drafts", "/dashboard/calendar", "/dashboard/connections", "/dashboard/preferences"]) {
-    await page.goto(route);
-    await expect(page.locator("h1").first()).toBeVisible();
+  await expect(page).toHaveURL(url => url.origin === origin && (url.pathname === "/dashboard" || url.pathname.startsWith("/dashboard/")));
+  await skipFirstWorkspaceTour(page);
+
+  const routes = [
+    { path: "/dashboard", destination: "/dashboard", heading: "Home" },
+    { path: "/dashboard/discover", destination: "/dashboard/discover", heading: "Discover" },
+    { path: "/dashboard/drafts", destination: "/dashboard/content", heading: "Content" },
+    { path: "/dashboard/calendar", destination: "/dashboard/calendar", heading: "Calendar" },
+    { path: "/dashboard/connections", destination: "/dashboard/settings?tab=integrations", heading: "Settings", tab: "integrations" },
+    { path: "/dashboard/preferences", destination: "/dashboard/settings?tab=publishing", heading: "Settings", tab: "publishing" },
+  ];
+  for (const route of routes) {
+    await page.goto(route.path);
+    await expect(page).toHaveURL(`${origin}${route.destination}`);
+    await expect(page.getByRole("heading", { level: 1, name: route.heading, exact: true })).toBeVisible();
+    if (route.tab) await expect(page.getByRole("tab", { name: route.tab, exact: true })).toHaveAttribute("aria-selected", "true");
     await expect(page.locator('a[href="/dashboard/performance"], a[href="/dashboard/analytics"]')).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   }
   for (const route of ["/dashboard/performance", "/dashboard/analytics"]) {
     await page.goto(route);
-    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page).toHaveURL(`${origin}/dashboard`);
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
   }
 });

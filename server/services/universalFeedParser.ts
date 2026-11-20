@@ -51,9 +51,45 @@ const rssAtomParser = new PublicationFeedParser({
   headers: { "User-Agent": "TheSocialPundit/1.0 (Feed Reader)" },
 });
 
+// A whole tag, even when a quoted attribute value contains ">" (embedded JSON or HTML). Linear: the
+// unquoted run and quoted values alternate without overlap.
+const TAG = /<[a-zA-Z/!?][^>"']{0,4000}(?:(?:"[^"]{0,20000}"|'[^']{0,20000}')[^>"']{0,4000}){0,200}>/g;
+
+/** Text from HTML: whole tags of any length, plus a tag cut off at either end of an excerpt. */
 export function stripHtml(input: string): string {
-  return input.replace(/<[^>]{0,500}>/g, " ").replace(/\s+/g, " ").trim();
+  let text = input.replace(TAG, " ");
+  // An excerpt can start inside a tag (`…class="x">Text`): drop that fragment when it looks like attributes.
+  const close = text.indexOf(">"), open = text.indexOf("<");
+  if (close >= 0 && (open < 0 || close < open) && /=\s*["']/.test(text.slice(0, close))) text = text.slice(close + 1);
+  // …or end inside one (`Text <img src="…`).
+  text = text.replace(/<[a-zA-Z/!?][^<>]*$/, " ");
+  return text.replace(/\s+/g, " ").trim();
 }
+
+const NAMED_ENTITIES: Readonly<Record<string, string>> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", ensp: " ", emsp: " ", thinsp: " ", shy: "",
+  rsquo: "\u2019", lsquo: "\u2018", rdquo: "\u201d", ldquo: "\u201c", sbquo: "\u201a", bdquo: "\u201e", laquo: "\u00ab", raquo: "\u00bb",
+  ndash: "\u2013", mdash: "\u2014", hellip: "\u2026", middot: "\u00b7", bull: "\u2022", deg: "\u00b0", times: "\u00d7",
+  copy: "\u00a9", reg: "\u00ae", trade: "\u2122", euro: "\u20ac", pound: "\u00a3", yen: "\u00a5", cent: "\u00a2", sect: "\u00a7",
+  eacute: "\u00e9", egrave: "\u00e8", aacute: "\u00e1", agrave: "\u00e0", iacute: "\u00ed", oacute: "\u00f3", uacute: "\u00fa",
+  ntilde: "\u00f1", ccedil: "\u00e7", auml: "\u00e4", ouml: "\u00f6", uuml: "\u00fc", szlig: "\u00df",
+};
+
+/** Feed text is often encoded twice ("&amp;#x27;" arrives as "&#x27;" after XML parsing); show it as text. */
+export function decodeHtmlText(value: string): string {
+  return value.replace(/&(#\d+|#x[0-9a-f]+|[a-z][a-z0-9]{1,8});/gi, (match, code: string) => {
+    if (code[0] === "#") {
+      const point = code[1] === "x" || code[1] === "X" ? parseInt(code.slice(2), 16) : Number(code.slice(1));
+      return point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : " ";
+    }
+    const name = Object.hasOwn(NAMED_ENTITIES, code) ? code : code.toLowerCase();
+    return Object.hasOwn(NAMED_ENTITIES, name) ? NAMED_ENTITIES[name] : match;
+  });
+}
+
+/** A feed title or excerpt as plain text. */
+export const feedText = (value: string): string => stripHtml(decodeHtmlText(stripHtml(value)));
+export const feedTitle = (value: string | undefined): string => feedText(value ?? "") || "Untitled";
 
 /** Unicode-preserving normalization, not semantic story equivalence. */
 export function normalizeTitleForDedup(title: string): string {
@@ -87,10 +123,10 @@ function parseJsonFeed(text: string): ParsedFeedItem[] | null {
     return parsed.items.map((item) => {
       const date = publicationDate(item.date_published, "json-date_published");
       return ({
-      title: item.title || "Untitled",
+      title: feedTitle(item.title),
       link: item.url || item.id || "",
       pubDate: date.publishedAt, publishedAt: date.publishedAt, publicationDate: date, inputKind: "feed_excerpt" as const,
-      content: stripHtml(item.content_text || item.content_html || item.summary || ""),
+      content: feedText(item.content_text || item.content_html || item.summary || ""),
       categories: item.tags || [],
     }); });
   } catch {
@@ -116,10 +152,10 @@ export async function parseFeedContent(text: string): Promise<ParsedFeedItem[] |
     return items.map((item) => {
       const date = (item as typeof item & { publicationDate?: PublicationDate }).publicationDate ?? publicationDate(item.pubDate, "rss-pubDate");
       return ({
-      title: item.title || "Untitled",
+      title: feedTitle(item.title),
       link: item.link || "",
       pubDate: date.publishedAt, publishedAt: date.publishedAt, publicationDate: date, inputKind: "feed_excerpt" as const,
-      content: stripHtml(item.contentSnippet || item.content || item.summary || ""),
+      content: feedText(item.contentSnippet || item.content || item.summary || ""),
       categories: item.categories || [],
     }); });
   } catch {

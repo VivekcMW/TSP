@@ -20,6 +20,8 @@ import { PublishingPlatformSelector, SchedulingConfirmation, SchedulingReadiness
 import { canChangeSchedule, defaultSchedulePlatforms, fetchDraftDetails, fetchPublishingSchedules, invalidatePublishingQueries, scheduleConfirmationKey, selectionBlockers } from '@/lib/publishing';
 import { capturePublishingConsent } from '@shared/publishing-consent';
 import { dateKeyInTimeZone, publishingDefaults, scheduleTimeValidation, timeKeyInTimeZone } from '@/lib/calendar';
+import { useAppTourSignal } from '@/components/app-tour';
+import { HelpLink } from "@/components/help-panel";
 
 export interface ScheduleArticleModalProps {
   draftId: string;
@@ -40,6 +42,7 @@ export function ScheduleArticleModal({
   schedulingTimeZone,
   initialPublishDate,
 }: Readonly<ScheduleArticleModalProps>) {
+  useAppTourSignal("publishing-opened", open, draftId);
   const [publishAt, setPublishAt] = useState<string>('');
   const [publishTime, setPublishTime] = useState<string>('09:00');
   const [platforms, setPlatforms] = useState<string[]>([]);
@@ -111,13 +114,16 @@ export function ScheduleArticleModal({
     <Dialog open={open} onOpenChange={value => { if (!busy) onOpenChange(value); }}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-[560px]">
         <DialogHeader>
-          <DialogTitle>Schedule Article Publication</DialogTitle>
+          <div className="flex items-center gap-1 pr-10">
+            <DialogTitle>Schedule Article Publication</DialogTitle>
+            <HelpLink section="scheduling" label="Scheduling posts" />
+          </div>
           <DialogDescription>
             {draftTitle ? `Schedule "${draftTitle}" for publication` : 'Choose when to publish this article'}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-4 py-4" data-app-tour="publishing-confirmation">
           <p className="text-sm text-muted-foreground">Timezone: {timeZone} ({schedulingTimeZone ? 'calendar selection' : 'publishing preferences'}). Direct delivery requires a ready connection.</p>
           {existing ? <p className="text-sm">Rescheduling preserves the remaining target platforms.</p> : <PublishingPlatformSelector platforms={platforms} onChange={(values) => { setPlatformsTouched(true); setPlatforms(values); }} draft={draft} readiness={readiness} disabled={busy} />}
           <Field id="publish-date" label="Publication Date" render={props =>

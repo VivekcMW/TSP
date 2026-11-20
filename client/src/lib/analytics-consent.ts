@@ -1,6 +1,6 @@
 /**
  * Analytics runs only with consent (GDPR, India's DPDP Act). Google Tag Manager and Google
- * Analytics are not loaded at all until the visitor accepts; essential cookies (the sign-in
+ * Analytics (and Microsoft Clarity) are not loaded at all until the visitor accepts; essential cookies (the sign-in
  * session) are unaffected. The choice lives in this browser and can be changed from
  * "Cookie settings".
  *
@@ -11,6 +11,7 @@ export type AnalyticsConsent = "granted" | "denied";
 
 export const GTM_ID = "GTM-P4Z2QFPV";
 export const GA_MEASUREMENT_ID = "G-D5K9DSSFW2";
+export const CLARITY_ID = "z1pelaa8ib";
 const STORAGE_KEY = "tsp-analytics-consent";
 export const COOKIE_SETTINGS_EVENT = "tsp:cookie-settings";
 const GA_DISABLED_KEY = `ga-disable-${GA_MEASUREMENT_ID}` as const;
@@ -43,7 +44,8 @@ export function sanitizeUrl(value: string): string {
   return url.toString();
 }
 
-type AnalyticsWindow = Window & { dataLayer?: unknown[]; gtag?: (...args: unknown[]) => void; [GA_DISABLED_KEY]?: boolean };
+type ClarityFn = ((...args: unknown[]) => void) & { q?: unknown[] };
+type AnalyticsWindow = Window & { dataLayer?: unknown[]; gtag?: (...args: unknown[]) => void; clarity?: ClarityFn; [GA_DISABLED_KEY]?: boolean };
 
 function dataLayer(): unknown[] {
   return ((window as AnalyticsWindow).dataLayer ??= []);
@@ -92,6 +94,30 @@ export function loadGoogleAnalytics(): void {
   script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`;
   script.dataset.ga = GA_MEASUREMENT_ID;
   document.head.appendChild(script);
+}
+
+/**
+ * Idempotent: loads Microsoft Clarity once per page. Signed-in, onboarding and admin screens
+ * carry `data-clarity-mask` so their text (drafts, voice, account data) is never recorded.
+ */
+export function loadClarity(): void {
+  if (readAnalyticsConsent() !== "granted") return;
+  const w = window as AnalyticsWindow;
+  if (!w.clarity) {
+    const clarity: ClarityFn = function () { (clarity.q ??= []).push(arguments); };
+    w.clarity = clarity;
+  }
+  w.clarity("consentv2", clarityConsent("granted"));
+  if (document.querySelector(`script[data-clarity="${CLARITY_ID}"]`)) return;
+  const script = document.createElement("script");
+  script.async = true;
+  script.src = `https://www.clarity.ms/tag/${CLARITY_ID}?ref=bwt`;
+  script.dataset.clarity = CLARITY_ID;
+  document.head.appendChild(script);
+}
+
+function clarityConsent(value: AnalyticsConsent) {
+  return { ad_Storage: "denied", analytics_Storage: value };
 }
 
 function isAnalyticsActive(): boolean {
@@ -194,6 +220,7 @@ export function loadAnalytics(): void {
   loadGoogleAnalytics();
   (window as AnalyticsWindow).gtag?.("consent", "update", consentSettings("granted"));
   loadTagManager();
+  loadClarity();
   trackPageView();
 }
 
@@ -202,7 +229,7 @@ function clearAnalyticsCookies(): void {
   const domains = ["", host, `.${host.replace(/^www\./, "")}`];
   for (const cookie of document.cookie.split(";")) {
     const name = cookie.split("=")[0]?.trim();
-    if (!name || !/^(?:_ga|_gid|_gat)/.test(name)) continue;
+    if (!name || !/^(?:_ga|_gid|_gat|_clck|_clsk)/.test(name)) continue;
     for (const domain of domains) {
       document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/${domain ? `; domain=${domain}` : ""}`;
     }
@@ -220,6 +247,7 @@ export function saveAnalyticsConsent(value: AnalyticsConsent): void {
 function disableAnalytics(): void {
   (window as AnalyticsWindow)[GA_DISABLED_KEY] = true;
   (window as AnalyticsWindow).gtag?.("consent", "update", consentSettings("denied"));
+  (window as AnalyticsWindow).clarity?.("consentv2", clarityConsent("denied"));
   sentKey = null;
   lastPageLocation = null;
   clearAnalyticsCookies();

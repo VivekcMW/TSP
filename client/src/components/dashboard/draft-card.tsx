@@ -191,7 +191,7 @@ export function DraftCard({
           </div>
         </div>
 
-        <div className="mb-4 flex flex-wrap items-center gap-2 border-b pb-4">
+        <div data-app-tour="draft-publishing-actions" className="mb-4 flex flex-wrap items-center gap-2 border-b pb-4">
           {(isPublished || draft.status === "published" || !!draft.publishedAt) && onCopyToDraft
             ? <Button variant="outline" size="sm" onClick={onCopyToDraft}>Copy to new draft</Button>
             : <Button size="sm" disabled={!canEdit || !canEditDraft(draft, schedule)} onClick={onEdit} data-testid={`button-edit-preview-${draft.id}`}><Pencil className="h-3.5 w-3.5" />Edit draft</Button>}

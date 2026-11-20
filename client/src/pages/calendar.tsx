@@ -13,6 +13,7 @@ import { PageBody, PageHeader, PageToolbar } from "@/components/dashboard/page-h
 import { WorkflowStatus } from "@/components/dashboard/workflow-status";
 import { CalendarGrid, calendarStatus, calendarDayKey as dayKey, calendarDay as utcMidnight, shiftCalendarDay as addDays } from "@/components/dashboard/calendar-planner";
 import { ScheduleArticleModal } from "@/components/schedule-article-modal";
+import { useAppTourSignal } from "@/components/app-tour";
 import { ScheduleTargetActions } from "@/components/publishing-target-actions";
 import { PublishingPlatformSelector, SchedulingConfirmation, SchedulingReadinessActions } from "@/components/publishing-platform-selector";
 import { getPlatformMeta } from "@/lib/platforms";
@@ -156,6 +157,8 @@ export default function CalendarPage() {
     }
   };
   const priorSchedule = data.items.find(item => item.draftId === selectedDraftId);
+  useAppTourSignal("draft-opened", Boolean(selectedDraftId && scheduleOpen), selectedDraftId);
+  useAppTourSignal("publishing-opened", Boolean(selectedDraftId && scheduleOpen), selectedDraftId);
   const consent = selectedDraft && schedules.data ? capturePublishingConsent(selectedDraft, priorSchedule ?? null) : undefined;
   const confirmationKey = scheduleConfirmationKey(selectedDraft, selectedPlatforms, selectedDate, selectedTime, schedulingZone, priorSchedule);
   const confirmed = confirmedKey === confirmationKey;
@@ -339,7 +342,7 @@ export default function CalendarPage() {
     </PageBody>
     <Sheet open={scheduleOpen} onOpenChange={value => { if (!actionLock.current) setScheduleOpen(value); }}><SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-lg motion-reduce:!animate-none">
       <SheetHeader className="space-y-1 border-b border-border px-6 py-4 pr-16 text-left"><SheetTitle className="text-base leading-6">Plan your post</SheetTitle><SheetDescription>Choose a draft, set a time, then review and confirm. Nothing is published automatically by opening this panel.</SheetDescription></SheetHeader>
-      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
+      <div data-app-tour="publishing-confirmation" className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
         <Field id="calendar-draft" label="Draft" render={props => <NativeSelect {...props} disabled={isScheduling} value={selectedDraft?.id ?? ""} onChange={event => { setSelectedDraftId(event.target.value); setSelectedPlatforms([]); setPlatformsTouched(false); setConfirmedKey(null); }}><option value="">Choose a draft</option>{availableDrafts.map(draft => <option key={draft.id} value={draft.id}>{getPlatformMeta(draft.platform).label}: {draft.content.slice(0, 50)}</option>)}</NativeSelect>} />
         <PublishingPlatformSelector platforms={selectedPlatforms} onChange={(values) => { setPlatformsTouched(true); setSelectedPlatforms(values); }} draft={selectedDraft} readiness={readiness} disabled={isScheduling} />
         <div className="grid items-start gap-4 sm:grid-cols-2"><Field id="calendar-date" label="Date" render={props => <Input {...props} disabled={isScheduling} type="date" min={dateKeyInTimeZone(new Date(), schedulingZone)} value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />} /><Field id="calendar-time" label={`Time (${schedulingZone})`} error={validation.error} render={props => <Input {...props} disabled={isScheduling} type="time" value={selectedTime} onChange={(event) => setTimeOverride(event.target.value)} />} /></div>

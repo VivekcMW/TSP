@@ -151,7 +151,7 @@ export default function LinkedInPostFormatterPage() {
                   <div className="mt-4 whitespace-pre-wrap break-words rounded-xl border bg-background p-4 text-sm leading-relaxed text-foreground" data-testid="text-formatter-preview">
                     {expanded || !stats.truncated ? text : stats.preview}
                     {stats.truncated && (
-                      <button type="button" className="ml-1 font-medium text-muted-foreground hover:text-primary hover:underline" onClick={() => setExpanded(value => !value)}>
+                      <button type="button" className="control-touch-target ml-1 inline-flex items-center font-medium text-muted-foreground hover:text-primary hover:underline" onClick={() => setExpanded(value => !value)}>
                         {expanded ? " show less" : "…see more"}
                       </button>
                     )}

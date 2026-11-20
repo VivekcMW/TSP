@@ -2,7 +2,7 @@ import { getSearchEdition, type SearchEditionId } from "@shared/search-editions"
 import { SEARCH_QUERY_LIMITS } from "@shared/search-query-plan";
 import { canonicalHttpUrl } from "@shared/canonical-url";
 import type { FetchedArticle } from "./engines/types.js";
-import { PublicationFeedParser, stripHtml } from "./universalFeedParser.js";
+import { feedText, feedTitle, PublicationFeedParser } from "./universalFeedParser.js";
 import { publicationDate } from "./articleDates";
 import { sourceOrigin } from "./inboxDiversity";
 import { CrawlError, fetchPublicText } from "./crawlerFetch.js";
@@ -72,13 +72,13 @@ export async function fetchBingArticlesForQuery(
       const date = publicationDate(item.pubDate, "rss-pubDate");
       const source = String((item as { newsSource?: unknown }).newsSource ?? "").replace(/\s+on MSN$/i, "").trim();
       return [{
-        title: item.title || "Untitled",
+        title: feedTitle(item.title),
         link,
         pubDate: date.publishedAt, publishedAt: date.publishedAt, publicationDate: date,
         inputKind: "provider_excerpt",
         sourceOrigin: sourceOrigin(link),
         source: source || new URL(link).hostname.replace(/^www\./, ""),
-        content: stripHtml(item.contentSnippet || item.content || item.summary || ""),
+        content: feedText(item.contentSnippet || item.content || item.summary || ""),
         categories: [trimmed],
       }];
     }).slice(0, limit);

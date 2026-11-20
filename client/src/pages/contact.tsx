@@ -24,9 +24,9 @@ export default function ContactPage() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <SEO
-        title="Contact"
+        title="Contact: Support, Sales and Feedback"
         canonical="/contact"
-        description="Get in touch with the TheSocialPundit team."
+        description="Get in touch with the TheSocialPundit team for product support, billing questions, partnerships or feedback. We reply to every message."
       />
       <SiteHeader />
       <main className="flex-1">

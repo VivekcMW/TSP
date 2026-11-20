@@ -29,6 +29,7 @@ let generationCalls: Record<string, unknown>[], writes: string[], errors: string
 let failSave: boolean, failLoad: boolean, deferSave: boolean, deferMain: boolean, recoveredMain: boolean, failMain: boolean, invalidMain: boolean;
 let failPlatform: string | undefined;
 let sourceFailure: SourceFailure | undefined;
+let failDraftSave = false;
 let saveDeferred: (() => void) | undefined, mainDeferred: (() => void) | undefined;
 
 beforeAll(async () => {
@@ -41,6 +42,7 @@ beforeAll(async () => {
       import { CreatePostProvider, useCreatePost } from "@/components/dashboard/create-post-provider";
       import CreatePostPage from "@/pages/create-post";
       import { Toaster } from "@/components/ui/toaster";
+      import { AppTourProvider } from "@/components/app-tour";
       import { Link, Route } from "wouter";
       function App() {
         const context = useCreatePost();
@@ -51,7 +53,7 @@ beforeAll(async () => {
           <div style={{flex:1,minHeight:0}}><Route path="/dashboard/create"><CreatePostPage /></Route><Route path="/dashboard/content"><h1>Content fixture</h1></Route></div>
         </div>;
       }
-      createRoot(document.getElementById("root")).render(<QueryClientProvider client={queryClient}><CreatePostProvider><App /><Toaster /></CreatePostProvider></QueryClientProvider>);
+      createRoot(document.getElementById("root")).render(<QueryClientProvider client={queryClient}><AppTourProvider scope="creation-fixture" enabled={window.location.search.includes("tour=1")}><CreatePostProvider><App /><Toaster /></CreatePostProvider></AppTourProvider></QueryClientProvider>);
     ` }, bundle: true, write: false, format: "iife", jsx: "automatic",
     alias: { "@": path.join(root, "client/src"), "@shared": path.join(root, "shared") },
     plugins: [{ name: "auth-fixture", setup(build) {
@@ -71,6 +73,7 @@ beforeEach(async () => {
   failSave = false; failLoad = false; deferSave = false; deferMain = false; recoveredMain = false; failMain = false;
   saveDeferred = undefined; mainDeferred = undefined; failPlatform = undefined;
   sourceFailure = undefined; invalidMain = false;
+  failDraftSave = false;
   page = await browser.newPage({ viewport: { width: 1440, height: 1100 }, reducedMotion: "reduce" });
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/*", async route => {
@@ -115,8 +118,9 @@ beforeEach(async () => {
         posts: { [platform]: { [tone]: content } }, details: { [platform]: { [tone]: detail(content) } },
         evidence, format: body.format, usage: { inputTokens: 1, outputTokens: 1 }, fallbackUsed: false });
     }
-    if (url.pathname === "/api/drafts" && method === "POST") return reply({ ...z.record(z.unknown()).parse(request.postDataJSON()),
-      id: "saved-platform", updatedAt: "2026-10-07T12:00:00.000Z" });
+    if (url.pathname === "/api/drafts" && method === "POST") return failDraftSave
+      ? reply({ message: "Platform save unavailable" }, 503)
+      : reply({ ...z.record(z.unknown()).parse(request.postDataJSON()), id: "saved-platform", updatedAt: "2026-10-07T12:00:00.000Z" });
     unexpected.push(`${method} ${url.pathname}`); return reply({ message: "Unmocked API" }, 500);
   });
 });
@@ -161,6 +165,42 @@ async function saveProgress() {
 }
 
 describe("document editor and integrated agent chat", { timeout: 15_000 }, () => {
+  it("guides actual document adaptation and tracks only a successfully saved platform draft", async () => {
+    await page.addInitScript(() => localStorage.setItem("tsp-app-tour:v3:creation-fixture",
+      JSON.stringify({ step: 5, dismissed: false, completed: false })));
+    await page.goto("https://creation.test/dashboard/create?tour=1");
+    const tour = page.getByTestId("dialog-app-tour");
+    await check(tour).toContainText("Write your document");
+    await page.getByRole("button", { name: "Minimize guide" }).click();
+    await editor().fill(mainText);
+    await page.getByRole("textbox", { name: "Document title", exact: true }).fill("A measured rollout");
+    await check(tour).toContainText("Done. Select Next to continue.");
+    await tour.getByRole("button", { name: "Next", exact: true }).click();
+    await check(tour).toContainText("Adapt your reviewed document");
+    await choose("LinkedIn");
+    await check(tour).toContainText("Done. Select Next to continue.");
+    await tour.getByRole("button", { name: "Next", exact: true }).click();
+    await check(tour).toContainText("Choose platforms and generate");
+    await page.getByTestId("button-generate-selected").click();
+    await check(card()).toContainText(mainText);
+    await check(tour).toContainText("Done. Select Next to continue.");
+    await tour.getByRole("button", { name: "Next", exact: true }).click();
+    await check(tour).toContainText("Review and save a version");
+    failDraftSave = true;
+    await card().getByRole("button", { name: "Save draft", exact: true }).click();
+    await check(card()).toContainText("Platform save unavailable");
+    await check(tour).toContainText("Review and save a version");
+    await check(tour).not.toContainText("Done. Select Next to continue.");
+    failDraftSave = false;
+    await card().getByRole("button", { name: "Save draft", exact: true }).click();
+    await check(tour).toContainText("Done. Select Next to continue.");
+    await tour.getByRole("button", { name: "Next", exact: true }).click();
+    await check(tour).toContainText("Open your saved draft");
+    const progress = await page.evaluate(() => JSON.parse(localStorage.getItem("tsp-app-tour:v3:creation-fixture")!));
+    expect(progress).toMatchObject({ step: 9, draftId: "saved-platform" });
+    expect(writes.some(value => /publish|schedule/.test(value))).toBe(false);
+  });
+
   it.each([["Bold", "strong"], ["Italic", "em"], ["Underline", "u"], ["Strikethrough", "s"], ["Highlight", "mark"]])(
     "saves and restores %s formatting without an AI request", async (action, tag) => {
       await open(); await editor().fill(mainText); await selectDocument(); await format(action).click();

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Save to TheSocialPundit</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="popup">
+  <main>
+    <h1>Save to TheSocialPundit</h1>
+    <section id="setup" hidden>
+      <p>Add your key to start saving pages. Create one in TheSocialPundit under More connectors, Save from any page.</p>
+      <button type="button" id="open-options">Open options</button>
+    </section>
+    <form id="save-form" hidden>
+      <p class="page-title" id="page-title"></p>
+      <p class="page-url" id="page-url"></p>
+      <label for="note">Note (optional)</label>
+      <textarea id="note" maxlength="1000" rows="3" placeholder="Why this is worth a post"></textarea>
+      <p class="muted">The page goes to your Shortlist. A note is also saved to your Notes. Nothing is posted.</p>
+      <button type="submit" id="save">Save to Shortlist</button>
+    </form>
+    <p id="status" role="status" aria-live="polite"></p>
+    <p class="footer"><a href="options.html" id="options-link" target="_blank">Options</a></p>
+  </main>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

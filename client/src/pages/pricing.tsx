@@ -81,7 +81,7 @@ export default function Pricing() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <SEO
-        title="Pricing"
+        title="Pricing: Plans for AI LinkedIn Posts"
         canonical="/pricing"
         description="Start building professional authority for free, then upgrade when you need the complete creation, scheduling, publishing, and performance workflow."
         jsonLd={[
@@ -229,7 +229,7 @@ export default function Pricing() {
           <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[0.75fr_1.25fr]">
             <Reveal>
               <h2 id="pricing-faq-title" className="font-heading text-3xl font-semibold tracking-tight text-foreground">Pricing questions</h2>
-              <p className="mt-3 text-muted-foreground">Still unsure? <Link href="/contact" className="text-primary hover:underline">Ask us</Link>.</p>
+              <p className="mt-3 text-muted-foreground">Still unsure? <Link href="/contact" className="text-primary underline underline-offset-2">Ask us</Link>.</p>
             </Reveal>
             <div className="divide-y border-y">
               {PRICING_FAQS.map(faq => (
@@ -237,7 +237,7 @@ export default function Pricing() {
                   <h3 className="font-semibold text-foreground">{faq.question}</h3>
                   <p className="mt-2 leading-7 text-muted-foreground">
                     {faq.answer}
-                    {faq.question === "Can I get a refund?" && <> <Link href="/refund-policy" className="text-primary hover:underline">Read the refund policy</Link>.</>}
+                    {faq.question === "Can I get a refund?" && <> <Link href="/refund-policy" className="text-primary underline underline-offset-2">Read the refund policy</Link>.</>}
                   </p>
                 </div>
               ))}

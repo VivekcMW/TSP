@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getTableName, type SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { billingCustomers, billingPlans, billingWebhookEvents, payments, subscriptions } from "@shared/schema";
+import { billingCustomers, billingEmailNotifications, billingPlans, billingWebhookEvents, payments, subscriptions } from "@shared/schema";
 const mocks = vi.hoisted(() => ({ transaction: vi.fn() }));
 vi.mock("../db", () => ({ db: mocks }));
 import { BillingRepository, type BillingProvider } from "./billing-repository";
@@ -15,6 +15,7 @@ const dialect = new PgDialect();
 let tables: Record<string, Row[]>;
 let statements: string[];
 let failPaymentWrite: boolean;
+let failNotificationWrite: boolean;
 let serial: Promise<unknown>;
 function matching(row: Row, predicate?: SQL) {
   if (!predicate) return true;
@@ -35,7 +36,8 @@ function builder(table: object, operation: "select" | "insert" | "update") {
     if (operation === "select") return rows.filter(row => matching(row, predicate)).slice(0, limit);
     if (operation === "update") return rows.filter(row => matching(row, predicate)).map(row => Object.assign(row, values));
     if (name === "payments" && failPaymentWrite) throw new Error("simulated write failure");
-    const key = name === "billing_webhook_events" ? "eventId" : name === "payments" ? "razorpayPaymentId" : "id";
+    if (name === "billing_email_notifications" && failNotificationWrite) throw new Error("simulated notification write failure");
+    const key = name === "billing_webhook_events" ? "eventId" : name === "payments" ? "razorpayPaymentId" : name === "billing_email_notifications" ? "paymentId" : "id";
     if (values[key] && rows.some(row => row[key] === values[key])) {
       if (ignore) return [];
       throw new Error("unique violation");
@@ -77,8 +79,8 @@ const event = (type = "payment.captured") => ({ event: type, payload: { payment:
 const lifecycle = (type = "subscription.activated", withPayment = false) => ({ event: type, payload: { subscription: { entity: { id: "sub_1" } }, ...(withPayment ? { payment: { entity: { id: "pay_1", invoice_id: "inv_1", order_id: "order_1" } } } : {}) } });
 
 beforeEach(() => {
-  tables = { billing_customers: [{ id: "customer", tenantId: "a", razorpayCustomerId: "cust_1" }], billing_plans: [{ id: "plan_pro_monthly", key: "pro_monthly", name: "Pro", amount: 4900, currency: "INR", interval: "monthly", isActive: true, razorpayPlanId: "rp_plan" }], subscriptions: [], payments: [], billing_webhook_events: [], payment_methods: [] };
-  statements = []; failPaymentWrite = false; serial = Promise.resolve();
+  tables = { billing_customers: [{ id: "customer", tenantId: "a", razorpayCustomerId: "cust_1", email: "billing@example.test", name: "Billing owner" }], billing_plans: [{ id: "plan_pro_monthly", key: "pro_monthly", name: "Pro", amount: 4900, currency: "INR", interval: "monthly", isActive: true, razorpayPlanId: "rp_plan" }], subscriptions: [], payments: [], billing_webhook_events: [], payment_methods: [], billing_email_notifications: [] };
+  statements = []; failPaymentWrite = false; failNotificationWrite = false; serial = Promise.resolve();
   mocks.transaction.mockImplementation((callback: (value: typeof tx) => Promise<unknown>) => {
     const result = serial.then(async () => { const snapshot = structuredClone(tables); try { return await callback(tx); } catch (error) { tables = snapshot; throw error; } });
     serial = result.catch(() => undefined);
@@ -181,6 +183,37 @@ describe("atomic webhook/payment lifecycle", () => {
     await repository.webhook("late_failed", "lf", event("payment.failed"));
     expect(rows(payments)).toHaveLength(1); expect(rows(payments)[0]).toMatchObject({ status: "captured", failureCode: null });
     expect(rows(subscriptions)[0].status).toBe("active");
+    expect(rows(billingEmailNotifications)).toHaveLength(1);
+  });
+  it("creates one failure notification with the persisted customer, never webhook recipient fields", async () => {
+    seed(); payment.status = "failed";
+    const payload = { ...event("payment.failed"), email: "attacker@example.test" };
+    const result = await repository.webhook("failed", "f", payload);
+    expect(result).toMatchObject({ failureNotificationId: expect.any(String) });
+    expect(rows(billingEmailNotifications)).toEqual([expect.objectContaining({
+      tenantId: "a", paymentId: "pay_1", recipient: "billing@example.test", recipientName: "Billing owner",
+    })]);
+    await repository.webhook("failed", "f", payload);
+    await repository.webhook("another-delivery", "g", payload);
+    expect(rows(billingEmailNotifications)).toHaveLength(1);
+  });
+  it("never sends failure notices for a stale failed webhook whose fetched payment is captured", async () => {
+    seed();
+    await repository.webhook("stale", "s", event("payment.failed"));
+    expect(rows(billingEmailNotifications)).toHaveLength(0);
+  });
+  it("rolls back the payment and webhook receipt when its durable notification cannot be stored", async () => {
+    seed(); payment.status = "failed"; failNotificationWrite = true;
+    await expect(repository.webhook("failed", "f", event("payment.failed"))).rejects.toThrow("notification write failure");
+    expect(rows(payments)).toHaveLength(0); expect(rows(billingWebhookEvents)).toHaveLength(0);
+    failNotificationWrite = false;
+    await repository.webhook("failed", "f", event("payment.failed"));
+    expect(rows(billingEmailNotifications)).toHaveLength(1);
+  });
+  it("does not create a notification for an unbound failed payment", async () => {
+    seed(); payment.status = "failed"; payment.order_id = "other";
+    await expect(repository.webhook("failed", "f", event("payment.failed"))).rejects.toMatchObject({ code: "order_mismatch" });
+    expect(rows(billingEmailNotifications)).toHaveLength(0);
   });
   it("does not acknowledge an unbound signed order", async () => {
     await expect(repository.webhook("e", "h", event())).rejects.toMatchObject({ code: "checkout_not_found" });

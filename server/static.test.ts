@@ -136,14 +136,14 @@ describe("seoDocumentHandler", () => {
 
     const pricing = await request(seoApp).get("/pricing");
     expect(pricing.status).toBe(200);
-    expect(pricing.text).toContain('<title data-rh="true">Pricing | TheSocialPundit</title>');
+    expect(pricing.text).toContain('<title data-rh="true">Pricing: Plans for AI LinkedIn Posts | TheSocialPundit</title>');
     expect(pricing.text).toContain('href="https://www.thesocialpundit.com/pricing"');
     expect(pricing.headers["x-robots-tag"]).toBeUndefined();
   });
 
   it("keeps route metadata when the URL carries a query string", async () => {
     const res = await request(seoApp).get("/pricing?utm_source=newsletter");
-    expect(res.text).toContain('<title data-rh="true">Pricing | TheSocialPundit</title>');
+    expect(res.text).toContain('<title data-rh="true">Pricing: Plans for AI LinkedIn Posts | TheSocialPundit</title>');
   });
 
   it("renders article metadata for a journal post", async () => {

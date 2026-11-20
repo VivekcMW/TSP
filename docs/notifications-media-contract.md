@@ -32,7 +32,7 @@ Settings submits only edited fields, preserving concurrent changes to untouched 
 | productUpdates | product_update, maintenance, incident | true |
 | publishing | draft_generated, draft_failed, post_scheduled, post_published, post_failed | true |
 | accountAlerts | oauth_connected, usage_warning | true |
-| weeklySummary | weekly_summary (no weekly scheduler added) | false |
+| weeklySummary | weekly_summary | false |
 | essential, always allowed | verification, password_reset, password_changed, payment_succeeded, payment_failed, subscription_cancelled, token_expired | always |
 
 Optional messages without an attributable account ID fail closed. Security links can be sent before an account is available. No development verification/reset links or provider credential/error payloads are logged. Legacy `emailService.ts` delegates delivery; its connectivity function indicates configuration presence only, not a provider health check.
@@ -45,9 +45,36 @@ Existing `unsubscribed_at` means the old sender globally suppressed optional mes
 
 ## Daily digest and durable delivery
 
+### Shared email design
+
+All email types use the shared Ink & Cobalt wrapper: light canvas, white bordered
+panel, token-derived RGB colours, 6px corners, Inter body/Poppins heading stacks
+with Arial/Helvetica fallbacks, restrained branding, visible subject heading,
+cobalt primary action and neutral secondary action. Fonts are not downloaded:
+clients without Inter/Poppins use the fallback stack. Layout uses presentation
+tables, a 600px maximum width and a conditional Outlook width fallback. Primary
+and secondary actions have at least 44px height in the browser, and stack below
+480px. Existing content, plain-text alternatives, preference/unsubscribe links,
+invitation policy, scheduling and delivery identity are retained. The old
+`emailService.ts` welcome entry point now delegates its content to the same
+welcome template and wrapper; its old standalone layout and duplicate CTA/footer
+are intentionally retired.
+
+Local verification covers rendering/escaping, all email service regressions,
+TypeScript and token drift. Offline browser previews of 21 email variants were
+checked at 320/375/768/1024px for overflow, heading count, button target height and
+canvas/text colours. No live messages were sent; Gmail/Outlook/Apple Mail inbox
+acceptance, dark-mode client overrides and deployment remain unverified.
+
+### Digest selection and scheduling
+
 Automatic digests require the existing production scheduler gates (`NODE_ENV=production`, `BACKGROUND_JOBS_ENABLED=true`, `CRON_SCHEDULER=true`, Redis) **and** `EMAIL_DIGEST_ENABLED=true`. They run every minute using the existing scheduler advisory lock/Redis marker without changing publishing jobs. `EMAIL_QUEUE_ENABLED` is optional; digest delivery invokes the real sender directly, not a placeholder or an unbounded broadcast.
 
-Each cycle examines at most one keyset page of 100 active tenant/user memberships, with a 45-second admission budget between scopes (an in-flight provider call may add up to 30 seconds; DB timeouts remain an operational prerequisite). Cursor rotation is process-local; correctness/dedupe is not. Each eligible scope loads only the user's email and five active, ranked, explicitly tenant+user scoped inbox items under RLS. Selected fields are bounded: source 120, headline 300, summary 600, URL 2048 characters. There are no whole-user credential selects, social tokens, secret configuration fields, or provider calls in discovery. Non-web and credentialed URLs are omitted, templates escape content, and empty eligible inboxes do not send or consume a slot.
+Each cycle examines at most one keyset page of 100 active tenant/user memberships, with a 45-second admission budget between scopes (an in-flight provider call may add up to 30 seconds; DB timeouts remain an operational prerequisite). Cursor rotation is process-local; correctness/dedupe is not. Each eligible scope loads only the user's email/name and at most 100 active, explicitly tenant+user scoped inbox candidates under RLS, then includes up to five safe stories. Selected fields are bounded: ID, source 120, headline 300, summary 600, URL 2048 characters. There are no whole-user credential selects, social tokens, secret configuration fields, or provider calls in discovery. Non-web and credentialed URLs are omitted and templates escape content.
+
+Articles must have a publication timestamp within the inclusive last 48 hours, not in the future. Discovery time is used only when publication time is absent; rows with neither timestamp are ineligible. Candidates sort newest first, then ranking/relevance score, then ID. The digest uses existing Discover data; it does not trigger a fresh crawl. When there are no eligible new stories, the user receives a brief no-new-stories email instead of recycled articles. This email consumes the same daily slot.
+
+Migration `0055_recent_email_digest.sql` must be applied before deploying this version. Delivery claims persist `digest_context` (tenant ID and up to five inbox article IDs) atomically with the pre-dispatch claim, never article URLs or bodies. Selection excludes articles in this user's same-tenant `pending`, `sending`, `sent` or `unknown` digest deliveries across all dates. Uncertain outcomes remain excluded conservatively; known failed or suppressed deliveries do not consume article eligibility. Safe failed retries replace their article selection with the current eligible stories, including an empty selection. Article history follows durable inbox row identities; normal inbox refresh already prevents reinsertion of historical canonical URLs. Legacy digest deliveries have no article identities and cannot be backfilled from their receipts, so cross-day repeat prevention begins with post-upgrade claims.
 
 The durable slot is `daily-digest-v1 + tenant + user + local YYYY-MM-DD`, SHA-256 hashed before persistence. It becomes due at the configured IANA local time, not a fixed UTC offset. Spring gaps catch up at the first valid later local time; fall folds have the same calendar-date key and cannot send twice. Late cycles may send the current day's digest, never backfill prior dates. Multi-tenant users receive independently scoped digests per tenant. Changing time/timezone does not reset an already sent local-date slot; there is no exactly-at-the-minute guarantee.
 
@@ -62,7 +89,111 @@ Delivery states:
 
 Recovery runs in bounded batches of 100 per state, before digest cycles and every minute after email initialization even when optional sending is disabled. Expired pending claims are safe to retry; stale sending/ambiguous legacy claims become unknown. Fencing prevents an expired worker from sending or finalizing another worker's claim. Failed receipt persistence leaves sending for conservative recovery, never marks an accepted send retryable. A timeout cannot revoke an email already accepted remotely.
 
-**Recovery limits:** delivery rows intentionally do not persist message bodies/security links. Bull must have durable Redis retention for non-digest payload retries; a lost queue payload is not reconstructed from delivery metadata. Digests regenerate from scoped current data on later cycles. Direct transactional callers must retry using the same logical dedupe key where available. Completed unknown jobs remain represented in PostgreSQL, not an automatic resend queue. Before resolving an unknown delivery, an operator must stop the relevant worker, check provider logs/receipts and retained job evidence, and record a reviewed decision. Do not clear dedupe rows or change unknown to failed merely because a client timed out. No blind-replay or automated provider-reconciliation command is supplied.
+**Recovery limits:** delivery rows intentionally do not persist message bodies/security links. Bull must have durable Redis retention for queued payload retries; a lost queue payload is not reconstructed from delivery metadata. Digests and weekly summaries regenerate from scoped current data on later cycles. Announcements and payment failures use the separate PostgreSQL outboxes described below. Other direct transactional callers must retry using the same logical dedupe key where available. Completed unknown jobs remain represented in PostgreSQL, not an automatic resend queue. Before resolving an unknown delivery, an operator must stop the relevant worker, check provider logs/receipts and retained job evidence, and record a reviewed decision. Do not clear dedupe rows or change unknown to failed merely because a client timed out. No blind-replay or automated provider-reconciliation command is supplied.
+
+### Weekly summaries, announcements and payment-failure bindings
+
+Apply `0055_recent_email_digest.sql` and `0056_email_communications.sql` before
+deploying the updated application. The latter adds global communication metadata
+tables `email_campaigns`, `email_campaign_recipients` and
+`billing_email_notifications`; tenant-specific source data still uses tenant RLS.
+Both migrations have now been applied only to the verified loopback development
+database. A disposable local acceptance database also replayed the complete
+58-migration chain and was removed afterward. No remote migration, live send
+or production deployment is implied; see the
+[admin operating runbook](design-system.md#advanced-admin-controls-and-operating-runbook).
+
+The minute-level `email-communications` task requires the existing production
+scheduler gates: `NODE_ENV=production`, `BACKGROUND_JOBS_ENABLED=true` and
+`CRON_SCHEDULER=true`. It recovers durable leases and processes payment failures
+even when optional communication flags are off. Its admission budget is 45
+seconds; already-admitted provider calls can extend the cycle. Weekly summaries
+page existing scheduler scopes; announcement batches admit up to five campaigns
+and ten recipients per campaign, and billing batches up to ten notifications.
+
+- **Weekly Summary:** enable `EMAIL_WEEKLY_SUMMARY_ENABLED=true`. Users must
+  explicitly enable `weeklySummary` in either notification preference UI; it
+  defaults false and is independent of daily-digest consent. On Monday, after the
+  user's configured digest time in their IANA timezone, send one summary per
+  active tenant/user membership covering the preceding local Monday through
+  Sunday. Boundaries use calendar midnights, including DST changes. Counts cover
+  discovered articles, created drafts and distinct drafts with live,
+  provider-confirmed publication receipts during that week. Sandbox/mock
+  receipts are excluded; zero activity is reported truthfully. Counts reflect
+  retained current rows, not immutable historical events, so deletions can
+  affect totals. The stable tenant/user/Monday identity prevents duplicate
+  sends; there is no Tuesday or older-week backfill.
+- **Product Update, Maintenance Notice, Incident Notice:** platform admins use
+  `/admin/email-announcements`. All three intentionally honor `productUpdates`
+  consent and global unsubscribe; incidents do not bypass those choices.
+  The audited `email:send:all` permission is platform-admin-only and requires
+  an access reason. `POST /api/admin/email-announcements/preview` validates
+  content, persists an immutable draft and snapshots verified, opted-in users
+  with active tenant membership, once per account rather than per membership.
+  Preview sends nothing. The admin reviews wrapped HTML and audience size, then
+  explicitly confirms using
+  `POST /api/admin/email-announcements/:id/confirm` with `{ "confirm": true }`.
+  Confirmation and scheduled dispatch require
+  `EMAIL_ANNOUNCEMENTS_ENABLED=true` on their respective application processes.
+  Retrying confirmation of the same ID cannot reset progress or create a second
+  broadcast. Edits require a fresh preview. Delivery rechecks verification and
+  current preferences. `GET /api/admin/email-announcements` returns recent
+  campaigns with actual sent/suppressed/unknown/failed progress; provider
+  acceptance is not proof of inbox delivery.
+- **Payment Failed:** reconciliation first validates authoritative provider
+  payment state and its persisted customer/order/amount/currency bindings. Only
+  an actual saved transition to failed inserts an outbox row, atomically in the
+  billing transaction, uniquely keyed by provider payment ID. The address/name
+  come from the persisted billing customer, never webhook-supplied contact
+  data. After commit the webhook attempts delivery; delivery infrastructure
+  failure does not undo or reject an accepted payment event. The scheduler
+  recovers pending work independently of optional email flags. Before dispatch,
+  current payment status is loaded under tenant RLS; captured/refunded payments
+  suppress obsolete failure notices. This essential email bypasses optional
+  preferences and uses safe generic failure text, not provider payloads.
+
+Both outboxes retain stable durable delivery identities. Pending/busy/backoff
+work is retried rather than marked sent; explicit rejections stop after four
+attempts. Sent, suppressed and unknown outcomes are terminal. Unknown messages
+are never blindly replayed. No live emails, production rollout or live
+PostgreSQL migration acceptance were performed for these bindings.
+
+### Announcement operator controls
+
+Admin email operations use the verified two-address staff policy documented in
+[the admin design contract](design-system.md#expanded-local-operations-milestone).
+One authorized admin still explicitly confirms a saved immutable campaign and
+its snapshotted audience. There is no second-approver or MFA requirement in this
+scope. All privileged access is audited and fails closed on audit failure.
+
+- `POST /api/admin/email-announcements/:id/pause` accepts only
+  `{ "paused": true|false }`. Active campaigns can pause; paused campaigns can
+  resume their same saved audience and delivery identities. Repeating the same
+  transition is idempotent; invalid transitions return 409. No delivery
+  counters or recipient progress are reset. Pausing is allowed with dispatch
+  disabled; resuming requires `EMAIL_ANNOUNCEMENTS_ENABLED=true`.
+- Workers recheck campaign state before each recipient admission and complete
+  only an active campaign. Pause stops newly observed admissions, not a send
+  already admitted/in flight; that race cannot be revoked at the provider.
+  Resuming does not replay terminal sent, suppressed or unknown outcomes.
+- `POST /api/admin/email-announcements/:id/test` accepts only
+  `{ "confirm": true }`, never an arbitrary recipient. It uses saved content
+  with a `[TEST]` subject and addresses only the signed-in persisted account.
+  It requires the independent `EMAIL_ANNOUNCEMENT_TEST_ENABLED=true` flag,
+  default false; enabling broadcasts alone does not enable test delivery.
+  Product-update preferences still apply to tests.
+- Test identity is stable per campaign and actor. Repeated requests reuse it
+  rather than creating new delivery attempts after an unknown outcome. A
+  different preview/campaign is a different logical test. Results distinguish
+  `sent`, `suppressed`, `unknown`, `failed` and `pending`; provider acceptance
+  is not inbox arrival. Test sends never confirm/contact the audience.
+- Blank/malformed action URLs produce validation errors, not render crashes,
+  including when an operator enters a pause reason without composing content.
+
+These controls have local mocked-service and offline browser coverage. No
+live test message, remote migration or production deployment is authorized or
+implied. Existing migration 0056 is still required for campaign tables. The
+`paused` state needs no additional migration because campaign status is varchar.
 
 ### Retained keyless jobs: conservative quarantine (P2)
 
@@ -126,7 +257,7 @@ Mocked tests run with environment-file loading disabled, explicit filenames only
 | `server/services/email/preferences.test.ts` | defaults, atomic partial upsert fields, explicit global unsubscribe and selective re-opt-in |
 | `server/services/email/delivery.test.ts` | actual sender/queue opt-out recheck, required not bypassing policy, timeout/late response, known rejection vs unknown, missing receipt and receipt-write failure |
 | `server/services/email/delivery-store.test.ts` | hashed identities, leases, fencing, bounded attempts, safe pre-dispatch recovery vs no replay |
-| `server/jobs/email-digest.test.ts` | real delivery invocation, five-row/minimal selects, safe URLs, due/opt-in gating and one-page scheduling |
+| `server/jobs/email-digest.test.ts` | real delivery invocation, bounded candidates/five-story output, exact 48-hour SQL bounds and newest-first ordering, scoped cross-day article exclusion, safe URLs, empty-state delivery, due/opt-in gating and one-page scheduling |
 | `server/services/media-storage.test.ts` | mocked S3/R2 SDK private writes/read/delete, immutable backend selection, JSON property order, credential endpoint rejection, streamed-byte bound and PUT compensation |
 | `server/services/media-maintenance.test.ts` | dry-run/resume, read-back verification, no local deletion, aged scoped orphan safeguards, repair and CLI validation |
 | `server/routes/notifications-media.test.ts` | auth/permissions/ownership, private response, signatures, eight-file/aggregate limit, DB-insert compensation and deletion retries |

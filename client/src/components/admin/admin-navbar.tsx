@@ -15,14 +15,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const PAGE_TITLES: Record<string, string> = {
-  "/admin": "Overview",
+  "/admin": "Command Center",
   "/admin/tenants": "Tenants",
   "/admin/users": "Users",
   "/admin/integrations": "Integrations",
   "/admin/audit-log": "Audit Log",
   "/admin/engine-runs": "Pipeline",
   "/admin/feature-flags": "Feature Flags",
+  "/admin/moments": "Industry Moments",
   "/admin/monitoring": "Monitoring",
+  "/admin/email-announcements": "Email Announcements",
+  "/admin/email-deliveries": "Email Deliveries",
+  "/admin/operations": "Operations",
+  "/admin/search": "Platform Search",
 };
 
 // Same shape as the tenant app's DashboardNavbar, branded for the admin
@@ -47,7 +52,7 @@ export function AdminNavbar() {
     ? `${firstName[0]}${lastName[0]}`
     : primaryEmail?.[0]?.toUpperCase() || "U";
 
-  const pageTitle = PAGE_TITLES[location] ?? "Overview";
+  const pageTitle = PAGE_TITLES[location] ?? (location.startsWith("/admin/tenants/") ? "Tenant 360" : location.startsWith("/admin/users/") ? "Account investigation" : "Admin");
 
   return (
     <header className="flex items-center justify-between gap-4 px-3 py-2.5 border-b bg-card text-card-foreground sticky top-0 z-10">
@@ -66,7 +71,8 @@ export function AdminNavbar() {
         <DropdownMenuTrigger asChild>
           <button
             className="flex min-h-11 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted ring-offset-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            aria-label="Account menu"
+            // WCAG 2.5.3: the visible initials are part of the name.
+            aria-label={`Account menu, ${initials}`}
             data-testid="button-admin-navbar-account"
           >
             <Avatar className="h-7 w-7">

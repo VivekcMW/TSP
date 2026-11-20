@@ -8,6 +8,14 @@
 			"args": [
 				"dev"
 			],
+			"options": {
+				"env": {
+					"DEV_AUTH_BYPASS": "false",
+					"VITE_DEV_AUTH_BYPASS": "false",
+					"BETTER_AUTH_URL": "http://localhost:4300",
+					"APP_URL": "http://localhost:4300"
+				}
+			},
 			"isBackground": true,
 			"problemMatcher": []
 		},

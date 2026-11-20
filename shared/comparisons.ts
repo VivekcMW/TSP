@@ -34,11 +34,11 @@ export interface ComparisonPage {
 
 /** TheSocialPundit's side of every comparison, stated once so every page says the same thing. */
 export const US = {
-  focus: "Turning current industry news into professional posts in your own voice, for individual professionals",
+  focus: "Turning current industry news into LinkedIn posts in your own voice, for individual professionals",
   news: "Yes. Discover follows news for your field across regional editions and explains why each story fits",
   writing: "Drafts that take a position on a real story, in a tone you choose; optional writing samples teach your voice",
-  networks: "LinkedIn plus 20+ other networks. Direct publishing to supported networks such as LinkedIn, Bluesky, Mastodon, Telegram, Discord, Dev.to and Hashnode; copy-ready versions for the rest",
-  scheduling: "Yes, for directly connected networks",
+  networks: "LinkedIn-focused publishing",
+  scheduling: "Yes, for your connected LinkedIn account",
   analytics: "Publishing history; in-depth post analytics aren't a focus today",
   outreach: "No. It creates and publishes posts; it doesn't send connection requests or messages",
   free: "Yes. Start free, no card needed",
@@ -50,11 +50,11 @@ const COMPARISONS_START: ComparisonPage[] = [
     slug: "taplio",
     competitor: "Taplio",
     seoTitle: "TheSocialPundit vs Taplio: A Taplio Alternative",
-    metaDescription: "Compare TheSocialPundit and Taplio: industry news discovery, AI LinkedIn writing, multi-network publishing, lead generation and free plans.",
+    metaDescription: "Compare TheSocialPundit and Taplio: industry news discovery and LinkedIn post drafting versus LinkedIn growth, lead generation and analytics.",
     headline: "TheSocialPundit vs Taplio",
-    introduction: "Taplio and TheSocialPundit both help professionals post better on LinkedIn, but they start from different places. Taplio is built around LinkedIn growth and lead generation. TheSocialPundit starts from the news in your industry and helps you publish a considered point of view, on LinkedIn and beyond.",
+    introduction: "Taplio and TheSocialPundit both help professionals post on LinkedIn, but they start from different places. Taplio is built around LinkedIn growth and lead generation. TheSocialPundit starts from the news in your industry and helps you publish a considered point of view.",
     competitorSummary: "Taplio is an AI-powered LinkedIn growth tool for individual creators. It combines an AI post writer, a scheduler, engagement tools and LinkedIn lead-generation features, with team and agency options. It focuses on LinkedIn only.",
-    verdict: "Choose Taplio if LinkedIn growth and lead generation are your main goals. Choose TheSocialPundit if you want to build authority by commenting on what is happening in your industry, across LinkedIn and other networks.",
+    verdict: "Choose Taplio if LinkedIn growth and lead generation are your main goals. Choose TheSocialPundit if you want to build authority by commenting on what is happening in your industry.",
     rows: [
       { feature: "Primary focus", theSocialPundit: US.focus, competitor: "LinkedIn growth: writing, scheduling, engagement and lead generation" },
       { feature: "Industry news discovery", theSocialPundit: US.news, competitor: "Partial: inspiration from trending LinkedIn posts in your niche rather than industry news" },
@@ -66,17 +66,17 @@ const COMPARISONS_START: ComparisonPage[] = [
       { feature: "Free plan", theSocialPundit: US.free, competitor: "No free plan; a free trial is available" },
     ],
     chooseCompetitorIf: [
-      "LinkedIn is the only network you care about",
+      "You want a LinkedIn growth workflow with lead generation and analytics",
       "You want lead generation and outreach in the same tool as your posting",
       "Detailed LinkedIn analytics matter to how you work",
     ],
     chooseUsIf: [
       "You want posts grounded in current news from your industry, not just LinkedIn trends",
-      "Your audience is also on networks such as X, Threads, Bluesky, Mastodon or regional platforms",
+      "You want a focused LinkedIn workflow grounded in current industry news",
       "You want to start free and keep every post under your own approval",
     ],
     faqs: [
-      { question: "Is TheSocialPundit a good Taplio alternative?", answer: "It is a strong alternative if you want to build authority from industry news and publish beyond LinkedIn. If you mainly need LinkedIn lead generation and analytics, Taplio covers more of that." },
+      { question: "Is TheSocialPundit a good Taplio alternative?", answer: "It is a strong alternative if you want to build authority from industry news on LinkedIn. If you mainly need LinkedIn lead generation and analytics, Taplio covers more of that." },
       { question: "Does TheSocialPundit automate LinkedIn messages like Taplio?", answer: "No. TheSocialPundit helps you create and publish posts. It doesn't send connection requests or messages." },
       { question: "Can I use both?", answer: "Yes. Some professionals use TheSocialPundit to find stories and draft posts, and a LinkedIn-specific tool for outreach or analytics." },
     ],
@@ -90,7 +90,7 @@ const COMPARISONS_START: ComparisonPage[] = [
     headline: "TheSocialPundit vs AuthoredUp",
     introduction: "AuthoredUp and TheSocialPundit solve different parts of the posting process. AuthoredUp perfects how a LinkedIn post looks and measures how it performs. TheSocialPundit helps you decide what to say, by finding relevant industry news and drafting a point of view in your voice.",
     competitorSummary: "AuthoredUp is a LinkedIn content creation and analytics tool. It offers a rich post editor with formatting and previews, drafts and templates, scheduling, detailed analytics and a browser extension, for individual creators and teams. It focuses on LinkedIn only.",
-    verdict: "Choose AuthoredUp if you already know what you want to say and want precise LinkedIn formatting and analytics. Choose TheSocialPundit if your challenge is finding timely ideas and turning them into posts across several networks.",
+    verdict: "Choose AuthoredUp if you already know what you want to say and want precise LinkedIn formatting and analytics. Choose TheSocialPundit if your challenge is finding timely ideas and turning them into LinkedIn posts in your voice.",
     rows: [
       { feature: "Primary focus", theSocialPundit: US.focus, competitor: "Formatting, previewing, scheduling and measuring LinkedIn posts" },
       { feature: "Industry news discovery", theSocialPundit: US.news, competitor: "No industry news discovery" },
@@ -108,10 +108,10 @@ const COMPARISONS_START: ComparisonPage[] = [
     chooseUsIf: [
       "Knowing what to post about is your biggest obstacle",
       "You want drafts grounded in current industry news",
-      "You publish on networks beyond LinkedIn",
+      "You prefer a research-to-draft workflow over a formatting-first tool",
     ],
     faqs: [
-      { question: "Is TheSocialPundit an alternative to AuthoredUp?", answer: "Partly. TheSocialPundit focuses on finding ideas and drafting posts across networks; AuthoredUp focuses on LinkedIn formatting and analytics. Depending on your needs, they can also complement each other." },
+      { question: "Is TheSocialPundit an alternative to AuthoredUp?", answer: "Partly. TheSocialPundit focuses on finding timely ideas and drafting LinkedIn posts; AuthoredUp focuses on formatting and analytics. Depending on your needs, they can also complement each other." },
       { question: "Does TheSocialPundit have LinkedIn analytics?", answer: "Not in depth today. It keeps a history of what you published; detailed analytics aren't its focus." },
       { question: "Which is better for ghostwriters?", answer: "AuthoredUp's multi-profile tools suit ghostwriters managing several LinkedIn accounts. TheSocialPundit is designed for professionals publishing in their own voice." },
     ],
@@ -121,7 +121,7 @@ const COMPARISONS_START: ComparisonPage[] = [
     slug: "buffer",
     competitor: "Buffer",
     seoTitle: "TheSocialPundit vs Buffer: A Buffer Alternative",
-    metaDescription: "Compare TheSocialPundit and Buffer: industry news to posts versus multi-network scheduling. AI writing, networks, analytics and free plans side by side.",
+    metaDescription: "Compare TheSocialPundit and Buffer: industry-news-based LinkedIn drafting versus multi-network scheduling. AI writing, analytics and free plans side by side.",
     headline: "TheSocialPundit vs Buffer",
     introduction: "Buffer is a widely used social media scheduler. TheSocialPundit works earlier in the process: it finds what is worth saying in your industry and drafts a professional post in your voice. Which fits depends on whether your bottleneck is publishing or knowing what to publish.",
     competitorSummary: "Buffer is a social media publishing and engagement tool for creators, small businesses and teams. It schedules posts across many networks, includes an AI assistant for ideas and repurposing, offers analytics and free creator tools, and has a permanent free plan.",
@@ -148,7 +148,7 @@ const COMPARISONS_START: ComparisonPage[] = [
     faqs: [
       { question: "Is TheSocialPundit a Buffer alternative?", answer: "For professionals building a personal reputation, yes. For teams scheduling content across many brand channels, Buffer covers more networks and analytics." },
       { question: "Do both have a free plan?", answer: "Yes. Buffer has a permanent free plan with limited channels, and TheSocialPundit lets you start free with no card needed." },
-      { question: "Can TheSocialPundit post to Instagram or TikTok?", answer: "No. It focuses on professional and text-first networks such as LinkedIn, X, Threads, Bluesky, Mastodon and regional platforms." },
+      { question: "Can TheSocialPundit post to Instagram or TikTok?", answer: "No. TheSocialPundit is focused on LinkedIn publishing for individual professionals." },
     ],
     sources: ["https://buffer.com", "https://buffer.com/pricing", "https://buffer.com/ai-assistant"],
   },
@@ -218,8 +218,8 @@ const COMPARISONS_MORE: ComparisonPage[] = [
       "You want drafting and publishing in one place",
     ],
     faqs: [
-      { question: "Is Jasper good for LinkedIn posts?", answer: "Jasper can generate many kinds of content, but it is designed for marketing teams and doesn't publish to social networks. TheSocialPundit is built specifically for professionals posting on LinkedIn and other networks." },
-      { question: "Is TheSocialPundit a Jasper alternative for individuals?", answer: "Yes, if your goal is professional social posts. It starts from industry news and your view, and publishes or schedules once you approve." },
+      { question: "Is Jasper good for LinkedIn posts?", answer: "Jasper can generate many kinds of content, but it is designed for marketing teams and doesn't publish to social networks. TheSocialPundit is built specifically for professionals creating LinkedIn posts from industry news." },
+      { question: "Is TheSocialPundit a Jasper alternative for individuals?", answer: "Yes, if your goal is thoughtful LinkedIn posts. It starts from industry news and your view, and publishes or schedules once you approve." },
       { question: "Does TheSocialPundit enforce a brand style guide?", answer: "It focuses on your personal voice: you choose a tone for each draft and can add writing samples. It isn't a brand governance platform." },
     ],
     sources: ["https://www.jasper.ai", "https://www.jasper.ai/pricing", "https://www.jasper.ai/platform"],
@@ -228,11 +228,11 @@ const COMPARISONS_MORE: ComparisonPage[] = [
     slug: "copy-ai",
     competitor: "Copy.ai",
     seoTitle: "TheSocialPundit vs Copy.ai: A Copy.ai Alternative",
-    metaDescription: "Compare TheSocialPundit and Copy.ai: professional social posts from industry news versus a go-to-market AI workflow platform. Who each is for.",
+    metaDescription: "Compare TheSocialPundit and Copy.ai: LinkedIn posts from industry news versus a go-to-market AI workflow platform. Who each is for.",
     headline: "TheSocialPundit vs Copy.ai",
     introduction: "Copy.ai began as an AI copywriting tool and now positions itself as a go-to-market AI platform for sales and marketing teams. TheSocialPundit is a focused tool for individual professionals who want to publish their view on industry news.",
     competitorSummary: "Copy.ai describes itself as a go-to-market AI platform. It helps sales, marketing and operations teams automate repeatable work through AI workflows that combine research, content generation and integrations. It is not a social media publisher.",
-    verdict: "Choose Copy.ai if your team wants to automate go-to-market workflows such as account research or outbound content. Choose TheSocialPundit if you want help posting your own perspective on LinkedIn and other networks.",
+    verdict: "Choose Copy.ai if your team wants to automate go-to-market workflows such as account research or outbound content. Choose TheSocialPundit if you want help posting your own perspective on LinkedIn.",
     rows: [
       { feature: "Primary focus", theSocialPundit: US.focus, competitor: "Automating go-to-market workflows for sales and marketing teams" },
       { feature: "Industry news discovery", theSocialPundit: US.news, competitor: "No industry news curation" },
@@ -253,7 +253,7 @@ const COMPARISONS_MORE: ComparisonPage[] = [
     ],
     faqs: [
       { question: "Is Copy.ai still an AI copywriting tool?", answer: "Copy.ai now positions itself as a go-to-market AI platform for teams. Check its website for current features and plans." },
-      { question: "Is TheSocialPundit a Copy.ai alternative for LinkedIn?", answer: "For professionals who want LinkedIn and social posts in their own voice, yes. It is narrower than Copy.ai but built for that job." },
+      { question: "Is TheSocialPundit a Copy.ai alternative for LinkedIn?", answer: "For professionals who want LinkedIn posts in their own voice, yes. It is narrower than Copy.ai but built for that job." },
       { question: "Can I try TheSocialPundit free?", answer: "Yes. You can start free, with no card needed." },
     ],
     sources: ["https://www.copy.ai", "https://www.copy.ai/gtm-ai", "https://www.copy.ai/prices"],
@@ -317,7 +317,7 @@ const COMPARISONS_MORE: ComparisonPage[] = [
     chooseUsIf: [
       "You want to publish more, consistently",
       "You need ideas from current industry news",
-      "You want posts adapted for LinkedIn and other networks",
+      "You want to turn current industry news into LinkedIn posts",
     ],
     faqs: [
       { question: "Are Authory and TheSocialPundit competitors?", answer: "Not really. Authory archives and showcases what you've published; TheSocialPundit helps you create new posts. Many writers could use both." },

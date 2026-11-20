@@ -118,9 +118,12 @@ export const inboxItems = pgTable("inbox_items", {
   qualityMetadata: jsonb("quality_metadata").$type<ArticleQuality>(),
   summary: text("summary"),
   status: varchar("status").default("active").notNull(),
+  /** Active stories only: hidden from For you and protected from auto-refresh replacement until this time. */
+  snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_inbox_user").on(table.userId),
+  index("idx_inbox_snoozed_until").on(table.tenantId, table.userId, table.snoozedUntil).where(sql`${table.snoozedUntil} is not null`),
   // Bounded accelerator only: callers must also compare the exact canonical URL.
   index("idx_inbox_canonical").on(table.tenantId, table.userId, sql`md5(${table.canonicalUrl})`),
   index("idx_inbox_tenant_status").on(table.tenantId, table.status, table.createdAt),
@@ -145,6 +148,21 @@ export const inboxReads = pgTable("inbox_reads", {
   inboxItemId: varchar("inbox_item_id").notNull().references(() => inboxItems.id, { onDelete: "cascade" }),
   readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
 }, table => [primaryKey({ columns: [table.tenantId, table.userId, table.inboxItemId] })]);
+
+/** Short private notes owned by one tenant member (migration 0059). */
+export const userNotes = pgTable("user_notes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  text: text("text").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  index("idx_user_notes_tenant_user_created").on(table.tenantId, table.userId, table.createdAt.desc()),
+  check("user_notes_text_length", sql`char_length(btrim(${table.text})) between 1 and 1000`),
+]);
+
+export type UserNote = typeof userNotes.$inferSelect;
 
 /** Cross-device Discover visit marker: `previousVisitAt` defines what counts as New. */
 export const discoverVisits = pgTable("discover_visits", {
@@ -408,8 +426,64 @@ export const featureFlags = pgTable("feature_flags", {
   key: varchar("key").notNull().unique(),
   description: text("description"),
   enabled: boolean("enabled").default(false).notNull(),
+  owner: varchar("owner"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  tenantIds: jsonb("tenant_ids").$type<string[]>().default([]).notNull(),
+  revision: integer("revision").default(1).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const adminIncidents = pgTable("admin_incidents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  signal: varchar("signal").notNull().unique(),
+  severity: varchar("severity").$type<"warning" | "critical">().notNull(),
+  state: varchar("state").$type<"open" | "acknowledged" | "resolved">().default("open").notNull(),
+  summary: varchar("summary").notNull(),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  acknowledgedBy: varchar("acknowledged_by"),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  version: integer("version").default(1).notNull(),
+});
+export const adminTenantRollups = pgTable("admin_tenant_rollups", {
+  tenantId: varchar("tenant_id").primaryKey(),
+  inboxItems: integer("inbox_items").notNull(),
+  drafts: integer("drafts").notNull(),
+  engineRuns: integer("engine_runs").notNull(),
+  failedSchedules: integer("failed_schedules").notNull(),
+  observedAt: timestamp("observed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export const adminQuotaGrants = pgTable("admin_quota_grants", {
+  id: varchar("id").primaryKey(),
+  tenantId: varchar("tenant_id").notNull(),
+  additional: integer("additional").notNull(),
+  createdBy: varchar("created_by").notNull(),
+  reason: varchar("reason").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+});
+export const adminFlagHistory = pgTable("admin_flag_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  flagKey: varchar("flag_key").notNull(),
+  actorId: varchar("actor_id").notNull(),
+  reason: varchar("reason").notNull(),
+  operation: varchar("operation").notNull(),
+  snapshot: jsonb("snapshot").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export const aiAttemptObservations = pgTable("ai_attempt_observations", {
+  id: varchar("id").primaryKey(),
+  tenantId: varchar("tenant_id").notNull(),
+  provider: varchar("provider").notNull(),
+  model: varchar("model"),
+  outcome: varchar("outcome").$type<"succeeded" | "failed">().notNull(),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  providerCostUsd: numeric("provider_cost_usd", { precision: 20, scale: 10 }),
+  durationMs: integer("duration_ms").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const creationSessions = pgTable("creation_sessions", {
@@ -431,6 +505,10 @@ export const emailPreferences = pgTable("email_preferences", {
   accountAlerts: boolean("account_alerts").notNull().default(true),
   weeklySummary: boolean("weekly_summary").notNull().default(false),
   reminders: boolean("reminders").notNull().default(true),
+  // Phase 5 (migration 0063).
+  mondayPlan: boolean("monday_plan").notNull().default(true),
+  topPicksWeekly: boolean("top_picks_weekly").notNull().default(false),
+  watchlistAlerts: boolean("watchlist_alerts").notNull().default(true),
   remindersPausedUntil: timestamp("reminders_paused_until"),
   digestTimezone: varchar("digest_timezone").notNull().default("UTC"),
   digestTime: varchar("digest_time").notNull().default("09:00"),
@@ -438,6 +516,42 @@ export const emailPreferences = pgTable("email_preferences", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+export type DigestDeliveryContext = { tenantId: string; articleIds: string[] };
+
+// Account-wide communication records, like email_deliveries; never expose these
+// through tenant APIs. Announcement mutations require audited platform permission.
+export const emailCampaigns = pgTable("email_campaigns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  content: jsonb("content").$type<import("./email-announcements").Announcement>().notNull(),
+  status: varchar("status").$type<"draft" | "active" | "paused" | "completed">().notNull().default("draft"),
+  createdBy: varchar("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+});
+
+export const emailCampaignRecipients = pgTable("email_campaign_recipients", {
+  campaignId: varchar("campaign_id").notNull().references(() => emailCampaigns.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  outcome: varchar("outcome"),
+  retryAt: timestamp("retry_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  primaryKey({ columns: [table.campaignId, table.userId] }),
+  index("idx_email_campaign_pending").on(table.campaignId, table.retryAt, table.userId).where(sql`${table.outcome} is null`),
+]);
+
+export const billingEmailNotifications = pgTable("billing_email_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull(),
+  paymentId: varchar("payment_id").notNull().unique(),
+  recipient: varchar("recipient").notNull(),
+  recipientName: varchar("recipient_name").notNull(),
+  outcome: varchar("outcome"),
+  retryAt: timestamp("retry_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  index("idx_billing_email_pending").on(table.retryAt, table.id).where(sql`${table.outcome} is null`),
+]);
 
 export const emailDeliveries = pgTable("email_deliveries", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -452,9 +566,13 @@ export const emailDeliveries = pgTable("email_deliveries", {
   leaseUntil: timestamp("lease_until", { withTimezone: true }),
   retryAt: timestamp("retry_at", { withTimezone: true }),
   attempts: integer("attempts").notNull().default(0),
+  digestContext: jsonb("digest_context").$type<DigestDeliveryContext>(),
   sentAt: timestamp("sent_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, table => [
+  index("idx_email_digest_history").on(table.userId, sql`(${table.digestContext}->>'tenantId')`)
+    .where(sql`${table.type} = 'daily_digest' and ${table.status} in ('pending', 'sending', 'sent', 'unknown')`),
+]);
 
 export const insertFeatureFlagSchema = createInsertSchema(featureFlags).omit({
   id: true,
@@ -734,6 +852,7 @@ export const insertInboxItemSchema = createInsertSchema(inboxItems).omit({
   canonicalUrl: true,
   version: true,
   discoveredAt: true,
+  snoozedUntil: true,
 });
 
 export const insertDraftSchema = createInsertSchema(drafts).omit({
@@ -746,7 +865,10 @@ export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
 export type UserProfile = typeof userProfiles.$inferSelect;
 
 export type InsertInboxItem = z.infer<typeof insertInboxItemSchema>;
-export type InboxItem = typeof inboxItems.$inferSelect;
+export type InboxItem = Omit<typeof inboxItems.$inferSelect, "snoozedUntil"> & {
+  /** Optional in the type: refresh receipts persisted before migration 0059 have no snooze field. */
+  snoozedUntil?: Date | null;
+};
 /** GET /api/inbox row: the item plus this user's explicit-open time (null = unread). */
 export type InboxListItem = InboxItem & { readAt: Date | null };
 /** POST /api/inbox/visit: null previous marker means first visit, so nothing is New. */
@@ -1099,3 +1221,229 @@ export interface ArticleMatch {
   matchedKeywords: string[];
   reasoning: string;       // "Matches AI (0.9) and cloud (0.7) = score 0.85"
 }
+
+// ── Phase 3A — keyword news search: saved searches (begin) ──
+/** Followed news searches (migration 0060). Unique per member on lower(query) via the
+ * saved_searches_user_query_key expression index, which lives in the migration only. */
+export const savedSearches = pgTable("saved_searches", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  query: text("query").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }),
+}, table => [
+  check("saved_searches_name_length", sql`char_length(btrim(${table.name})) between 1 and 60`),
+  check("saved_searches_query_length", sql`char_length(btrim(${table.query})) between 1 and 300`),
+]);
+export type SavedSearch = typeof savedSearches.$inferSelect;
+// ── Phase 3A (end) ──
+
+// ── Phase 3 — topic discovery: strategy, ideas, check-ins (begin) ──
+import { date as pgDate } from "drizzle-orm/pg-core";
+import type { CheckinAnswers, ContentStrategy, IdeaState, TopicIdea } from "./topic-ideas";
+
+/** One content strategy per tenant member; `revision` guards concurrent saves (migration 0061). */
+export const contentStrategies = pgTable("content_strategies", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  strategy: jsonb("strategy").$type<ContentStrategy>().notNull(),
+  revision: integer("revision").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [primaryKey({ columns: [table.tenantId, table.userId] })]);
+
+/** Weekly experience check-in; week_start is the Monday in the profile time zone (migration 0061). */
+export const experienceCheckins = pgTable("experience_checkins", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  weekStart: pgDate("week_start", { mode: "string" }).notNull(),
+  answers: jsonb("answers").$type<CheckinAnswers>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [primaryKey({ columns: [table.tenantId, table.userId, table.weekStart] })]);
+
+/** Saved / dismissed / drafted topic ideas by stable idea id; saved ideas keep a snapshot (migration 0061). */
+export const topicIdeaStates = pgTable("topic_idea_states", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  ideaId: varchar("idea_id", { length: 16 }).notNull(),
+  state: varchar("state", { length: 16 }).$type<IdeaState>().notNull(),
+  idea: jsonb("idea").$type<TopicIdea>(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  primaryKey({ columns: [table.tenantId, table.userId, table.ideaId] }),
+  index("idx_topic_idea_states_recent").on(table.tenantId, table.userId, table.updatedAt.desc()),
+]);
+// ── Phase 3 (end) ──
+
+// ── Phase 4 — triage feedback: dismiss reasons, calibration (begin) ──
+export const INBOX_FEEDBACK_KINDS = ["dismiss", "calibration_up", "calibration_down"] as const;
+export type InboxFeedbackKind = typeof INBOX_FEEDBACK_KINDS[number];
+export const DISMISS_REASONS = ["not_my_topic", "wrong_audience", "untrusted_source", "old_news", "already_covered"] as const;
+export type DismissReason = typeof DISMISS_REASONS[number];
+/** Learned preferences stay small: keyword deltas multiply weights by (1 + delta). */
+export const FEED_PREFERENCE_LIMITS = { mutedSources: 100, keywordAdjustments: 100, minDelta: -0.6, maxDelta: 0.4, keyword: 100, source: 200 } as const;
+
+/** One "Not relevant" reason or calibration vote by one tenant member (migration 0062). */
+export const inboxFeedback = pgTable("inbox_feedback", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  inboxItemId: varchar("inbox_item_id").references(() => inboxItems.id, { onDelete: "set null" }),
+  kind: varchar("kind", { length: 20 }).$type<InboxFeedbackKind>().notNull(),
+  reason: varchar("reason", { length: 40 }).$type<DismissReason>(),
+  source: varchar("source", { length: 200 }),
+  keywords: jsonb("keywords").$type<string[]>().notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  index("idx_inbox_feedback_tenant_user_created").on(table.tenantId, table.userId, table.createdAt.desc()),
+  index("idx_inbox_feedback_item").on(table.inboxItemId).where(sql`${table.inboxItemId} is not null`),
+  check("inbox_feedback_kind", sql`${table.kind} in ('dismiss', 'calibration_up', 'calibration_down')`),
+  check("inbox_feedback_reason", sql`${table.reason} is null or ${table.reason} in ('not_my_topic', 'wrong_audience', 'untrusted_source', 'old_news', 'already_covered')`),
+  check("inbox_feedback_keywords", sql`jsonb_typeof(${table.keywords}) = 'array' and jsonb_array_length(${table.keywords}) <= 20`),
+]);
+
+/** What the feed has learned for one tenant member: muted sources and keyword weight deltas (migration 0062). */
+export const feedPreferences = pgTable("feed_preferences", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  mutedSources: jsonb("muted_sources").$type<string[]>().notNull().default([]),
+  keywordAdjustments: jsonb("keyword_adjustments").$type<Record<string, number>>().notNull().default({}),
+  revision: integer("revision").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  primaryKey({ columns: [table.tenantId, table.userId] }),
+  check("feed_preferences_muted_sources", sql`jsonb_typeof(${table.mutedSources}) = 'array' and jsonb_array_length(${table.mutedSources}) <= 100`),
+  check("feed_preferences_keyword_adjustments", sql`jsonb_typeof(${table.keywordAdjustments}) = 'object' and octet_length(${table.keywordAdjustments}::text) <= 32768`),
+]);
+
+export type InboxFeedback = typeof inboxFeedback.$inferSelect;
+export interface FeedPreferencesView { mutedSources: string[]; keywordAdjustments: Record<string, number>; revision: number; updatedAt: string | null }
+/**
+ * Compare-and-set undo: each changed key with its value before and after the change (keyword delta, null = none;
+ * muted or not per source). PATCH { restore } reverts a key only while it still holds `after`; newer values are kept.
+ */
+export interface FeedPreferenceRestore {
+  keywords: Record<string, { before: number | null; after: number | null }>;
+  sources: Record<string, { before: boolean; after: boolean }>;
+}
+/** Keys an undo left alone because they changed again elsewhere. */
+export interface FeedPreferenceSkipped { keywords: string[]; sources: string[] }
+export interface FeedbackLearned { moreAbout: string[]; lessAbout: string[]; muted: string[] }
+export interface FeedbackResult { feedbackIds: string[]; learned: FeedbackLearned; undo: FeedPreferenceRestore; preferences: FeedPreferencesView }
+/** PATCH /api/feed-preferences response. */
+export interface FeedPreferencesChange { preferences: FeedPreferencesView; skipped: FeedPreferenceSkipped }
+/** DELETE /api/feed-preferences response: the exact state the reset cleared (read under the row lock) and its undo. */
+export interface FeedPreferencesReset { preferences: FeedPreferencesView; previous: { mutedSources: string[]; keywordAdjustments: Record<string, number> }; undo: FeedPreferenceRestore }
+// ── Phase 4 (end) ──
+
+// ── Phase 5 — moments, digests, watchlist alerts (begin) ──
+// Aliased so it cannot collide with another block's imports.
+import { date as phase5Date } from "drizzle-orm/pg-core";
+
+/** Global, admin-curated reference data (migration 0063). Readable by all; written only by audited admin routes. */
+export const industryMoments = pgTable("industry_moments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  startsOn: phase5Date("starts_on", { mode: "string" }).notNull(),
+  endsOn: phase5Date("ends_on", { mode: "string" }),
+  region: varchar("region", { length: 16 }).notNull().default("global"),
+  tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
+  leadDays: integer("lead_days").notNull().default(14),
+  url: text("url"),
+  description: text("description"),
+  archived: boolean("archived").notNull().default(false),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  index("idx_industry_moments_window").on(table.startsOn, table.endsOn).where(sql`not ${table.archived}`),
+  check("industry_moments_dates_check", sql`${table.endsOn} is null or ${table.endsOn} >= ${table.startsOn}`),
+]);
+export type IndustryMoment = typeof industryMoments.$inferSelect;
+
+export type WatchTermKind = "company" | "person" | "topic";
+export interface WatchTerm { kind: WatchTermKind; term: string }
+
+/** Which profile companies, people and topics one tenant member watches. FORCE RLS. */
+export const userWatchlists = pgTable("user_watchlists", {
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  terms: jsonb("terms").$type<WatchTerm[]>().notNull().default([]),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [primaryKey({ columns: [table.tenantId, table.userId] })]);
+
+/** One row per admitted story and watched term. email_slot/emailed_at make the alert email idempotent. FORCE RLS. */
+export const watchAlerts = pgTable("watch_alerts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  inboxItemId: varchar("inbox_item_id").notNull().references(() => inboxItems.id, { onDelete: "cascade" }),
+  term: text("term").notNull(),
+  kind: varchar("kind", { length: 16 }).$type<WatchTermKind>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  seenAt: timestamp("seen_at", { withTimezone: true }),
+  emailSlot: varchar("email_slot", { length: 16 }),
+  emailedAt: timestamp("emailed_at", { withTimezone: true }),
+}, table => [
+  unique("uniq_watch_alerts_item_term").on(table.tenantId, table.userId, table.inboxItemId, table.term),
+  index("idx_watch_alerts_user_created").on(table.tenantId, table.userId, table.createdAt),
+]);
+export type WatchAlert = typeof watchAlerts.$inferSelect;
+// ── Phase 5 (end) ──
+
+// ── Phase 6 — external inputs: inbound email, capture tokens (begin) ──
+/** One private newsletter forwarding address per member (migration 0064). Only a SHA-256 of the token is matched. */
+export const inboundAddresses = pgTable("inbound_addresses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+  tokenHint: varchar("token_hint", { length: 8 }).notNull(),
+  /** AES-GCM envelope (webhookSecrets) so the owner can see the address again; null when encryption is unavailable. */
+  tokenEncrypted: text("token_encrypted"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  rotatedAt: timestamp("rotated_at", { withTimezone: true }),
+  disabled: boolean("disabled").notNull().default(false),
+}, table => [unique("inbound_addresses_tenant_user_key").on(table.tenantId, table.userId)]);
+
+export const INBOUND_MESSAGE_STATUSES = ["processing", "processed", "confirmation"] as const;
+export type InboundMessageStatus = typeof INBOUND_MESSAGE_STATUSES[number];
+
+/** Forwarded newsletters received for a member; deduplicated by Message-ID. */
+export const inboundMessages = pgTable("inbound_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  messageId: varchar("message_id", { length: 500 }).notNull(),
+  fromAddress: varchar("from_address", { length: 320 }),
+  fromName: varchar("from_name", { length: 200 }),
+  subject: varchar("subject", { length: 500 }),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  linksFound: integer("links_found").notNull().default(0),
+  itemsCreated: integer("items_created").notNull().default(0),
+  status: varchar("status", { length: 20 }).$type<InboundMessageStatus>().notNull().default("processing"),
+}, table => [
+  unique("inbound_messages_tenant_user_message_key").on(table.tenantId, table.userId, table.messageId),
+  index("idx_inbound_messages_tenant_user_received").on(table.tenantId, table.userId, table.receivedAt.desc()),
+]);
+
+/** Personal bearer tokens for the browser extension and bookmarklet; only a SHA-256 is stored. */
+export const captureTokens = pgTable("capture_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+  tokenHint: varchar("token_hint", { length: 8 }).notNull(),
+  label: varchar("label", { length: 60 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, table => [index("idx_capture_tokens_tenant_user_created").on(table.tenantId, table.userId, table.createdAt.desc())]);
+
+export type InboundAddress = typeof inboundAddresses.$inferSelect;
+export type InboundMessage = typeof inboundMessages.$inferSelect;
+export type CaptureToken = typeof captureTokens.$inferSelect;
+// ── Phase 6 (end) ──

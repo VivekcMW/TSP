@@ -96,8 +96,8 @@ vi.mock("bull", async original => {
   } };
 });
 
-import { initializeQueues, closeQueues, enqueueInboxRefresh, enqueuePublishDraft, getJobStatus } from "./queue";
-import { registerJobHandlers } from "./index";
+import { initializeQueues, enqueueInboxRefresh, enqueuePublishDraft, getJobStatus } from "./queue";
+import { registerJobHandlers, closeJobHandlers } from "./index";
 import { registerInboxRoutes } from "../routes/inbox";
 import { registerAdminRoutes } from "../routes/admin";
 
@@ -126,13 +126,13 @@ beforeEach(async () => {
   f.getRun.mockResolvedValue({ id: "run", userId: f.scope.userId, industry: "other" });
   initializeQueues(); await registerJobHandlers();
 });
-afterEach(async () => { await closeQueues(); vi.restoreAllMocks(); vi.useRealTimers(); });
+afterEach(async () => { await closeJobHandlers(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("real routes, Bull job methods and worker with mocked infrastructure", () => {
-  it.each([false, true])("retries the same failed operation after recovery (admin=%s)", async admin => {
-    const url = admin ? "/api/admin/engine-runs/run/rerun" : "/api/inbox/refresh";
-    const body = { operationId: randomUUID(), ...(admin ? { tenantId: f.scope.tenantId } : {}) };
-    const first = await request(app).post(url).send(body).expect(admin ? 202 : 200);
+  it("retries the same failed operation after customer-requested recovery", async () => {
+    const url = "/api/inbox/refresh";
+    const body = { operationId: randomUUID() };
+    const first = await request(app).post(url).send(body).expect(200);
     const id = first.body.jobId;
     f.process.mockRejectedValue(new Error(secret));
     for (let attempt = 0; attempt < 3; attempt++) await work(id);
@@ -144,7 +144,7 @@ describe("real routes, Bull job methods and worker with mocked infrastructure", 
     expect(duplicate.attemptsMade).toBe(0);
     expect(stored.state).toBe("failed");
     f.process.mockResolvedValue(success);
-    const retried = await request(app).post(url).send(body).expect(admin ? 202 : 200);
+    const retried = await request(app).post(url).send(body).expect(200);
     expect(retried.body.jobId).toBe(id);
     expect(stored).toMatchObject({ state: "waiting", attemptsMade: 3, reservations: 1 });
     await work(id);
@@ -154,23 +154,21 @@ describe("real routes, Bull job methods and worker with mocked infrastructure", 
     expect(queue().transitions).toBe(1);
   });
 
-  it("bounds explicit recovery and returns terminal failure, never falsely queued, for both routes", async () => {
-    for (const admin of [false, true]) {
-      const url = admin ? "/api/admin/engine-runs/run/rerun" : "/api/inbox/refresh";
-      const body = { operationId: randomUUID(), ...(admin ? { tenantId: f.scope.tenantId } : {}) };
-      const first = await request(app).post(url).send(body);
-      const row = queue().rows.get(first.body.jobId); row.state = "failed"; row.attemptsMade = 3;
-      for (let recovery = 0; recovery < 2; recovery++) {
-        await request(app).post(url).send(body).expect(admin ? 202 : 200);
-        row.state = "failed"; row.attemptsMade++;
-      }
-      const failed = await request(app).post(url).send(body).expect(409);
-      expect(failed.body).toMatchObject({ status: "failed", success: false, code: "refresh_retry_exhausted" });
-      expect(failed.body.message).toContain("new operationId");
-      expect(failed.body).not.toHaveProperty("jobId");
-      expect(row.reservations).toBe(2);
-      await request(app).post(url).send({ ...body, operationId: randomUUID() }).expect(admin ? 202 : 200);
+  it("bounds customer-requested recovery and returns terminal failure, never falsely queued", async () => {
+    const url = "/api/inbox/refresh";
+    const body = { operationId: randomUUID() };
+    const first = await request(app).post(url).send(body);
+    const row = queue().rows.get(first.body.jobId); row.state = "failed"; row.attemptsMade = 3;
+    for (let recovery = 0; recovery < 2; recovery++) {
+      await request(app).post(url).send(body).expect(200);
+      row.state = "failed"; row.attemptsMade++;
     }
+    const failed = await request(app).post(url).send(body).expect(409);
+    expect(failed.body).toMatchObject({ status: "failed", success: false, code: "refresh_retry_exhausted" });
+    expect(failed.body.message).toContain("new operationId");
+    expect(failed.body).not.toHaveProperty("jobId");
+    expect(row.reservations).toBe(2);
+    await request(app).post(url).send({ ...body, operationId: randomUUID() }).expect(200);
   });
 
   it("concurrent same-ID recovery moves failed to waiting only once and never resets attempts", async () => {

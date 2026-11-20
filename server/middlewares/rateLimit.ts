@@ -157,3 +157,17 @@ export const inboxRefreshRateLimit = recoverableRateLimit({
   store: makeStore("inbox-refresh"),
   message: { message: "Too many refresh requests. Please wait a few minutes and try again." },
 });
+
+// Keyword news search calls Google News and Bing live (Phase 3A).
+export const newsSearchRateLimit = recoverableRateLimit({
+  windowMs: 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: keyByUser, store: makeStore("news-search"),
+  message: { message: "Too many searches. Please wait a minute and try again." },
+});
+
+// Saving results and following searches: no external calls, but bounded writes.
+export const newsSearchWriteRateLimit = recoverableRateLimit({
+  windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: keyByUser, store: makeStore("news-search-write"),
+  message: { message: "Too many changes at once. Please wait a minute and try again." },
+});

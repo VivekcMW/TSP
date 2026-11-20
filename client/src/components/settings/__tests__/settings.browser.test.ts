@@ -22,6 +22,7 @@ let emailPreferences: Record<string, unknown>;
 let user: Record<string, unknown>;
 let requests: Array<{ url: string; method: string; body: Record<string, unknown> }>;
 let connected: Record<string, boolean>;
+let features: Record<string, boolean>;
 let failures: Set<string>;
 let subscription: BillingSubscription | null;
 let dialogs: string[];
@@ -56,10 +57,12 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  emailPreferences = { dailyDigest: true, contentAlerts: false, productUpdates: true, marketing: true, publishing: true, accountAlerts: true, digestTimezone: "UTC", digestTime: "09:00" };
+  emailPreferences = { dailyDigest: true, weeklySummary: false, contentAlerts: false, productUpdates: true, marketing: true, publishing: true, accountAlerts: true, digestTimezone: "UTC", digestTime: "09:00" };
   profile = { focusDescription: "Original focus", publications: ["Publication"], keywords: ["technology"], influencers: [], companies: [], enabledPlatforms: ["linkedin", "twitter"], defaultPlatform: "linkedin", defaultTone: "professional", preferredPublishTime: "09:00", timezone: "UTC", requirePublishReview: true, dailyDigest: true, contentAlerts: false, productUpdates: true };
   user = { id: "fixture-user", name: "Original Person", firstName: "Original", lastName: "Person", email: "fixture@example.invalid", emailVerified: true, image: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   connected = { twitter: true, slack: true };
+  // Existing Connections tests cover the full catalog; the LinkedIn-only default is tested separately.
+  features = { linkedinInbox: false, allIntegrations: true };
   subscription = { status: "active", cancelAtPeriodEnd: true, currentPeriodEnd: "2099-10-17T00:00:00Z", razorpaySubscriptionId: "sub_fixture" };
   failures = new Set(); requests = []; errors = []; dialogs = []; decisions = [];
   publicationStatuses = [];
@@ -83,6 +86,7 @@ beforeEach(async () => {
       user = { ...user, name: fullName, firstName, lastName }; 
       return reply(user); 
     }
+    if (url.pathname === "/api/features") return reply(features);
     if (url.pathname === "/api/me") return reply({ industry: "other", country: "India" });
     if (url.pathname === "/api/profile") { if (method === "PATCH") profile = { ...profile, ...body }; return reply(profile); }
     if (url.pathname === "/api/email-preferences") { if (method === "PATCH") emailPreferences = { ...emailPreferences, ...body }; return reply(emailPreferences); }
@@ -760,6 +764,22 @@ describe("Settings consolidation and trust", () => {
     expect(emailPreferences.reminders).toBe(false);
   });
 
+  it("opts into Monday weekly summaries independently of the daily digest and persists after reload", async () => {
+    await open("notifications");
+    await browserExpect(page.getByRole("switch", { name: "Weekly Summary", exact: true })).not.toBeChecked();
+    await page.getByRole("switch", { name: "Weekly Summary", exact: true }).check();
+    await page.getByRole("switch", { name: /Daily Digest/ }).uncheck();
+    await page.getByTestId("button-save-notifications").click();
+    await browserExpect(page.getByTestId("button-save-notifications")).toBeDisabled();
+    await browserExpect(page.getByText("Notifications saved", { exact: true })).toBeVisible();
+    await browserExpect.poll(reloadBlocked).toBe(false);
+    expect(emailPreferences).toMatchObject({ weeklySummary: true, dailyDigest: false });
+    expect(requests.filter(item => item.method === "PATCH").map(item => item.body)).toEqual([{ weeklySummary: true, dailyDigest: false }]);
+    await page.reload();
+    await browserExpect(page.getByRole("switch", { name: "Weekly Summary", exact: true })).toBeChecked();
+    await browserExpect(page.getByRole("switch", { name: /Daily Digest/ })).not.toBeChecked();
+  });
+
   it("pauses reminders for a month from the email link, once, and resumes on request", async () => {
     await page.goto(`${origin}/dashboard/settings?tab=notifications&pause=reminders`);
     const paused = page.getByText(/^Reminders are paused until \d{1,2} \w+ \d{4}\.$/);
@@ -815,6 +835,22 @@ describe("Settings consolidation and trust", () => {
     await browserExpect(page.getByTestId("button-disconnect-slack")).toBeVisible();
     await page.getByTestId("button-disconnect-slack").click();
     await browserExpect(page.getByTestId("button-connect-slack")).toBeVisible();
+    expect(connected.slack).toBe(false);
+  });
+
+  it("offers only LinkedIn by default and keeps other connected accounts visible so they can be disconnected", async () => {
+    features = { linkedinInbox: false, allIntegrations: false };
+    await open("integrations");
+    await browserExpect(page.getByTestId("button-connect-linkedin")).toBeVisible();
+    for (const hidden of ["discord", "devto", "hashnode", "bluesky", "mastodon", "telegram", "reddit", "facebook", "threads", "medium"]) {
+      await browserExpect(page.getByTestId(`button-connect-${hidden}`)).toHaveCount(0);
+    }
+    await browserExpect(page.getByText(/more platforms \(manual/)).toHaveCount(0);
+    const other = page.getByTestId("section-other-connected");
+    await browserExpect(other.getByTestId("button-disconnect-slack")).toBeVisible();
+    await browserExpect(other.getByTestId("button-disconnect-twitter")).toBeVisible();
+    await other.getByTestId("button-disconnect-slack").click();
+    await browserExpect(page.getByTestId("button-connect-slack")).toHaveCount(0);
     expect(connected.slack).toBe(false);
   });
 

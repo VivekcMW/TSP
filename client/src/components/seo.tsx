@@ -13,7 +13,7 @@ interface SEOProps {
 }
 
 const defaultTitle = "AI LinkedIn Posts From Your Industry News | TheSocialPundit";
-const defaultDescription = "TheSocialPundit turns current news in your industry into LinkedIn and social posts written in your voice. You review and approve every post before it publishes.";
+const defaultDescription = "TheSocialPundit turns current industry news into thoughtful LinkedIn posts in your voice. Review and approve every draft before it publishes.";
 const siteUrl = "https://www.thesocialpundit.com";
 const shareImage = `${siteUrl}/og-image.jpg`;
 
@@ -25,9 +25,10 @@ const ORGANIZATION = {
   alternateName: "The Social Pundit",
   url: `${siteUrl}/`,
   logo: { "@type": "ImageObject", url: `${siteUrl}/logo.png`, width: 512, height: 512 },
-  description: "AI-assisted professional authority platform that turns relevant industry news into posts in the user's own voice, with human approval before publishing.",
+  description: "AI-assisted LinkedIn thought leadership that turns relevant industry news into posts in the user's own voice, with human approval before publishing.",
   email: "hello@thesocialpundit.com",
-  contactPoint: { "@type": "ContactPoint", contactType: "customer support", email: "hello@thesocialpundit.com", availableLanguage: "English" },
+  contactPoint: { "@type": "ContactPoint", contactType: "customer support", email: "hello@thesocialpundit.com", availableLanguage: "English", areaServed: "Worldwide" },
+  areaServed: "Worldwide",
 };
 
 export function SEO({ 
@@ -74,6 +75,8 @@ export function SEO({
       <meta name="description" content={description} />
       <meta name="robots" content={robots} />
       {canonicalUrl && <link rel="canonical" href={canonicalUrl} />}
+      {canonicalUrl && <link rel="alternate" hrefLang="en" href={canonicalUrl} />}
+      {canonicalUrl && <link rel="alternate" hrefLang="x-default" href={canonicalUrl} />}
       
       <meta property="og:title" content={fullTitle} />
       <meta property="og:description" content={description} />

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { PLATFORMS } from "../../client/src/lib/platforms";
 import { DIRECT_PUBLISH_PLATFORMS } from "../../shared/publishing-capabilities";
 import { saveCreationSessionSchema, type CreationSession } from "../../shared/creation-session";
+import { DISABLED_CLIENT_FEATURES } from "../../shared/client-features";
 
 // Test data only. No server imports, dotenv, credentials, provider or DB access.
 export const LONG_TITLE = "Research across regions: a deliberately long editorial headline about responsible product decisions, accessible interfaces and careful human review";
@@ -85,10 +86,12 @@ export async function installActualAppApi(page: Page, origin: string, errors: st
     ["/api/drafts/scheduled", () => ({ items: state.schedules, total: state.schedules.length, hasMore: false })],
     ["/api/integrations", () => PLATFORMS.map(platform => ({ key: platform.value, label: platform.label, enabled: true, capabilities: ["publish"] }))],
     ["/api/analytics/summary", () => ({ connected: { linkedin: true, twitter: true }, linkedin: null, twitter: null, lastSync: null })],
+    // Production defaults: classic layout, LinkedIn-only Integrations.
+    ["/api/features", () => DISABLED_CLIENT_FEATURES],
     ["/api/team/context", () => ({ tenantId: state.tenantId, tenantName: "Personal workspace", tenantKind: "personal", role: "owner", memberships: [] })],
     ["/api/billing", () => ({ configured: false, keyId: null, plans: [], currentPlan: null,
       subscription: { status: "active", cancelAtPeriodEnd: false, currentPeriodEnd: "2099-10-17T00:00:00.000Z" }, payments: [], paymentMethods: [] })],
-    ["/api/email-preferences", () => ({ dailyDigest: true, reminders: true, contentAlerts: false, productUpdates: true, marketing: false,
+    ["/api/email-preferences", () => ({ dailyDigest: true, weeklySummary: false, reminders: true, contentAlerts: false, productUpdates: true, marketing: false,
       publishing: true, accountAlerts: true, digestTimezone: "Asia/Kolkata", digestTime: "09:00", remindersPausedUntil: null })],
     ["/api/editorial/voice", () => ({ enabled: false, revision: 0, samples: [] })],
     ["/api/invitations/template", () => ({ enabled: false, subject: "An invitation from {InviterName}", body: `Hi {FirstName}, ${LONG_TEXT}\n{link}` })],

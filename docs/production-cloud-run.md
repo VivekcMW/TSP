@@ -83,7 +83,11 @@ summary. The candidate job also sends a request with the candidate browser
 `Origin` and fails unless that exact origin is allowed by CORS and Better Auth.
 If it fails at that gate, follow the candidate-only `ALLOWED_ORIGINS` procedure
 below and rerun; the tag URL remains stable while each attempt gets a distinct
-revision.
+revision. The authenticated route checks sign in with the dedicated test account,
+wait for the first-run tour's Integrations redirect and target, dismiss the tour
+with the keyboard in the fresh browser context, and verify the intended
+workspace destinations and legacy redirects. Keyboard dismissal avoids a pointer
+race if the tour moves while connection statuses load.
 
 Only after CI and live acceptance pass should an approver run `promote` with
 the same SHA, the exact candidate revision from the successful candidate job,
@@ -119,11 +123,13 @@ not exercise module loading or browser `Origin` headers.
 
 The tagged origin is not automatically in the production CORS allowlist. For
 browser QA, add that exact HTTPS origin to a **candidate-only** `ALLOWED_ORIGINS`
-binding while retaining the production origins. Do not modify the shared
-secret's latest version. Cloud Run CLI update flags reject changing an existing
-secret binding to a literal; a declarative service replacement or the regional
-Cloud Run API can make that change atomically. Preserve the existing production
-traffic allocation and both disabled-worker flags during the replacement.
+binding while retaining the production origins. First record the existing
+binding from the currently serving revision, including whether it is a literal
+or a Secret Manager reference. Do not modify a shared secret's latest version.
+If the existing binding is a secret, Cloud Run CLI update flags reject changing
+it to a literal; a declarative service replacement or the regional Cloud Run API
+can make that change atomically. Preserve the existing production traffic
+allocation and both disabled-worker flags during the replacement.
 Verify JavaScript and CSS return 200 with the candidate `Origin` header.
 
 Once candidate checks and CI pass, move traffic to the checked
@@ -158,9 +164,12 @@ After deployment, check signed WebSub delivery latency as well as readiness:
 healthy database probes do not detect a stalled feed parser.
 
 If validation created a configuration-only successor, update `CANDIDATE` to
-that exact checked revision before moving traffic. Restore the original
-`ALLOWED_ORIGINS` Secret Manager binding in the final revision; do not carry the
-candidate-only literal allowlist into production.
+that exact checked revision before moving traffic. Before automated promotion,
+restore the original `ALLOWED_ORIGINS` binding, including its type and value, in
+the service template while preserving the validated candidate and production
+traffic. The final revision inherits that template; `PRODUCTION_ALLOWED_ORIGINS`
+is a validation input and does not update Cloud Run. Do not carry the
+candidate-only allowlist into production.
 
 ```bash
 gcloud run services update-traffic tsp-app --region asia-south1 --to-revisions "$CANDIDATE=100"
@@ -249,6 +258,20 @@ Unknown public routes return HTTP 404 and noindex, using the prerendered
 not-found page. Known account routes and dashboard/admin route trees retain
 their application shell and noindex headers. The internal 404 render is not
 added to the sitemap or discovery export.
+
+After changing public copy or metadata, regenerate the checked-in discovery
+files with `pnpm exec tsx script/generate-search-files.ts`. The production
+build also regenerates them. After deploying, check that `/sitemap.xml` lists
+only canonical, indexable URLs that return HTTP 200, and that `/pricing` and
+`/api/public/billing/plans` both respond successfully. If pricing returns 503,
+check the serving revision's logs and billing database before submitting the
+updated sitemap in Google Search Console or Bing Webmaster Tools.
+
+## Global SEO and indexing
+
+- Pages declare `hreflang="en"` and `x-default` pointing at their canonical URL (static `client/index.html`, the `<SEO>` component and `renderInitialSeo` in `server/public-seo.ts` must stay in sync). The Organization schema sets `areaServed: "Worldwide"`.
+- `client/public/robots.txt` allows major global search engines (Baidu, Yandex, Naver, Seznam, DuckDuckGo) and AI crawlers. `llms.txt` is generated: edit `script/discovery-files.ts` and run `npx tsx script/generate-search-files.ts`.
+- After each deploy, run `scripts/indexnow-submit.ts` to notify Bing, Yandex and other IndexNow engines, then request re-indexing in Google Search Console and Bing Webmaster Tools.
 
 ## Roll back
 

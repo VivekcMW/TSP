@@ -33,6 +33,18 @@ describe("public initial SEO", () => {
     expect(publicSeoForPath("/")!.title.length).toBeLessThanOrEqual(60);
   });
 
+  it("describes the product as LinkedIn-focused in public metadata", () => {
+    const home = publicSeoForPath("/")!;
+    const howItWorks = publicSeoForPath("/how-it-works")!;
+    const linkedinPublishing = publicSeoForPath("/use-cases/multi-platform-publishing")!;
+    expect(home.description).toContain("LinkedIn posts");
+    expect(howItWorks.title).toContain("LinkedIn");
+    expect(howItWorks.description).toContain("LinkedIn posts");
+    expect(linkedinPublishing.title).toContain("LinkedIn");
+    expect(linkedinPublishing.description).toContain("LinkedIn posts");
+    expect(linkedinPublishing.description).not.toMatch(/other networks|multi-platform/i);
+  });
+
   it("renders article metadata and schema before JavaScript runs", () => {
     const post = BLOG_POSTS[0];
     const result = renderInitialSeo(template, `/blog/${post.slug}`);
@@ -101,5 +113,14 @@ describe("canonical URLs", () => {
 
   it("treats a trailing slash on an inner page as the same canonical URL", () => {
     expect(publicSeoForPath("/pricing/")!.canonical).toBe(publicSeoForPath("/pricing")!.canonical);
+  });
+});
+
+describe("international targeting", () => {
+  it("adds en and x-default hreflang alternates matching the canonical", () => {
+    const { html } = renderInitialSeo('<head><link rel="canonical" href="https://www.thesocialpundit.com/" /><link rel="alternate" hreflang="en" href="x" /></head>', "/pricing");
+    expect(html).toContain('hreflang="en" href="https://www.thesocialpundit.com/pricing"');
+    expect(html).toContain('hreflang="x-default" href="https://www.thesocialpundit.com/pricing"');
+    expect(html.match(/hreflang="en"/g)).toHaveLength(1);
   });
 });

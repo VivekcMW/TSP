@@ -332,6 +332,7 @@ const GUIDES: Array<Omit<BlogPost, "readTime">> = [
     excerpt: "Turn one article, report or blog post into several useful social posts across LinkedIn and other networks, each adapted rather than copied.",
     category: "Platforms",
     date: PUBLISHED,
+    updated: "2026-11-18",
     summary: "To repurpose an article, pull out its distinct ideas, such as a key finding, a contrarian point, a practical step or a story, and turn each into its own post, adapted to the format of each network. One strong article can become a week or more of content without anything feeling repetitive.",
     content: [
       "Writing a long article or report takes real effort, yet most get one social post announcing them and are then forgotten. Repurposing extends that effort: one good piece of thinking can fuel many posts, each reaching people the original never did.",
@@ -350,7 +351,7 @@ const GUIDES: Array<Omit<BlogPost, "readTime">> = [
       "## Step 6: Track what resonates",
       "Note which ideas and formats generate meaningful responses, then use that to shape your next article. Repurposing becomes a feedback loop: social posts test ideas cheaply, and the best ones deserve deeper treatment.",
       "## Making it faster",
-      "The slowest parts of repurposing are extracting ideas and rewriting for each network. AI can help with both, provided you review the results. In TheSocialPundit you can start from a link or an article, choose your angle and tone, and get versions adapted for each network you select. You then edit, approve and publish or schedule each version.",
+      "The slowest parts of repurposing are extracting ideas and rewriting. AI can help with both, provided you review the results. In TheSocialPundit you can start from a link or an article, choose your angle and tone, and get a LinkedIn draft. You then edit, approve and publish or schedule it.",
     ],
     faqs: [
       { question: "How many posts can I get from one article?", answer: "Usually five to ten, depending on how many distinct ideas it contains. Each post should stand on its own and offer a different angle." },

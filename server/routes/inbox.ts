@@ -5,7 +5,7 @@ import { requirePermission } from "../middlewares/requirePermission";
 import { engineRegistry } from "../services/engines/index.js";
 import { normalizeIndustryToSlug } from "../services/metaEngine";
 import { validateUrl, validateUrlSync } from "../services/urlValidator";
-import { storage, InboxCapacityError, InboxOperationConflictError, DiscoverStateUnavailableError } from "../storage";
+import { storage, InboxCapacityError, InboxOperationConflictError, DiscoverStateUnavailableError, InboxSnoozeError } from "../storage";
 import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod";
 import { enqueueInboxRefresh, getJobStatus, InboxRefreshAdmissionError } from "../jobs/queue";
@@ -19,7 +19,12 @@ const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(200).optional(),
   offset: z.coerce.number().int().min(0).optional(),
   status: z.enum(["active", "saved", "dismissed"]).optional(),
+  snoozed: z.enum(["exclude", "only", "include"]).optional(),
 });
+
+const SNOOZE_MIN_MS = 60 * 1000;
+const SNOOZE_MAX_MS = 90 * 24 * 60 * 60 * 1000;
+const snoozeSchema = z.object({ until: z.string().datetime({ offset: true }) });
 
 export function registerInboxRoutes(app: Express) {
   app.get("/api/inbox", requireDbUser, requirePermission("inbox:read:own"), async (req, res) => {
@@ -28,7 +33,10 @@ export function registerInboxRoutes(app: Express) {
       const parsed = paginationQuerySchema.safeParse(req.query);
       if (!parsed.success) return res.status(400).json({ message: "Invalid inbox query" });
       const { limit, offset, status } = parsed.data;
-      const items = await storage.getInboxItems(scope, { limit, offset, order: "relevance", ...(status ? { status } : {}) });
+      // Snoozed stories leave For you until they return; other views include them unless asked.
+      const snoozed = parsed.data.snoozed ?? (status === "active" ? "exclude" : "include");
+      const items = await storage.getInboxItems(scope, { limit, offset, order: "relevance", ...(status ? { status } : {}),
+        ...(snoozed === "include" ? {} : { snoozed }) });
       res.json(items);
     } catch (error) {
       console.error("Error fetching inbox:", error);
@@ -238,6 +246,48 @@ export function registerInboxRoutes(app: Express) {
       if (error instanceof DiscoverStateUnavailableError) return res.status(503).json({ message: "Reading state is not available yet" });
       console.error("Error marking inbox item read:", error);
       res.status(500).json({ message: "Failed to mark article read" });
+    }
+  });
+
+  app.delete("/api/inbox/:id/read", requireDbUser, requirePermission("inbox:write:own"), async (req, res) => {
+    try {
+      if (!await storage.markInboxItemUnread(authedOf(req).tenant, req.params.id)) return res.status(404).json({ message: "Item not found" });
+      res.json({ id: req.params.id, readAt: null });
+    } catch (error) {
+      if (error instanceof DiscoverStateUnavailableError) return res.status(503).json({ message: "Reading state is not available yet" });
+      console.error("Error marking inbox item unread:", error);
+      res.status(500).json({ message: "Failed to mark article unread" });
+    }
+  });
+
+  app.post("/api/inbox/:id/snooze", requireDbUser, requirePermission("inbox:write:own"), async (req, res) => {
+    const parsed = snoozeSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Choose a valid snooze time." });
+    const until = new Date(parsed.data.until);
+    const delay = until.getTime() - Date.now();
+    if (!(delay > SNOOZE_MIN_MS && delay <= SNOOZE_MAX_MS)) {
+      return res.status(400).json({ message: "Snooze time must be more than 1 minute and at most 90 days from now." });
+    }
+    try {
+      const item = await storage.snoozeInboxItem(authedOf(req).tenant, req.params.id, until);
+      if (!item) return res.status(404).json({ message: "Item not found" });
+      res.json(item);
+    } catch (error) {
+      if (error instanceof InboxSnoozeError) return res.status(409).json({ message: error.message });
+      console.error("Error snoozing inbox item:", error);
+      res.status(500).json({ message: "Failed to snooze article" });
+    }
+  });
+
+  app.delete("/api/inbox/:id/snooze", requireDbUser, requirePermission("inbox:write:own"), async (req, res) => {
+    try {
+      const item = await storage.snoozeInboxItem(authedOf(req).tenant, req.params.id, null);
+      if (!item) return res.status(404).json({ message: "Item not found" });
+      res.json(item);
+    } catch (error) {
+      if (error instanceof InboxSnoozeError) return res.status(409).json({ message: error.message });
+      console.error("Error clearing inbox item snooze:", error);
+      res.status(500).json({ message: "Failed to unsnooze article" });
     }
   });
 
