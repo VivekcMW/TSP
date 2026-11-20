@@ -90,6 +90,8 @@ test("authenticated workspace routes load without overflow", async ({ page }) =>
   }
   await expect(page).toHaveURL(url => url.origin === origin && (url.pathname === "/dashboard" || url.pathname.startsWith("/dashboard/")));
   await skipFirstWorkspaceTour(page);
+  const features = await (await page.request.get(`${origin}/api/features`)).json() as { linkedinInbox?: boolean };
+  const inboxLayout = features.linkedinInbox === true;
 
   const routes = [
     { path: "/dashboard", destination: "/dashboard", heading: "Home" },
@@ -102,7 +104,11 @@ test("authenticated workspace routes load without overflow", async ({ page }) =>
   for (const route of routes) {
     await page.goto(route.path);
     await expect(page).toHaveURL(`${origin}${route.destination}`);
-    await expect(page.getByRole("heading", { level: 1, name: route.heading, exact: true })).toBeVisible();
+    if (inboxLayout && (route.path === "/dashboard" || route.path === "/dashboard/discover")) {
+      await expect(page.getByRole("main", { name: "For you", exact: true })).toBeVisible();
+    } else {
+      await expect(page.getByRole("heading", { level: 1, name: route.heading, exact: true })).toBeVisible();
+    }
     if (route.tab) await expect(page.getByRole("tab", { name: route.tab, exact: true })).toHaveAttribute("aria-selected", "true");
     await expect(page.locator('a[href="/dashboard/performance"], a[href="/dashboard/analytics"]')).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
@@ -110,6 +116,7 @@ test("authenticated workspace routes load without overflow", async ({ page }) =>
   for (const route of ["/dashboard/performance", "/dashboard/analytics"]) {
     await page.goto(route);
     await expect(page).toHaveURL(`${origin}/dashboard`);
-    await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
+    if (inboxLayout) await expect(page.getByRole("main", { name: "For you", exact: true })).toBeVisible();
+    else await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
   }
 });
