@@ -119,7 +119,7 @@ async function resolvePending() { await page.evaluate(() => (window as any).__pe
 
 describe("UX audit screens (fully mocked Chromium)", () => {
   it("starts a LinkedIn workspace from one setup screen and two clicks", async () => {
-    await mount("registration", [{ body: { profile: { onboardingStatus: "completed" } } }, { body: { jobId: "quick-refresh", status: "queued" } }]);
+    await mount("registration", [{ body: { profile: { onboardingStatus: "completed", userId: "fixture-user", tenantId: "fixture-tenant" } } }, { body: { jobId: "quick-refresh", status: "queued" } }]);
     await page.getByTestId("preset-ai-saas").click();
     await page.getByRole("combobox", { name: "Primary market" }).click();
     await page.getByRole("option", { name: "India", exact: true }).click();
@@ -139,6 +139,7 @@ describe("UX audit screens (fully mocked Chromium)", () => {
       { keyword: "SaaS", weight: 0.84 },
     ]));
     expect(quickStart?.body.focusDescription).toContain("AI, SaaS");
+    await browserExpect.poll(() => page.evaluate(() => localStorage.getItem("tsp-app-tour:inbox-v1:fixture-user:fixture-tenant"))).toContain('"dismissed":true');
   });
 
   it("requires a real focus and one topic, company or person before finishing, and can finish without the agent", async () => {

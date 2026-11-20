@@ -11,6 +11,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ArrowRight, Check, Linkedin, Sparkles } from "lucide-react";
 import { Reveal } from "@/components/motion/reveal";
 import { track } from "@/lib/analytics-consent";
+import { dismissWorkspaceTours } from "@/components/app-tour";
 
 const presets = [
   {
@@ -83,14 +84,16 @@ export default function CompleteRegistrationPage({ existingFirstName, existingLa
         keywords: inferredKeywords,
       };
       const keywords = inferred.keywords.length ? inferred.keywords : ["LinkedIn thought leadership", "Industry news"];
-      return await apiRequest("POST", "/api/onboarding/quick-start", {
+      const response = await apiRequest("POST", "/api/onboarding/quick-start", {
         focusDescription: focus.trim(),
         industry: inferred.industry,
         country,
         keywords: keywords.map((keyword, index) => ({ keyword, weight: Math.max(0.55, 1 - index * 0.08) })),
       });
+      return await response.json() as { profile: { userId: string; tenantId: string } };
     },
-    onSuccess: async () => {
+    onSuccess: async ({ profile }) => {
+      dismissWorkspaceTours(`${profile.userId}:${profile.tenantId}`);
       track("registration_complete");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["/api/me"] }),

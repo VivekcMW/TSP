@@ -361,6 +361,13 @@ function writeProgress(config: TourVariantConfig, scope: string, progress: TourP
   }
 }
 
+/** Quick onboarding lands directly in the workspace; the tour remains available from Help/App tour. */
+export function dismissWorkspaceTours(scope: string) {
+  for (const config of [CLASSIC_TOUR, INBOX_TOUR]) {
+    writeProgress(config, scope, { step: 0, ready: false, dismissed: true, completed: false });
+  }
+}
+
 /**
  * Reads this variant's progress. A variant without progress of its own adopts the classic progress once
  * (onboarding always writes classic), so indices of different variants are never mixed.
