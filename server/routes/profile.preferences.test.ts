@@ -154,6 +154,41 @@ describe.each(["patch", "onboarding"] as const)("%s shared profile contract", en
   });
 });
 
+describe("quick LinkedIn onboarding", () => {
+  it("completes registration and profile in one request with trusted defaults", async () => {
+    const response = await request(app).post("/api/onboarding/quick-start").send({
+      focusDescription,
+      industry: "technology_saas",
+      country: "India",
+      keywords: [{ keyword: "Agentic AI", weight: 1 }, { keyword: "SaaS", weight: 0.9 }],
+      onboardingStatus: "forged",
+      tenantId: "forged",
+    });
+    expect(response.status).toBe(200);
+    expect(mocks.update).toHaveBeenCalled();
+    expect(mocks.storage.updateUserProfile).toHaveBeenCalledWith(mocks.scope, expect.objectContaining({
+      focusDescription,
+      onboardingStatus: "completed",
+      recommendedIndustry: "technology_saas",
+      publications: [],
+      influencers: [],
+      companies: [],
+      keywords: [{ keyword: "Agentic AI", weight: 1 }, { keyword: "SaaS", weight: 0.9 }],
+    }));
+    expect(mocks.storage.updateUserProfile.mock.calls[0][1]).not.toHaveProperty("tenantId");
+  });
+
+  it.each([
+    { focusDescription: "short", industry: "technology_saas", country: "India", keywords: ["AI"] },
+    { focusDescription, industry: "invalid", country: "India", keywords: ["AI"] },
+    { focusDescription, industry: "technology_saas", country: "I", keywords: ["AI"] },
+    { focusDescription, industry: "technology_saas", country: "India", keywords: [] },
+  ])("rejects invalid quick-start data before persistence (%#)", async body => {
+    expect((await request(app).post("/api/onboarding/quick-start").send(body)).status).toBe(400);
+    expectNoPersistence();
+  });
+});
+
 describe("profile PATCH preferences", () => {
   it.each(SEARCH_EDITIONS)("saves supported edition $value without changing weighted content", async ({ value }) => {
     const response = await request(app).patch("/api/profile").send({ searchEdition: value });

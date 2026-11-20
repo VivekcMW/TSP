@@ -70,6 +70,7 @@ Configure these GitHub environments before the first run:
 | Environment | Variables | Secrets |
 | --- | --- | --- |
 | `release-candidate` | `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_CLOUD_RUN_SERVICE`, `GCP_ARTIFACT_REPOSITORY`, `VITE_SENTRY_DSN` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
+| `live-acceptance` | None | `E2E_TEST_EMAIL`, `E2E_TEST_PASSWORD` for a dedicated verified password account |
 | `production` | All candidate variables plus `PRODUCTION_URL`, `PRODUCTION_ALLOWED_ORIGINS`, `RESEND_FROM_EMAIL` | Candidate secrets plus `DATABASE_URL`, `OWNER_DATABASE_URL`, `BETTER_AUTH_SECRET`, `WEBHOOK_ENCRYPTION_SECRET`, `DIAGNOSTICS_TOKEN`, `OAUTH_STATE_SECRET`, `RESEND_API_KEY`, `REDIS_URL`, Razorpay secrets, and the configured AI provider key |
 
 Set required reviewers on the `production` environment. The deploy service
@@ -89,12 +90,26 @@ with the keyboard in the fresh browser context, and verify the intended
 workspace destinations and legacy redirects. Keyboard dismissal avoids a pointer
 race if the tour moves while connection statuses load.
 
+Use `pnpm live:provision-account` with `OWNER_DATABASE_URL`,
+`LIVE_ACCEPTANCE_EMAIL`, and a randomly generated `LIVE_ACCEPTANCE_PASSWORD` to
+create or rotate the dedicated verified account. Store that email and password
+only in the `live-acceptance` environment secrets. Do not reuse a human
+employee's account; the automated principal should remain isolated and
+independently revocable.
+
 Only after CI and live acceptance pass should an approver run `promote` with
 the same SHA, the exact candidate revision from the successful candidate job,
 the successful Live acceptance run ID, the confirmation `PROMOTE`, and
 `BACKUP VERIFIED`. Promotion verifies that both CI and the specified
 live-acceptance run passed for that exact commit; an acceptance run from another
 commit cannot authorize the release.
+
+The LinkedIn-first entry flow is intentionally short: sign in with LinkedIn,
+select or describe one focus, and create the workspace. Google is hidden from
+the auth UI; email remains an explicit recovery fallback. The quick-start
+endpoint completes registration and profile setup together, then enqueues the
+first feed refresh. Users can refine sources, topics, companies, and market
+from their workspace settings without repeating onboarding.
 
 The commands below remain the owner-operated fallback when GitHub environments
 or Workload Identity Federation are unavailable.

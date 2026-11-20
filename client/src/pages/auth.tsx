@@ -7,7 +7,6 @@ import { Field as SharedField } from "@/components/ui/field";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
 import { FaLinkedin } from "react-icons/fa";
-import { SiGoogle } from "react-icons/si";
 import { ArrowRight, Eye, EyeOff, Rss, Sparkles, ShieldCheck, Zap } from "lucide-react";
 import type { ComponentType } from "react";
 import { takeReturnTo } from "@/lib/return-to";
@@ -21,7 +20,6 @@ type ProviderAvailability = Record<SocialProvider, boolean>;
 // X/Twitter OAuth redirect URIs were never registered, so it's left out of
 // this list entirely rather than shown disabled — hidden from sign-in/sign-up.
 const providerMeta: Array<{ id: SocialProvider; label: string; icon: ComponentType<{ className?: string }> }> = [
-  { id: "google", label: "Google", icon: SiGoogle },
   { id: "linkedin", label: "LinkedIn", icon: FaLinkedin },
 ];
 
@@ -56,7 +54,7 @@ export function SignInPage() {
       setResetPending(false);
     }
   }
-  return <AuthCard pageTitle="Sign in" title="Welcome back" description="Sign in to TheSocialPundit"><SocialLogin /><Divider /><form className="space-y-4" onSubmit={submit}><Field id="signin-email" label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" /><Field id="signin-password" label="Password" value={password} onChange={setPassword} type="password" autoComplete="current-password" /><div className="-mt-2 flex justify-end"><button type="button" className="inline-flex min-h-11 items-center text-xs text-primary underline-offset-4 hover:underline" onClick={requestReset} disabled={resetPending}>{resetPending ? "Sending reset link…" : "Forgot password?"}</button></div><Message text={error} />{resetSent && <p className="text-sm text-success">If an account exists for that email, a reset link is on its way.</p>}<Button className="w-full" disabled={pending}>{pending ? "Signing in…" : "Sign in"}</Button><p className="text-sm text-center text-muted-foreground">New here? <Link className="text-primary underline" href="/sign-up">Create an account</Link></p></form></AuthCard>;
+  return <AuthCard pageTitle="Sign in" title="Welcome back" description="Sign in to your LinkedIn-first workspace."><SocialLogin /><details className="group mt-5"><summary className="cursor-pointer text-center text-sm font-medium text-primary underline-offset-4 hover:underline">Use email instead</summary><Divider /><form className="space-y-4" onSubmit={submit}><Field id="signin-email" label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" /><Field id="signin-password" label="Password" value={password} onChange={setPassword} type="password" autoComplete="current-password" /><div className="-mt-2 flex justify-end"><button type="button" className="inline-flex min-h-11 items-center text-xs text-primary underline-offset-4 hover:underline" onClick={requestReset} disabled={resetPending}>{resetPending ? "Sending reset link…" : "Forgot password?"}</button></div><Message text={error} />{resetSent && <p className="text-sm text-success">If an account exists for that email, a reset link is on its way.</p>}<Button className="w-full" disabled={pending}>{pending ? "Signing in…" : "Sign in"}</Button><p className="text-sm text-center text-muted-foreground">New here? <Link className="text-primary underline" href="/sign-up">Create an account</Link></p></form></details></AuthCard>;
 }
 
 export function SignUpPage() {
@@ -70,7 +68,7 @@ export function SignUpPage() {
     track("sign_up", { method: "email" });
     setLocation("/verify-email");
   }
-  return <AuthCard pageTitle="Sign up" title="Create your account" description="Verify your email to get started with TheSocialPundit"><SocialLogin /><Divider /><form className="space-y-4" onSubmit={submit}><Field id="signup-name" label="Full name" value={name} onChange={setName} autoComplete="name" /><Field id="signup-email" label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" /><Field id="signup-password" label="Password" value={password} onChange={setPassword} type="password" autoComplete="new-password" hint="At least 8 characters" /><Message text={error} /><Button className="w-full" disabled={pending}>{pending ? "Creating account…" : "Create account"}</Button><p className="text-sm text-center text-muted-foreground">Already have an account? <Link className="text-primary underline" href="/sign-in">Sign in</Link></p></form></AuthCard>;
+  return <AuthCard pageTitle="Sign up" title="Create your LinkedIn workspace" description="Use LinkedIn to sign in, then choose one focus."><SocialLogin /><details className="group mt-5"><summary className="cursor-pointer text-center text-sm font-medium text-primary underline-offset-4 hover:underline">Use email instead</summary><Divider /><form className="space-y-4" onSubmit={submit}><Field id="signup-name" label="Full name" value={name} onChange={setName} autoComplete="name" /><Field id="signup-email" label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" /><Field id="signup-password" label="Password" value={password} onChange={setPassword} type="password" autoComplete="new-password" hint="At least 8 characters" /><Message text={error} /><Button className="w-full" disabled={pending}>{pending ? "Creating account…" : "Create account"}</Button><p className="text-sm text-center text-muted-foreground">Already have an account? <Link className="text-primary underline" href="/sign-in">Sign in</Link></p></form></details></AuthCard>;
 }
 
 export function VerifyEmailPage() {
@@ -228,12 +226,12 @@ function SocialLogin() {
     return "bg-card hover:bg-muted active:bg-secondary-hover border-input text-foreground";
   };
 
-  return <div className="space-y-3"><div><p className="text-sm font-medium">Sign in faster</p><p className="mt-1 text-xs text-muted-foreground">Choose Google or LinkedIn, or continue with email below.</p></div><div className="grid grid-cols-2 gap-3">{providerMeta.map(({ id, label, icon: Icon }) => {
+  return <div className="space-y-3"><div><p className="text-sm font-medium">Continue with LinkedIn</p><p className="mt-1 text-xs text-muted-foreground">Use the same professional identity you publish with.</p></div><div className="grid grid-cols-1 gap-3">{providerMeta.map(({ id, label, icon: Icon }) => {
     const enabled = providers?.[id] === true;
     const status = getProviderStatus(loaded, enabled);
     const isDisabled = !enabled;
     return <Button key={id} type="button" className={`w-full ${getButtonStyle(id)} ${isDisabled ? "opacity-60 cursor-not-allowed" : ""}`} disabled={isDisabled} title={enabled ? `Continue with ${label}` : `${label} login is ${status.toLowerCase()}`} aria-label={enabled ? `Continue with ${label}` : `${label} login is ${status.toLowerCase()}`} onClick={() => { if (enabled) { rememberAuthMethod(id); authClient.signIn.social({ provider: id, callbackURL: `${window.location.origin}${takeReturnTo() ?? "/dashboard"}` }); } }} data-testid={`button-social-${id}`}><Icon className="h-4 w-4" /><span>{label}</span></Button>;
-  })}</div>{loaded && !anyEnabled && <p className="text-center text-xs text-muted-foreground">Social login will activate when credentials are configured. Email login is ready now.</p>}</div>;
+  })}</div>{loaded && !anyEnabled && <p className="text-center text-xs text-muted-foreground">LinkedIn login will activate when credentials are configured. Email login is ready now.</p>}</div>;
 }
 
 function getProviderStatus(loaded: boolean, enabled: boolean): string {

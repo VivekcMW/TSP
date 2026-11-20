@@ -73,10 +73,21 @@ test("authenticated workspace routes load without overflow", async ({ page }) =>
   test.skip(!process.env.E2E_TEST_EMAIL || !process.env.E2E_TEST_PASSWORD, "Set E2E_TEST_EMAIL and E2E_TEST_PASSWORD for authenticated route coverage.");
   await page.goto("/sign-in");
   const origin = new URL(page.url()).origin;
-  const fields = page.locator("input");
-  await fields.nth(0).fill(process.env.E2E_TEST_EMAIL!);
-  await fields.nth(1).fill(process.env.E2E_TEST_PASSWORD!);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByText("Use email instead", { exact: true }).click();
+  const email = page.getByRole("textbox", { name: "Email", exact: true });
+  const password = page.getByRole("textbox", { name: "Password", exact: true });
+  await email.fill(process.env.E2E_TEST_EMAIL!);
+  await password.fill(process.env.E2E_TEST_PASSWORD!);
+  const [signInResponse] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/auth/sign-in/email")
+      && response.request().method() === "POST"),
+    page.getByRole("button", { name: "Sign in", exact: true }).click(),
+  ]);
+  if (!signInResponse.ok()) {
+    await email.fill("");
+    await password.fill("");
+    throw new Error(`Candidate sign-in failed with HTTP ${signInResponse.status()}.`);
+  }
   await expect(page).toHaveURL(url => url.origin === origin && (url.pathname === "/dashboard" || url.pathname.startsWith("/dashboard/")));
   await skipFirstWorkspaceTour(page);
 

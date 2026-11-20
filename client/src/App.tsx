@@ -26,8 +26,6 @@ import { SignInPage, SignUpPage, VerifyEmailPage } from "@/pages/auth";
 import { bootedFromPrerender, PrerenderHandoff } from "@/lib/prerender";
 import { beginAnalyticsNavigation } from "@/lib/analytics-consent";
 import { AnalyticsPage } from "@/components/analytics-page";
-import { AppTourProvider } from "@/components/app-tour";
-import { HelpProvider } from "@/components/help-panel";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -42,7 +40,6 @@ function PageViews() {
 
 // Signed-in areas load on demand, so public visitors never download dashboard code.
 const SignedInRoutes = lazy(() => import("@/components/signed-in-routes"));
-const OnboardingPage = lazy(() => import("@/pages/onboarding"));
 const CompleteRegistrationPage = lazy(() => import("@/pages/complete-registration"));
 
 function AppRoutes() {
@@ -149,12 +146,17 @@ function AppRoutes() {
       );
 
     case "onboarding":
-      return <AppTourProvider
-        key={JSON.stringify([dbUser?.id, tenantId])}
-        scope={dbUser?.id && tenantId ? `${dbUser.id}:${tenantId}` : null}
-        enabled={Boolean(dbUser?.registrationCompleted && tenantId)}
-        phase="setup"
-      ><HelpProvider phase="setup"><div className="contents" data-clarity-mask="True"><Suspense fallback={<LoadingScreen />}><OnboardingPage /><PrerenderHandoff /><AnalyticsPage /></Suspense></div></HelpProvider></AppTourProvider>;
+      return (
+        <Suspense fallback={<LoadingScreen />}>
+          <CompleteRegistrationPage
+            existingFirstName={dbUser?.firstName}
+            existingLastName={dbUser?.lastName}
+            existingName={dbUser?.name}
+          />
+          <PrerenderHandoff />
+          <AnalyticsPage />
+        </Suspense>
+      );
 
     case "dashboard":
       // A failed background refresh must not destroy Settings or Create state.

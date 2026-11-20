@@ -39,6 +39,13 @@ const completeOnboardingSchema = z.object({
   path: ["publicationCandidates"], message: "Publication candidates must match selected publication names",
 });
 
+const quickOnboardingSchema = z.object({
+  focusDescription: focusDescriptionSchema,
+  industry: z.enum(INDUSTRY_SLUGS),
+  country: z.string().trim().min(2).max(100).default("Global"),
+  keywords: profileKeywordsSchema.refine((items) => items.length >= 1 && items.length <= 10, "Choose 1–10 keywords"),
+});
+
 const profilePatchSchema = z.object({
   ...profileLists,
   searchEdition: searchEditionSchema.optional(),
@@ -184,9 +191,49 @@ export function registerProfileRoutes(app: Express) {
           displayName: engine.config.displayName,
         },
       });
+
     } catch (error) {
       console.error("Error completing onboarding:", error);
       res.status(500).json({ message: "Failed to complete onboarding" });
+    }
+  });
+
+  app.post("/api/onboarding/quick-start", requireDbUser, requirePermission("profile:write:own"), async (req, res) => {
+    const validation = quickOnboardingSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ message: "Invalid quick-start data", errors: validation.error.errors });
+    }
+    try {
+      const { dbUser, tenant: scope } = authedOf(req);
+      const { focusDescription, industry, country, keywords } = validation.data;
+      await db.update(users).set({
+        country,
+        industry,
+        countries: [country],
+        industries: [industry],
+        registrationCompleted: dbUser.registrationCompleted ?? new Date(),
+        updatedAt: new Date(),
+      }).where(eq(users.id, dbUser.id));
+
+      const profileData = {
+        focusDescription,
+        onboardingStatus: "completed" as const,
+        recommendedIndustry: industry,
+        publications: [],
+        publicationCandidates: [],
+        keywords,
+        influencers: [],
+        companies: [],
+      };
+      const existing = await storage.getUserProfile(scope);
+      const profile = existing
+        ? await storage.updateUserProfile(scope, profileData)
+        : await storage.createUserProfile(scope, profileData);
+
+      res.json({ profile });
+    } catch (error) {
+      console.error("Error completing quick onboarding:", error);
+      res.status(500).json({ message: "Failed to start your LinkedIn workspace" });
     }
   });
 }

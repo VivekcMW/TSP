@@ -15,7 +15,9 @@ export default defineConfig({
   use: {
     ...devices["Desktop Chrome"],
     baseURL,
-    trace: "retain-on-failure",
+    // Live tests use real credentials. Trace snapshots serialize input values and
+    // must never be uploaded as GitHub Actions artifacts.
+    trace: "off",
     screenshot: "only-on-failure",
   },
   projects: [{ name: "live-chromium", use: { ...devices["Desktop Chrome"] } }],
